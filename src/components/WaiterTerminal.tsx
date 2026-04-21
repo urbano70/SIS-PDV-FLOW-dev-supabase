@@ -1,0 +1,860 @@
+import React, { useState, useEffect } from 'react';
+import { Table, PizzaItem, Order, MenuCategory } from '../types';
+import socket from '../lib/socket';
+import { Plus, Minus, Send, ShoppingBasket, ChevronRight, X, Layers, Pizza, Sandwich, Beer, Wallet, Link, Clock } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import PaymentModal from './PaymentModal';
+import { OrderTimer } from './OrderTimer';
+
+interface WaiterTerminalProps {
+  tables: Table[];
+  comandas: Table[];
+  orders: Order[];
+  menu: MenuCategory[];
+  pizzaFlavors: any[];
+  pizzaCrusts: string[];
+}
+
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts }: WaiterTerminalProps) {
+  const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [isComandaSelected, setIsComandaSelected] = useState(false);
+  const [cart, setCart] = useState<PizzaItem[]>([]);
+  const [activeType, setActiveType] = useState<'pizzas' | 'lanches' | 'bebidas'>('pizzas');
+  const [activeCategory, setActiveCategory] = useState(menu[0]?.name || '');
+  const [isAddingItems, setIsAddingItems] = useState(false);
+  const [isObservationModalOpen, setIsObservationModalOpen] = useState(false);
+  const [isRemovalModalOpen, setIsRemovalModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [itemToRemove, setItemToRemove] = useState<PizzaItem | null>(null);
+  const [removalQuantity, setRemovalQuantity] = useState(1);
+  const [removalReason, setRemovalReason] = useState('');
+  const [cartObservations, setCartObservations] = useState('');
+
+  const [isCartExpanded, setIsCartExpanded] = useState(false);
+
+  const currentList = selectionType === 'tables' ? tables : comandas;
+  const tableData = currentList.find(t => t.id === selectedId);
+  const currentOrder = orders.find(o => o.id === tableData?.currentOrder);
+  const showOrderSummary = selectedId !== null && tableData?.status !== 'free' && !isAddingItems;
+
+  const filteredCategories = menu.filter(cat => cat.type === activeType);
+  
+  // Update active category when type changes
+  useEffect(() => {
+    const firstCat = menu.find(cat => cat.type === activeType);
+    if (firstCat) setActiveCategory(firstCat.name);
+  }, [activeType, menu]);
+  
+  // Multi-flavor selection state
+  const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
+  const [selectedPizzaItem, setSelectedPizzaItem] = useState<any>(null);
+  const [selectedFlavors, setSelectedFlavors] = useState<any[]>([]);
+  const [maxFlavors, setMaxFlavors] = useState(1);
+  const [selectionStep, setSelectionStep] = useState<'flavors' | 'crust'>('flavors');
+  const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
+  const [pizzaObservations, setPizzaObservations] = useState('');
+  const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
+  const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
+  const [itemQuantity, setItemQuantity] = useState(1);
+
+  const getMaxFlavors = (itemName: string) => {
+    const name = itemName.toUpperCase();
+    if (name.includes('METRO') && !name.includes('MEIO')) return 4;
+    if (name.includes('GRANDE') || name.includes('GG') || name.includes('MEIO METRO')) return 3;
+    if (name.includes('MINI') || name.includes('PEQUENA') || name.includes('MÉDIA')) return 2;
+    return 1;
+  };
+
+  const addToCart = (pizza: any) => {
+    // Check if it's a pizza category
+    const category = menu.find(cat => cat.items.some(i => i.id === pizza.id || i.name === pizza.name));
+    const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
+    const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || pizza.type === 'lanches' || pizza.type === 'bebidas';
+
+    if (isPizza && !isFlavorModalOpen) {
+      setSelectedPizzaItem(pizza);
+      setMaxFlavors(getMaxFlavors(pizza.name));
+      setSelectedFlavors([]);
+      setSelectedCrust(null);
+      setPizzaObservations('');
+      setSelectionStep('flavors');
+      setIsFlavorModalOpen(true);
+      return;
+    }
+
+    if (isSnackOrDrink && !isQuantityModalOpen) {
+      setSelectedQuantityItem(pizza);
+      setItemQuantity(1);
+      setIsQuantityModalOpen(true);
+      return;
+    }
+
+    const newItem: PizzaItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: pizza.name,
+      type: pizza.type || category?.type,
+      flavors: pizza.flavors || [pizza.name],
+      size: 'G',
+      crust: pizza.crust,
+      extras: [],
+      observations: pizza.observations || '',
+      price: pizza.price,
+      ingredients: pizza.ingredients
+    };
+    setCart([...cart, newItem]);
+    setIsFlavorModalOpen(false);
+  };
+
+  const confirmQuantitySelection = () => {
+    if (!selectedQuantityItem) return;
+
+    const category = menu.find(cat => cat.items.some(i => i.name === selectedQuantityItem.name));
+
+    const newItem: PizzaItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: selectedQuantityItem.name,
+      type: selectedQuantityItem.type || category?.type,
+      flavors: [selectedQuantityItem.name],
+      size: 'G',
+      extras: [],
+      observations: '',
+      price: selectedQuantityItem.price * itemQuantity,
+      quantity: itemQuantity,
+      ingredients: selectedQuantityItem.ingredients
+    };
+
+    setCart([...cart, newItem]);
+    setIsQuantityModalOpen(false);
+    setSelectedQuantityItem(null);
+  };
+
+  const confirmFlavorSelection = () => {
+    if (selectedFlavors.length === 0) return;
+    setSelectionStep('crust');
+  };
+
+  const confirmPizzaSelection = () => {
+    const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
+    const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
+    
+    const itemWithDetails = {
+      ...selectedPizzaItem,
+      name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrust ? ` + ${selectedCrust}` : ''}`,
+      type: 'pizzas',
+      flavors: selectedFlavors.map(f => f.name),
+      ingredients: flavorIngredients,
+      crust: selectedCrust,
+      observations: pizzaObservations
+    };
+
+    addToCart(itemWithDetails);
+  };
+
+  const submitOrder = () => {
+    if (selectedId === null || cart.length === 0) return;
+    
+    socket.emit('new_order', {
+      tableId: selectedId,
+      isComanda: isComandaSelected,
+      items: cart,
+      observations: cartObservations.trim()
+    });
+    
+    setCart([]);
+    setCartObservations('');
+    setSelectedId(null);
+    setIsComandaSelected(false);
+    setIsAddingItems(false);
+  };
+
+  const removeItem = (itemId: string) => {
+    const item = currentOrder?.items.find(i => i.id === itemId);
+    if (item) {
+      setItemToRemove(item);
+      setRemovalQuantity(item.quantity || 1);
+      setRemovalReason('');
+      setIsRemovalModalOpen(true);
+    }
+  };
+
+  const confirmRemoval = () => {
+    if (!currentOrder || !itemToRemove) return;
+    socket.emit('remove_item', {
+      orderId: currentOrder.id,
+      itemId: itemToRemove.id,
+      quantity: removalQuantity,
+      reason: removalReason.trim()
+    });
+    setIsRemovalModalOpen(false);
+    setItemToRemove(null);
+    setRemovalQuantity(1);
+    setRemovalReason('');
+  };
+
+  const handlePaymentComplete = (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => {
+    if (!currentOrder) return;
+    socket.emit('pay_items', {
+      orderId: currentOrder.id,
+      selectedItems,
+      partialAmount,
+      paymentMethod
+    });
+  };
+
+  const handleApplyDiscount = (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => {
+    socket.emit('apply_discount', { orderId, itemId, discount, discountType });
+  };
+
+  const orderTotal = currentOrder?.items
+    .filter(i => !i.removed)
+    .reduce((acc, i) => acc + i.price, 0) || 0;
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-50">
+      <header className="bg-[#141414] text-[#E4E3E0] p-6 flex justify-between items-center shrink-0">
+        <h1 className="font-serif italic text-xl">Terminal Garçom</h1>
+        <div className="flex items-center space-x-2">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <span className="text-[10px] uppercase tracking-widest font-bold">Online</span>
+        </div>
+      </header>
+
+      <main className="flex-1 overflow-y-auto p-4">
+        {selectedId === null ? (
+          <div className="space-y-6">
+            <div className="flex bg-white p-1 rounded-2xl border border-[#141414]/10">
+              <button 
+                onClick={() => setSelectionType('tables')}
+                className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'tables' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
+              >
+                Mesas
+              </button>
+              <button 
+                onClick={() => setSelectionType('comandas')}
+                className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'comandas' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
+              >
+                Comandas
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              {currentList.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedId(item.id);
+                    setIsComandaSelected(selectionType === 'comandas');
+                    setIsAddingItems(false);
+                  }}
+                  className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center transition-all relative ${
+                    item.status === 'free' ? 'border-[#141414]/10 bg-white' : 
+                    item.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                    'border-[#141414] bg-[#141414] text-[#E4E3E0]'
+                  }`}
+                >
+                  {item.status === 'linked' && (
+                    <div className="absolute top-2 right-2">
+                      <Link size={12} />
+                    </div>
+                  )}
+                  <span className="text-[10px] uppercase opacity-50">{selectionType === 'tables' ? 'Mesa' : 'Comanda'}</span>
+                  <div className="flex items-center space-x-1">
+                    <span className="text-2xl font-bold">{item.id}</span>
+                    {item.status === 'linked' && (
+                      <span className="text-[10px] font-bold">→ {item.linkedTo}</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : showOrderSummary ? (
+          <div className="flex flex-col h-full space-y-4">
+            <div className="flex items-center justify-between">
+              <button onClick={() => {
+                setSelectedId(null);
+                setIsComandaSelected(false);
+              }} className="text-sm font-bold flex items-center">
+                <X size={16} className="mr-1" /> Voltar
+              </button>
+              <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
+              <button 
+                onClick={() => setIsAddingItems(true)}
+                className="bg-[#141414] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center space-x-1 active:scale-95 transition-transform"
+              >
+                <Plus size={12} />
+                <span>Acrescentar</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
+              <h3 className="font-bold text-lg border-b pb-2">Histórico da Comanda</h3>
+              <div className="space-y-4">
+                {currentOrder?.items.map((item) => (
+                  <div key={item.id} className={`flex justify-between items-start text-sm ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 rounded-xl border border-green-100' : ''}`}>
+                    <div className="flex-1 pr-4">
+                      <div className="flex items-center space-x-2">
+                        <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
+                          {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                        </p>
+                        {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
+                          <OrderTimer timestamp={item.timestamp} />
+                        )}
+                        {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
+                      </div>
+                      <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
+                        {item.type === 'pizzas' ? (
+                          item.observations && <span className="uppercase font-bold text-blue-700 italic">{item.observations}</span>
+                        ) : (
+                          <>
+                            {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
+                            <span>{item.flavors.join(' / ')}</span>
+                          </>
+                        )}
+                        <span>•</span>
+                        <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
+                      </div>
+                      {item.removed && (
+                        <p className="text-[10px] text-red-600 font-bold mt-1">
+                          Removido por: {item.removedBy}
+                          {item.removalReason && <span className="block italic opacity-90 font-bold">Motivo: {item.removalReason}</span>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end space-y-1">
+                      <span className={`font-mono font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
+                        R$ {item.price.toFixed(2)}
+                      </span>
+                      {!item.removed && !item.paid && (
+                        <button 
+                          onClick={() => removeItem(item.id)}
+                          className="text-[9px] text-red-500 hover:text-red-700 font-bold uppercase tracking-tighter border border-red-200 px-1.5 py-0.5 rounded"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {currentOrder?.observations && (
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                    <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações Gerais</p>
+                    <p className="text-xs text-blue-700 italic">{currentOrder.observations}</p>
+                  </div>
+                )}
+                {(!currentOrder || currentOrder.items.length === 0) && (
+                  <p className="text-center py-10 opacity-30 italic text-sm">Nenhum item registrado.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-[#141414] text-[#E4E3E0] p-6 rounded-3xl space-y-3 shadow-xl">
+              <div className="flex justify-between items-center opacity-50 text-[10px] font-bold uppercase tracking-widest">
+                <span>Total Consumido</span>
+                <span>R$ {orderTotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-green-400 text-[10px] font-bold uppercase tracking-widest">
+                <span>Já Pago</span>
+                <span>- R$ {currentOrder?.items.filter(i => !i.removed && i.paid).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+              </div>
+              <div className="pt-2 border-t border-white/10 flex justify-between items-center">
+                <div className="flex flex-col">
+                  <span className="font-bold uppercase text-[10px] tracking-widest opacity-50">Restante a Pagar</span>
+                  <span className="text-3xl font-bold text-white">R$ {currentOrder?.items.filter(i => !i.removed && !i.paid).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+                </div>
+                <div className="text-right text-[10px] opacity-50 font-bold uppercase tracking-tighter">
+                  <p>{currentOrder?.items.filter(i => !i.removed).length || 0} itens ativos</p>
+                  <p>{currentOrder?.items.filter(i => i.removed).length || 0} removidos</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col h-full space-y-4">
+            <div className="flex items-center justify-between">
+              <button onClick={() => {
+                setSelectedId(null);
+                setIsComandaSelected(false);
+                setIsAddingItems(false);
+              }} className="text-sm font-bold flex items-center">
+                <X size={16} className="mr-1" /> Voltar
+              </button>
+              <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
+              <div className="w-10" />
+            </div>
+
+            {currentOrder && (
+              <div className="max-h-24 overflow-y-auto bg-white rounded-xl border border-[#141414]/10 p-3 shrink-0">
+                <p className="text-[9px] font-bold uppercase opacity-30 mb-2">Histórico da Mesa</p>
+                <div className="space-y-1.5">
+                  {currentOrder.items.map((item, idx) => (
+                    <div key={idx} className={`flex justify-between text-[10px] ${item.removed ? 'opacity-30 line-through' : ''}`}>
+                      <div className="flex flex-col">
+                        <span>{item.name}</span>
+                        {item.type === 'pizzas' && item.observations && (
+                          <span className="text-[7px] text-blue-600 font-bold italic uppercase">{item.observations}</span>
+                        )}
+                        <span className="text-[8px] opacity-50">Por: {item.waiterName}</span>
+                      </div>
+                      <span className="font-mono">R$ {item.price.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+                {currentOrder?.observations && (
+                  <div className="mt-2 p-2 bg-blue-50 rounded-lg">
+                    <p className="text-[8px] uppercase font-bold text-blue-800 opacity-50">Obs: {currentOrder.observations}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex space-x-2 shrink-0">
+              {[
+                { id: 'pizzas', label: 'Pizzas', icon: Pizza },
+                { id: 'lanches', label: 'Lanches', icon: Sandwich },
+                { id: 'bebidas', label: 'Bebidas', icon: Beer }
+              ].map(type => (
+                <button
+                  key={type.id}
+                  onClick={() => {
+                    setActiveType(type.id as any);
+                    setSelectedFlavors([]);
+                  }}
+                  className={`flex-1 py-3 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 flex flex-col items-center justify-center space-y-1 ${
+                    activeType === type.id ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white border-[#141414]/10'
+                  }`}
+                >
+                  <type.icon size={16} />
+                  <span>{type.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+              {filteredCategories.map(cat => (
+                <button
+                  key={cat.name}
+                  onClick={() => setActiveCategory(cat.name)}
+                  className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase transition-colors ${
+                    activeCategory === cat.name ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto grid grid-cols-1 gap-3 pb-4">
+              {menu.find(c => c.name === activeCategory)?.items.map(pizza => {
+                return (
+                  <button 
+                    key={pizza.id}
+                    onClick={() => addToCart(pizza)}
+                    className="bg-white p-4 rounded-2xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
+                  >
+                    <div className="text-left">
+                      <p className="font-bold">{pizza.name}</p>
+                      <p className="text-[10px] opacity-50 mb-1">{pizza.ingredients}</p>
+                      <p className="text-xs font-bold">R$ {pizza.price.toFixed(2)}</p>
+                    </div>
+                    <Plus className="opacity-30" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </main>
+
+        {isFlavorModalOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-[#E4E3E0] rounded-3xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-xl font-bold">{selectedPizzaItem?.name}</h3>
+                  <p className="text-sm opacity-60">
+                    {selectionStep === 'flavors' 
+                      ? `Selecione até ${maxFlavors} sabores` 
+                      : 'Escolha a borda (opcional)'}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setIsFlavorModalOpen(false)}
+                  className="p-2 hover:bg-black/5 rounded-full transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto pr-2 mb-6">
+                {selectionStep === 'flavors' ? (
+                  <div className="grid grid-cols-1 gap-3">
+                    {pizzaFlavors.map((flavor, idx) => {
+                      const isSelected = selectedFlavors.some(f => f.name === flavor.name);
+                      return (
+                        <button 
+                          key={idx}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
+                            } else if (selectedFlavors.length < maxFlavors) {
+                              setSelectedFlavors([...selectedFlavors, flavor]);
+                            }
+                          }}
+                          className={`flex flex-col p-4 rounded-xl border transition-all text-left ${
+                            isSelected 
+                              ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
+                              : 'border-[#141414]/10 hover:bg-white'
+                          }`}
+                        >
+                          <p className="font-bold text-sm">{flavor.name}</p>
+                          <p className={`text-[10px] uppercase ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
+                            {flavor.ingredients}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 gap-3">
+                      {pizzaCrusts.map((crust, idx) => {
+                        const isSelected = selectedCrust === crust;
+                        return (
+                          <button 
+                            key={idx}
+                            onClick={() => setSelectedCrust(isSelected ? null : crust)}
+                            className={`p-4 rounded-xl border transition-all text-left font-bold ${
+                              isSelected 
+                                ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
+                                : 'border-[#141414]/10 hover:bg-white'
+                            }`}
+                          >
+                            {crust}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações</label>
+                      <textarea 
+                        value={pizzaObservations}
+                        onChange={(e) => setPizzaObservations(e.target.value)}
+                        placeholder="Ex: Sem cebola, bem passado..."
+                        className="w-full h-32 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex space-x-3">
+                {selectionStep === 'crust' && (
+                  <button 
+                    onClick={() => setSelectionStep('flavors')}
+                    className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
+                  >
+                    Voltar
+                  </button>
+                )}
+                <button 
+                  onClick={selectionStep === 'flavors' ? confirmFlavorSelection : confirmPizzaSelection}
+                  disabled={selectionStep === 'flavors' && selectedFlavors.length === 0}
+                  className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors disabled:opacity-50"
+                >
+                  {selectionStep === 'flavors' 
+                    ? `Próximo (${selectedFlavors.length}/${maxFlavors})` 
+                    : 'Finalizar Item'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Quantity Modal */}
+        <AnimatePresence>
+          {isQuantityModalOpen && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl border-2 border-[#141414] space-y-6"
+              >
+                <div className="text-center">
+                  <h3 className="text-2xl font-bold mb-1">{selectedQuantityItem?.name}</h3>
+                  <p className="text-sm opacity-50 uppercase tracking-widest">Selecione a quantidade</p>
+                </div>
+
+                <div className="flex items-center justify-center space-x-8">
+                  <button 
+                    onClick={() => setItemQuantity(Math.max(1, itemQuantity - 1))}
+                    className="w-12 h-12 rounded-full border-2 border-[#141414] flex items-center justify-center text-2xl font-bold hover:bg-gray-50 transition-colors"
+                  >
+                    -
+                  </button>
+                  <span className="text-4xl font-bold w-12 text-center">{itemQuantity}</span>
+                  <button 
+                    onClick={() => setItemQuantity(itemQuantity + 1)}
+                    className="w-12 h-12 rounded-full border-2 border-[#141414] flex items-center justify-center text-2xl font-bold hover:bg-gray-50 transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <div className="pt-4 border-t border-[#141414]/10">
+                  <div className="flex justify-between items-center mb-6">
+                    <span className="text-sm font-bold opacity-50 uppercase">Total do Item</span>
+                    <span className="text-2xl font-bold">R$ {( (selectedQuantityItem?.price || 0) * itemQuantity).toFixed(2)}</span>
+                  </div>
+                  <div className="flex space-x-3">
+                    <button 
+                      onClick={() => {
+                        setIsQuantityModalOpen(false);
+                        setSelectedQuantityItem(null);
+                      }}
+                      className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={confirmQuantitySelection}
+                      className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+      <AnimatePresence>
+        {cart.length > 0 && (
+        <motion.div 
+          initial={{ y: 100 }}
+          animate={{ y: 0 }}
+          className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-[#141414] shadow-2xl z-50 flex flex-col"
+        >
+          {isCartExpanded && (
+            <div className="p-6 max-h-[60vh] overflow-y-auto border-b border-[#141414]/10">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold uppercase tracking-widest text-sm opacity-50">Itens no Carrinho</h3>
+                <button onClick={() => setIsCartExpanded(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="space-y-4">
+                {cart.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-start pb-4 border-b border-[#141414]/5 last:border-0">
+                    <div className="flex-1 pr-4">
+                      <p className="font-bold text-sm">
+                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                      </p>
+                      <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
+                        {item.type === 'pizzas' ? (
+                          <>
+                            <span>{item.flavors.join(' / ')}</span>
+                            {item.crust && <span>• Borda: {item.crust}</span>}
+                            {item.observations && <span className="block text-blue-700 italic font-bold mt-1 uppercase">Obs: {item.observations}</span>}
+                          </>
+                        ) : (
+                          <>
+                            {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end space-y-2">
+                      <span className="font-mono font-bold text-sm">R$ {item.price.toFixed(2)}</span>
+                      <button 
+                        onClick={() => setCart(cart.filter((_, i) => i !== idx))}
+                        className="text-[9px] text-red-500 font-bold uppercase tracking-tighter border border-red-100 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <button 
+                onClick={() => setIsCartExpanded(!isCartExpanded)}
+                className="flex items-center space-x-2 group"
+              >
+                <ShoppingBasket size={20} />
+                <span className="font-bold group-hover:underline">{cart.length} itens</span>
+                {cartObservations && (
+                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Com Obs</span>
+                )}
+                <ChevronRight size={16} className={`transition-transform ${isCartExpanded ? '-rotate-90' : 'rotate-0'}`} />
+              </button>
+              <span className="text-xl font-bold">R$ {cart.reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+            </div>
+            <div className="flex space-x-2">
+              <button 
+                onClick={() => setIsObservationModalOpen(true)}
+                className="px-4 bg-gray-100 text-[#141414] rounded-2xl font-bold text-xs flex items-center justify-center hover:bg-gray-200 transition-colors"
+              >
+                Observação
+              </button>
+              <button 
+                onClick={submitOrder}
+                className="flex-1 bg-[#141414] text-[#E4E3E0] py-4 rounded-2xl font-bold text-lg flex items-center justify-center active:scale-95 transition-transform"
+              >
+                Enviar Pedido <Send size={18} className="ml-2" />
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* Observation Modal */}
+      <AnimatePresence>
+        {isObservationModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="font-serif italic text-xl">Adicionar Observação</h3>
+                <button onClick={() => setIsObservationModalOpen(false)} className="opacity-50">
+                  <X size={20} />
+                </button>
+              </div>
+              <textarea 
+                value={cartObservations}
+                onChange={(e) => setCartObservations(e.target.value)}
+                placeholder="Ex: Sem cebola, bem passado..."
+                className="w-full h-32 p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                autoFocus
+              />
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => {
+                    setCartObservations('');
+                    setIsObservationModalOpen(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
+                >
+                  Limpar
+                </button>
+                <button 
+                  onClick={() => setIsObservationModalOpen(false)}
+                  className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm"
+                >
+                  OK
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Removal Modal */}
+      <AnimatePresence>
+        {isRemovalModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <h3 className="font-serif italic text-xl">Remover este Ítem?</h3>
+                <button onClick={() => setIsRemovalModalOpen(false)} className="opacity-50">
+                  <X size={20} />
+                </button>
+              </div>
+              
+              {itemToRemove && itemToRemove.quantity && itemToRemove.quantity > 1 && (
+                <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-3">
+                  <p className="text-xs font-bold text-red-800 uppercase opacity-70">Quantidade para remover</p>
+                  <div className="flex items-center justify-center space-x-6">
+                    <button 
+                      onClick={() => setRemovalQuantity(Math.max(1, removalQuantity - 1))}
+                      className="w-10 h-10 rounded-full bg-white border border-red-200 flex items-center justify-center text-red-600 shadow-sm active:scale-90 transition-transform"
+                    >
+                      <Minus size={20} />
+                    </button>
+                    <span className="text-3xl font-bold text-red-600 w-12 text-center">{removalQuantity}</span>
+                    <button 
+                      onClick={() => setRemovalQuantity(Math.min(itemToRemove.quantity || 1, removalQuantity + 1))}
+                      className="w-10 h-10 rounded-full bg-white border border-red-200 flex items-center justify-center text-red-600 shadow-sm active:scale-90 transition-transform"
+                    >
+                      <Plus size={20} />
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-center text-red-400 font-medium">
+                    Máximo disponível: {itemToRemove.quantity}
+                  </p>
+                </div>
+              )}
+
+              <p className="text-sm opacity-50 font-bold text-red-600">O motivo da remoção é obrigatório para prosseguir.</p>
+              <textarea 
+                value={removalReason}
+                onChange={(e) => setRemovalReason(e.target.value)}
+                placeholder="Motivo da remoção..."
+                className="w-full h-24 p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                autoFocus
+              />
+              <div className="flex space-x-2">
+                <button 
+                  onClick={() => setIsRemovalModalOpen(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={confirmRemoval}
+                  disabled={!removalReason.trim()}
+                  className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Payment Modal */}
+      {currentOrder && (
+        <PaymentModal 
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          order={currentOrder}
+          onPaymentComplete={handlePaymentComplete}
+          onApplyDiscount={handleApplyDiscount}
+        />
+      )}
+    </div>
+  );
+}
