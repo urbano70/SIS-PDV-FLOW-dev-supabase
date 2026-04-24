@@ -88,6 +88,11 @@ export default function KitchenDisplay({ orders }: KitchenDisplayProps) {
                       {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
                     </div>
                     <p className="text-[10px] opacity-50 uppercase font-bold">{item.size}</p>
+                    {item.observations && (
+                      <p className="text-[10px] text-blue-600 font-bold bg-blue-50 p-1 rounded mt-1 italic">
+                        Obs: {item.observations}
+                      </p>
+                    )}
                   </div>
                 ))}
                 {order.observations && (

@@ -47,8 +47,10 @@ export interface Waiter {
   id: string; // This will be the socketId
   socketId: string;
   name: string;
-  cpf: string;
-  status: 'pending' | 'approved';
+  password?: string;
+  phone?: string;
+  cpf?: string;
+  status: 'pending' | 'approved' | 'inactive';
 }
 
 export interface StockItem {

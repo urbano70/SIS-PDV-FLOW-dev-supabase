@@ -21,6 +21,7 @@ async function startServer() {
   // In-memory state
   let waiters = [];
   let orders = [];
+  let isCashRegisterOpen = false;
   let tables = Array.from({ length: 40 }, (_, i) => ({
     id: i + 1,
     status: "free", // free, occupied, bill_requested, linked
@@ -88,15 +89,30 @@ async function startServer() {
       stock,
       menu,
       pizzaFlavors,
-      pizzaCrusts
+      pizzaCrusts,
+      isCashRegisterOpen
     });
 
     socket.on("waiter_register", (waiterData) => {
-      const existingWaiterIndex = waiters.findIndex(w => w.cpf === waiterData.cpf);
-      const waiter = { ...waiterData, socketId: socket.id, status: "pending" };
+      // Find by CPF or Name/Phone combination if CPF is missing
+      const existingWaiterIndex = waiters.findIndex(w => 
+        (waiterData.cpf && w.cpf === waiterData.cpf) || 
+        (waiterData.name === w.name && waiterData.phone === w.phone)
+      );
+      
+      const waiterId = waiterData.cpf || Math.random().toString(36).substr(2, 9);
+      const waiter = { 
+        ...waiterData, 
+        id: waiterId,
+        socketId: socket.id, 
+        status: "pending" 
+      };
+      
+      // Store waiter identity on the socket
+      (socket as any).waiterId = waiterId;
       
       if (existingWaiterIndex !== -1) {
-        waiters[existingWaiterIndex] = { ...waiters[existingWaiterIndex], ...waiter };
+        waiters[existingWaiterIndex] = { ...waiters[existingWaiterIndex], ...waiter, status: waiters[existingWaiterIndex].status };
       } else {
         waiters.push(waiter);
       }
@@ -108,18 +124,85 @@ async function startServer() {
       io.emit("update_waiters", waiters);
     });
 
+    socket.on("waiter_login", ({ name, password }) => {
+      const waiter = waiters.find(w => w.name === name && w.password === password);
+      if (waiter) {
+        waiter.socketId = socket.id;
+        // Store waiter identity on the socket
+        (socket as any).waiterId = waiter.id;
+        
+        socket.emit("waiter_approved", { status: waiter.status });
+        io.emit("update_waiters", waiters);
+      } else {
+        socket.emit("login_error", "Nome ou senha incorretos.");
+      }
+    });
+
+    socket.on("toggle_cash_register", (isOpen) => {
+      if (!isOpen) {
+        // Check for occupied tables or comandas
+        const activeTables = tables.find(t => t.status !== "free");
+        const activeComandas = comandas.find(c => c.status !== "free");
+        
+        if (activeTables || activeComandas) {
+          socket.emit("error_message", "Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+          return;
+        }
+      }
+      isCashRegisterOpen = isOpen;
+      io.emit("update_cash_register", isCashRegisterOpen);
+    });
+
     socket.emit("update_menu", menu);
 
-    socket.on("admin_approve_waiter", (waiterCpf) => {
-      const waiter = waiters.find((w) => w.cpf === waiterCpf);
+    socket.on("toggle_waiter_status", ({ waiterId, status }) => {
+      const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
+      if (waiter) {
+        waiter.status = status;
+        io.emit("update_waiters", waiters);
+        
+        // Notify the waiter via ALL their connected sockets
+        const connectedSockets = io.sockets.sockets;
+        connectedSockets.forEach((s) => {
+          if ((s as any).waiterId === waiter.id) {
+            s.emit("waiter_status_changed", { status });
+            // If they are inactive, we can also disconnect them or just let the client handle it
+            // For now, let's just emit the status changed event which App.tsx handles
+          }
+        });
+      }
+    });
+
+    socket.on("admin_approve_waiter", (waiterId) => {
+      const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
       if (waiter) {
         waiter.status = "approved";
-        io.to(waiter.socketId).emit("waiter_approved", { status: "approved" });
         io.emit("update_waiters", waiters);
+        
+        // Notify the waiter via ALL their connected sockets
+        const connectedSockets = io.sockets.sockets;
+        connectedSockets.forEach((s) => {
+          if ((s as any).waiterId === waiter.id) {
+            s.emit("waiter_approved", { status: "approved" });
+          }
+        });
       }
     });
 
     socket.on("new_order", (orderData) => {
+      if (!isCashRegisterOpen) {
+        socket.emit("error_message", "O caixa está fechado. Abra o caixa para realizar pedidos.");
+        return;
+      }
+      
+      const waiterId = (socket as any).waiterId;
+      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+      
+      if (waiter && waiter.status === "inactive") {
+        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        return;
+      }
+
       const isComanda = orderData.isComanda;
       const targetList = isComanda ? comandas : tables;
       let table = targetList.find(t => t.id === orderData.tableId);
@@ -137,7 +220,6 @@ async function startServer() {
         table = currentTable;
       }
 
-      const waiter = waiters.find(w => w.socketId === socket.id);
       const waiterName = orderData.waiterName || (waiter ? waiter.name : "Desconhecido");
 
       // Tag items with waiter name
@@ -335,6 +417,19 @@ async function startServer() {
     });
 
     socket.on("add_item_to_order", ({ orderId, item }) => {
+      if (!isCashRegisterOpen) {
+        socket.emit("error_message", "O caixa está fechado. Abra o caixa para adicionar itens.");
+        return;
+      }
+
+      const waiterId = (socket as any).waiterId;
+      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+
+      if (waiter && waiter.status === "inactive") {
+        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        return;
+      }
+
       const order = orders.find(o => o.id === orderId);
       if (order) {
         const itemWithTimestamp = { ...item, timestamp: new Date().toISOString() };
@@ -368,8 +463,15 @@ async function startServer() {
     });
 
     socket.on("remove_item", ({ orderId, itemId, quantity, reason, removedBy }) => {
+      const waiterId = (socket as any).waiterId;
+      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+      
+      if (waiter && waiter.status === "inactive") {
+        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        return;
+      }
+
       const order = orders.find(o => o.id == orderId);
-      const waiter = waiters.find(w => w.socketId === socket.id);
       if (order) {
         const itemIndex = order.items.findIndex(i => i.id === itemId);
         if (itemIndex !== -1) {

@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerified() && request.auth.token.email == 'urbano70@gmail.com';
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    function isValidOrder(data) {
+      return data.size() >= 4 && 
+             data.tableId is int && 
+             data.items is list && 
+             data.status in ['pending', 'preparing', 'ready', 'finalizada'] &&
+             data.timestamp is string;
+    }
+
+    function isValidTable(data) {
+      return data.size() >= 2 && 
+             data.id is int && 
+             data.status in ['free', 'occupied', 'bill_requested', 'linked'];
+    }
+
+    // --- Collections ---
+
+    match /tables/{tableId} {
+      allow read: if isVerified();
+      allow update: if (isAdmin() || (isVerified() && isValidTable(incoming())));
+    }
+
+    match /orders/{orderId} {
+      allow read: if isVerified();
+      allow create: if isVerified() && isValidOrder(incoming()) && 
+                    exists(/databases/$(database)/documents/tables/$(incoming().tableId));
+      
+      allow update: if isVerified() && (
+        isAdmin() || (
+          isValidOrder(incoming()) && 
+          existing().status != 'finalizada' &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['items', 'status', 'observations', 'partialPayments', 'paymentLog', 'discount', 'discountType'])
+        )
+      );
+    }
+
+    match /waiters/{waiterId} {
+      allow read: if isVerified();
+      allow create: if isVerified() && !exists(/databases/$(database)/documents/waiters/$(request.auth.uid));
+      allow update: if isAdmin();
+    }
+
+    match /stock/{itemId} {
+      allow read: if isVerified();
+      allow write: if isAdmin();
+    }
+
+    match /menu/{categoryId} {
+      allow read: if true; // Public menu? Or isVerified()? Better isVerified() for a restaurant app.
+      allow read: if isVerified();
+      allow write: if isAdmin();
+    }
+
+    match /config/printer {
+      allow read: if isVerified();
+      allow write: if isAdmin();
+    }
+  }
+}

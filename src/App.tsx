@@ -13,43 +13,59 @@ import POS from './components/POS';
 import SelfOnboarding from './components/SelfOnboarding';
 import { Table, Order, Waiter, StockItem, MenuCategory } from './types';
 import { Toaster, toast } from 'sonner';
+import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
+import { LogIn } from 'lucide-react';
 
-export default function App() {
-  const [tables, setTables] = useState<Table[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [waiters, setWaiters] = useState<Waiter[]>([]);
-  const [stock, setStock] = useState<StockItem[]>([]);
-  const [menu, setMenu] = useState<MenuCategory[]>([]);
-  const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
-  const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
-  const [comandas, setComandas] = useState<Table[]>([]);
+function AppContent() {
+  const { user, loading, signIn, data, isAdmin } = useFirebase();
+  const { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
+  const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
+  const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
+  
+  const [printerConfig, setPrinterConfig] = useState({
+    drinks: 'Impressora Bar',
+    kitchen: 'Impressora Cozinha 2',
+    kitchenLabel: 'Cozinha Geral',
+    receipts: 'Impressora Caixa',
+    establishmentName: 'Pizzaria & Restaurante',
+    address: 'Rua Principal, 123 - Centro',
+    phone: '(11) 99999-9999',
+    receiptFooter: 'Obrigado pela preferência! Volte sempre.',
+    showWaiter: true,
+    showTimestamp: true,
+    showLogo: true,
+    itemFontSize: '12px',
+    boldItems: false
+  });
 
   useEffect(() => {
+    // Initial data from socket if needed, but we prioritize Firebase
     socket.on('init_data', (data) => {
-      setTables(data.tables);
-      setOrders(data.orders);
-      setWaiters(data.waiters);
-      setStock(data.stock);
-      if (data.menu) setMenu(data.menu);
+      // Only set if Firebase is not yet providing data or for specific items
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
-      if (data.comandas) setComandas(data.comandas);
     });
 
-    socket.on('update_tables', setTables);
-    socket.on('update_comandas', setComandas);
-    socket.on('update_orders', setOrders);
-    socket.on('update_waiters', setWaiters);
-    socket.on('update_stock', setStock);
-    socket.on('update_menu', setMenu);
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
 
-    socket.on('waiter_approved', () => {
-      setIsApproved(true);
-      toast.success('Acesso aprovado pelo gerente!');
+    socket.on('waiter_approved', (data) => {
+      if (data?.status === 'inactive') {
+        setIsApproved(false);
+        toast.error('Seu acesso está inativo. Entre em contato com o gerente.');
+      } else if (data?.status === 'approved') {
+        setIsApproved(true);
+        toast.success('Acesso aprovado pelo gerente!');
+      } else if (data?.status === 'pending') {
+        setIsApproved(false);
+        toast.info('Seu cadastro ainda está pendente de aprovação.');
+      }
+    });
+
+    socket.on('error_message', (msg) => {
+      toast.error(msg);
     });
 
     socket.on('admin_notification', (notif) => {
@@ -65,13 +81,42 @@ export default function App() {
 
     return () => {
       socket.off('init_data');
-      socket.off('update_tables');
-      socket.off('update_orders');
-      socket.off('update_waiters');
       socket.off('waiter_approved');
       socket.off('admin_notification');
     };
   }, []);
+
+  if (loading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F5F5F3]">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="w-12 h-12 bg-[#141414] rounded-full mb-4"></div>
+          <p className="font-serif italic text-lg">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F5F5F3] p-4">
+        <div className="w-full max-w-md bg-white p-8 rounded-2xl border border-[#141414]/10 shadow-sm text-center">
+          <div className="w-16 h-16 bg-[#141414] rounded-full flex items-center justify-center mx-auto mb-6">
+            <LogIn className="text-[#E4E3E0] w-8 h-8" />
+          </div>
+          <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao PizzaFlow</h1>
+          <p className="text-gray-500 mb-8">Faça login para acessar o sistema de gestão.</p>
+          <button 
+            onClick={signIn}
+            className="w-full bg-[#141414] text-white py-4 rounded-xl font-bold flex items-center justify-center space-x-3 hover:opacity-90 transition-opacity"
+          >
+            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+            <span>Entrar com o Google</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <BrowserRouter>
@@ -81,26 +126,45 @@ export default function App() {
           <Route 
             path="/dashboard" 
             element={
-              <Dashboard 
-                tables={tables} 
-                comandas={comandas}
-                orders={orders} 
-                waiters={waiters} 
-                stock={stock} 
-                menu={menu}
-                pizzaFlavors={pizzaFlavors}
-                pizzaCrusts={pizzaCrusts}
-                activeTab={dashboardTab}
-                setActiveTab={setDashboardTab}
-              />
+              isAdmin ? (
+                <Dashboard 
+                  tables={tables} 
+                  comandas={comandas}
+                  orders={orders} 
+                  waiters={waiters} 
+                  stock={stock} 
+                  menu={menu}
+                  pizzaFlavors={pizzaFlavors}
+                  pizzaCrusts={pizzaCrusts}
+                  activeTab={dashboardTab}
+                  setActiveTab={setDashboardTab}
+                  isCashRegisterOpen={isCashRegisterOpen}
+                  printerConfig={printerConfig}
+                  setPrinterConfig={setPrinterConfig}
+                />
+              ) : (
+                <div className="h-screen flex items-center justify-center bg-[#F5F5F3]">
+                  <div className="text-center p-8 bg-white rounded-2xl border border-red-100 italic font-serif">
+                    Acesso restrito ao Administrador.
+                  </div>
+                </div>
+              )
             } 
           />
-          <Route path="/waiter" element={isApproved ? <WaiterTerminal tables={tables} comandas={comandas} orders={orders} menu={menu} pizzaFlavors={pizzaFlavors} pizzaCrusts={pizzaCrusts} /> : <SelfOnboarding />} />
+          <Route path="/waiter" element={isApproved ? <WaiterTerminal tables={tables} comandas={comandas} orders={orders} menu={menu} pizzaFlavors={pizzaFlavors} pizzaCrusts={pizzaCrusts} isCashRegisterOpen={isCashRegisterOpen} /> : <SelfOnboarding />} />
           <Route path="/kitchen" element={<KitchenDisplay orders={orders} />} />
-          <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} />} />
+          <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
         </Routes>
         <Toaster position="top-right" richColors />
       </div>
     </BrowserRouter>
+  );
+}
+
+export default function App() {
+  return (
+    <FirebaseProvider>
+      <AppContent />
+    </FirebaseProvider>
   );
 }

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Table, PizzaItem, Order, MenuCategory } from '../types';
 import socket from '../lib/socket';
-import { Plus, Minus, Send, ShoppingBasket, ChevronRight, X, Layers, Pizza, Sandwich, Beer, Wallet, Link, Clock } from 'lucide-react';
+import { Plus, Minus, Send, ShoppingBasket, ChevronRight, X, Layers, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
 
@@ -13,9 +14,10 @@ interface WaiterTerminalProps {
   menu: MenuCategory[];
   pizzaFlavors: any[];
   pizzaCrusts: string[];
+  isCashRegisterOpen: boolean;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen }: WaiterTerminalProps) {
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -57,6 +59,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemObservations, setItemObservations] = useState('');
 
   const getMaxFlavors = (itemName: string) => {
     const name = itemName.toUpperCase();
@@ -86,6 +89,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (isSnackOrDrink && !isQuantityModalOpen) {
       setSelectedQuantityItem(pizza);
       setItemQuantity(1);
+      setItemObservations('');
       setIsQuantityModalOpen(true);
       return;
     }
@@ -118,7 +122,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       flavors: [selectedQuantityItem.name],
       size: 'G',
       extras: [],
-      observations: '',
+      observations: itemObservations,
       price: selectedQuantityItem.price * itemQuantity,
       quantity: itemQuantity,
       ingredients: selectedQuantityItem.ingredients
@@ -152,6 +156,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const submitOrder = () => {
+    if (!isCashRegisterOpen) {
+      toast.error('O caixa está fechado. Peça ao gerente para abrir o caixa.');
+      return;
+    }
     if (selectedId === null || cart.length === 0) return;
     
     socket.emit('new_order', {
@@ -220,6 +228,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         </div>
       </header>
 
+      {!isCashRegisterOpen && (
+        <div className="bg-red-50 border-b border-red-200 p-3 text-center">
+          <p className="text-xs text-red-600 font-bold flex items-center justify-center">
+            <AlertCircle size={14} className="mr-2" />
+            O caixa está fechado. Operações de pedido desativadas.
+          </p>
+        </div>
+      )}
+
       <main className="flex-1 overflow-y-auto p-4">
         {selectedId === null ? (
           <div className="space-y-6">
@@ -238,7 +255,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </button>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-5 gap-4">
               {currentList.map(item => (
                 <button
                   key={item.id}
@@ -392,8 +409,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     <div key={idx} className={`flex justify-between text-[10px] ${item.removed ? 'opacity-30 line-through' : ''}`}>
                       <div className="flex flex-col">
                         <span>{item.name}</span>
-                        {item.type === 'pizzas' && item.observations && (
-                          <span className="text-[7px] text-blue-600 font-bold italic uppercase">{item.observations}</span>
+                        {item.observations && (
+                          <span className="text-[7px] text-blue-600 font-bold italic uppercase">Obs: {item.observations}</span>
                         )}
                         <span className="text-[8px] opacity-50">Por: {item.waiterName}</span>
                       </div>
@@ -608,6 +625,17 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </button>
                 </div>
 
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
+                  <textarea 
+                    value={itemObservations}
+                    onChange={(e) => setItemObservations(e.target.value)}
+                    placeholder="Ex: Sem cebola, gelo e limão..."
+                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                    rows={2}
+                  />
+                </div>
+
                 <div className="pt-4 border-t border-[#141414]/10">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-sm font-bold opacity-50 uppercase">Total do Item</span>
@@ -663,13 +691,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           <>
                             <span>{item.flavors.join(' / ')}</span>
                             {item.crust && <span>• Borda: {item.crust}</span>}
-                            {item.observations && <span className="block text-blue-700 italic font-bold mt-1 uppercase">Obs: {item.observations}</span>}
                           </>
                         ) : (
                           <>
                             {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
                           </>
                         )}
+                        {item.observations && <span className="block w-full text-blue-700 italic font-bold mt-1 uppercase">Obs: {item.observations}</span>}
                       </div>
                     </div>
                     <div className="flex flex-col items-end space-y-2">

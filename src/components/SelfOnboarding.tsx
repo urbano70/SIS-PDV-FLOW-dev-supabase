@@ -7,26 +7,31 @@ export default function SelfOnboarding() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
-    cpf: '',
+    phone: '',
     password: ''
   });
   const [isWaiting, setIsWaiting] = useState(false);
+  const [mode, setMode] = useState<'register' | 'login'>('register');
 
   useEffect(() => {
     const savedData = localStorage.getItem('waiter_credentials');
     if (savedData) {
       const data = JSON.parse(savedData);
       setFormData(data);
-      setIsWaiting(true);
-      socket.emit('waiter_register', data);
+      // Try to login automatically if we have saved data
+      socket.emit('waiter_login', { name: data.name, password: data.password });
     }
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsWaiting(true);
+    if (mode === 'register') {
+      setIsWaiting(true);
+      socket.emit('waiter_register', formData);
+    } else {
+      socket.emit('waiter_login', { name: formData.name, password: formData.password });
+    }
     localStorage.setItem('waiter_credentials', JSON.stringify(formData));
-    socket.emit('waiter_register', formData);
   };
 
   if (isWaiting) {
@@ -43,6 +48,12 @@ export default function SelfOnboarding() {
         <p className="text-sm opacity-60 max-w-xs">
           Seu cadastro foi enviado para o gerente. Por favor, aguarde a liberação no terminal administrativo.
         </p>
+        <button 
+          onClick={() => setIsWaiting(false)}
+          className="text-xs underline opacity-50"
+        >
+          Voltar para o formulário
+        </button>
       </div>
     );
   }
@@ -54,9 +65,19 @@ export default function SelfOnboarding() {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-white border-2 border-[#141414] rounded-3xl p-8 shadow-xl"
       >
-        <div className="flex items-center space-x-3 mb-8">
-          <Smartphone size={32} />
-          <h1 className="font-serif italic text-2xl">Self-Onboarding</h1>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center space-x-3">
+            <Smartphone size={32} />
+            <h1 className="font-serif italic text-2xl">
+              {mode === 'register' ? 'Novo Cadastro' : 'Acessar Terminal'}
+            </h1>
+          </div>
+          <button 
+            onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
+            className="text-xs font-bold underline"
+          >
+            {mode === 'register' ? 'Já tenho conta' : 'Novo cadastro'}
+          </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -72,17 +93,19 @@ export default function SelfOnboarding() {
             />
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">CPF</label>
-            <input 
-              required
-              type="text"
-              value={formData.cpf}
-              onChange={e => setFormData({...formData, cpf: e.target.value})}
-              className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
-              placeholder="000.000.000-00"
-            />
-          </div>
+          {mode === 'register' && (
+            <div>
+              <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">Telefone</label>
+              <input 
+                required
+                type="text"
+                value={formData.phone}
+                onChange={e => setFormData({...formData, phone: e.target.value})}
+                className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+          )}
 
           <div>
             <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">Senha de Acesso</label>
@@ -100,7 +123,7 @@ export default function SelfOnboarding() {
             type="submit"
             className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            Solicitar Acesso
+            {mode === 'register' ? 'Solicitar Acesso' : 'Entrar'}
           </button>
         </form>
 

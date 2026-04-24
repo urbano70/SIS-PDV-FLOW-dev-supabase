@@ -8,9 +8,10 @@ interface POSProps {
   tables: Table[];
   comandas: Table[];
   orders: Order[];
+  printerConfig: any;
 }
 
-export default function POS({ tables, comandas, orders }: POSProps) {
+export default function POS({ tables, comandas, orders, printerConfig }: POSProps) {
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -126,6 +127,7 @@ export default function POS({ tables, comandas, orders }: POSProps) {
                         {item.paid && <span className="bg-green-600 text-white px-2 py-0.5 rounded-lg text-xs uppercase font-bold">pago</span>}
                       </div>
                       <p className="text-sm opacity-50">{item.size} • {item.flavors.join(' + ')}</p>
+                      {item.observations && <p className="text-xs text-blue-700 italic font-bold">Obs: {item.observations}</p>}
                     </div>
                     <p className={`font-bold text-xl ${item.paid ? 'text-green-700' : ''}`}>R$ {item.price.toFixed(2)}</p>
                   </div>
@@ -134,7 +136,64 @@ export default function POS({ tables, comandas, orders }: POSProps) {
 
               <div className="border-t-4 border-double border-[#141414] pt-8">
                 <div className="flex justify-between items-center mb-8">
-                  <span className="text-2xl font-serif italic">Total a Pagar</span>
+                  <div className="flex flex-col">
+                    <span className="text-2xl font-serif italic">Total a Pagar</span>
+                    <button 
+                      onClick={() => {
+                        const printWindow = window.open('', '_blank');
+                        if (printWindow) {
+                          const tableType = selectionType === 'tables' ? 'Mesa' : 'Comanda';
+                          const tableId = selectedTable.id;
+                          const totalConsumido = tableOrder.items.filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0);
+                          
+                          const html = `
+                            <html>
+                              <head>
+                                <title>Resumo ${tableType} ${tableId}</title>
+                                <style>
+                                  body { font-family: monospace; padding: 20px; width: 300px; margin: 0 auto; color: #141414; }
+                                  .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                                  .item { 
+                                    display: flex; 
+                                    justify-content: space-between; 
+                                    margin-bottom: 5px; 
+                                    font-size: ${printerConfig.itemFontSize};
+                                    font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
+                                  }
+                                  .footer { border-top: 1px dashed #000; padding-top: 10px; text-align: right; font-weight: bold; }
+                                  @media print { body { width: 100%; margin: 0; } }
+                                </style>
+                              </head>
+                              <body>
+                                <div class="header">
+                                  <div style="font-weight: bold; font-size: 16px;">CONFERÊNCIA DE MESA</div>
+                                  <div style="font-size: 20px; margin: 10px 0;">${tableType}: ${tableId}</div>
+                                </div>
+                                <div class="items">
+                                  ${tableOrder.items.filter(i => !i.removed).map(item => `
+                                    <div class="item">
+                                      <span>${item.quantity || 1}x ${item.name} ${item.paid ? '(Pago)' : ''}</span>
+                                      <span>R$ ${item.price.toFixed(2)}</span>
+                                    </div>
+                                  `).join('')}
+                                </div>
+                                <div class="footer">
+                                  <div>TOTAL CONSUMIDO: R$ ${totalConsumido.toFixed(2)}</div>
+                                  <div style="font-size: 14px; margin-top: 5px;">A PAGAR (PENDENTE): R$ ${total.toFixed(2)}</div>
+                                </div>
+                                <script>window.onload = () => { window.print(); window.close(); }</script>
+                              </body>
+                            </html>
+                          `;
+                          printWindow.document.write(html);
+                          printWindow.document.close();
+                        }
+                      }}
+                      className="text-[10px] uppercase font-bold text-blue-600 hover:underline mt-1 text-left"
+                    >
+                      Imprimir Resumo (Conferência)
+                    </button>
+                  </div>
                   <span className="text-5xl font-bold">R$ {total.toFixed(2)}</span>
                 </div>
 

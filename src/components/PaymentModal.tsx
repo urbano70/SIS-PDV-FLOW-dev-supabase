@@ -327,7 +327,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           exit={{ scale: 0.9, y: 20 }}
           className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95vh]"
         >
-          <header className="px-6 py-4 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
+          <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
             <div>
               <h2 className="font-serif italic text-2xl leading-none">Pagamento</h2>
               <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">Mesa {order.tableId} • Comanda #{order.id}</p>
@@ -569,7 +569,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
             )}
           </AnimatePresence>
 
-          <div className="flex-1 overflow-hidden flex flex-col p-4 md:p-6">
+          <div className="flex-1 overflow-hidden flex flex-col p-3 md:p-4">
             {step === 'selection' ? (
               <div className="flex flex-col flex-1 min-h-0 space-y-4">
                 <div className="flex justify-between items-end shrink-0">
@@ -613,7 +613,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 md:grid-cols-2 gap-3 content-start">
+                <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
                   {isSplitPayment ? (
                     <div className="col-span-full bg-blue-50 border border-blue-100 rounded-3xl p-8 text-center space-y-4">
                       <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg">
@@ -656,6 +656,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                 {item.name}
                               </p>
                               <p className="text-[9px] opacity-50 uppercase tracking-tighter">Garçom: {item.waiterName}</p>
+                              {item.observations && <p className="text-[9px] text-blue-700 italic font-bold">Obs: {item.observations}</p>}
                               {item.discount ? (
                                 <div className="flex items-center space-x-2 mt-0.5">
                                   <p className="text-[9px] text-green-600 font-bold uppercase">
@@ -783,7 +784,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   <button 
                     disabled={Object.keys(selectedItems).length === 0}
                     onClick={() => setStep('methods')}
-                    className="bg-[#141414] text-[#E4E3E0] px-8 py-3.5 rounded-2xl font-bold text-base shadow-lg disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
+                    className="bg-[#141414] text-[#E4E3E0] px-8 py-3 rounded-2xl font-bold text-base shadow-lg disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
                   >
                     Pagar Agora
                   </button>
@@ -814,7 +815,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="flex-1 bg-white rounded-3xl border border-[#141414]/10 p-4 md:p-6 flex flex-col shadow-sm overflow-hidden min-h-0">
+                <div className="flex-1 bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm overflow-hidden min-h-0">
                   <div className="flex justify-between items-center pb-3 border-b border-[#141414]/5 shrink-0">
                     <span className="font-serif italic text-lg">Formas de Pagamento</span>
                     <div className="flex items-center space-x-2">
@@ -825,7 +826,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto pr-1 md:pr-2 py-4 space-y-3">
+                  <div className="flex-1 overflow-y-auto pr-1 md:pr-2 py-2 grid grid-cols-2 md:grid-cols-4 gap-2 content-start">
                     {(['Crédito', 'Débito', 'PIX', 'Dinheiro'] as PaymentMethod[]).map(method => {
                       const Icon = method === 'Crédito' || method === 'Débito' ? CreditCard : method === 'PIX' ? QrCode : Banknote;
                       const state = payments[method];
@@ -833,65 +834,65 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                       return (
                         <div 
                           key={method} 
-                          className={`p-3 rounded-xl border-2 transition-all select-none ${
-                            state.enabled ? 'border-[#141414] bg-white shadow-sm' : 'border-[#141414]/5 bg-white/50'
+                          className={`p-2.5 rounded-xl border-2 transition-all select-none flex flex-col ${
+                            state.enabled ? 'border-[#141414] bg-white shadow-sm' : 'border-[#141414]/5 bg-white/50 opacity-60'
                           }`}
                         >
-                          <div className="flex items-center justify-between flex-wrap gap-3 md:gap-4">
-                            <button 
+                          <div className="flex flex-col h-full space-y-2">
+                             <button 
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className="flex items-center space-x-3 min-w-[100px] md:min-w-[120px] text-left hover:opacity-70 transition-opacity group"
+                              className={`flex items-center space-x-2 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[40px]'}`}
                             >
                               <div 
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
+                                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
                                   state.enabled ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10 text-[#141414]/30 group-hover:border-[#141414]/30'
                                 }`}
                               >
-                                {state.enabled ? <Check size={16} /> : <Icon size={16} />}
+                                {state.enabled ? <Check size={14} /> : <Icon size={14} />}
                               </div>
-                              <span className={`font-bold text-sm ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
+                              <span className={`font-bold text-xs truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
-                              <div className="flex items-center gap-3 md:gap-4 flex-1 justify-end flex-wrap" onClick={e => e.stopPropagation()}>
-                                <div className="flex items-center space-x-2">
-                                  <span className="text-[9px] uppercase font-bold opacity-40 whitespace-nowrap">Valor</span>
-                                  <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-1 focus-within:border-[#141414] transition-colors">
+                              <div className="space-y-2 pt-2 border-t border-[#141414]/5" onClick={e => e.stopPropagation()}>
+                                <div className="space-y-1">
+                                  <span className="text-[8px] uppercase font-bold opacity-40">Valor</span>
+                                  <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-0.5 focus-within:border-[#141414] transition-colors">
                                     <span className="text-[10px] mr-1 opacity-50">R$</span>
                                     <input 
                                       type="number"
                                       step="0.01"
                                       value={state.amount || ''}
                                       onChange={(e) => handleAmountChange(method, parseFloat(e.target.value) || 0)}
-                                      className="w-16 md:w-20 font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
+                                      className="w-full font-mono font-bold focus:outline-none text-right text-xs bg-transparent"
                                       autoFocus
                                     />
                                   </div>
                                 </div>
 
                                 {method === 'Dinheiro' && (
-                                  <div className="flex items-center gap-3 md:gap-4 border-t md:border-t-0 md:border-l border-[#141414]/10 pt-3 md:pt-0 md:pl-4 flex-wrap w-full md:w-auto justify-end">
-                                    <div className="flex items-center space-x-2">
-                                      <span className="text-[9px] uppercase font-bold opacity-40 whitespace-nowrap">Recebido</span>
-                                      <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-1 focus-within:border-[#141414] transition-colors">
+                                  <>
+                                    <div className="space-y-1 pt-1">
+                                      <span className="text-[8px] uppercase font-bold opacity-40">Recebido</span>
+                                      <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-0.5 focus-within:border-[#141414] transition-colors">
                                         <span className="text-[10px] mr-1 opacity-50">R$</span>
                                         <input 
                                           type="number"
                                           step="0.01"
                                           value={state.received || ''}
                                           onChange={(e) => handleReceivedChange(parseFloat(e.target.value) || 0)}
-                                          className="w-16 md:w-20 font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
+                                          className="w-full font-mono font-bold focus:outline-none text-right text-xs bg-transparent"
                                         />
                                       </div>
                                     </div>
-                                    <div className="flex items-center space-x-2">
-                                      <span className="text-[9px] uppercase font-bold opacity-40 whitespace-nowrap">Troco</span>
-                                      <span className="font-mono font-bold text-green-600 text-sm whitespace-nowrap">
+                                    <div className="flex justify-between items-center bg-green-50 p-1.5 rounded-lg border border-green-100">
+                                      <span className="text-[8px] uppercase font-bold text-green-700">Troco</span>
+                                      <span className="font-mono font-bold text-green-600 text-xs">
                                         R$ {Math.max(0, (state.received || 0) - state.amount).toFixed(2)}
                                       </span>
                                     </div>
-                                  </div>
+                                  </>
                                 )}
                               </div>
                             )}
@@ -915,7 +916,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
                 <button 
                   onClick={handleFinishPayment}
-                  className="w-full bg-[#141414] text-[#E4E3E0] py-4 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
+                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
                 >
                   <Check size={20} />
                   <span>Finalizar Pagamento</span>

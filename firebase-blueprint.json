@@ -1,0 +1,128 @@
+{
+  "entities": {
+    "PizzaItem": {
+      "title": "Pizza Item",
+      "description": "An individual item within an order, could be a pizza, snack, or drink.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["pizzas", "lanches", "bebidas"] },
+        "flavors": { "type": "array", "items": { "type": "string" } },
+        "size": { "type": "string", "enum": ["P", "M", "G"] },
+        "crust": { "type": "string" },
+        "extras": { "type": "array", "items": { "type": "string" } },
+        "observations": { "type": "string" },
+        "price": { "type": "number" },
+        "quantity": { "type": "number" },
+        "removed": { "type": "boolean" },
+        "removedBy": { "type": "string" },
+        "removalReason": { "type": "string" },
+        "paid": { "type": "boolean" },
+        "waiterName": { "type": "string" },
+        "ingredients": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "discount": { "type": "number" },
+        "discountType": { "type": "string", "enum": ["percentage", "value"] }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A table order containing multiple items.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tableId": { "type": "number" },
+        "items": { "type": "array", "items": { "$ref": "#/entities/PizzaItem" } },
+        "status": { "type": "string", "enum": ["pending", "preparing", "ready", "finalizada"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "waiterId": { "type": "string" },
+        "waiterName": { "type": "string" },
+        "observations": { "type": "string" },
+        "isComanda": { "type": "boolean" },
+        "discount": { "type": "number" },
+        "discountType": { "type": "string", "enum": ["percentage", "value"] },
+        "partialPayments": { "type": "array" },
+        "paymentLog": { "type": "array" }
+      },
+      "required": ["tableId", "items", "status", "timestamp"]
+    },
+    "Table": {
+      "title": "Table",
+      "description": "Physical table in the restaurant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "status": { "type": "string", "enum": ["free", "occupied", "bill_requested", "linked"] },
+        "currentOrder": { "type": "string" },
+        "linkedTo": { "type": "number" }
+      },
+      "required": ["id", "status"]
+    },
+    "Waiter": {
+      "title": "Waiter",
+      "description": "Staff member profile.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "password": { "type": "string" },
+        "phone": { "type": "string" },
+        "cpf": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "inactive"] }
+      },
+      "required": ["name", "status"]
+    },
+    "StockItem": {
+      "title": "Stock Item",
+      "description": "Inventory item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string" },
+        "minQuantity": { "type": "number" }
+      },
+      "required": ["name", "quantity", "unit"]
+    },
+    "MenuCategory": {
+      "title": "Menu Category",
+      "description": "Category for the menu items.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["pizzas", "lanches", "bebidas"] },
+        "items": { "type": "array" }
+      },
+      "required": ["name", "type", "items"]
+    }
+  },
+  "firestore": {
+    "/tables/{tableId}": {
+      "schema": "Table",
+      "description": "Table statuses and associations."
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Active and past orders."
+    },
+    "/waiters/{waiterId}": {
+      "schema": "Waiter",
+      "description": "Waiter registry."
+    },
+    "/stock/{itemId}": {
+      "schema": "StockItem",
+      "description": "Inventory state."
+    },
+    "/menu/{categoryId}": {
+      "schema": "MenuCategory",
+      "description": "Menu data."
+    },
+    "/config/printer": {
+      "schema": "object",
+      "description": "Global printer settings."
+    }
+  }
+}

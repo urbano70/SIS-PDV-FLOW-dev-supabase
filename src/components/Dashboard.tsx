@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -9,6 +9,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { GoogleGenAI } from "@google/genai";
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
+import { seedDatabase } from '../lib/seed';
 
 interface DashboardProps {
   tables: Table[];
@@ -21,9 +22,26 @@ interface DashboardProps {
   pizzaCrusts: string[];
   activeTab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products';
   setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products') => void;
+  isCashRegisterOpen: boolean;
+  printerConfig: any;
+  setPrinterConfig: (config: any) => void;
 }
 
-export default function Dashboard({ tables, comandas, orders, waiters, stock, menu, pizzaFlavors, pizzaCrusts, activeTab, setActiveTab }: DashboardProps) {
+export default function Dashboard({ 
+  tables, 
+  comandas, 
+  orders, 
+  waiters, 
+  stock, 
+  menu, 
+  pizzaFlavors, 
+  pizzaCrusts, 
+  activeTab, 
+  setActiveTab, 
+  isCashRegisterOpen,
+  printerConfig,
+  setPrinterConfig
+}: DashboardProps) {
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -48,6 +66,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemObservations, setItemObservations] = useState('');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -63,7 +82,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
   const [reportSelectedCategory, setReportSelectedCategory] = useState<string>('todos');
   const [showItemSuggestions, setShowItemSuggestions] = useState(false);
   const [reportSelectedPaymentMethod, setReportSelectedPaymentMethod] = useState<string>('todos');
-  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | null>(null);
+  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | null>(null);
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -77,13 +96,6 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
   const [editingFlavor, setEditingFlavor] = useState<any>(null);
   const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '' });
   const [editingProduct, setEditingProduct] = useState<{categoryName: string, item: MenuItem} | null>(null);
-  const [printerConfig, setPrinterConfig] = useState({
-    pizzas: 'Impressora Cozinha 1',
-    drinks: 'Impressora Bar',
-    kitchen: 'Impressora Cozinha 2',
-    kitchenLabel: 'Cozinha Geral',
-    receipts: 'Impressora Caixa'
-  });
 
   const [discoveredPrinters] = useState([
     { name: 'Impressora Cozinha 1', ip: '192.168.1.101', status: 'online' },
@@ -120,6 +132,49 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
     });
   };
 
+  const printOrderToPrinters = (orderItems: any[]) => {
+    orderItems.forEach(item => {
+      let targetPrinterName = '';
+      
+      // Determine the printer based on item type
+      if (item.type === 'pizzas') {
+        targetPrinterName = printerConfig.pizzas;
+      } else if (item.type === 'bebidas') {
+        targetPrinterName = printerConfig.drinks;
+      } else if (item.type === 'lanches') {
+        targetPrinterName = printerConfig.kitchen;
+      }
+      
+      if (targetPrinterName) {
+        const printer = discoveredPrinters.find(p => p.name === targetPrinterName);
+        if (printer?.status === 'online') {
+          toast.success(`Pedido enviado para ${targetPrinterName}`, {
+            description: `Item: ${item.name}`,
+            icon: <Printer size={16} />
+          });
+        } else if (targetPrinterName !== '') {
+          // If a printer is configured but offline
+          toast.error(`Impressora ${targetPrinterName} offline`, {
+            description: `O item ${item.name} não pôde ser impresso.`
+          });
+        }
+      }
+    });
+  };
+
+  const printReceiptToPrinter = (orderId: number | string, amount: number) => {
+    const targetPrinterName = printerConfig.receipts;
+    if (targetPrinterName) {
+      const printer = discoveredPrinters.find(p => p.name === targetPrinterName);
+      if (printer?.status === 'online') {
+        toast.info(`Imprimindo comprovante em ${targetPrinterName}`, {
+          description: `Total: R$ ${amount.toFixed(2)}`,
+          icon: <FileText size={16} />
+        });
+      }
+    }
+  };
+
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => {
     socket.emit('pay_items', {
       orderId,
@@ -127,6 +182,17 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
       partialAmount,
       paymentMethod
     });
+
+    // Handle receipt printing
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+      const totalToPrint = partialAmount || Object.entries(selectedItems).reduce((acc, [itemId, qty]) => {
+        const item = order.items.find(i => i.id === itemId);
+        return acc + (item ? item.price * qty : 0);
+      }, 0);
+      
+      printReceiptToPrinter(orderId, totalToPrint);
+    }
   };
 
   const handleApplyDiscount = (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => {
@@ -208,6 +274,10 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
   };
 
   const handleAddItem = (tableId: number, item: any) => {
+    if (!isCashRegisterOpen) {
+      toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
+      return;
+    }
     const activeOrder = orders.find(o => o.tableId === tableId && o.isComanda === isComandaSelected && o.status !== 'finalizada');
     
     // Check if it's a pizza
@@ -230,6 +300,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
     if (isSnackOrDrink && !isQuantityModalOpen) {
       setSelectedQuantityItem(item);
       setItemQuantity(1);
+      setItemObservations('');
       setIsQuantityModalOpen(true);
       setIsAddItemModalOpen(false);
       return;
@@ -263,6 +334,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
         waiterName: 'ADM'
       });
     }
+    printOrderToPrinters([newItem]);
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
     toast.success('Item adicionado pelo ADM');
@@ -281,7 +353,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
       flavors: [selectedQuantityItem.name],
       size: 'G',
       extras: [],
-      observations: '',
+      observations: itemObservations,
       price: selectedQuantityItem.price * itemQuantity,
       quantity: itemQuantity,
       waiterName: 'ADM',
@@ -304,7 +376,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
         waiterName: 'ADM'
       });
     }
-
+    printOrderToPrinters([newItem]);
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     toast.success('Item adicionado pelo ADM');
@@ -536,6 +608,17 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
 
           {activeTab === 'overview' && (
             <div className="flex items-center flex-wrap gap-2">
+              <button 
+                onClick={() => socket.emit('toggle_cash_register', !isCashRegisterOpen)}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-md ${
+                  isCashRegisterOpen 
+                    ? 'bg-red-500 text-white hover:bg-red-600' 
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                <Wallet size={18} />
+                <span>{isCashRegisterOpen ? 'Fechar Caixa' : 'Abrir Caixa'}</span>
+              </button>
               <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
               <StatCard title="Pendentes" value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
             </div>
@@ -549,7 +632,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="flex-1 min-h-0"
+              className="flex-1 min-h-0 pt-6"
             >
               <section className="grid grid-cols-1 md:grid-cols-5 gap-4 h-full">
                 <div className="md:col-span-2 md:col-start-1 md:row-start-1 space-y-4 order-2 md:order-1">
@@ -577,7 +660,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                         exit={{ opacity: 0, x: 10 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-6 gap-1.5">
+                        <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
                           {tables.map(table => (
                             <button 
                               key={table.id}
@@ -611,7 +694,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                         exit={{ opacity: 0, x: -10 }}
                         transition={{ duration: 0.2 }}
                       >
-                        <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-6 gap-1.5">
+                        <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
                           {comandas.map(comanda => (
                             <button 
                               key={comanda.id}
@@ -669,6 +752,82 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                                 }`}
                               >
                                 Agrupar
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  if (activeOrder) {
+                                    const printWindow = window.open('', '_blank');
+                                    if (printWindow) {
+                                      const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
+                                      const tableId = targetId;
+                                      const waiterName = waiters.find(w => w.id === activeOrder.waiterId)?.name || 'N/A';
+                                      const total = activeOrder.items.filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0);
+                                      
+                                      const html = `
+                                        <html>
+                                          <head>
+                                            <title>Resumo ${tableType} ${tableId}</title>
+                                            <style>
+                                              body { font-family: monospace; padding: 20px; width: 300px; margin: 0 auto; color: #141414; }
+                                              .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                                              .items { margin-bottom: 10px; }
+                                              .item { 
+                                                display: flex; 
+                                                justify-content: space-between; 
+                                                margin-bottom: 5px; 
+                                                font-size: ${printerConfig.itemFontSize};
+                                                font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
+                                              }
+                                              .footer { border-top: 1px dashed #000; padding-top: 10px; text-align: right; }
+                                              .establishment { font-weight: bold; font-size: 14px; text-transform: uppercase; }
+                                              @media print { body { width: 100%; margin: 0; } }
+                                            </style>
+                                          </head>
+                                          <body>
+                                            <div class="header">
+                                              <div class="establishment">${printerConfig.establishmentName}</div>
+                                              <div>${printerConfig.address}</div>
+                                              <div>Tel: ${printerConfig.phone}</div>
+                                              <div style="margin-top: 10px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
+                                            </div>
+                                            <div class="info">
+                                              <div>${tableType}: ${tableId}</div>
+                                              <div>Garçom: ${waiterName}</div>
+                                              <div>Data: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
+                                            </div>
+                                            <div style="border-bottom: 1px dashed #000; margin: 10px 0;"></div>
+                                            <div class="items">
+                                              ${activeOrder.items.filter(i => !i.removed).map(item => `
+                                                <div class="item">
+                                                  <span>${item.quantity}x ${item.name}</span>
+                                                  <span>R$ ${item.price.toFixed(2)}</span>
+                                                </div>
+                                              `).join('')}
+                                            </div>
+                                            <div class="footer">
+                                              <div style="font-size: 14px; font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
+                                            </div>
+                                            <div style="text-align: center; margin-top: 20px; font-size: 10px; opacity: 0.7;">
+                                              ${printerConfig.receiptFooter}
+                                            </div>
+                                            <script>window.onload = () => { window.print(); window.close(); }</script>
+                                          </body>
+                                        </html>
+                                      `;
+                                      printWindow.document.write(html);
+                                      printWindow.document.close();
+                                    }
+                                  }
+                                }}
+                                disabled={!hasItems}
+                                className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                                  hasItems 
+                                    ? 'bg-blue-50 hover:bg-blue-100 text-blue-700' 
+                                    : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+                                }`}
+                              >
+                                <Printer size={10} className="inline mr-1" />
+                                Resumo
                               </button>
                               <button 
                                 onClick={() => hasItems && setIsTransferModalOpen(true)}
@@ -747,11 +906,9 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                                             <OrderTimer timestamp={item.timestamp} />
                                           )}
                                         </div>
-                                        {item.type === 'pizzas' ? (
-                                          item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">{item.observations}</span>
-                                        ) : (
-                                          item.ingredients && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>
-                                        )}
+                                        {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
+                                        {item.ingredients && item.type !== 'pizzas' && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>}
+
                                       </div>
                                       <div className="flex items-center space-x-3">
                                         <div className="flex flex-col items-end">
@@ -970,14 +1127,17 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                       </h3>
                       <div className="space-y-4">
                         {pendingWaiters.map(waiter => (
-                          <div key={waiter.cpf} className="flex items-center justify-between p-4 border border-[#141414]/10 rounded-xl hover:bg-gray-50 transition-colors">
+                          <div key={waiter.id || waiter.cpf} className="flex items-center justify-between p-4 border border-[#141414]/10 rounded-xl hover:bg-gray-50 transition-colors">
                             <div>
                               <p className="font-bold">{waiter.name}</p>
-                              <p className="text-xs opacity-50">CPF: {waiter.cpf}</p>
+                              <div className="flex flex-col text-xs opacity-50">
+                                {waiter.phone && <span>Tel: {waiter.phone}</span>}
+                                {waiter.cpf && <span>CPF: {waiter.cpf}</span>}
+                              </div>
                             </div>
                             <div className="flex space-x-2">
                               <button 
-                                onClick={() => approveWaiter(waiter.cpf)}
+                                onClick={() => approveWaiter(waiter.id || waiter.cpf!)}
                                 className="bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:scale-105 transition-transform"
                               >
                                 <CheckCircle size={16} className="mr-2" /> Aprovar
@@ -992,24 +1152,61 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                     </section>
                   )}
 
-                  <section>
+                  <section className="mb-10">
                     <h3 className="font-serif italic text-xl mb-6">Equipe Ativa</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       {waiters.filter(w => w.status === 'approved').map(waiter => (
-                        <div key={waiter.cpf} className="bg-white p-6 rounded-xl border border-[#141414]/10 shadow-sm">
+                        <div key={waiter.id || waiter.cpf} className="bg-white p-6 rounded-xl border border-[#141414]/10 shadow-sm flex items-center justify-between">
                           <div className="flex items-center space-x-4">
                             <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold">
                               {waiter.name[0]}
                             </div>
                             <div>
                               <p className="font-bold">{waiter.name}</p>
+                              <p className="text-[10px] opacity-50">{waiter.phone}</p>
                               <p className="text-[10px] uppercase text-green-600 font-bold">Ativo</p>
                             </div>
                           </div>
+                          <button 
+                            onClick={() => socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'inactive' })}
+                            className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition-colors"
+                            title="Inativar Garçom"
+                          >
+                            <X size={18} />
+                          </button>
                         </div>
                       ))}
                     </div>
                   </section>
+
+                  {waiters.some(w => w.status === 'inactive') && (
+                    <section>
+                      <h3 className="font-serif italic text-xl mb-6 text-gray-500">Equipe Inativa</h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        {waiters.filter(w => w.status === 'inactive').map(waiter => (
+                          <div key={waiter.id || waiter.cpf} className="bg-gray-50 p-6 rounded-xl border border-[#141414]/10 shadow-sm flex items-center justify-between grayscale opacity-60">
+                            <div className="flex items-center space-x-4">
+                              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold">
+                                {waiter.name[0]}
+                              </div>
+                              <div>
+                                <p className="font-bold">{waiter.name}</p>
+                                <p className="text-[10px] opacity-50">{waiter.phone}</p>
+                                <p className="text-[10px] uppercase text-red-600 font-bold">Inativo</p>
+                              </div>
+                            </div>
+                            <button 
+                              onClick={() => socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'approved' })}
+                              className="bg-green-50 text-green-600 p-2 rounded-lg hover:bg-green-100 transition-colors"
+                              title="Ativar Garçom"
+                            >
+                              <CheckCircle size={18} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
 
                 <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm flex flex-col items-center justify-center text-center space-y-6">
@@ -1033,7 +1230,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-10"
+              className="space-y-10 pt-6"
             >
               <header>
                 <h2 className="font-serif italic text-4xl mb-2">Gestão de Insumos</h2>
@@ -1081,7 +1278,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="space-y-10"
+              className="space-y-10 pt-6"
             >
               <header>
                 <h2 className="font-serif italic text-4xl mb-2">IA Vision Analysis</h2>
@@ -1129,9 +1326,9 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-10"
+              className="flex-1 overflow-y-auto space-y-10 pr-2 scrollbar-hide pt-6"
             >
-              <header className="sticky top-0 z-30 bg-[#E4E3E0]/80 backdrop-blur-md py-6 -mx-6 lg:-mx-10 px-6 lg:px-10 -mt-6 lg:-mt-10 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-[#141414]/5 space-y-4 md:space-y-0">
+              <header className="sticky top-0 z-30 bg-[#F5F5F3]/90 backdrop-blur-md py-6 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-[#141414]/5 space-y-4 md:space-y-0">
                 <div className="flex items-center space-x-6 w-full md:w-auto overflow-hidden">
                   <div>
                     <h2 className="font-serif italic text-3xl">Produtos</h2>
@@ -1365,24 +1562,24 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                 <>
                   <header className="flex justify-between items-center">
                     <div>
-                      <h2 className="font-serif italic text-4xl mb-2">Relatórios Financeiros</h2>
-                      <p className="text-sm opacity-60">Análise de faturamento e desempenho.</p>
+                      <h2 className="font-serif italic text-2xl mb-1">Relatórios Financeiros</h2>
+                      <p className="text-xs opacity-60">Análise de faturamento e desempenho.</p>
                     </div>
-                    <div className="flex items-center space-x-3 bg-white p-2 rounded-2xl border border-[#141414]/10">
-                      <Calendar size={18} className="opacity-40 ml-2" />
+                    <div className="flex items-center space-x-2 bg-white p-1 rounded-xl border border-[#141414]/10">
+                      <Calendar size={14} className="opacity-40 ml-2" />
                       <input 
                         type="date" 
                         value={reportDate}
                         onChange={(e) => setReportDate(e.target.value)}
-                        className="bg-transparent border-none font-bold outline-none text-sm p-2"
+                        className="bg-transparent border-none font-bold outline-none text-xs p-1"
                       />
                     </div>
                   </header>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-[#141414] text-[#E4E3E0] p-8 rounded-3xl shadow-xl space-y-2">
-                      <p className="text-[10px] uppercase font-bold opacity-50 tracking-widest">Faturamento do Dia</p>
-                      <p className="text-4xl font-bold font-mono">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="bg-[#141414] text-[#E4E3E0] p-4 rounded-2xl shadow-lg space-y-1">
+                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Faturamento do Dia</p>
+                      <p className="text-2xl font-bold font-mono">
                         R$ {orders
                           .filter(o => o.timestamp.startsWith(reportDate))
                           .reduce((acc, o) => {
@@ -1391,15 +1588,15 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                           }, 0)
                           .toFixed(2)}
                       </p>
-                      <div className="pt-4 flex items-center space-x-2 opacity-60">
-                        <BarChart3 size={16} />
-                        <span className="text-xs">{orders.filter(o => o.status === 'finalizada' && o.timestamp.startsWith(reportDate)).length} pedidos finalizados</span>
+                      <div className="pt-2 flex items-center space-x-2 opacity-60">
+                        <BarChart3 size={14} />
+                        <span className="text-[10px]">{orders.filter(o => o.status === 'finalizada' && o.timestamp.startsWith(reportDate)).length} pedidos finalizados</span>
                       </div>
                     </div>
 
-                    <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-2">
-                      <p className="text-[10px] uppercase font-bold opacity-50 tracking-widest">Ticket Médio</p>
-                      <p className="text-4xl font-bold font-mono">
+                    <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm space-y-1">
+                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Ticket Médio</p>
+                      <p className="text-2xl font-bold font-mono">
                         {(() => {
                           const dayOrders = orders.filter(o => o.status === 'finalizada' && o.timestamp.startsWith(reportDate));
                           if (dayOrders.length === 0) return 'R$ 0.00';
@@ -1410,214 +1607,189 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                           return `R$ ${(total / dayOrders.length).toFixed(2)}`;
                         })()}
                       </p>
-                      <div className="pt-4 flex items-center space-x-2 text-green-600">
-                        <TrendingUp size={16} />
-                        <span className="text-xs">Baseado em pedidos finalizados</span>
+                      <div className="pt-2 flex items-center space-x-2 text-green-600">
+                        <TrendingUp size={14} />
+                        <span className="text-[10px]">Baseado em pedidos finalizados</span>
                       </div>
                     </div>
 
-                    <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-2">
-                      <p className="text-[10px] uppercase font-bold opacity-50 tracking-widest">Itens Vendidos</p>
-                      <p className="text-4xl font-bold font-mono">
+                    <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm space-y-1">
+                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Itens Vendidos</p>
+                      <p className="text-2xl font-bold font-mono">
                         {orders
                           .filter(o => o.timestamp.startsWith(reportDate))
                           .reduce((acc, o) => acc + o.items.filter(i => !i.removed).length, 0)}
                       </p>
-                      <div className="pt-4 flex items-center space-x-2 opacity-40">
-                        <Package size={16} />
-                        <span className="text-xs">Produtos processados hoje</span>
+                      <div className="pt-2 flex items-center space-x-2 opacity-40">
+                        <Package size={14} />
+                        <span className="text-[10px]">Produtos processados hoje</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="space-y-6">
-                    <h3 className="font-serif italic text-2xl">Gerar Relatórios</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-4">
+                    <h3 className="font-serif italic text-xl">Gerar Relatórios</h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                       <button 
                         onClick={() => setCurrentReportView('items_specific')}
-                        className="p-6 bg-white border border-[#141414]/10 rounded-3xl hover:border-[#141414] hover:shadow-lg transition-all text-left group"
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
                       >
-                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <Search size={24} />
+                        <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <Search size={16} />
                         </div>
-                        <h4 className="font-bold mb-1">Itens Específicos</h4>
-                        <p className="text-xs opacity-50">Busca quantidade vendida de um item por período.</p>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Busca Específica</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Filtrar por item ou categoria.</p>
                       </button>
 
                       <button 
                         onClick={() => setCurrentReportView('items_all')}
-                        className="p-6 bg-white border border-[#141414]/10 rounded-3xl hover:border-[#141414] hover:shadow-lg transition-all text-left group"
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
                       >
-                        <div className="w-12 h-12 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <ListPlus size={24} />
+                        <div className="w-8 h-8 bg-[#141414]/5 text-[#141414] rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <Package size={16} />
                         </div>
-                        <h4 className="font-bold mb-1">Geral de Itens</h4>
-                        <p className="text-xs opacity-50">Relatório completo de todos os itens e faturamento.</p>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Geral de Itens</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Total vendido por produto.</p>
                       </button>
 
                       <button 
                         onClick={() => setCurrentReportView('sales_by_day')}
-                        className="p-6 bg-white border border-[#141414]/10 rounded-3xl hover:border-[#141414] hover:shadow-lg transition-all text-left group"
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
                       >
-                        <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <TrendingUp size={24} />
+                        <div className="w-8 h-8 bg-orange-50 text-orange-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <TrendingUp size={16} />
                         </div>
-                        <h4 className="font-bold mb-1">Vendas por Período</h4>
-                        <p className="text-xs opacity-50">Total de vendas agrupadas por dia e mesa.</p>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Vendas</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Agrupado por dia/mesa.</p>
                       </button>
 
                       <button 
                         onClick={() => setCurrentReportView('sales_by_payment')}
-                        className="p-6 bg-white border border-[#141414]/10 rounded-3xl hover:border-[#141414] hover:shadow-lg transition-all text-left group"
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
                       >
-                        <div className="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                          <PieChart size={24} />
+                        <div className="w-8 h-8 bg-green-50 text-green-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <PieChart size={16} />
                         </div>
-                        <h4 className="font-bold mb-1">Meios de Pagamento</h4>
-                        <p className="text-xs opacity-50">Análise de faturamento por tipo de pagamento.</p>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Pagamento</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Análise por tipo.</p>
+                      </button>
+
+                      <button 
+                        onClick={() => setCurrentReportView('waiter_performance')}
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 bg-yellow-50 text-yellow-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <Users size={16} />
+                        </div>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Garçons</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Desempenho e valores.</p>
                       </button>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="space-y-8">
-                  <header className="flex items-center space-x-4">
-                    <button 
-                      onClick={() => setCurrentReportView(null)}
-                      className="p-3 bg-white border border-[#141414]/10 rounded-2xl hover:bg-gray-50 transition-colors"
-                    >
-                      <ArrowLeft size={20} />
-                    </button>
-                    <div>
-                      <h2 className="font-serif italic text-3xl">
-                        {currentReportView === 'items_specific' && 'Busca de Itens Específicos'}
-                        {currentReportView === 'items_all' && 'Relatório Geral de Itens'}
-                        {currentReportView === 'sales_by_day' && 'Relatório de Vendas por Período'}
-                        {currentReportView === 'sales_by_payment' && 'Vendas por Meio de Pagamento'}
-                      </h2>
-                      <p className="text-sm opacity-60">Defina os filtros para gerar o relatório.</p>
+                <div className="space-y-4">
+                  <header className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <button 
+                        onClick={() => setCurrentReportView(null)}
+                        className="p-2 bg-white border border-[#141414]/10 rounded-xl hover:bg-gray-50 transition-colors"
+                      >
+                        <ArrowLeft size={14} />
+                      </button>
+                      <div>
+                        <h2 className="font-serif italic text-lg leading-none">
+                          {currentReportView === 'items_specific' && 'Itens Específicos'}
+                          {currentReportView === 'items_all' && 'Geral de Itens'}
+                          {currentReportView === 'sales_by_day' && 'Vendas por Período'}
+                          {currentReportView === 'sales_by_payment' && 'Meios de Pagamento'}
+                          {currentReportView === 'waiter_performance' && 'Performance Garçons'}
+                        </h2>
+                        <p className="text-[9px] opacity-60">Filtre para gerar o relatório.</p>
+                      </div>
                     </div>
                   </header>
 
-                  <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 items-end">
                       <div>
-                        <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Data Inicial</label>
+                        <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Início</label>
                         <input 
                           type="date" 
                           value={reportStartDate}
                           onChange={(e) => setReportStartDate(e.target.value)}
-                          className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none"
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none"
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Data Final</label>
+                        <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Fim</label>
                         <input 
                           type="date" 
                           value={reportEndDate}
                           onChange={(e) => setReportEndDate(e.target.value)}
-                          className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none"
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none"
                         />
                       </div>
                       
                       {currentReportView === 'sales_by_payment' && (
                         <div>
-                          <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Meio de Pagamento</label>
+                          <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Pagamento</label>
                           <select 
                             value={reportSelectedPaymentMethod}
                             onChange={(e) => setReportSelectedPaymentMethod(e.target.value)}
-                            className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
                           >
                             <option value="todos">Todos</option>
                             <option value="Dinheiro">Dinheiro</option>
                             <option value="PIX">PIX</option>
-                            <option value="Crédito">Cartão de Crédito</option>
-                            <option value="Débito">Cartão de Débito</option>
+                            <option value="Crédito">Crédito</option>
+                            <option value="Débito">Débito</option>
                           </select>
                         </div>
                       )}
 
-                      {(currentReportView === 'items_all' || currentReportView === 'sales_by_day' || currentReportView === 'sales_by_payment') && (
-                        <button 
-                          className="bg-[#141414] text-[#E4E3E0] py-3 px-6 rounded-xl font-bold flex items-center justify-center space-x-2 hover:opacity-90 transition-opacity"
-                        >
-                          <Download size={18} />
-                          <span>Exportar PDF</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {currentReportView === 'items_specific' && (
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end pt-4 border-t border-[#141414]/5">
-                        <div>
-                          <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Filtrar por Categoria</label>
-                          <select 
-                            value={reportSelectedCategory}
-                            onChange={(e) => setReportSelectedCategory(e.target.value)}
-                            className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
-                          >
-                            <option value="todos">Todas as Categorias</option>
-                            {menu.map(cat => (
-                              <option key={cat.name} value={cat.name}>{cat.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="relative">
-                          <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Item</label>
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 opacity-30" size={16} />
-                            <input 
-                              type="text" 
-                              placeholder="Pesquisar item (mín. 3 letras)"
-                              value={reportSelectedItem}
-                              onChange={(e) => {
-                                setReportSelectedItem(e.target.value);
-                                setShowItemSuggestions(e.target.value.length >= 3);
-                              }}
-                              onFocus={() => reportSelectedItem.length >= 3 && setShowItemSuggestions(true)}
-                              className="w-full bg-[#141414]/5 border-none rounded-xl py-3 pl-10 pr-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none"
-                            />
+                      {currentReportView === 'items_specific' && (
+                        <>
+                          <div>
+                            <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Categoria</label>
+                            <select 
+                              value={reportSelectedCategory}
+                              onChange={(e) => setReportSelectedCategory(e.target.value)}
+                              className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
+                            >
+                              <option value="todos">Todas</option>
+                              {menu.map(cat => (
+                                <option key={cat.name} value={cat.name}>{cat.name}</option>
+                              ))}
+                            </select>
                           </div>
-                          
-                          <AnimatePresence>
-                            {showItemSuggestions && reportSelectedItem.length >= 3 && (
-                              <motion.div 
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: -10 }}
-                                className="absolute left-0 right-0 mt-1 bg-white border border-[#141414]/10 rounded-xl shadow-xl z-[120] overflow-hidden max-h-48 overflow-y-auto"
-                              >
-                                {menu
-                                  .flatMap(cat => cat.items)
-                                  .filter(item => item.name.toLowerCase().includes(reportSelectedItem.toLowerCase()))
-                                  .filter((item, index, self) => self.findIndex(t => t.name === item.name) === index)
-                                  .map((item, idx) => (
-                                    <button 
-                                      key={idx}
-                                      onClick={() => {
-                                        setReportSelectedItem(item.name);
-                                        setShowItemSuggestions(false);
-                                      }}
-                                      className="w-full text-left px-4 py-3 text-sm hover:bg-[#141414]/5 font-medium transition-colors border-b border-[#141414]/5 last:border-0"
-                                    >
-                                      {item.name}
-                                    </button>
-                                  ))}
-                                {menu.flatMap(cat => cat.items).filter(item => item.name.toLowerCase().includes(reportSelectedItem.toLowerCase())).length === 0 && (
-                                  <div className="px-4 py-3 text-xs opacity-50 italic">Nenhum item encontrado</div>
-                                )}
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        <button 
-                          className="bg-[#141414] text-[#E4E3E0] py-3 px-6 rounded-xl font-bold flex items-center justify-center space-x-2 hover:opacity-90 transition-opacity"
-                        >
-                          <Download size={18} />
-                          <span>Exportar PDF</span>
-                        </button>
-                      </div>
-                    )}
+                          <div className="relative">
+                            <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Item</label>
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 opacity-30" size={10} />
+                              <input 
+                                type="text" 
+                                placeholder="Filtrar..."
+                                value={reportSelectedItem}
+                                onChange={(e) => {
+                                  setReportSelectedItem(e.target.value);
+                                  setShowItemSuggestions(e.target.value.length >= 3);
+                                }}
+                                className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 pl-6 pr-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none"
+                              />
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      
+                      <button 
+                        className="bg-[#141414] text-[#E4E3E0] py-1.5 px-3 rounded-lg font-bold text-[10px] flex items-center justify-center space-x-1.5 hover:opacity-90 transition-opacity"
+                      >
+                        <Download size={12} />
+                        <span>PDF</span>
+                      </button>
+                    </div>
+                  </div>
 
                     <div className="pt-6 border-t border-[#141414]/10">
                       {currentReportView === 'items_specific' && (
@@ -1701,7 +1873,7 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                                               <th className="p-4 text-right">Valor Total</th>
                                             </tr>
                                           </thead>
-                                          <tbody className="text-sm">
+                                          <tbody className="text-[10px]">
                                             {Object.keys(itemStats[itemName]).sort().map(date => (
                                               <tr key={date} className="border-b border-[#141414]/5 last:border-0 hover:bg-[#141414]/2 transition-colors">
                                                 <td className="p-4 font-medium">{date.split('-').reverse().join('/')}</td>
@@ -1746,21 +1918,24 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                       )}
 
                       {currentReportView === 'items_all' && (
-                        <div className="border rounded-2xl overflow-hidden">
+                        <div className="border rounded-xl overflow-hidden shadow-sm bg-white">
                           <table className="w-full text-left">
-                            <thead className="bg-[#141414]/5 text-[10px] uppercase font-bold opacity-50">
+                            <thead className="bg-[#141414]/5 text-[8px] uppercase font-bold opacity-50 border-b">
                               <tr>
-                                <th className="p-4">Item</th>
-                                <th className="p-4">Preço Médio</th>
-                                <th className="p-4 text-center">Qtd. Vendida</th>
-                                <th className="p-4 text-right">Faturamento</th>
+                                <th className="py-1.5 px-3">Item</th>
+                                <th className="py-1.5 px-3">Preço Médio</th>
+                                <th className="py-1.5 px-3 text-center">Qtd.</th>
+                                <th className="py-1.5 px-3 text-right">Fat.</th>
                               </tr>
                             </thead>
-                            <tbody className="text-sm">
+                            <tbody className="text-[10px]">
                               {(() => {
                                 const stats: Record<string, { qty: number, total: number, price: number }> = {};
                                 orders
-                                  .filter(o => o.timestamp >= reportStartDate && o.timestamp.split('T')[0] <= reportEndDate)
+                                  .filter(o => {
+                                    const date = o.timestamp.split('T')[0];
+                                    return date >= reportStartDate && date <= reportEndDate;
+                                  })
                                   .forEach(o => {
                                     o.items.filter(i => !i.removed).forEach(i => {
                                       if (!stats[i.name]) stats[i.name] = { qty: 0, total: 0, price: i.price };
@@ -1770,27 +1945,30 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                                     });
                                   });
                                   
+                                const itemsCountTotal = Object.values(stats).reduce((acc, cur) => acc + cur.qty, 0);
+                                const amountTotal = Object.values(stats).reduce((acc, cur) => acc + cur.total, 0);
                                 const items = Object.entries(stats).sort((a, b) => b[1].total - a[1].total);
-                                if (items.length === 0) return <tr><td colSpan={4} className="p-10 text-center opacity-30 italic">Nenhuma venda encontrada no período.</td></tr>;
+                                
+                                if (items.length === 0) return <tr><td colSpan={4} className="p-10 text-center opacity-30 italic font-serif">Nenhuma venda encontrada no período.</td></tr>;
 
                                 return (
                                   <>
                                     {items.map(([name, data]) => (
                                       <tr key={name} className="border-t border-[#141414]/5 hover:bg-[#141414]/5 transition-colors">
-                                        <td className="p-4 font-bold">{name}</td>
-                                        <td className="p-4 font-mono opacity-60">R$ {(data.total / data.qty).toFixed(2)}</td>
-                                        <td className="p-4 text-center font-mono">{data.qty}</td>
-                                        <td className="p-4 text-right font-bold text-green-600 font-mono">R$ {data.total.toFixed(2)}</td>
+                                        <td className="py-1.5 px-3 font-bold">{name}</td>
+                                        <td className="py-1.5 px-3 font-mono opacity-60 text-[8px]">R$ {(data.total / data.qty).toFixed(2)}</td>
+                                        <td className="py-1.5 px-3 text-center font-mono">{data.qty}</td>
+                                        <td className="py-1.5 px-3 text-right font-bold text-green-600 font-mono">R$ {data.total.toFixed(2)}</td>
                                       </tr>
                                     ))}
-                                    <tr className="bg-[#141414]/5 border-t-2 border-[#141414]">
-                                      <td className="p-4 font-bold uppercase">Totais</td>
-                                      <td className="p-4"></td>
-                                      <td className="p-4 text-center font-bold font-mono">
-                                        {items.reduce((acc, cur) => acc + cur[1].qty, 0)}
+                                    <tr className="bg-[#141414]/5 border-t border-[#141414]">
+                                      <td className="py-1.5 px-3 font-bold uppercase text-[8px]">Totais</td>
+                                      <td className="py-1.5 px-3 text-[8px] opacity-40">Ticket Médio: R$ {items.length > 0 ? (amountTotal / itemsCountTotal).toFixed(2) : '0.00'}</td>
+                                      <td className="py-1.5 px-3 text-center font-bold font-mono">
+                                        {itemsCountTotal}
                                       </td>
-                                      <td className="p-4 text-right font-black text-lg font-mono">
-                                        R$ {items.reduce((acc, cur) => acc + cur[1].total, 0).toFixed(2)}
+                                      <td className="py-1.5 px-3 text-right font-black text-xs font-mono">
+                                        R$ {amountTotal.toFixed(2)}
                                       </td>
                                     </tr>
                                   </>
@@ -1927,12 +2105,97 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                            </div>
                         </div>
                       )}
+
+                        {currentReportView === 'waiter_performance' && (
+                        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                          {(() => {
+                            const waiterStats: Record<string, { total: number, itemsCount: number, items: Record<string, { qty: number, total: number }> }> = {};
+                            
+                            // Use all orders that had items launched
+                            orders.forEach(o => {
+                              const orderDate = (o.timestamp || '').split('T')[0];
+                              if (orderDate >= reportStartDate && orderDate <= reportEndDate) {
+                                o.items.filter(i => !i.removed).forEach(i => {
+                                  const waiterName = i.waiterName || 'Desconhecido';
+                                  if (!waiterStats[waiterName]) waiterStats[waiterName] = { total: 0, itemsCount: 0, items: {} };
+                                  
+                                  const qty = i.quantity || 1;
+                                  waiterStats[waiterName].total += i.price;
+                                  waiterStats[waiterName].itemsCount += qty;
+                                  
+                                  if (!waiterStats[waiterName].items[i.name]) waiterStats[waiterName].items[i.name] = { qty: 0, total: 0 };
+                                  waiterStats[waiterName].items[i.name].qty += qty;
+                                  waiterStats[waiterName].items[i.name].total += i.price;
+                                });
+                              }
+                            });
+
+                            const waitersList = Object.entries(waiterStats);
+                            if (waitersList.length === 0) {
+                              return (
+                                <div className="p-20 text-center bg-white rounded-3xl border border-dashed border-[#141414]/10">
+                                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Users size={32} className="text-gray-300" />
+                                  </div>
+                                  <p className="text-gray-400 italic font-serif">Nenhum lançamento encontrado para o período.</p>
+                                </div>
+                              );
+                            }
+
+                            return waitersList
+                              .sort((a, b) => b[1].total - a[1].total)
+                              .map(([waiter, stats]) => (
+                                  <div key={waiter} className="bg-white border border-[#141414]/10 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                                    <div className="bg-[#141414]/2 p-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-[#141414]/10">
+                                      <div className="flex items-center space-x-3">
+                                        <div className="w-8 h-8 bg-[#141414] text-[#E4E3E0] rounded-xl flex items-center justify-center font-bold text-sm shadow-sm">
+                                          {waiter[0].toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <h4 className="font-bold text-sm leading-none">{waiter}</h4>
+                                          <p className="text-[7px] uppercase font-bold opacity-30 tracking-widest flex items-center gap-1 mt-1">
+                                            <Users size={8} /> Colaborador
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="text-left sm:text-right bg-white py-1.5 px-3 rounded-lg border border-[#141414]/5">
+                                        <p className="text-[8px] uppercase font-bold opacity-40 mb-0.5 leading-none">Total Lançado</p>
+                                        <p className="text-lg font-black font-mono text-green-600 leading-none">R$ {stats.total.toFixed(2)}</p>
+                                      </div>
+                                    </div>
+
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                      <thead className="bg-[#141414]/2 text-[8px] uppercase font-bold opacity-30">
+                                        <tr>
+                                          <th className="py-1 px-3 border-b">Item Lançado</th>
+                                          <th className="py-1 px-3 text-center border-b">Quantidade</th>
+                                          <th className="py-1 px-3 text-right border-b">Subtotal</th>
+                                        </tr>
+                                       </thead>
+                                       <tbody className="text-sm">
+                                         {Object.entries(stats.items)
+                                           .sort((a, b) => b[1].qty - a[1].qty)
+                                           .map(([itemName, itemData]) => (
+                                             <tr key={itemName} className="border-t border-[#141414]/5 hover:bg-gray-50 transition-colors">
+                                               <td className="py-1.5 px-3 font-medium">{itemName}</td>
+                                               <td className="py-1.5 px-3 text-center font-mono font-bold text-blue-600/70">{itemData.qty}</td>
+                                               <td className="py-1.5 px-3 text-right font-mono font-bold">R$ {itemData.total.toFixed(2)}</td>
+                                             </tr>
+                                           ))}
+                                       </tbody>
+                                     </table>
+                                   </div>
+                                 </div>
+                               ));
+                          })()}
+                        </div>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
-            </motion.div>
-          )}
+                )}
+              </motion.div>
+            )}
 
           {activeTab === 'settings' && (
             <motion.div 
@@ -1940,138 +2203,251 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-10"
+              className="space-y-4"
             >
-              <header>
-                <h2 className="font-serif italic text-4xl mb-2">Configurações do Sistema</h2>
-                <p className="text-sm opacity-60">Gerenciamento de periféricos e comportamento do sistema.</p>
+              <header className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-serif italic text-2xl mb-1">Configurações</h2>
+                  <p className="text-[10px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
+                </div>
               </header>
 
-              <div className="grid lg:grid-cols-2 grid-cols-1 gap-10">
-                <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm">
-                  <div className="flex items-center space-x-3 mb-8">
-                    <Printer className="text-[#141414]" size={24} />
-                    <h3 className="font-serif italic text-2xl">Direcionamento de Impressão</h3>
-                  </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 h-full pb-4">
+                {/* Column 1: Printers and Tests */}
+                <div className="space-y-3 flex flex-col">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-1">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <Printer className="text-[#141414]" size={14} />
+                      <h3 className="font-serif italic text-base leading-none">Direcionamento</h3>
+                    </div>
 
-                  <div className="space-y-6">
-                    <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-2 block">Pedidos de Pizza e Lanches</label>
-                      <select 
-                        value={printerConfig.pizzas}
-                        onChange={(e) => setPrinterConfig({...printerConfig, pizzas: e.target.value})}
-                        className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                      >
-                        <option value="">Selecione uma impressora</option>
-                        {discoveredPrinters.map(p => (
-                          <option key={p.ip} value={p.name}>{p.name} ({p.ip})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-2 block">Bebidas</label>
-                      <select 
-                        value={printerConfig.drinks}
-                        onChange={(e) => setPrinterConfig({...printerConfig, drinks: e.target.value})}
-                        className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                      >
-                        <option value="">Selecione uma impressora</option>
-                        {discoveredPrinters.map(p => (
-                          <option key={p.ip} value={p.name}>{p.name} ({p.ip})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <label className="text-[10px] uppercase font-bold opacity-50 block">Setor Personalizado</label>
-                        <input 
-                          type="text"
-                          value={printerConfig.kitchenLabel}
-                          onChange={(e) => setPrinterConfig({...printerConfig, kitchenLabel: e.target.value})}
-                          className="text-[10px] font-bold bg-transparent border-b border-[#141414]/20 focus:border-[#141414] outline-none px-1 py-0.5 text-right"
-                          placeholder="Nome do Setor"
-                        />
-                      </div>
-                      <select 
-                        value={printerConfig.kitchen}
-                        onChange={(e) => setPrinterConfig({...printerConfig, kitchen: e.target.value})}
-                        className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                      >
-                        <option value="">Selecione uma impressora</option>
-                        {discoveredPrinters.map(p => (
-                          <option key={p.ip} value={p.name}>{p.name} ({p.ip})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-2 block">Cupons e Recibos</label>
-                      <select 
-                        value={printerConfig.receipts}
-                        onChange={(e) => setPrinterConfig({...printerConfig, receipts: e.target.value})}
-                        className="w-full bg-[#141414]/5 border-none rounded-xl py-3 px-4 font-bold focus:ring-2 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                      >
-                        <option value="">Selecione uma impressora</option>
-                        {discoveredPrinters.map(p => (
-                          <option key={p.ip} value={p.name}>{p.name} ({p.ip})</option>
-                        ))}
-                      </select>
+                    <div className="grid grid-cols-1 gap-2">
+                      {['pizzas', 'drinks', 'kitchen', 'receipts'].map((key) => (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <label className="text-[7px] uppercase font-bold opacity-40">
+                              {key === 'pizzas' ? 'Pizzas' : key === 'drinks' ? 'Bebidas' : key === 'kitchen' ? (printerConfig.kitchenLabel || 'Extra') : 'Recibos'}
+                            </label>
+                            {key === 'kitchen' && (
+                              <input 
+                                type="text"
+                                value={printerConfig.kitchenLabel}
+                                onChange={(e) => setPrinterConfig({...printerConfig, kitchenLabel: e.target.value})}
+                                className="text-[7px] font-bold bg-transparent border-b border-[#141414]/10 focus:border-[#141414] outline-none px-1 text-right w-12"
+                                placeholder="Nome"
+                              />
+                            )}
+                          </div>
+                          <select 
+                            value={printerConfig[key as keyof typeof printerConfig]}
+                            onChange={(e) => setPrinterConfig({...printerConfig, [key]: e.target.value})}
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                          >
+                            <option value="">Selecione...</option>
+                            {discoveredPrinters.map(p => (
+                              <option key={p.ip} value={p.name}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
                     </div>
                     
                     <button 
                       onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-4 rounded-2xl font-bold mt-4 hover:scale-[1.02] transition-transform"
+                      className="w-full bg-[#141414] text-[#E4E3E0] py-1 rounded-lg font-bold mt-2 hover:opacity-90 transition-opacity text-[8px] uppercase"
                     >
-                      Salvar Configurações de Impressão
+                      Salvar Dispositivos
                     </button>
                   </div>
-                </div>
 
-                <div className="space-y-6">
-                  <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-serif italic text-xl">Teste de Impressão & Conexão</h3>
-                      <Wifi size={18} className="text-green-500 animate-pulse" />
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden flex-initial">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center space-x-2">
+                        <Printer className="text-[#141414]" size={14} />
+                        <h3 className="font-serif italic text-base leading-none">Teste</h3>
+                      </div>
+                      <Wifi size={10} className="text-green-500 animate-pulse" />
                     </div>
-                    <div className="space-y-2">
-                      {discoveredPrinters.map((printer) => (
-                        <div key={printer.ip} className={`flex justify-between items-center p-3 rounded-xl border ${
-                          printer.status === 'online' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'
+                    <div className="space-y-1 max-h-[100px] overflow-y-auto pr-1 scrollbar-hide">
+                      {discoveredPrinters.slice(0, 4).map((printer) => (
+                        <div key={printer.ip} className={`flex justify-between items-center px-1.5 py-1 rounded-lg border ${
+                          printer.status === 'online' ? 'bg-green-50/20 border-green-100' : 'bg-red-50/20 border-red-100'
                         }`}>
                           <div className="flex flex-col">
-                            <span className={`text-xs font-bold ${printer.status === 'online' ? 'text-green-700' : 'text-red-700'}`}>
-                              {printer.name}
-                            </span>
-                            <span className="text-[8px] opacity-50">IP: {printer.ip}</span>
+                            <span className="text-[8px] font-bold leading-none">{printer.name}</span>
+                            <span className="text-[6px] opacity-40">IP: {printer.ip}</span>
                           </div>
-                          <div className="flex items-center space-x-2">
-                            <button 
-                              onClick={() => handleTestPrinter(printer.name)}
-                              className="text-[8px] bg-[#141414] text-white px-2 py-1 rounded font-bold uppercase hover:opacity-80"
-                            >
-                              Testar
-                            </button>
-                            <span className={`text-[8px] text-white px-2 py-0.5 rounded uppercase font-bold ${
-                              printer.status === 'online' ? 'bg-green-600' : 'bg-red-600'
-                            }`}>
-                              {printer.status}
-                            </span>
-                          </div>
+                          <button 
+                            onClick={() => handleTestPrinter(printer.name)}
+                            className="text-[6px] bg-[#141414] text-white px-1 py-0.5 rounded font-bold uppercase"
+                          >
+                            Testar
+                          </button>
                         </div>
                       ))}
                     </div>
                   </div>
-                  
-                  <div className="bg-[#141414] p-8 rounded-3xl text-[#E4E3E0]">
-                    <h3 className="font-serif italic text-xl mb-2 italic">Dica de Configuração</h3>
-                    <p className="text-xs opacity-50 leading-relaxed">
-                      O direcionamento automático garante que cada setor receba apenas o que deve produzir, 
-                      evitando confusão e desperdício de papel.
-                    </p>
+                </div>
+
+                {/* Column 2: Receipt Layout and Data */}
+                <div className="space-y-3 flex flex-col">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-1">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <FileText className="text-[#141414]" size={14} />
+                      <h3 className="font-serif italic text-base leading-none">Layout Cupom</h3>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Estabelecimento</label>
+                        <input 
+                          type="text"
+                          value={printerConfig.establishmentName}
+                          onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})}
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Endereço</label>
+                          <input 
+                            type="text"
+                            value={printerConfig.address}
+                            onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})}
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Telefone</label>
+                          <input 
+                            type="text"
+                            value={printerConfig.phone}
+                            onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})}
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Rodapé</label>
+                        <textarea 
+                          value={printerConfig.receiptFooter}
+                          onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})}
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none resize-none"
+                          rows={1}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="col-span-2">
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Fonte Itens</label>
+                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                            {['10px', '12px', '14px', '16px'].map((size) => (
+                              <button
+                                key={size}
+                                onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})}
+                                className={`flex-1 py-0.5 text-[8px] font-bold rounded-md transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
+                              >
+                                {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})}
+                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                        >
+                          <span className="text-[7px] font-bold uppercase">Negrito</span>
+                          {printerConfig.boldItems && <CheckCircle size={8} className="text-green-600" />}
+                        </button>
+
+                        <button 
+                          onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})}
+                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                        >
+                          <span className="text-[7px] font-bold uppercase">Garçom</span>
+                          {printerConfig.showWaiter && <CheckCircle size={8} className="text-green-600" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-initial">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <Lock className="text-[#141414]" size={14} />
+                      <h3 className="font-serif italic text-base leading-none">Dados</h3>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button className="flex items-center justify-center space-x-1.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                        <Download size={12} />
+                        <span className="text-[8px] font-bold uppercase">Exportar</span>
+                      </button>
+                      <button className="flex items-center justify-center space-x-1.5 py-1.5 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
+                        <RefreshCcw size={12} />
+                        <span className="text-[8px] font-bold uppercase">Importar</span>
+                      </button>
+                    </div>
+                    <button 
+                      onClick={async () => {
+                        if (confirm('Deseja inicializar o banco de dados com os dados padrão? Isso pode duplicar tabelas se já existirem.')) {
+                          await seedDatabase();
+                          toast.success('Banco de dados semeado com sucesso!');
+                        }
+                      }}
+                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase"
+                    >
+                      Inicializar DB (Seed)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Column 3: Preview */}
+                <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col h-full overflow-hidden">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <FileText className="text-[#141414]" size={14} />
+                    <h3 className="font-serif italic text-base leading-none">Preview Cupom</h3>
+                  </div>
+
+                  <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center flex-1 overflow-hidden min-h-0">
+                    <div className="bg-white w-full max-w-[160px] shadow-sm p-3 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
+                      <div className="text-center space-y-0.5">
+                        <p className="font-bold text-[9px] uppercase truncate">{printerConfig.establishmentName}</p>
+                        <p className="opacity-70 text-[6px] truncate">{printerConfig.address}</p>
+                      </div>
+                      
+                      <div className="border-t border-dashed border-[#141414]/20 pt-1 space-y-0.5">
+                        <div className="flex justify-between">
+                          <span>Mesa: 12</span>
+                          <span>#1024</span>
+                        </div>
+                        {printerConfig.showWaiter && <div>Garçom: Ricardo</div>}
+                      </div>
+
+                      <div className="border-t border-b border-dashed border-[#141414]/20 py-1 space-y-1">
+                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
+                          <span className="flex-1 leading-tight text-left">1x Pizza G Calabresa Especial com Bordas</span>
+                          <span className="shrink-0">R$ 85</span>
+                        </div>
+                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
+                          <span className="flex-1 leading-tight text-left">2x Soda Italiana Sabor Morango</span>
+                          <span className="shrink-0">R$ 24</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between font-bold pt-1">
+                        <span>TOTAL:</span>
+                        <span>R$ 109,00</span>
+                      </div>
+
+                      <div className="pt-1 text-center opacity-70 italic text-[6px] truncate">
+                        {printerConfig.receiptFooter}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )}
         </AnimatePresence>
       </main>
 
@@ -2654,6 +3030,17 @@ export default function Dashboard({ tables, comandas, orders, waiters, stock, me
                   >
                     +
                   </button>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
+                  <textarea 
+                    value={itemObservations}
+                    onChange={(e) => setItemObservations(e.target.value)}
+                    placeholder="Ex: Sem cebola, gelo e limão..."
+                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                    rows={2}
+                  />
                 </div>
 
                 <div className="pt-4 border-t border-[#141414]/10">
