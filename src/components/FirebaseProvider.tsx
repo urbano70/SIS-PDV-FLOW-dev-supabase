@@ -1,9 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { signInAnonymously } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
-import { syncCollection } from '../lib/firebaseService';
+import { supabase } from '../lib/supabase';
+import { syncCollection } from '../lib/supabaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getLocalSeedData } from '../lib/seed';
 
 interface FirebaseContextType {
@@ -45,37 +43,39 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setIsCashRegisterOpen(seed.isCashRegisterOpen);
   };
 
-  useEffect(() => {
-    signInAnonymously(auth)
-      .then(() => {
-        syncCollection('tables', setTables);
-        syncCollection('comandas', setComandas);
-        syncCollection('orders', (data) => setOrders(data as Order[]));
-        syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
-        syncCollection('stock', (data) => setStock(data as StockItem[]));
-        syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
-
-        const configRef = doc(db, 'config', 'app');
-        onSnapshot(configRef, (snap) => {
-          if (snap.exists()) {
-            setIsCashRegisterOpen(snap.data().isCashRegisterOpen);
-          }
-        });
-      })
-      .catch(() => {
-        console.warn('Firebase auth indisponível — modo local ativo.');
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
   const toggleCashRegister = async (open: boolean) => {
     setIsCashRegisterOpen(open);
-    try {
-      await setDoc(doc(db, 'config', 'app'), { isCashRegisterOpen: open }, { merge: true });
-    } catch {
-      // Firebase indisponível — estado local atualizado
-    }
+    const { error } = await supabase
+      .from('config')
+      .upsert({ id: 'app', is_cash_register_open: open });
+    if (error) console.error('[Supabase] toggleCashRegister:', error.message);
   };
+
+  useEffect(() => {
+    // Sync all collections
+    syncCollection('tables', setTables);
+    syncCollection('comandas', setComandas);
+    syncCollection('orders', (data) => setOrders(data as Order[]));
+    syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
+    syncCollection('stock', (data) => setStock(data as StockItem[]));
+    syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
+
+    // Config: initial load + real-time
+    supabase.from('config').select('*').eq('id', 'app').single().then(({ data }) => {
+      if (data) setIsCashRegisterOpen(data.is_cash_register_open);
+    });
+
+    const configChannel = supabase
+      .channel('realtime:config')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'config' }, (payload) => {
+        if (payload.new) setIsCashRegisterOpen((payload.new as any).is_cash_register_open);
+      })
+      .subscribe();
+
+    setLoading(false);
+
+    return () => { supabase.removeChannel(configChannel); };
+  }, []);
 
   const signIn = async () => {};
   const logout = async () => {};

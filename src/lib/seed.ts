@@ -1,5 +1,4 @@
-import { db } from './firebase';
-import { doc, writeBatch } from 'firebase/firestore';
+import { supabase } from './supabase';
 import { MENU_CATEGORIES } from '../constants';
 
 export const getLocalSeedData = () => ({
@@ -7,42 +6,39 @@ export const getLocalSeedData = () => ({
     id: i + 1,
     status: 'free' as const,
     currentOrder: null,
-    linkedTo: null
+    linkedTo: null,
   })),
   comandas: Array.from({ length: 50 }, (_, i) => ({
     id: i + 1,
     status: 'free' as const,
     currentOrder: null,
-    linkedTo: null
+    linkedTo: null,
   })),
   menu: MENU_CATEGORIES,
   isCashRegisterOpen: false,
 });
 
 export const seedDatabase = async () => {
-  const batch = writeBatch(db);
+  const tables = Array.from({ length: 40 }, (_, i) => ({
+    id: i + 1, status: 'free', current_order: null, linked_to: null,
+  }));
+  const { error: tErr } = await supabase.from('tables').upsert(tables);
+  if (tErr) throw new Error(`tables: ${tErr.message}`);
 
-  for (let i = 1; i <= 40; i++) {
-    batch.set(doc(db, 'tables', i.toString()), {
-      id: i, status: 'free', currentOrder: null, linkedTo: null
-    });
-  }
+  const comandas = Array.from({ length: 50 }, (_, i) => ({
+    id: i + 1, status: 'free', current_order: null, linked_to: null,
+  }));
+  const { error: cErr } = await supabase.from('comandas').upsert(comandas);
+  if (cErr) throw new Error(`comandas: ${cErr.message}`);
 
-  for (let i = 1; i <= 50; i++) {
-    batch.set(doc(db, 'comandas', i.toString()), {
-      id: i, status: 'free', currentOrder: null, linkedTo: null
-    });
-  }
+  const menuRows = MENU_CATEGORIES.map((cat) => ({
+    id: cat.name, name: cat.name, type: cat.type, items: cat.items,
+  }));
+  const { error: mErr } = await supabase.from('menu').upsert(menuRows);
+  if (mErr) throw new Error(`menu: ${mErr.message}`);
 
-  for (const cat of MENU_CATEGORIES) {
-    batch.set(doc(db, 'menu', cat.name), cat);
-  }
-
-  batch.set(doc(db, 'config', 'app'), {
-    isCashRegisterOpen: false,
-    dailyCounter: 0,
-    lastOrderDate: ''
+  const { error: cfgErr } = await supabase.from('config').upsert({
+    id: 'app', is_cash_register_open: false, daily_counter: 0, last_order_date: '',
   });
-
-  await batch.commit();
+  if (cfgErr) throw new Error(`config: ${cfgErr.message}`);
 };
