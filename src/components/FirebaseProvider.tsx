@@ -3,7 +3,7 @@ import { signInAnonymously } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { syncCollection } from '../lib/firebaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { getLocalSeedData } from '../lib/seed';
 
 interface FirebaseContextType {
@@ -13,6 +13,7 @@ interface FirebaseContextType {
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   initLocalData: () => void;
+  toggleCashRegister: (open: boolean) => Promise<void>;
   data: {
     tables: Table[];
     comandas: Table[];
@@ -67,6 +68,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .finally(() => setLoading(false));
   }, []);
 
+  const toggleCashRegister = async (open: boolean) => {
+    setIsCashRegisterOpen(open);
+    try {
+      await setDoc(doc(db, 'config', 'app'), { isCashRegisterOpen: open }, { merge: true });
+    } catch {
+      // Firebase indisponível — estado local atualizado
+    }
+  };
+
   const signIn = async () => {};
   const logout = async () => {};
 
@@ -78,6 +88,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       signIn,
       logout,
       initLocalData,
+      toggleCashRegister,
       data: { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen }
     }}>
       {children}

@@ -43,7 +43,7 @@ export default function Dashboard({
   printerConfig,
   setPrinterConfig
 }: DashboardProps) {
-  const { initLocalData } = useFirebase();
+  const { initLocalData, toggleCashRegister } = useFirebase();
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -611,7 +611,7 @@ export default function Dashboard({
           {activeTab === 'overview' && (
             <div className="flex items-center flex-wrap gap-2">
               <button 
-                onClick={() => socket.emit('toggle_cash_register', !isCashRegisterOpen)}
+                onClick={() => toggleCashRegister(!isCashRegisterOpen)}
                 className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-md ${
                   isCashRegisterOpen 
                     ? 'bg-red-500 text-white hover:bg-red-600' 
