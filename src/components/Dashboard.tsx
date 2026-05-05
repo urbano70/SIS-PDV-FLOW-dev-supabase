@@ -2387,14 +2387,25 @@ export default function Dashboard({
                         <span className="text-[8px] font-bold uppercase">Importar</span>
                       </button>
                     </div>
-                    <button 
-                      onClick={async () => {
+                    <button
+                      onClick={async (e) => {
+                        const btn = e.currentTarget;
                         if (confirm('Deseja inicializar o banco de dados com os dados padrão? Isso pode duplicar tabelas se já existirem.')) {
-                          await seedDatabase();
-                          toast.success('Banco de dados semeado com sucesso!');
+                          btn.disabled = true;
+                          btn.textContent = 'Inicializando...';
+                          try {
+                            await seedDatabase();
+                            toast.success('Banco de dados inicializado com sucesso!');
+                          } catch (err: any) {
+                            toast.error(`Erro ao inicializar: ${err?.message ?? 'verifique o console'}`);
+                            console.error(err);
+                          } finally {
+                            btn.disabled = false;
+                            btn.textContent = 'Inicializar DB (Seed)';
+                          }
                         }
                       }}
-                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase"
+                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase disabled:opacity-50"
                     >
                       Inicializar DB (Seed)
                     </button>

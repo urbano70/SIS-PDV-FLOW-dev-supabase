@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { db } from '../lib/firebase';
+import { signInAnonymously } from 'firebase/auth';
+import { auth, db } from '../lib/firebase';
 import { syncCollection } from '../lib/firebaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
-import { doc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 interface FirebaseContextType {
   user: { email: string } | null;
@@ -34,21 +35,23 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
 
   useEffect(() => {
-    syncCollection('tables', setTables);
-    syncCollection('comandas', setComandas);
-    syncCollection('orders', (data) => setOrders(data as Order[]));
-    syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
-    syncCollection('stock', (data) => setStock(data as StockItem[]));
-    syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
+    signInAnonymously(auth)
+      .then(() => {
+        syncCollection('tables', setTables);
+        syncCollection('comandas', setComandas);
+        syncCollection('orders', (data) => setOrders(data as Order[]));
+        syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
+        syncCollection('stock', (data) => setStock(data as StockItem[]));
+        syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
 
-    const configRef = doc(db, 'config', 'app');
-    onSnapshot(configRef, (doc) => {
-      if (doc.exists()) {
-        setIsCashRegisterOpen(doc.data().isCashRegisterOpen);
-      }
-    });
-
-    setLoading(false);
+        const configRef = doc(db, 'config', 'app');
+        onSnapshot(configRef, (snap) => {
+          if (snap.exists()) {
+            setIsCashRegisterOpen(snap.data().isCashRegisterOpen);
+          }
+        });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   const signIn = async () => {};
@@ -75,6 +78,3 @@ export const useFirebase = () => {
   }
   return context;
 };
-
-// Re-exporting onSnapshot since it's needed for the config sync helper
-import { onSnapshot } from 'firebase/firestore';
