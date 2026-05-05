@@ -14,10 +14,9 @@ import SelfOnboarding from './components/SelfOnboarding';
 import { Table, Order, Waiter, StockItem, MenuCategory } from './types';
 import { Toaster, toast } from 'sonner';
 import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
-import { LogIn } from 'lucide-react';
 
 function AppContent() {
-  const { user, loading, signIn, data, isAdmin } = useFirebase();
+  const { loading, data, isAdmin } = useFirebase();
   const { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
@@ -92,27 +91,6 @@ function AppContent() {
         <div className="animate-pulse flex flex-col items-center">
           <div className="w-12 h-12 bg-[#141414] rounded-full mb-4"></div>
           <p className="font-serif italic text-lg">Carregando...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#F5F5F3] p-4">
-        <div className="w-full max-w-md bg-white p-8 rounded-2xl border border-[#141414]/10 shadow-sm text-center">
-          <div className="w-16 h-16 bg-[#141414] rounded-full flex items-center justify-center mx-auto mb-6">
-            <LogIn className="text-[#E4E3E0] w-8 h-8" />
-          </div>
-          <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao PizzaFlow</h1>
-          <p className="text-gray-500 mb-8">Faça login para acessar o sistema de gestão.</p>
-          <button 
-            onClick={signIn}
-            className="w-full bg-[#141414] text-white py-4 rounded-xl font-bold flex items-center justify-center space-x-3 hover:opacity-90 transition-opacity"
-          >
-            <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-            <span>Entrar com o Google</span>
-          </button>
         </div>
       </div>
     );

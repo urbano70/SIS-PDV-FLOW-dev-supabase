@@ -1,13 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
+import { db } from '../lib/firebase';
 import { syncCollection } from '../lib/firebaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { toast } from 'sonner';
+import { doc } from 'firebase/firestore';
 
 interface FirebaseContextType {
-  user: User | null;
+  user: { email: string } | null;
   loading: boolean;
   isAdmin: boolean;
   signIn: () => Promise<void>;
@@ -26,9 +24,7 @@ interface FirebaseContextType {
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
 export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
   const [tables, setTables] = useState<Table[]>([]);
   const [comandas, setComandas] = useState<Table[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -38,61 +34,32 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setUser(user);
-      if (user) {
-        // Check if Admin
-        const adminEmail = 'urbano70@gmail.com';
-        setIsAdmin(user.email === adminEmail);
-        
-        // Sync Data
-        syncCollection('tables', setTables);
-        syncCollection('comandas', setComandas);
-        syncCollection('orders', (data) => setOrders(data as Order[]));
-        syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
-        syncCollection('stock', (data) => setStock(data as StockItem[]));
-        syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
-        
-        // Sync config
-        const configRef = doc(db, 'config', 'app');
-        onSnapshot(configRef, (doc) => {
-          if (doc.exists()) {
-            setIsCashRegisterOpen(doc.data().isCashRegisterOpen);
-          }
-        });
+    syncCollection('tables', setTables);
+    syncCollection('comandas', setComandas);
+    syncCollection('orders', (data) => setOrders(data as Order[]));
+    syncCollection('waiters', (data) => setWaiters(data as Waiter[]));
+    syncCollection('stock', (data) => setStock(data as StockItem[]));
+    syncCollection('menu', (data) => setMenu(data as MenuCategory[]));
+
+    const configRef = doc(db, 'config', 'app');
+    onSnapshot(configRef, (doc) => {
+      if (doc.exists()) {
+        setIsCashRegisterOpen(doc.data().isCashRegisterOpen);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    setLoading(false);
   }, []);
 
-  const signIn = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      toast.success('Login realizado com sucesso!');
-    } catch (error) {
-      toast.error('Erro ao realizar login.');
-      console.error(error);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await signOut(auth);
-      toast.success('Sessão encerrada.');
-    } catch (error) {
-      toast.error('Erro ao sair.');
-    }
-  };
+  const signIn = async () => {};
+  const logout = async () => {};
 
   return (
-    <FirebaseContext.Provider value={{ 
-      user, 
-      loading, 
-      isAdmin, 
-      signIn, 
+    <FirebaseContext.Provider value={{
+      user: { email: 'urbano70@gmail.com' },
+      loading,
+      isAdmin: true,
+      signIn,
       logout,
       data: { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen }
     }}>
