@@ -10,6 +10,7 @@ import { GoogleGenAI } from "@google/genai";
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
+import { useFirebase } from './FirebaseProvider';
 
 interface DashboardProps {
   tables: Table[];
@@ -42,6 +43,7 @@ export default function Dashboard({
   printerConfig,
   setPrinterConfig
 }: DashboardProps) {
+  const { initLocalData } = useFirebase();
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -2388,24 +2390,19 @@ export default function Dashboard({
                       </button>
                     </div>
                     <button
-                      onClick={async (e) => {
-                        const btn = e.currentTarget;
-                        if (confirm('Deseja inicializar o banco de dados com os dados padrão? Isso pode duplicar tabelas se já existirem.')) {
-                          btn.disabled = true;
-                          btn.textContent = 'Inicializando...';
-                          try {
-                            await seedDatabase();
-                            toast.success('Banco de dados inicializado com sucesso!');
-                          } catch (err: any) {
-                            toast.error(`Erro ao inicializar: ${err?.message ?? 'verifique o console'}`);
-                            console.error(err);
-                          } finally {
-                            btn.disabled = false;
-                            btn.textContent = 'Inicializar DB (Seed)';
-                          }
+                      onClick={async () => {
+                        if (!confirm('Deseja inicializar o banco de dados com os dados padrão?')) return;
+                        const toastId = toast.loading('Inicializando dados...');
+                        try {
+                          await seedDatabase();
+                          toast.success('Banco de dados inicializado no Firebase!', { id: toastId });
+                        } catch {
+                          toast.warning('Firebase indisponível — dados carregados localmente para teste.', { id: toastId, duration: 5000 });
+                        } finally {
+                          initLocalData();
                         }
                       }}
-                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase disabled:opacity-50"
+                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase"
                     >
                       Inicializar DB (Seed)
                     </button>

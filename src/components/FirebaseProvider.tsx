@@ -4,6 +4,7 @@ import { auth, db } from '../lib/firebase';
 import { syncCollection } from '../lib/firebaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
 import { doc, onSnapshot } from 'firebase/firestore';
+import { getLocalSeedData } from '../lib/seed';
 
 interface FirebaseContextType {
   user: { email: string } | null;
@@ -11,6 +12,7 @@ interface FirebaseContextType {
   isAdmin: boolean;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
+  initLocalData: () => void;
   data: {
     tables: Table[];
     comandas: Table[];
@@ -34,6 +36,14 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
 
+  const initLocalData = () => {
+    const seed = getLocalSeedData();
+    setTables(seed.tables as Table[]);
+    setComandas(seed.comandas as Table[]);
+    setMenu(seed.menu as MenuCategory[]);
+    setIsCashRegisterOpen(seed.isCashRegisterOpen);
+  };
+
   useEffect(() => {
     signInAnonymously(auth)
       .then(() => {
@@ -51,6 +61,9 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         });
       })
+      .catch(() => {
+        console.warn('Firebase auth indisponível — modo local ativo.');
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -64,6 +77,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       isAdmin: true,
       signIn,
       logout,
+      initLocalData,
       data: { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen }
     }}>
       {children}
