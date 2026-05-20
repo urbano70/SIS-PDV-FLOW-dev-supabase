@@ -242,7 +242,13 @@ const OrderDetails = ({
             <div className="flex items-center space-x-2">
               <h4 className="text-2xl font-bold">{isComandaSelected ? 'Comanda' : 'Mesa'} {targetId ?? ''}</h4>
               <button 
-                onClick={() => setIsAddItemModalOpen(true)}
+                onClick={() => {
+                  if (!isCashRegisterOpen) {
+                    toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
+                    return;
+                  }
+                  setIsAddItemModalOpen(true);
+                }}
                 className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
                 title="Adicionar Pedido (ADM)"
               >
