@@ -40,17 +40,17 @@
   }
 
   /* Specific styles for report elements in print */
-  #printable-report .bg-[#141414] {
+  #printable-report .bg-\[\#141414\] {
     background-color: #f3f4f6 !important; /* light gray for print headers */
     color: black !important;
   }
 
-  #printable-report .text-[#E4E3E0] {
+  #printable-report .text-\[\#E4E3E0\] {
     color: black !important;
   }
 
-  #printable-report .text-[#EAB308],
-  #printable-report .text-[#22C55E] {
+  #printable-report .text-\[\#EAB308\],
+  #printable-report .text-\[\#22C55E\] {
     color: black !important;
     font-weight: bold !important;
   }

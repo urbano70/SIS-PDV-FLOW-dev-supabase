@@ -104,6 +104,10 @@
       "schema": "Table",
       "description": "Table statuses and associations."
     },
+    "/comandas/{comandaId}": {
+      "schema": "Table",
+      "description": "Comanda statuses and associations."
+    },
     "/orders/{orderId}": {
       "schema": "Order",
       "description": "Active and past orders."

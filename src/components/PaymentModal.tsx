@@ -55,7 +55,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const [isSplitPayment, setIsSplitPayment] = useState(false);
   const [splitAmount, setSplitAmount] = useState(0);
 
-  const existingPartialPaid = (order.partialPayments || []).reduce((acc, p) => acc + p.amount, 0);
+  const existingPartialPaid = (order.paymentLog || []).reduce((acc, p) => acc + p.amount, 0);
   const activeItems = order.items.filter(i => !i.removed && !i.paid);
   
   const calculateItemPrice = (item: PizzaItem) => {
@@ -726,11 +726,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                           <span className="text-[10px] uppercase opacity-60 font-bold">Total pago:</span>
                           <span className="text-xs font-bold">- R$ {existingPartialPaid.toFixed(2)}</span>
                         </div>
-                        {order.partialPayments && order.partialPayments.length > 0 && (
+                        {order.paymentLog && order.paymentLog.length > 0 && (
                           <div className="space-y-0.5 pl-4 border-l border-blue-200 ml-1">
-                            {order.partialPayments.map((p, idx) => (
+                            {order.paymentLog.map((p, idx) => (
                               <div key={idx} className="flex justify-between items-center text-[9px] text-blue-500/70 italic">
-                                <span>parcial ({p.method}):</span>
+                                <span>{p.type === 'partial' ? 'parcial' : 'itens'} ({p.method}):</span>
                                 <span>- R$ {p.amount.toFixed(2)}</span>
                               </div>
                             ))}

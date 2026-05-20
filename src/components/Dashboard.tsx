@@ -10,7 +10,6 @@ import { GoogleGenAI } from "@google/genai";
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
-import { useFirebase } from './FirebaseProvider';
 
 interface DashboardProps {
   tables: Table[];
@@ -24,9 +23,387 @@ interface DashboardProps {
   activeTab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products';
   setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products') => void;
   isCashRegisterOpen: boolean;
+  toggleCashRegister: (open: boolean) => Promise<void>;
   printerConfig: any;
   setPrinterConfig: (config: any) => void;
 }
+
+// Separate component for Order Details to avoid Hook issues and improve readability
+const OrderDetails = ({ 
+  isComandaSelected, 
+  selectedComandaId, 
+  selectedTableId, 
+  comandas, 
+  tables, 
+  orders, 
+  waiters, 
+  isCashRegisterOpen,
+  setIsAddItemModalOpen,
+  setIsHistoryModalOpen,
+  setIsLinkModalOpen,
+  setIsTransferModalOpen,
+  setIsPaymentModalOpen,
+  handleRemoveItem,
+  printerConfig
+}: any) => {
+  const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
+  if (!targetId) return (
+    <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
+      <p className="text-sm">Selecione uma mesa ou comanda para ver os detalhes.</p>
+    </div>
+  );
+
+  const currentItem = (isComandaSelected ? comandas : tables).find((t: any) => targetId && t.id && String(t.id) === String(targetId));
+  
+  const activeOrder = React.useMemo(() => {
+    if (!targetId) return null;
+    
+    // First try to find by currentOrder ID if the table/comanda points to one
+    if (currentItem?.currentOrder) {
+      const orderById = orders.find((o: any) => 
+        String(o.id) === String(currentItem.currentOrder) && o.status !== 'finalizada'
+      );
+      if (orderById) return orderById;
+    }
+
+    // Fallback: find the most recent non-finalized order for this table/comanda
+    const activeOrders = orders.filter((o: any) => 
+      o.status !== 'finalizada' && 
+      o.tableId && String(o.tableId) === String(targetId) && 
+      !!o.isComanda === !!isComandaSelected
+    );
+
+    if (activeOrders.length > 0) {
+      // Sort by timestamp descending to get the most recent one
+      return activeOrders.sort((a: any, b: any) => {
+        const dateA = new Date(a.timestamp || 0).getTime();
+        const dateB = new Date(b.timestamp || 0).getTime();
+        return dateB - dateA;
+      })[0];
+    }
+
+    return null;
+  }, [orders, currentItem, targetId, isComandaSelected]);
+  const waiter = waiters.find((w: any) => String(w.id) === String(activeOrder?.waiterId));
+  const hasItems = activeOrder && activeOrder.items && activeOrder.items.filter((i: any) => !i.removed).length > 0;
+
+  return (
+    <div className="flex flex-col h-full">
+      <h3 className="font-serif italic text-xl mb-3 flex items-center justify-between shrink-0">
+        <span className="truncate mr-4">
+          {isComandaSelected 
+            ? `Detalhes C${selectedComandaId ?? ''}` 
+            : `Detalhes M${selectedTableId ?? ''}`}
+        </span>
+        <div className="flex items-center space-x-2 shrink-0">
+          <button 
+            onClick={() => hasItems && setIsLinkModalOpen(true)}
+            disabled={!hasItems}
+            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+              hasItems 
+                ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
+                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+            }`}
+          >
+            Agrupar
+          </button>
+          <button 
+            onClick={() => {
+              if (activeOrder) {
+                const printWindow = window.open('', '_blank');
+                if (printWindow) {
+                  const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
+                  const tableId = targetId;
+                  const waiterName = waiters.find((w: any) => w.id === activeOrder.waiterId)?.name || 'N/A';
+                  const total = (activeOrder.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => acc + i.price, 0);
+                  
+                  const html = `
+                    <html>
+                      <head>
+                        <title>Resumo ${tableType} ${tableId}</title>
+                        <style>
+                          body { font-family: monospace; padding: 20px; width: 300px; margin: 0 auto; color: #141414; }
+                          .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
+                          .items { margin-bottom: 10px; }
+                          .item { 
+                            display: flex; 
+                            justify-content: space-between; 
+                            margin-bottom: 5px; 
+                            font-size: ${printerConfig.itemFontSize};
+                            font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
+                          }
+                          .footer { border-top: 1px dashed #000; padding-top: 10px; text-align: right; }
+                          .establishment { font-weight: bold; font-size: 14px; text-transform: uppercase; }
+                          @media print { body { width: 100%; margin: 0; } }
+                        </style>
+                      </head>
+                      <body>
+                        <div class="header">
+                          <div class="establishment">${printerConfig.establishmentName}</div>
+                          <div>${printerConfig.address}</div>
+                          <div>Tel: ${printerConfig.phone}</div>
+                          <div style="margin-top: 10px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
+                        </div>
+                        <div class="info">
+                          <div>${tableType}: ${tableId}</div>
+                          <div>Garçom: ${waiterName}</div>
+                          <div>Data: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
+                        </div>
+                        <div style="border-bottom: 1px dashed #000; margin: 10px 0;"></div>
+                        <div class="items">
+                          ${(activeOrder.items || []).filter((i: any) => !i.removed).map((item: any) => `
+                            <div class="item">
+                              <span>${item.quantity}x ${item.name}</span>
+                              <span>R$ ${item.price.toFixed(2)}</span>
+                            </div>
+                          `).join('')}
+                        </div>
+                        <div class="footer">
+                          <div style="font-size: 14px; font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
+                        </div>
+                        <div style="text-align: center; margin-top: 20px; font-size: 10px; opacity: 0.7;">
+                          ${printerConfig.receiptFooter}
+                        </div>
+                        <script>window.onload = () => { window.print(); window.close(); }</script>
+                      </body>
+                    </html>
+                  `;
+                  printWindow.document.write(html);
+                  printWindow.document.close();
+                }
+              }
+            }}
+            disabled={!hasItems}
+            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+              hasItems 
+                ? 'bg-blue-50 hover:bg-blue-100 text-blue-700' 
+                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+            }`}
+          >
+            <Printer size={10} className="inline mr-1" />
+            Resumo
+          </button>
+          <button 
+            onClick={() => hasItems && setIsTransferModalOpen(true)}
+            disabled={!hasItems}
+            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+              hasItems 
+                ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
+                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+            }`}
+          >
+            Transferir
+          </button>
+          <button 
+            onClick={() => hasItems && setIsPaymentModalOpen(true)}
+            disabled={!hasItems}
+            className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
+              hasItems 
+                ? 'bg-green-600 hover:bg-green-700 text-white' 
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <Wallet size={10} />
+            <span>Pagar</span>
+          </button>
+        </div>
+      </h3>
+      <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
+      <div className="p-6 pb-2 shrink-0">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col">
+            <div className="flex items-center space-x-2">
+              <h4 className="text-2xl font-bold">{isComandaSelected ? 'Comanda' : 'Mesa'} {targetId ?? ''}</h4>
+              <button 
+                onClick={() => setIsAddItemModalOpen(true)}
+                className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
+                title="Adicionar Pedido (ADM)"
+              >
+                <PlusCircle size={20} />
+              </button>
+            </div>
+            {waiter && (
+              <span className="text-[10px] opacity-50 italic">Garçom: {waiter.name}</span>
+            )}
+          </div>
+          <div className="flex flex-col items-end space-y-2">
+            <button 
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
+              title="Histórico de Vendas"
+            >
+              <History size={20} />
+            </button>
+            <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${
+              currentItem?.status === 'free' ? 'bg-gray-100' : 'bg-[#141414] text-[#E4E3E0]'
+            }`}>
+              {currentItem?.status === 'occupied' ? 'ocupada' : 
+               currentItem?.status === 'free' ? 'livre' : 
+               currentItem?.status}
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="flex-1 overflow-y-auto p-6 pt-0 scrollbar-hide">
+        {activeOrder ? (
+          <div className="space-y-4">
+            <div className="border-b pb-2 space-y-1 pr-1">
+              {(activeOrder.items || []).map((item: any) => (
+                <div key={item.id} className={`flex justify-between items-center text-[11px] ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 px-2 py-1 rounded-md border border-green-100/50 mb-1' : ''}`}>
+                  <div className="flex flex-col">
+                    <div className="flex items-center space-x-2">
+                      <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
+                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                      </span>
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
+                        <OrderTimer timestamp={item.timestamp} />
+                      )}
+                    </div>
+                    {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
+                    {item.ingredients && item.type !== 'pizzas' && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>}
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="flex flex-col items-end">
+                      <span className={`font-mono font-bold ${item.paid ? 'text-green-700' : ''}`}>
+                        R$ {(() => {
+                          let price = item.price;
+                          if (item.discount) {
+                            if (item.discountType === 'percentage') price *= (1 - item.discount / 100);
+                            else price = Math.max(0, price - item.discount);
+                          }
+                          return price.toFixed(2);
+                        })()}
+                      </span>
+                    </div>
+                    {!item.removed && (
+                      <button 
+                        onClick={() => handleRemoveItem(activeOrder.id, item)}
+                        className="text-red-500 opacity-20 hover:opacity-100 transition-opacity p-1"
+                        title="Remover Item (ADM)"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {activeOrder.observations && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                  <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações da Comanda</p>
+                  <p className="text-xs text-blue-700 italic">{activeOrder.observations}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <p className="text-sm opacity-50 italic">Nenhum pedido ativo para esta {isComandaSelected ? 'comanda' : 'mesa'}.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="p-6 pt-2 border-t border-[#141414]/10 bg-gray-50/50 shrink-0">
+        {activeOrder ? (
+          <>
+            <div className="space-y-1">
+              <div className="flex justify-between items-center opacity-50">
+                <span className="text-[10px] uppercase font-bold">Total Consumido</span>
+                <span className="text-sm font-bold">
+                  R$ {activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+                    let price = i.price;
+                    if (i.discount && !i.paid) {
+                      if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+                      else price = Math.max(0, price - i.discount);
+                    }
+                    return acc + price;
+                  }, 0).toFixed(2)}
+                </span>
+              </div>
+              {activeOrder.discount && (
+                <div className="flex justify-between items-center text-green-600">
+                  <span className="text-[10px] uppercase font-bold">Desconto no Total</span>
+                  <span className="text-sm font-bold">
+                    - {activeOrder.discountType === 'percentage' ? `${activeOrder.discount}%` : `R$ ${activeOrder.discount.toFixed(2)}`}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-1 border-t border-[#141414]/5">
+                <span className="text-[10px] uppercase font-bold opacity-70">Total Líquido</span>
+                <span className="text-sm font-bold">
+                  R$ {(() => {
+                    const total = activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+                      let price = Number(i.price) || 0;
+                      if (i.discount) {
+                        if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+                        else price = Math.max(0, price - i.discount);
+                      }
+                      return acc + price;
+                    }, 0);
+                    
+                    let finalTotal = total;
+                    if (activeOrder.discount) {
+                      if (activeOrder.discountType === 'percentage') finalTotal *= (1 - activeOrder.discount / 100);
+                      else finalTotal = Math.max(0, finalTotal - activeOrder.discount);
+                    }
+                    return finalTotal.toFixed(2);
+                  })()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-blue-600">
+                <span className="text-[10px] uppercase font-bold">
+                  Já Pago {activeOrder.paymentLog && activeOrder.paymentLog.length > 0 ? '(Registrado)' : ''}
+                </span>
+                <span className="text-sm font-bold">
+                  - R$ {(() => {
+                    const totalPaidFromLog = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+                    return totalPaidFromLog.toFixed(2);
+                  })()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center pt-2 border-t border-dashed border-[#141414]/10">
+                <span className="text-xs uppercase font-bold">Restante a Pagar</span>
+                <span className="text-2xl font-bold">
+                  R$ {(() => {
+                    const total = activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+                      let price = Number(i.price) || 0;
+                      if (i.discount) {
+                        if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+                        else price = Math.max(0, price - i.discount);
+                      }
+                      return acc + price;
+                    }, 0);
+                    
+                    let finalTotal = total;
+                    if (activeOrder.discount) {
+                      if (activeOrder.discountType === 'percentage') finalTotal *= (1 - activeOrder.discount / 100);
+                      else finalTotal = Math.max(0, finalTotal - activeOrder.discount);
+                    }
+                    
+                    const paid = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+                    
+                    return Math.max(0, finalTotal - paid).toFixed(2);
+                  })()}
+                </span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="pt-2 border-t border-[#141414]/5">
+            <button 
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="text-[10px] uppercase font-bold opacity-30 hover:opacity-100 transition-opacity flex items-center space-x-1"
+            >
+              <Clock size={12} />
+              <span>Ver histórico de hoje</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+  );
+};
 
 export default function Dashboard({ 
   tables, 
@@ -40,10 +417,10 @@ export default function Dashboard({
   activeTab, 
   setActiveTab, 
   isCashRegisterOpen,
+  toggleCashRegister,
   printerConfig,
   setPrinterConfig
 }: DashboardProps) {
-  const { initLocalData, toggleCashRegister } = useFirebase();
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -99,6 +476,32 @@ export default function Dashboard({
   const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '' });
   const [editingProduct, setEditingProduct] = useState<{categoryName: string, item: MenuItem} | null>(null);
 
+  const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
+  const [seedSteps, setSeedSteps] = useState<string[]>([]);
+  const [isSeedComplete, setIsSeedComplete] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+
+  const handleSeedDatabase = async () => {
+    setIsSeedModalOpen(true);
+    setIsSeeding(true);
+    setSeedSteps([]);
+    setIsSeedComplete(false);
+    
+    try {
+      await seedDatabase((step) => {
+        setSeedSteps(prev => [...prev, step]);
+        if (step === 'Concluído!') {
+          setIsSeedComplete(true);
+          setIsSeeding(false);
+        }
+      });
+    } catch (error: any) {
+      console.error('Seed process failed:', error);
+      setIsSeeding(false);
+      toast.error('Erro na inicialização');
+    }
+  };
+
   const [discoveredPrinters] = useState([
     { name: 'Impressora Cozinha 1', ip: '192.168.1.101', status: 'online' },
     { name: 'Impressora Cozinha 2', ip: '192.168.1.103', status: 'online' },
@@ -107,6 +510,10 @@ export default function Dashboard({
   ]);
 
   const handleTestPrinter = (printerName: string) => {
+    if (printerName === 'none') {
+      toast.info('Nenhuma impressora configurada para este canal.');
+      return;
+    }
     const printer = discoveredPrinters.find(p => p.name === printerName);
     if (printer?.status === 'offline') {
       toast.error(`Erro ao imprimir em ${printerName}`, {
@@ -134,35 +541,101 @@ export default function Dashboard({
     });
   };
 
-  const printOrderToPrinters = (orderItems: any[]) => {
+  const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
+    if (!printerConfig.autoPrintKitchen) return;
+
+    const targetId = tableId || (isComandaSelected ? selectedComandaId : selectedTableId);
+    const tableType = isComanda !== undefined ? (isComanda ? 'Comanda' : 'Mesa') : (isComandaSelected ? 'Comanda' : 'Mesa');
+    
+    if (!targetId) return;
+
     orderItems.forEach(item => {
       let targetPrinterName = '';
       
       // Determine the printer based on item type
       if (item.type === 'pizzas') {
-        targetPrinterName = printerConfig.pizzas;
+        targetPrinterName = printerConfig.pizzas || printerConfig.kitchen;
       } else if (item.type === 'bebidas') {
-        targetPrinterName = printerConfig.drinks;
+        targetPrinterName = printerConfig.drinks || printerConfig.kitchen;
       } else if (item.type === 'lanches') {
         targetPrinterName = printerConfig.kitchen;
       }
       
-      if (targetPrinterName) {
-        const printer = discoveredPrinters.find(p => p.name === targetPrinterName);
-        if (printer?.status === 'online') {
-          toast.success(`Pedido enviado para ${targetPrinterName}`, {
-            description: `Item: ${item.name}`,
-            icon: <Printer size={16} />
-          });
-        } else if (targetPrinterName !== '') {
-          // If a printer is configured but offline
-          toast.error(`Impressora ${targetPrinterName} offline`, {
-            description: `O item ${item.name} não pôde ser impresso.`
-          });
+      if (targetPrinterName && targetPrinterName !== 'none') {
+        const printFrame = document.createElement('iframe');
+        printFrame.style.position = 'fixed';
+        printFrame.style.right = '0';
+        printFrame.style.bottom = '0';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = '0';
+        document.body.appendChild(printFrame);
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString();
+        const timeStr = now.toLocaleTimeString();
+        
+        const html = `
+          <html>
+            <head>
+              <style>
+                body { font-family: monospace; padding: 10px; width: 280px; margin: 0 auto; color: #000; }
+                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; }
+                .table-info { font-size: 36px; font-weight: bold; margin: 5px 0; border: 3px solid #000; padding: 10px; text-align: center; }
+                .item-detail { font-size: 20px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+                .observation { background: #000; color: #fff; padding: 8px; font-weight: bold; font-size: 16px; margin-top: 5px; }
+                .footer { font-size: 10px; margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; line-height: 1.4; }
+                @media print { body { width: 100%; margin: 0; } }
+              </style>
+            </head>
+            <body>
+              <div class="header">
+                <div style="font-size: 12px; font-weight: bold;">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
+                <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
+              </div>
+              <div class="item-detail">
+                ${item.quantity || 1}x ${item.name}
+              </div>
+              ${item.flavors && item.flavors.length > 1 ? `<div style="font-size: 14px; font-weight: bold;">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
+              ${item.crust ? `<div style="font-size: 14px;">BORDA: ${item.crust}</div>` : ''}
+              ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+              
+              <div class="footer">
+                <div>Operador: ${item.waiterName || 'SISTEMA'}</div>
+                <div>ID: #${Math.floor(Math.random() * 100000)}</div>
+                <div>Data: ${dateStr} - ${timeStr}</div>
+              </div>
+            </body>
+          </html>
+        `;
+
+        if (printFrame.contentWindow) {
+          printFrame.contentWindow.document.open();
+          printFrame.contentWindow.document.write(html);
+          printFrame.contentWindow.document.close();
+          
+          setTimeout(() => {
+            printFrame.contentWindow?.focus();
+            printFrame.contentWindow?.print();
+            document.body.removeChild(printFrame);
+          }, 300);
         }
       }
     });
   };
+
+  useEffect(() => {
+    const handleKitchenOrder = (data: any) => {
+      if (data?.order?.items && printerConfig.autoPrintKitchen) {
+        printOrderToPrinters(data.order.items, data.order.tableId, data.order.isComanda);
+      }
+    };
+
+    socket.on('kitchen_new_order', handleKitchenOrder);
+    return () => {
+      socket.off('kitchen_new_order', handleKitchenOrder);
+    };
+  }, [printerConfig.autoPrintKitchen, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas]);
 
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
@@ -186,10 +659,10 @@ export default function Dashboard({
     });
 
     // Handle receipt printing
-    const order = orders.find(o => o.id === orderId);
+    const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
     if (order) {
       const totalToPrint = partialAmount || Object.entries(selectedItems).reduce((acc, [itemId, qty]) => {
-        const item = order.items.find(i => i.id === itemId);
+        const item = (order.items || []).find(i => i.id === itemId);
         return acc + (item ? item.price * qty : 0);
       }, 0);
       
@@ -280,10 +753,15 @@ export default function Dashboard({
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
     }
-    const activeOrder = orders.find(o => o.tableId === tableId && o.isComanda === isComandaSelected && o.status !== 'finalizada');
+    const activeOrder = orders.filter(o => 
+      tableId && o.tableId && 
+      String(o.tableId) === String(tableId) && 
+      !!o.isComanda === !!isComandaSelected && 
+      o.status !== 'finalizada'
+    ).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
     
     // Check if it's a pizza
-    const category = menu.find(cat => cat.items.some(i => i.id === item.id || i.name === item.name));
+    const category = menu.find(cat => cat.items?.some(i => i.id === item.id || i.name === item.name));
     const isPizza = category?.type === 'pizzas' || item.type === 'pizzas';
     const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || item.type === 'lanches' || item.type === 'bebidas';
     
@@ -346,7 +824,7 @@ export default function Dashboard({
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
     if (!selectedQuantityItem || !targetId) return;
 
-    const category = menu.find(cat => cat.items.some(i => i.name === selectedQuantityItem.name));
+    const category = menu.find(cat => cat.items?.some(i => i.name === selectedQuantityItem.name));
 
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
@@ -362,7 +840,12 @@ export default function Dashboard({
       ingredients: selectedQuantityItem.ingredients
     };
 
-    const activeOrder = orders.find(o => o.tableId === targetId && o.isComanda === isComandaSelected && o.status !== 'finalizada');
+    const activeOrder = orders.filter(o => 
+      targetId && o.tableId && 
+      String(o.tableId) === String(targetId) && 
+      !!o.isComanda === !!isComandaSelected && 
+      o.status !== 'finalizada'
+    ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
 
     if (activeOrder) {
       socket.emit('add_item_to_order', {
@@ -410,12 +893,36 @@ export default function Dashboard({
     handleAddItem(targetId!, itemWithDetails);
   };
 
-  const pendingWaiters = waiters.filter(w => w.status === 'pending');
+  const safeWaiters = Array.isArray(waiters) ? waiters : [];
+  const pendingWaiters = safeWaiters.filter(w => String(w.status).toLowerCase() === 'pending');
+  const activeWaiters = safeWaiters.filter(w => String(w.status).toLowerCase() === 'approved');
+  const inactiveWaiters = safeWaiters.filter(w => {
+    const s = String(w.status).toLowerCase();
+    return s === 'inactive' || s === 'rejected';
+  });
   const lowStockItems = stock.filter(item => item.quantity <= item.minQuantity);
   const waiterUrl = `${window.location.origin}/waiter`;
 
-  const approveWaiter = (id: string) => {
-    socket.emit('admin_approve_waiter', id);
+  const approveWaiter = async (id: string) => {
+    try {
+      const { updateDocument } = await import('../lib/firebaseService');
+      await updateDocument('waiters', id, { status: 'approved' });
+      socket.emit('admin_approve_waiter', id);
+      toast.success('Garçom aprovado!');
+    } catch (error) {
+      toast.error('Erro ao aprovar garçom');
+    }
+  };
+
+  const denyWaiter = async (id: string) => {
+    try {
+      const { updateDocument } = await import('../lib/firebaseService');
+      await updateDocument('waiters', id, { status: 'rejected' });
+      socket.emit('toggle_waiter_status', { waiterId: id, status: 'rejected' });
+      toast.success('Solicitação recusada!');
+    } catch (error) {
+      toast.error('Erro ao recusar solicitação');
+    }
   };
 
   const analyzeKitchenVideo = async () => {
@@ -441,6 +948,74 @@ export default function Dashboard({
 
   return (
     <div className="flex h-screen overflow-hidden relative">
+      {/* Seed Progress Modal */}
+      <AnimatePresence>
+        {isSeedModalOpen && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-[#E4E3E0]/80 backdrop-blur-sm"
+              onClick={() => !isSeeding && setIsSeedModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl border border-[#141414]/10 shadow-2xl p-6 overflow-hidden"
+            >
+              <div className="flex flex-col items-center text-center">
+                <div className="w-16 h-16 bg-[#141414] rounded-full flex items-center justify-center mb-6">
+                  {isSeedComplete ? (
+                    <CheckCircle className="text-[#E4E3E0] w-8 h-8" />
+                  ) : (
+                    <RefreshCcw className={`text-[#E4E3E0] w-8 h-8 ${isSeeding ? 'animate-spin' : ''}`} />
+                  )}
+                </div>
+                
+                <h2 className="font-serif italic text-2xl mb-2">
+                  {isSeedComplete ? 'Tarefa Completa!' : 'Inicializando Banco'}
+                </h2>
+                <p className="text-gray-500 text-sm mb-6">
+                  {isSeedComplete 
+                    ? 'Seu sistema está pronto para uso com os dados padrão.'
+                    : 'Estamos configurando suas mesas, comandas e menu.'}
+                </p>
+
+                <div className="w-full bg-gray-50 rounded-2xl p-4 mb-6 max-h-48 overflow-y-auto text-left space-y-2 border border-[#141414]/5">
+                  {seedSteps.map((step, i) => (
+                    <motion.div 
+                      key={i}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="flex items-center space-x-2"
+                    >
+                      <div className="w-1 h-1 rounded-full bg-[#141414]/30" />
+                      <span className={`text-xs font-mono ${i === seedSteps.length - 1 ? 'font-bold text-[#141414]' : 'text-gray-400'}`}>
+                        {step}
+                      </span>
+                    </motion.div>
+                  ))}
+                  {seedSteps.length === 0 && (
+                    <div className="text-xs text-gray-400 italic font-mono">Iniciando processo...</div>
+                  )}
+                </div>
+
+                {isSeedComplete && (
+                  <button 
+                    onClick={() => setIsSeedModalOpen(false)}
+                    className="w-full bg-[#141414] text-white py-4 rounded-xl font-bold hover:opacity-90 transition-opacity active:scale-95"
+                  >
+                    OK, Começar a Usar
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -538,91 +1113,106 @@ export default function Dashboard({
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden p-4 lg:p-6 bg-[#F5F5F3] flex flex-col">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-4 shrink-0">
-          <div className="flex items-center space-x-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-3 shrink-0">
+          <div className="flex items-center space-x-3">
             <button 
               onClick={() => setIsSidebarOpen(true)}
               className="p-2 bg-white rounded-lg shadow-sm border border-[#141414]/10 lg:hidden"
             >
               <Menu size={20} />
             </button>
-            <header className="flex items-center space-x-3">
-              <h2 className="font-serif italic text-3xl shrink-0">Painel</h2>
-              <div className="flex items-center bg-white/50 border border-[#141414]/10 p-1 rounded-xl shadow-sm">
+            <header className="flex items-center space-x-2 overflow-hidden">
+              <h2 className="font-serif italic text-2xl lg:text-3xl shrink-0">Painel</h2>
+              <div className="flex items-center bg-white/50 border border-[#141414]/10 p-0.5 rounded-xl shadow-sm overflow-x-auto scrollbar-hide">
                 <button 
                   onClick={() => setActiveTab('overview')}
-                  className={`p-1.5 rounded-lg transition-all ${activeTab === 'overview' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'overview' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Visão Geral"
                 >
-                  <LayoutDashboard size={18} />
+                  <LayoutDashboard size={16} />
                 </button>
                 <button 
                   onClick={() => setActiveTab('waiters')}
-                  className={`p-1.5 rounded-lg transition-all relative ${activeTab === 'waiters' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all relative shrink-0 ${activeTab === 'waiters' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Garçons"
                 >
-                  <Users size={18} />
+                  <Users size={16} />
                   {pendingWaiters.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border border-white" />
+                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white" />
                   )}
                 </button>
                 <button 
                   onClick={() => setActiveTab('stock')}
-                  className={`p-1.5 rounded-lg transition-all relative ${activeTab === 'stock' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all relative shrink-0 ${activeTab === 'stock' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Estoque"
                 >
-                  <Package size={18} />
+                  <Package size={16} />
                   {lowStockItems.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full border border-white" />
+                    <span className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 bg-yellow-500 rounded-full border border-white" />
                   )}
                 </button>
                 <button 
                   onClick={() => setActiveTab('products')}
-                  className={`p-1.5 rounded-lg transition-all ${activeTab === 'products' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'products' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Produtos"
                 >
-                  <ShoppingCart size={18} />
+                  <ShoppingCart size={16} />
                 </button>
                 <button 
                   onClick={() => setActiveTab('ai')}
-                  className={`p-1.5 rounded-lg transition-all ${activeTab === 'ai' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'ai' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="IA Vision"
                 >
-                  <Video size={18} />
+                  <Video size={16} />
                 </button>
                 <button 
                   onClick={() => setActiveTab('reports')}
-                  className={`p-1.5 rounded-lg transition-all ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Relatórios"
                 >
-                  <FileText size={18} />
+                  <FileText size={16} />
                 </button>
                 <button 
                   onClick={() => setActiveTab('settings')}
-                  className={`p-1.5 rounded-lg transition-all ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Configurações"
                 >
-                  <Settings size={18} />
+                  <Settings size={16} />
                 </button>
               </div>
             </header>
           </div>
 
           {activeTab === 'overview' && (
-            <div className="flex items-center flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
               <button 
-                onClick={() => toggleCashRegister(!isCashRegisterOpen)}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-md ${
+                onClick={() => {
+                  if (!isCashRegisterOpen) {
+                    toggleCashRegister(true);
+                    socket.emit('toggle_cash_register', true);
+                  } else {
+                    const activeTables = tables.find(t => t.status !== "free");
+                    const activeComandas = comandas.find(c => c.status !== "free");
+                    
+                    if (activeTables || activeComandas) {
+                      toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+                    } else {
+                      toggleCashRegister(false);
+                      socket.emit('toggle_cash_register', false);
+                    }
+                  }
+                }}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-sm shrink-0 ${
                   isCashRegisterOpen 
                     ? 'bg-red-500 text-white hover:bg-red-600' 
                     : 'bg-green-600 text-white hover:bg-green-700'
                 }`}
               >
-                <Wallet size={18} />
-                <span>{isCashRegisterOpen ? 'Fechar Caixa' : 'Abrir Caixa'}</span>
+                <Wallet size={14} />
+                <span>{isCashRegisterOpen ? 'Fechar' : 'Abrir'}</span>
               </button>
               <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
-              <StatCard title="Pendentes" value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
+              <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
             </div>
           )}
         </div>
@@ -634,7 +1224,7 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="flex-1 min-h-0 pt-6"
+              className="flex-1 min-h-0 pt-2 lg:pt-4"
             >
               <section className="grid grid-cols-1 md:grid-cols-5 gap-4 h-full">
                 <div className="md:col-span-2 md:col-start-1 md:row-start-1 space-y-4 order-2 md:order-1">
@@ -661,9 +1251,10 @@ export default function Dashboard({
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: 10 }}
                         transition={{ duration: 0.2 }}
+                        className="flex-1 overflow-y-auto scrollbar-hide pr-1"
                       >
                         <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
-                          {tables.map(table => (
+                          {[...tables].sort((a, b) => a.id - b.id).map(table => (
                             <button 
                               key={table.id}
                               onClick={() => {
@@ -695,9 +1286,10 @@ export default function Dashboard({
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -10 }}
                         transition={{ duration: 0.2 }}
+                        className="flex-1 overflow-y-auto scrollbar-hide pr-1"
                       >
                         <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
-                          {comandas.map(comanda => (
+                          {[...comandas].sort((a, b) => a.id - b.id).map(comanda => (
                             <button 
                               key={comanda.id}
                               onClick={() => {
@@ -727,343 +1319,24 @@ export default function Dashboard({
                 </div>
 
                 <div ref={detailsRef} className="md:col-span-3 md:col-start-3 md:row-start-1 md:row-span-2 order-1 md:order-2 h-full flex flex-col min-h-0">
-                  <div className="flex flex-col h-full">
-                    {(isComandaSelected ? selectedComandaId : selectedTableId) ? (() => {
-                      const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-                      const currentItem = (isComandaSelected ? comandas : tables).find(t => t.id === targetId);
-                      const activeOrder = orders.find(o => o.id === currentItem?.currentOrder);
-                      const waiter = waiters.find(w => w.id === activeOrder?.waiterId);
-                      const hasItems = activeOrder && activeOrder.items.filter(i => !i.removed).length > 0;
-                      
-                      return (
-                        <div className="flex flex-col h-full">
-                          <h3 className="font-serif italic text-xl mb-3 flex items-center justify-between shrink-0">
-                            <span className="truncate mr-4">
-                              {isComandaSelected 
-                                ? `Detalhes C${selectedComandaId ?? ''}` 
-                                : `Detalhes M${selectedTableId ?? ''}`}
-                            </span>
-                            <div className="flex items-center space-x-2 shrink-0">
-                              <button 
-                                onClick={() => hasItems && setIsLinkModalOpen(true)}
-                                disabled={!hasItems}
-                                className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-                                  hasItems 
-                                    ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
-                                    : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-                                }`}
-                              >
-                                Agrupar
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  if (activeOrder) {
-                                    const printWindow = window.open('', '_blank');
-                                    if (printWindow) {
-                                      const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
-                                      const tableId = targetId;
-                                      const waiterName = waiters.find(w => w.id === activeOrder.waiterId)?.name || 'N/A';
-                                      const total = activeOrder.items.filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0);
-                                      
-                                      const html = `
-                                        <html>
-                                          <head>
-                                            <title>Resumo ${tableType} ${tableId}</title>
-                                            <style>
-                                              body { font-family: monospace; padding: 20px; width: 300px; margin: 0 auto; color: #141414; }
-                                              .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-                                              .items { margin-bottom: 10px; }
-                                              .item { 
-                                                display: flex; 
-                                                justify-content: space-between; 
-                                                margin-bottom: 5px; 
-                                                font-size: ${printerConfig.itemFontSize};
-                                                font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
-                                              }
-                                              .footer { border-top: 1px dashed #000; padding-top: 10px; text-align: right; }
-                                              .establishment { font-weight: bold; font-size: 14px; text-transform: uppercase; }
-                                              @media print { body { width: 100%; margin: 0; } }
-                                            </style>
-                                          </head>
-                                          <body>
-                                            <div class="header">
-                                              <div class="establishment">${printerConfig.establishmentName}</div>
-                                              <div>${printerConfig.address}</div>
-                                              <div>Tel: ${printerConfig.phone}</div>
-                                              <div style="margin-top: 10px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
-                                            </div>
-                                            <div class="info">
-                                              <div>${tableType}: ${tableId}</div>
-                                              <div>Garçom: ${waiterName}</div>
-                                              <div>Data: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
-                                            </div>
-                                            <div style="border-bottom: 1px dashed #000; margin: 10px 0;"></div>
-                                            <div class="items">
-                                              ${activeOrder.items.filter(i => !i.removed).map(item => `
-                                                <div class="item">
-                                                  <span>${item.quantity}x ${item.name}</span>
-                                                  <span>R$ ${item.price.toFixed(2)}</span>
-                                                </div>
-                                              `).join('')}
-                                            </div>
-                                            <div class="footer">
-                                              <div style="font-size: 14px; font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
-                                            </div>
-                                            <div style="text-align: center; margin-top: 20px; font-size: 10px; opacity: 0.7;">
-                                              ${printerConfig.receiptFooter}
-                                            </div>
-                                            <script>window.onload = () => { window.print(); window.close(); }</script>
-                                          </body>
-                                        </html>
-                                      `;
-                                      printWindow.document.write(html);
-                                      printWindow.document.close();
-                                    }
-                                  }
-                                }}
-                                disabled={!hasItems}
-                                className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-                                  hasItems 
-                                    ? 'bg-blue-50 hover:bg-blue-100 text-blue-700' 
-                                    : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-                                }`}
-                              >
-                                <Printer size={10} className="inline mr-1" />
-                                Resumo
-                              </button>
-                              <button 
-                                onClick={() => hasItems && setIsTransferModalOpen(true)}
-                                disabled={!hasItems}
-                                className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-                                  hasItems 
-                                    ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
-                                    : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-                                }`}
-                              >
-                                Transferir
-                              </button>
-                              <button 
-                                onClick={() => hasItems && setIsPaymentModalOpen(true)}
-                                disabled={!hasItems}
-                                className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
-                                  hasItems 
-                                    ? 'bg-green-600 hover:bg-green-700 text-white' 
-                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                                }`}
-                              >
-                                <Wallet size={10} />
-                                <span>Pagar</span>
-                              </button>
-                            </div>
-                          </h3>
-                          <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
-                          <div className="p-6 pb-2 shrink-0">
-                            <div className="flex justify-between items-center mb-4">
-                              <div className="flex flex-col">
-                                <div className="flex items-center space-x-2">
-                                  <h4 className="text-2xl font-bold">{isComandaSelected ? 'Comanda' : 'Mesa'} {targetId ?? ''}</h4>
-                                  <button 
-                                    onClick={() => setIsAddItemModalOpen(true)}
-                                    className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
-                                    title="Adicionar Pedido (ADM)"
-                                  >
-                                    <PlusCircle size={20} />
-                                  </button>
-                                </div>
-                                {waiter && (
-                                  <span className="text-[10px] opacity-50 italic">Garçom: {waiter.name}</span>
-                                )}
-                              </div>
-                              <div className="flex flex-col items-end space-y-2">
-                                <button 
-                                  onClick={() => setIsHistoryModalOpen(true)}
-                                  className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
-                                  title="Histórico de Vendas"
-                                >
-                                  <History size={20} />
-                                </button>
-                                <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${
-                                  currentItem?.status === 'free' ? 'bg-gray-100' : 'bg-[#141414] text-[#E4E3E0]'
-                                }`}>
-                                  {currentItem?.status === 'occupied' ? 'ocupada' : 
-                                   currentItem?.status === 'free' ? 'livre' : 
-                                   currentItem?.status}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex-1 overflow-y-auto p-6 pt-0 scrollbar-hide">
-                            {activeOrder ? (
-                              <div className="space-y-4">
-                                <div className="border-b pb-2 space-y-1 pr-1">
-                                  {activeOrder.items.map((item) => (
-                                    <div key={item.id} className={`flex justify-between items-center text-[11px] ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 px-2 py-1 rounded-md border border-green-100/50 mb-1' : ''}`}>
-                                      <div className="flex flex-col">
-                                        <div className="flex items-center space-x-2">
-                                          <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
-                                            {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                                          </span>
-                                          {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
-                                            <OrderTimer timestamp={item.timestamp} />
-                                          )}
-                                        </div>
-                                        {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
-                                        {item.ingredients && item.type !== 'pizzas' && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>}
-
-                                      </div>
-                                      <div className="flex items-center space-x-3">
-                                        <div className="flex flex-col items-end">
-                                          <span className={`font-mono font-bold ${item.paid ? 'text-green-700' : ''}`}>
-                                            R$ {(() => {
-                                              let price = item.price;
-                                              if (item.discount) {
-                                                if (item.discountType === 'percentage') price *= (1 - item.discount / 100);
-                                                else price = Math.max(0, price - item.discount);
-                                              }
-                                              return price.toFixed(2);
-                                            })()}
-                                          </span>
-                                        </div>
-                                        {!item.removed && (
-                                          <button 
-                                            onClick={() => handleRemoveItem(activeOrder.id, item)}
-                                            className="text-red-500 opacity-20 hover:opacity-100 transition-opacity p-1"
-                                            title="Remover Item (ADM)"
-                                          >
-                                            <Trash2 size={12} />
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  {activeOrder.observations && (
-                                    <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                                      <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações da Comanda</p>
-                                      <p className="text-xs text-blue-700 italic">{activeOrder.observations}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="space-y-6">
-                                <p className="text-sm opacity-50 italic">Nenhum pedido ativo para esta {isComandaSelected ? 'comanda' : 'mesa'}.</p>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="p-6 pt-2 border-t border-[#141414]/10 bg-gray-50/50 shrink-0">
-                            {activeOrder ? (
-                              <>
-                                <div className="space-y-1">
-                                  <div className="flex justify-between items-center opacity-50">
-                                    <span className="text-[10px] uppercase font-bold">Total Consumido</span>
-                                    <span className="text-sm font-bold">
-                                      R$ {activeOrder.items.filter(i => !i.removed).reduce((acc, i) => {
-                                        let price = i.price;
-                                        if (i.discount && !i.paid) {
-                                          if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
-                                          else price = Math.max(0, price - i.discount);
-                                        }
-                                        return acc + price;
-                                      }, 0).toFixed(2)}
-                                    </span>
-                                  </div>
-                                  {activeOrder.discount && (
-                                    <div className="flex justify-between items-center text-green-600">
-                                      <span className="text-[10px] uppercase font-bold">Desconto no Total</span>
-                                      <span className="text-sm font-bold">
-                                        - {activeOrder.discountType === 'percentage' ? `${activeOrder.discount}%` : `R$ ${activeOrder.discount.toFixed(2)}`}
-                                      </span>
-                                    </div>
-                                  )}
-                                  <div className="flex justify-between items-center pt-1 border-t border-[#141414]/5">
-                                    <span className="text-[10px] uppercase font-bold opacity-70">Total Líquido</span>
-                                    <span className="text-sm font-bold">
-                                      R$ {(() => {
-                                        const total = activeOrder.items.filter(i => !i.removed).reduce((acc, i) => {
-                                          let price = i.price;
-                                          if (i.discount && !i.paid) {
-                                            if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
-                                            else price = Math.max(0, price - i.discount);
-                                          }
-                                          return acc + price;
-                                        }, 0);
-                                        
-                                        let finalTotal = total;
-                                        if (activeOrder.discount) {
-                                          if (activeOrder.discountType === 'percentage') finalTotal *= (1 - activeOrder.discount / 100);
-                                          else finalTotal = Math.max(0, finalTotal - activeOrder.discount);
-                                        }
-                                        return finalTotal.toFixed(2);
-                                      })()}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between items-center text-blue-600">
-                                    <span className="text-[10px] uppercase font-bold">
-                                      Já Pago {activeOrder.partialPayments && activeOrder.partialPayments.length > 0 ? '(Parcial)' : ''}
-                                    </span>
-                                    <span className="text-sm font-bold">
-                                      - R$ {(() => {
-                                        const itemsPaid = activeOrder.items.filter(i => !i.removed && i.paid).reduce((acc, i) => acc + i.price, 0);
-                                        const partialPaid = (activeOrder.partialPayments || []).reduce((acc, p) => acc + p.amount, 0);
-                                        return (itemsPaid + partialPaid).toFixed(2);
-                                      })()}
-                                    </span>
-                                  </div>
-                                  <div className="flex justify-between items-center pt-2 border-t border-dashed border-[#141414]/10">
-                                    <span className="text-xs uppercase font-bold">Restante a Pagar</span>
-                                    <span className="text-2xl font-bold">
-                                      R$ {(() => {
-                                        const total = activeOrder.items.filter(i => !i.removed).reduce((acc, i) => {
-                                          let price = i.price;
-                                          if (i.discount && !i.paid) {
-                                            if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
-                                            else price = Math.max(0, price - i.discount);
-                                          }
-                                          return acc + price;
-                                        }, 0);
-                                        
-                                        let finalTotal = total;
-                                        if (activeOrder.discount) {
-                                          if (activeOrder.discountType === 'percentage') finalTotal *= (1 - activeOrder.discount / 100);
-                                          else finalTotal = Math.max(0, finalTotal - activeOrder.discount);
-                                        }
-                                        
-                                        const paid = (() => {
-                                          const itemsPaid = activeOrder.items.filter(i => !i.removed && i.paid).reduce((acc, i) => acc + i.price, 0);
-                                          const partialPaid = (activeOrder.partialPayments || []).reduce((acc, p) => acc + p.amount, 0);
-                                          return itemsPaid + partialPaid;
-                                        })();
-                                        
-                                        return Math.max(0, finalTotal - paid).toFixed(2);
-                                      })()}
-                                    </span>
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="pt-2 border-t border-[#141414]/5">
-                                <button 
-                                  onClick={() => setIsHistoryModalOpen(true)}
-                                  className="text-[10px] uppercase font-bold opacity-30 hover:opacity-100 transition-opacity flex items-center space-x-1"
-                                >
-                                  <Clock size={12} />
-                                  <span>Ver histórico de hoje</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      );
-                    })() : (
-                      <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
-                        <p className="text-sm">Selecione uma mesa ou comanda para ver os detalhes.</p>
-                      </div>
-                    )}
+                                      <OrderDetails 
+                      isComandaSelected={isComandaSelected}
+                      selectedComandaId={selectedComandaId}
+                      selectedTableId={selectedTableId}
+                      comandas={comandas}
+                      tables={tables}
+                      orders={orders}
+                      waiters={waiters}
+                      isCashRegisterOpen={isCashRegisterOpen}
+                      setIsAddItemModalOpen={setIsAddItemModalOpen}
+                      setIsHistoryModalOpen={setIsHistoryModalOpen}
+                      setIsLinkModalOpen={setIsLinkModalOpen}
+                      setIsTransferModalOpen={setIsTransferModalOpen}
+                      setIsPaymentModalOpen={setIsPaymentModalOpen}
+                      handleRemoveItem={handleRemoveItem}
+                      printerConfig={printerConfig}
+                    />
                   </div>
-                </div>
 
                 <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 space-y-4 order-3 lg:order-3 mt-4 lg:mt-0 pt-6 border-t border-[#141414]/5">
                   <div>
@@ -1094,7 +1367,7 @@ export default function Dashboard({
                                 order.status === 'preparing' ? 'text-blue-600' :
                                 'text-green-600'
                               }`}>
-                                R$ {order.items.filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0).toFixed(2)}
+                                      R$ {(order.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0).toFixed(2)}
                               </span>
                             </div>
                           </div>
@@ -1113,114 +1386,171 @@ export default function Dashboard({
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-10"
+              className="space-y-6 lg:space-y-10"
             >
               <header>
-                <h2 className="font-serif italic text-4xl mb-2">Gestão de Garçons</h2>
-                <p className="text-sm opacity-60">Aprovação de novos acessos e controle de equipe.</p>
+                <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Equipe</h2>
+                <p className="text-xs lg:text-sm opacity-60">Controle de acessos e performance da equipe.</p>
               </header>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <div className="space-y-10">
-                  {pendingWaiters.length > 0 && (
-                    <section className="bg-white border-2 border-[#141414] rounded-2xl p-8">
-                      <h3 className="font-serif italic text-xl mb-6 flex items-center">
-                        <Users className="mr-2" /> Solicitações Pendentes
-                      </h3>
-                      <div className="space-y-4">
-                        {pendingWaiters.map(waiter => (
-                          <div key={waiter.id || waiter.cpf} className="flex items-center justify-between p-4 border border-[#141414]/10 rounded-xl hover:bg-gray-50 transition-colors">
-                            <div>
-                              <p className="font-bold">{waiter.name}</p>
-                              <div className="flex flex-col text-xs opacity-50">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Column 1: Onboarding with QR Code (Primary Highlight, Dark Cosmic Theme) */}
+                <div className="lg:col-span-4 bg-[#141414] text-[#E4E3E0] p-6 rounded-2xl border-2 border-[#141414] shadow-lg flex flex-col items-center justify-center text-center space-y-4 hover:shadow-xl transition-shadow lg:sticky lg:top-24">
+                  <span className="bg-[#E4E3E0]/15 text-[#E4E3E0] text-[9px] tracking-wider uppercase font-bold px-2.5 py-1 rounded-full">
+                    Acesso & Onboarding
+                  </span>
+                  <h3 className="font-serif italic text-xl">Cadastro de Garçom</h3>
+                  <p className="text-[11px] opacity-70 max-w-[240px]">
+                    Escaneie o QR Code abaixo ou envie o link direto para realizar o auto-cadastro de novos garçons.
+                  </p>
+                  <div className="bg-white p-3 rounded-xl flex items-center justify-center shadow-md border-4 border-white">
+                    <QRCodeSVG 
+                      value={waiterUrl} 
+                      size={150}
+                      fgColor="#141414"
+                      bgColor="#ffffff"
+                      className="mx-auto block"
+                    />
+                  </div>
+                  <div className="space-y-2 w-full text-left bg-white/5 p-3 rounded-xl border border-white/10">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] uppercase tracking-widest font-bold opacity-40">Link do Terminal</p>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(waiterUrl);
+                          toast.success('Link copiado!');
+                        }}
+                        className="text-[10px] font-bold underline text-white hover:text-gray-300 transition-colors"
+                      >
+                        Copiar Link
+                      </button>
+                    </div>
+                    <p className="text-[10px] font-mono bg-[#141414] px-2.5 py-1.5 rounded border border-white/5 break-all text-[#E4E3E0]/80">{waiterUrl}</p>
+                  </div>
+                </div>
+
+                {/* Column 2: Pending and Inactive Waiters */}
+                <div className="lg:col-span-4 space-y-6">
+                  <section className="bg-white border-2 border-[#141414] rounded-2xl p-4 lg:p-6 shadow-sm">
+                    <h3 className="font-serif italic text-base lg:text-lg mb-4 flex items-center justify-between">
+                      <span className="flex items-center"><Users className="mr-2" size={18} /> Solicitações Pendentes</span>
+                      <span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-bold">{pendingWaiters.length}</span>
+                    </h3>
+                    <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                      {pendingWaiters.length > 0 ? (
+                        pendingWaiters.map(waiter => (
+                          <div key={waiter.id || waiter.cpf} className="flex flex-col p-3 border border-[#141414]/10 rounded-xl hover:bg-gray-50 transition-colors gap-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm truncate">{waiter.name}</p>
+                              <div className="flex flex-wrap gap-x-2 text-[10px] opacity-50 mt-0.5">
                                 {waiter.phone && <span>Tel: {waiter.phone}</span>}
                                 {waiter.cpf && <span>CPF: {waiter.cpf}</span>}
+                                {waiter.birthDate && <span>Nasc: {new Date(waiter.birthDate).toLocaleDateString()}</span>}
                               </div>
                             </div>
-                            <div className="flex space-x-2">
+                            <div className="flex space-x-2 w-full mt-1">
                               <button 
                                 onClick={() => approveWaiter(waiter.id || waiter.cpf!)}
-                                className="bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:scale-105 transition-transform"
+                                className="flex-1 bg-[#141414] text-[#E4E3E0] px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center hover:bg-black transition-colors"
                               >
-                                <CheckCircle size={16} className="mr-2" /> Aprovar
+                                <CheckCircle size={12} className="mr-1" /> Aprovar
                               </button>
-                              <button className="border border-red-500 text-red-500 px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-red-50 transition-colors">
-                                <XCircle size={16} className="mr-2" /> Negar
+                              <button 
+                                onClick={() => denyWaiter(waiter.id || waiter.cpf!)}
+                                className="flex-1 border border-red-500 text-red-500 px-2 py-1.5 rounded-lg text-[10px] font-bold flex items-center justify-center hover:bg-red-50 transition-colors"
+                              >
+                                <XCircle size={12} className="mr-1" /> Negar
                               </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
-                  <section className="mb-10">
-                    <h3 className="font-serif italic text-xl mb-6">Equipe Ativa</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                      {waiters.filter(w => w.status === 'approved').map(waiter => (
-                        <div key={waiter.id || waiter.cpf} className="bg-white p-6 rounded-xl border border-[#141414]/10 shadow-sm flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold">
-                              {waiter.name[0]}
-                            </div>
-                            <div>
-                              <p className="font-bold">{waiter.name}</p>
-                              <p className="text-[10px] opacity-50">{waiter.phone}</p>
-                              <p className="text-[10px] uppercase text-green-600 font-bold">Ativo</p>
-                            </div>
-                          </div>
-                          <button 
-                            onClick={() => socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'inactive' })}
-                            className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition-colors"
-                            title="Inativar Garçom"
-                          >
-                            <X size={18} />
-                          </button>
+                        ))
+                      ) : (
+                        <div className="text-center py-6 border border-dashed border-[#141414]/10 rounded-xl">
+                          <p className="text-xs opacity-40">Nenhuma solicitação pendente.</p>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </section>
 
-                  {waiters.some(w => w.status === 'inactive') && (
-                    <section>
-                      <h3 className="font-serif italic text-xl mb-6 text-gray-500">Equipe Inativa</h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        {waiters.filter(w => w.status === 'inactive').map(waiter => (
-                          <div key={waiter.id || waiter.cpf} className="bg-gray-50 p-6 rounded-xl border border-[#141414]/10 shadow-sm flex items-center justify-between grayscale opacity-60">
-                            <div className="flex items-center space-x-4">
-                              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center font-bold">
-                                {waiter.name[0]}
+                  {inactiveWaiters.length > 0 && (
+                    <section className="bg-white border border-dashed border-[#141414]/20 rounded-2xl p-4 lg:p-6 shadow-sm">
+                      <h3 className="font-serif italic text-base lg:text-lg mb-4 text-gray-400">Equipe Inativa ({inactiveWaiters.length})</h3>
+                      <div className="max-h-[220px] overflow-y-auto pr-1">
+                        <div className="space-y-3">
+                          {inactiveWaiters.map(waiter => (
+                            <div key={waiter.id || waiter.cpf} className="bg-gray-50 p-3 rounded-xl border border-[#141414]/5 flex items-center justify-between gap-2 opacity-75 hover:opacity-100 transition-opacity">
+                              <div className="flex items-center space-x-2.5 min-w-0">
+                                <div className="w-8 h-8 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center font-bold text-xs shrink-0">
+                                  {waiter.name ? waiter.name[0] : '?'}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-xs text-gray-600 truncate">{waiter.name}</p>
+                                  <p className="text-[9px] opacity-50 truncate">{waiter.phone}</p>
+                                </div>
                               </div>
-                              <div>
-                                <p className="font-bold">{waiter.name}</p>
-                                <p className="text-[10px] opacity-50">{waiter.phone}</p>
-                                <p className="text-[10px] uppercase text-red-600 font-bold">Inativo</p>
-                              </div>
+                              <button 
+                                onClick={() => approveWaiter(waiter.id || waiter.cpf!)}
+                                className="bg-green-50 text-green-600 px-2 py-1 rounded-lg hover:bg-green-100 transition-colors text-[10px] font-bold shrink-0"
+                                title="Ativar Garçom"
+                              >
+                                Reativar
+                              </button>
                             </div>
-                            <button 
-                              onClick={() => socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'approved' })}
-                              className="bg-green-50 text-green-600 p-2 rounded-lg hover:bg-green-100 transition-colors"
-                              title="Ativar Garçom"
-                            >
-                              <CheckCircle size={18} />
-                            </button>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
                     </section>
                   )}
                 </div>
 
-                <div className="bg-white p-8 rounded-3xl border border-[#141414]/10 shadow-sm flex flex-col items-center justify-center text-center space-y-6">
-                  <h3 className="font-serif italic text-2xl">Cadastro de Garçom</h3>
-                  <p className="text-sm opacity-50 max-w-xs">Aponte a câmera para o QR Code abaixo para acessar o terminal de auto-cadastro.</p>
-                  <div className="bg-white p-4 rounded-2xl shadow-lg border border-[#141414]/5">
-                    <QRCodeSVG value={waiterUrl} size={200} className="mx-auto" />
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-[10px] uppercase tracking-widest font-bold opacity-30">Link Direto</p>
-                    <p className="text-xs font-mono bg-gray-50 px-3 py-2 rounded-lg break-all">{waiterUrl}</p>
-                  </div>
+                {/* Column 3: Active Waiters */}
+                <div className="lg:col-span-4">
+                  <section className="bg-white border border-[#141414]/10 rounded-2xl p-4 lg:p-6 shadow-sm">
+                    <h3 className="font-serif italic text-base lg:text-lg mb-4 flex items-center justify-between">
+                      <span>Equipe Ativa</span>
+                      <span className="bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full font-bold">{activeWaiters.length}</span>
+                    </h3>
+                    <div className="max-h-[480px] overflow-y-auto pr-1">
+                      {activeWaiters.length > 0 ? (
+                        <div className="space-y-3">
+                          {activeWaiters.map(waiter => (
+                            <div key={waiter.id || waiter.cpf} className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex items-center justify-between gap-2 hover:border-[#141414]/20 transition-all">
+                              <div className="flex items-center space-x-3 min-w-0">
+                                <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center font-bold text-xs shrink-0">
+                                  {waiter.name[0]}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-bold text-xs truncate">{waiter.name}</p>
+                                  <p className="text-[9px] opacity-50 truncate">{waiter.phone}</p>
+                                  <p className="text-[9px] uppercase text-green-600 font-bold mt-0.5">Ativo</p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={async () => {
+                                  try {
+                                    const { updateDocument } = await import('../lib/firebaseService');
+                                    await updateDocument('waiters', waiter.id || waiter.cpf!, { status: 'inactive' });
+                                    socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'inactive' });
+                                    toast.success('Garçom inativado');
+                                  } catch (error) {
+                                    toast.error('Erro ao inativar garçom');
+                                  }
+                                }}
+                                className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition-colors shrink-0"
+                                title="Inativar Garçom"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-10 border border-dashed border-[#141414]/10 rounded-xl">
+                          <p className="text-xs opacity-40">Nenhum garçom ativo no momento.</p>
+                        </div>
+                      )}
+                    </div>
+                  </section>
                 </div>
               </div>
             </motion.div>
@@ -1232,34 +1562,34 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-10 pt-6"
+              className="space-y-6 lg:space-y-10 pt-6"
             >
               <header>
-                <h2 className="font-serif italic text-4xl mb-2">Gestão de Insumos</h2>
-                <p className="text-sm opacity-60">Controle de estoque e alertas de reposição.</p>
+                <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Insumos</h2>
+                <p className="text-xs lg:text-sm opacity-60">Controle de estoque e alertas de reposição.</p>
               </header>
 
-              <div className="grid grid-cols-1 gap-6">
-                <div className="bg-white border-2 border-[#141414] rounded-2xl overflow-hidden">
+              <div className="bg-white border border-[#141414]/10 rounded-2xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto scrollbar-hide">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-[#141414] text-[#E4E3E0]">
-                        <th className="p-4 text-[10px] uppercase tracking-widest">Insumo</th>
-                        <th className="p-4 text-[10px] uppercase tracking-widest">Quantidade Atual</th>
-                        <th className="p-4 text-[10px] uppercase tracking-widest">Mínimo</th>
-                        <th className="p-4 text-[10px] uppercase tracking-widest">Status</th>
+                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Insumo</th>
+                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Quantidade Atual</th>
+                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Mínimo</th>
+                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Status</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stock.map(item => (
                         <tr key={item.id} className="border-b border-[#141414]/10 hover:bg-gray-50 transition-colors">
-                          <td className="p-4 font-bold">{item.name}</td>
-                          <td className="p-4 font-mono">{item.quantity.toFixed(1)} {item.unit}</td>
-                          <td className="p-4 font-mono opacity-50">{item.minQuantity} {item.unit}</td>
-                          <td className="p-4">
+                          <td className="p-3 lg:p-4 font-bold text-sm whitespace-nowrap">{item.name}</td>
+                          <td className="p-3 lg:p-4 font-mono text-sm whitespace-nowrap">{item.quantity.toFixed(1)} {item.unit}</td>
+                          <td className="p-3 lg:p-4 font-mono text-sm opacity-50 whitespace-nowrap">{item.minQuantity} {item.unit}</td>
+                          <td className="p-3 lg:p-4 whitespace-nowrap">
                             {item.quantity <= item.minQuantity ? (
                               <span className="flex items-center text-red-600 text-[10px] font-bold uppercase">
-                                <AlertTriangle size={12} className="mr-1" /> Reposição Necessária
+                                <AlertTriangle size={12} className="mr-1 shrink-0" /> Reposição
                               </span>
                             ) : (
                               <span className="text-green-600 text-[10px] font-bold uppercase">Estável</span>
@@ -1280,41 +1610,41 @@ export default function Dashboard({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="space-y-10 pt-6"
+              className="space-y-6 lg:space-y-10 pt-6"
             >
               <header>
-                <h2 className="font-serif italic text-4xl mb-2">IA Vision Analysis</h2>
-                <p className="text-sm opacity-60">Análise inteligente do fluxo de trabalho via Gemini 3.1 Pro.</p>
+                <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">IA Vision Analysis</h2>
+                <p className="text-xs lg:text-sm opacity-60">Análise inteligente do fluxo com Gemini 3.1 Pro.</p>
               </header>
 
-              <div className="grid grid-cols-2 gap-10">
-                <div className="bg-[#141414] rounded-2xl aspect-video flex flex-col items-center justify-center text-[#E4E3E0] p-10 text-center space-y-6">
-                  <Video size={64} className="opacity-20" />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10">
+                <div className="bg-[#141414] rounded-2xl aspect-video flex flex-col items-center justify-center text-[#E4E3E0] p-6 lg:p-10 text-center space-y-4 lg:space-y-6">
+                  <Video size={48} className="opacity-20 lg:size-16" />
                   <div>
-                    <h4 className="text-xl font-bold mb-2">Monitoramento da Cozinha</h4>
-                    <p className="text-sm opacity-50">Conecte uma câmera para análise de tempo de preparo e gargalos.</p>
+                    <h4 className="text-lg lg:text-xl font-bold mb-1 lg:mb-2">Monitoramento da Cozinha</h4>
+                    <p className="text-xs lg:text-sm opacity-50">Conecte uma câmera para análise de produtividade.</p>
                   </div>
                   <button 
                     onClick={analyzeKitchenVideo}
                     disabled={isAnalyzing}
-                    className="bg-[#E4E3E0] text-[#141414] px-8 py-3 rounded-full font-bold hover:scale-105 transition-transform disabled:opacity-50"
+                    className="bg-[#E4E3E0] text-[#141414] px-6 py-2.5 lg:px-8 lg:py-3 rounded-full font-bold hover:scale-105 transition-transform disabled:opacity-50 text-sm"
                   >
-                    {isAnalyzing ? "Analisando..." : "Iniciar Análise de Fluxo"}
+                    {isAnalyzing ? "Analisando..." : "Iniciar Análise"}
                   </button>
                 </div>
 
-                <div className="bg-white border-2 border-[#141414] rounded-2xl p-8 overflow-y-auto max-h-[500px]">
-                  <h3 className="font-serif italic text-xl mb-6">Relatório de Otimização</h3>
+                <div className="bg-white border-2 border-[#141414] rounded-2xl p-4 lg:p-8 overflow-y-auto max-h-[400px] lg:max-h-[500px] scrollbar-hide">
+                  <h3 className="font-serif italic text-lg lg:text-xl mb-4 lg:mb-6">Insights de Otimização</h3>
                   {videoAnalysis ? (
-                    <div className="prose prose-sm font-mono text-xs leading-relaxed">
+                    <div className="prose prose-sm font-mono text-[10px] lg:text-xs leading-relaxed">
                       {videoAnalysis.split('\n').map((line, i) => (
                         <p key={i} className="mb-2">{line}</p>
                       ))}
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                      <ChefHat size={48} className="mb-4" />
-                      <p>Aguardando dados para análise...</p>
+                    <div className="flex flex-col items-center justify-center h-full opacity-30 text-center py-10">
+                      <ChefHat size={40} className="mb-3 lg:size-12" />
+                      <p className="text-xs lg:text-sm uppercase font-bold tracking-widest">Aguardando dados...</p>
                     </div>
                   )}
                 </div>
@@ -1579,9 +1909,9 @@ export default function Dashboard({
                   </header>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-[#141414] text-[#E4E3E0] p-4 rounded-2xl shadow-lg space-y-1">
-                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Faturamento do Dia</p>
-                      <p className="text-2xl font-bold font-mono">
+                    <div className="bg-[#141414] text-[#E4E3E0] p-4 lg:p-6 rounded-2xl shadow-lg space-y-2">
+                      <p className="text-[9px] lg:text-[10px] uppercase font-bold opacity-50 tracking-widest">Faturamento do Dia</p>
+                      <p className="text-2xl lg:text-3xl font-bold font-mono">
                         R$ {orders
                           .filter(o => o.timestamp.startsWith(reportDate))
                           .reduce((acc, o) => {
@@ -1596,12 +1926,12 @@ export default function Dashboard({
                       </div>
                     </div>
 
-                    <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm space-y-1">
-                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Ticket Médio</p>
-                      <p className="text-2xl font-bold font-mono">
+                    <div className="bg-white p-4 lg:p-6 rounded-2xl border border-[#141414]/10 shadow-sm space-y-2">
+                      <p className="text-[9px] lg:text-[10px] uppercase font-bold opacity-50 tracking-widest">Ticket Médio</p>
+                      <p className="text-2xl lg:text-3xl font-bold font-mono">
                         {(() => {
                           const dayOrders = orders.filter(o => o.status === 'finalizada' && o.timestamp.startsWith(reportDate));
-                          if (dayOrders.length === 0) return 'R$ 0.00';
+                          if (dayOrders.length === 0) return 'R$ 0,00';
                           const total = dayOrders.reduce((acc, o) => {
                             const payments = (o.paymentLog || []).reduce((pAcc, p) => pAcc + p.amount, 0);
                             return acc + payments;
@@ -1611,20 +1941,20 @@ export default function Dashboard({
                       </p>
                       <div className="pt-2 flex items-center space-x-2 text-green-600">
                         <TrendingUp size={14} />
-                        <span className="text-[10px]">Baseado em pedidos finalizados</span>
+                        <span className="text-[10px]">Baseado em fechamentos</span>
                       </div>
                     </div>
 
-                    <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm space-y-1">
-                      <p className="text-[9px] uppercase font-bold opacity-50 tracking-widest">Itens Vendidos</p>
-                      <p className="text-2xl font-bold font-mono">
+                    <div className="bg-white p-4 lg:p-6 rounded-2xl border border-[#141414]/10 shadow-sm space-y-2">
+                      <p className="text-[9px] lg:text-[10px] uppercase font-bold opacity-50 tracking-widest">Itens Lançados</p>
+                      <p className="text-2xl lg:text-3xl font-bold font-mono">
                         {orders
                           .filter(o => o.timestamp.startsWith(reportDate))
-                          .reduce((acc, o) => acc + o.items.filter(i => !i.removed).length, 0)}
+                          .reduce((acc, o) => acc + (o.items || []).filter(i => !i.removed).length, 0)}
                       </p>
                       <div className="pt-2 flex items-center space-x-2 opacity-40">
                         <Package size={14} />
-                        <span className="text-[10px]">Produtos processados hoje</span>
+                        <span className="text-[10px]">Lançamentos de hoje</span>
                       </div>
                     </div>
                   </div>
@@ -2205,25 +2535,25 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-4"
+              className="h-full flex flex-col space-y-3"
             >
-              <header className="flex items-center justify-between">
+              <header className="flex items-center justify-between shrink-0">
                 <div>
                   <h2 className="font-serif italic text-2xl mb-1">Configurações</h2>
                   <p className="text-[10px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 h-full pb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 flex-1 min-h-0 pb-2 overflow-y-auto lg:overflow-hidden scrollbar-hide">
                 {/* Column 1: Printers and Tests */}
-                <div className="space-y-3 flex flex-col">
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
+                <div className="space-y-3 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0">
+                    <div className="flex items-center space-x-2 mb-2 shrink-0">
                       <Printer className="text-[#141414]" size={14} />
                       <h3 className="font-serif italic text-base leading-none">Direcionamento</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto pr-1 flex-1 scrollbar-hide">
                       {['pizzas', 'drinks', 'kitchen', 'receipts'].map((key) => (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-0.5">
@@ -2245,7 +2575,7 @@ export default function Dashboard({
                             onChange={(e) => setPrinterConfig({...printerConfig, [key]: e.target.value})}
                             className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
                           >
-                            <option value="">Selecione...</option>
+                            <option value="none">Sem impressora</option>
                             {discoveredPrinters.map(p => (
                               <option key={p.ip} value={p.name}>{p.name}</option>
                             ))}
@@ -2256,22 +2586,22 @@ export default function Dashboard({
                     
                     <button 
                       onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-1 rounded-lg font-bold mt-2 hover:opacity-90 transition-opacity text-[8px] uppercase"
+                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold mt-3 hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
                     >
                       Salvar Dispositivos
                     </button>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden flex-initial">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden flex flex-col shrink-0">
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-2">
                         <Printer className="text-[#141414]" size={14} />
-                        <h3 className="font-serif italic text-base leading-none">Teste</h3>
+                        <h3 className="font-serif italic text-base leading-none">Teste das Impressoras</h3>
                       </div>
                       <Wifi size={10} className="text-green-500 animate-pulse" />
                     </div>
-                    <div className="space-y-1 max-h-[100px] overflow-y-auto pr-1 scrollbar-hide">
-                      {discoveredPrinters.slice(0, 4).map((printer) => (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-hide">
+                      {discoveredPrinters.slice(0, 6).map((printer) => (
                         <div key={printer.ip} className={`flex justify-between items-center px-1.5 py-1 rounded-lg border ${
                           printer.status === 'online' ? 'bg-green-50/20 border-green-100' : 'bg-red-50/20 border-red-100'
                         }`}>
@@ -2292,16 +2622,16 @@ export default function Dashboard({
                 </div>
 
                 {/* Column 2: Receipt Layout and Data */}
-                <div className="space-y-3 flex flex-col">
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-1">
-                    <div className="flex items-center space-x-2 mb-2">
+                <div className="space-y-3 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0">
+                    <div className="flex items-center space-x-2 mb-2 shrink-0">
                       <FileText className="text-[#141414]" size={14} />
-                      <h3 className="font-serif italic text-base leading-none">Layout Cupom</h3>
+                      <h3 className="font-serif italic text-base leading-none">Detalhes do Cupom</h3>
                     </div>
 
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Estabelecimento</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto pr-1 flex-1 scrollbar-hide">
+                      <div className="sm:col-span-2 lg:col-span-1">
+                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Nome do Estabelecimento</label>
                         <input 
                           type="text"
                           value={printerConfig.establishmentName}
@@ -2309,9 +2639,9 @@ export default function Dashboard({
                           className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 sm:col-span-2 lg:col-span-1">
                         <div>
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Endereço</label>
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Endereço Completo</label>
                           <input 
                             type="text"
                             value={printerConfig.address}
@@ -2320,7 +2650,7 @@ export default function Dashboard({
                           />
                         </div>
                         <div>
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Telefone</label>
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Telefone para Contato</label>
                           <input 
                             type="text"
                             value={printerConfig.phone}
@@ -2329,8 +2659,8 @@ export default function Dashboard({
                           />
                         </div>
                       </div>
-                      <div>
-                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Rodapé</label>
+                      <div className="sm:col-span-2 lg:col-span-1">
+                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Mensagem de Rodapé</label>
                         <textarea 
                           value={printerConfig.receiptFooter}
                           onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})}
@@ -2339,15 +2669,15 @@ export default function Dashboard({
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-2 gap-2 pt-1 pb-1 sm:col-span-2 lg:col-span-1">
                         <div className="col-span-2">
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Fonte Itens</label>
+                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Tamanho da Fonte (Itens)</label>
                           <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
                             {['10px', '12px', '14px', '16px'].map((size) => (
                               <button
                                 key={size}
                                 onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})}
-                                className={`flex-1 py-0.5 text-[8px] font-bold rounded-md transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
+                                className={`flex-1 py-1 text-[8px] font-bold rounded-md transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
                               >
                                 {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
                               </button>
@@ -2359,7 +2689,7 @@ export default function Dashboard({
                           onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})}
                           className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
                         >
-                          <span className="text-[7px] font-bold uppercase">Negrito</span>
+                          <span className="text-[7px] font-bold uppercase truncate">Itens em Negrito</span>
                           {printerConfig.boldItems && <CheckCircle size={8} className="text-green-600" />}
                         </button>
 
@@ -2367,14 +2697,22 @@ export default function Dashboard({
                           onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})}
                           className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
                         >
-                          <span className="text-[7px] font-bold uppercase">Garçom</span>
+                          <span className="text-[7px] font-bold uppercase">Mostrar Garçom</span>
                           {printerConfig.showWaiter && <CheckCircle size={8} className="text-green-600" />}
+                        </button>
+
+                        <button 
+                          onClick={() => setPrinterConfig({...printerConfig, autoPrintKitchen: !printerConfig.autoPrintKitchen})}
+                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.autoPrintKitchen ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                        >
+                          <span className="text-[7px] font-bold uppercase">Auto-Imprimir</span>
+                          {printerConfig.autoPrintKitchen && <CheckCircle size={8} className="text-green-600" />}
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-initial">
+                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-initial shrink-0">
                     <div className="flex items-center space-x-2 mb-2">
                       <Lock className="text-[#141414]" size={14} />
                       <h3 className="font-serif italic text-base leading-none">Dados</h3>
@@ -2389,20 +2727,9 @@ export default function Dashboard({
                         <span className="text-[8px] font-bold uppercase">Importar</span>
                       </button>
                     </div>
-                    <button
-                      onClick={async () => {
-                        if (!confirm('Deseja inicializar o banco de dados com os dados padrão?')) return;
-                        const toastId = toast.loading('Inicializando dados...');
-                        try {
-                          await seedDatabase();
-                          toast.success('Banco de dados inicializado no Firebase!', { id: toastId });
-                        } catch {
-                          toast.warning('Firebase indisponível — dados carregados localmente para teste.', { id: toastId, duration: 5000 });
-                        } finally {
-                          initLocalData();
-                        }
-                      }}
-                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase"
+                    <button 
+                      onClick={handleSeedDatabase}
+                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase transition-all hover:bg-red-100 active:scale-95"
                     >
                       Inicializar DB (Seed)
                     </button>
@@ -2461,7 +2788,7 @@ export default function Dashboard({
 
       {(() => {
         const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-        const activeOrder = targetId ? orders.find(o => o.tableId === targetId && o.isComanda === isComandaSelected && o.status !== 'finalizada') : null;
+        const activeOrder = orders.find(o => targetId && o.tableId && String(o.tableId) === String(targetId) && !!o.isComanda === !!isComandaSelected && o.status !== 'finalizada');
         return activeOrder && (
           <PaymentModal 
             isOpen={isPaymentModalOpen}
@@ -2490,13 +2817,13 @@ export default function Dashboard({
 
               <div className="grid grid-cols-5 gap-2 max-h-60 overflow-y-auto p-2">
                 {(isComandaSelected ? comandas : tables)
-                  .filter(t => t.id !== selectedTableId && t.status !== 'linked')
+                  .filter(t => t.id && String(t.id) !== String(isComandaSelected ? selectedComandaId : selectedTableId) && t.status !== 'linked')
                   .map(target => (
                     <button 
                       key={target.id}
                       onClick={() => setTargetTableId(target.id)}
                       className={`p-2 rounded-lg border-2 transition-all ${
-                        targetTableId === target.id ? 'border-[#141414] bg-[#141414] text-white' : 'border-[#141414]/10 hover:border-[#141414]/30'
+                        targetTableId && target.id && String(targetTableId) === String(target.id) ? 'border-[#141414] bg-[#141414] text-white' : 'border-[#141414]/10 hover:border-[#141414]/30'
                       }`}
                     >
                       <span className="text-xs font-bold">{target.id}</span>
@@ -2569,9 +2896,9 @@ export default function Dashboard({
               ) : (
                 <div className="space-y-6">
                   {(() => {
-                    const targetTable = (isComandaSelected ? comandas : tables).find(t => t.id === targetTableId);
-                    const targetOrder = targetTable?.currentOrder ? orders.find(o => o.id === targetTable.currentOrder) : null;
-                    const isOccupied = targetOrder && targetOrder.items.length > 0;
+                    const targetTable = (isComandaSelected ? comandas : tables).find(t => targetTableId && t.id && String(t.id) === String(targetTableId));
+                    const targetOrder = targetTable?.currentOrder ? orders.find(o => targetTable.currentOrder && o.id && String(o.id) === String(targetTable.currentOrder)) : null;
+                    const isOccupied = targetOrder && targetOrder.items && targetOrder.items.length > 0;
 
                     return (
                       <>
@@ -2587,7 +2914,7 @@ export default function Dashboard({
                             <p className="text-xs font-bold text-orange-800 uppercase">Atenção: Mesa Ocupada</p>
                             <p className="text-xs text-orange-700">Esta mesa já possui itens lançados. Os itens serão mesclados.</p>
                             <div className="max-h-32 overflow-y-auto space-y-1 pr-2">
-                              {targetOrder.items.map(item => (
+                              {(targetOrder?.items || []).map(item => (
                                 <div key={item.id} className="text-[10px] flex justify-between opacity-70">
                                   <span>{item.name}</span>
                                   <span>R$ {item.price.toFixed(2)}</span>
@@ -2686,7 +3013,7 @@ export default function Dashboard({
                       </div>
 
                       <div className="space-y-2">
-                        {order.items.map((item, idx) => (
+                        {(order.items || []).map((item, idx) => (
                           <div key={idx} className="flex flex-col space-y-0.5">
                             <div className="flex justify-between items-center text-sm">
                               <span className={item.removed ? 'line-through opacity-30' : ''}>
@@ -2730,7 +3057,7 @@ export default function Dashboard({
                           <span className="text-[10px] uppercase font-bold opacity-30">Total do Pedido</span>
                           <span className="font-bold">
                             R$ {(() => {
-                              const total = order.items.filter(i => !i.removed).reduce((acc, i) => {
+                              const total = (order.items || []).filter(i => !i.removed).reduce((acc, i) => {
                                 let price = i.price;
                                 if (i.discount) {
                                   if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
@@ -2822,7 +3149,7 @@ export default function Dashboard({
 
       {/* Add Item Modal (ADM) */}
       <AnimatePresence>
-        {isAddItemModalOpen && selectedTableId && (
+        {isAddItemModalOpen && (selectedTableId || selectedComandaId) && (
           <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-6">
             <motion.div 
               initial={{ opacity: 0, scale: 0.9 }}
@@ -2881,7 +3208,7 @@ export default function Dashboard({
                   .map((item, idx) => (
                     <button 
                       key={idx}
-                      onClick={() => handleAddItem(selectedTableId, item)}
+                      onClick={() => handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item)}
                       className="flex justify-between items-center p-4 rounded-xl border border-[#141414]/10 hover:bg-gray-50 transition-colors text-left"
                     >
                       <div className="flex-1 min-w-0 mr-4">

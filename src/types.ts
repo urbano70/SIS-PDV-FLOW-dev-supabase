@@ -50,6 +50,7 @@ export interface Waiter {
   password?: string;
   phone?: string;
   cpf?: string;
+  birthDate?: string;
   status: 'pending' | 'approved' | 'inactive';
 }
 

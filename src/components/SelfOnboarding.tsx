@@ -1,37 +1,107 @@
 import React, { useState, useEffect } from 'react';
 import socket from '../lib/socket';
+import { useFirebase } from './FirebaseProvider';
 import { User, ShieldCheck, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Waiter } from '../types';
+import { toast } from 'sonner';
 
-export default function SelfOnboarding() {
+export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] }) {
+  const { user, signIn } = useFirebase();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
+    cpf: '',
+    birthDate: '',
     password: ''
   });
   const [isWaiting, setIsWaiting] = useState(false);
   const [mode, setMode] = useState<'register' | 'login'>('register');
 
   useEffect(() => {
+    // Check if we already have a pending record in the database for this user
+    if (user && waiters.length > 0) {
+      const myRecord = waiters.find(w => w.id === user.uid || (w as any).uid === user.uid);
+      if (myRecord && myRecord.status === 'pending') {
+        setIsWaiting(true);
+      }
+    }
+  }, [waiters, user]);
+
+  useEffect(() => {
     const savedData = localStorage.getItem('waiter_credentials');
     if (savedData) {
       const data = JSON.parse(savedData);
-      setFormData(data);
+      setFormData(prev => ({ ...prev, ...data }));
       // Try to login automatically if we have saved data
       socket.emit('waiter_login', { name: data.name, password: data.password });
     }
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'register') {
+      if (!user) {
+        toast.info('Para segurança, identifique-se com sua conta Google antes do cadastro.');
+        try {
+          await signIn();
+        } catch (err) {
+          toast.error('Erro ao realizar identificação. Verifique sua conexão.');
+        }
+        return;
+      }
+
       setIsWaiting(true);
-      socket.emit('waiter_register', formData);
+      
+      const waiterId = user.uid;
+      const waiterData: Waiter = {
+        id: waiterId,
+        uid: user.uid,
+        name: formData.name,
+        phone: formData.phone,
+        cpf: formData.cpf,
+        birthDate: formData.birthDate,
+        password: formData.password,
+        status: 'pending',
+        socketId: socket.id,
+        createdAt: new Date().toISOString()
+      } as any;
+
+      try {
+        // First try to save to Firebase
+        const { createDocument } = await import('../lib/firebaseService');
+        await createDocument('waiters', waiterData, waiterId);
+        
+        // Also notify via socket for real-time legacy support
+        socket.emit('waiter_register', waiterData);
+        
+        localStorage.setItem('waiter_credentials', JSON.stringify(formData));
+        toast.success('Solicitação de acesso enviada com sucesso!');
+      } catch (error: any) {
+        console.error("Error registering waiter:", error);
+        let errorMessage = 'Verifique sua conexão ou permissões do Firebase.';
+        
+        try {
+          // If it's a JSON error from handleFirestoreError
+          const parsed = JSON.parse(error.message);
+          if (parsed.error) {
+            errorMessage = `Erro: ${parsed.error}`;
+            if (parsed.error.includes('Missing or insufficient permissions')) {
+              errorMessage = 'Erro de permissão no Firebase. Verifique as regras do Firestore.';
+            }
+          }
+        } catch {
+          errorMessage = error.message || errorMessage;
+        }
+
+        toast.error(`Erro ao enviar solicitação: ${errorMessage}`);
+        setIsWaiting(false);
+      }
     } else {
       socket.emit('waiter_login', { name: formData.name, password: formData.password });
+      localStorage.setItem('waiter_credentials', JSON.stringify(formData));
     }
-    localStorage.setItem('waiter_credentials', JSON.stringify(formData));
   };
 
   if (isWaiting) {
@@ -94,17 +164,43 @@ export default function SelfOnboarding() {
           </div>
 
           {mode === 'register' && (
-            <div>
-              <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">Telefone</label>
-              <input 
-                required
-                type="text"
-                value={formData.phone}
-                onChange={e => setFormData({...formData, phone: e.target.value})}
-                className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
-                placeholder="(00) 00000-0000"
-              />
-            </div>
+            <>
+              <div>
+                <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">Telefone</label>
+                <input 
+                  required
+                  type="text"
+                  value={formData.phone}
+                  onChange={e => setFormData({...formData, phone: e.target.value})}
+                  className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
+                  placeholder="(00) 00000-0000"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">CPF</label>
+                  <input 
+                    required
+                    type="text"
+                    value={formData.cpf}
+                    onChange={e => setFormData({...formData, cpf: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
+                    placeholder="000.000.000-00"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest font-bold opacity-50 block mb-2">Nascimento</label>
+                  <input 
+                    required
+                    type="date"
+                    value={formData.birthDate}
+                    onChange={e => setFormData({...formData, birthDate: e.target.value})}
+                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors"
+                  />
+                </div>
+              </div>
+            </>
           )}
 
           <div>

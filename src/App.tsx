@@ -14,9 +14,10 @@ import SelfOnboarding from './components/SelfOnboarding';
 import { Table, Order, Waiter, StockItem, MenuCategory } from './types';
 import { Toaster, toast } from 'sonner';
 import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
+import { LogIn } from 'lucide-react';
 
 function AppContent() {
-  const { loading, data, isAdmin } = useFirebase();
+  const { user, loading, signIn, data, isAdmin, toggleCashRegister } = useFirebase();
   const { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
@@ -36,13 +37,31 @@ function AppContent() {
     showTimestamp: true,
     showLogo: true,
     itemFontSize: '12px',
-    boldItems: false
+    boldItems: false,
+    autoPrintKitchen: true
   });
 
   useEffect(() => {
-    // Initial data from socket if needed, but we prioritize Firebase
+    if (user && waiters.length > 0) {
+      const myRecord = waiters.find(w => w.id === user.uid || (w as any).uid === user.uid);
+      if (myRecord) {
+        setIsApproved(myRecord.status === 'approved');
+      }
+    }
+  }, [user, waiters]);
+
+  // Authenticate admin socket as soon as we know the user is admin
+  useEffect(() => {
+    if (isAdmin && user) {
+      (user as any).getIdToken().then((token: string) => {
+        socket.emit('admin_connect', token);
+      }).catch(() => {});
+    }
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    // Escutar eventos do socket para dados específicos e notificações
     socket.on('init_data', (data) => {
-      // Only set if Firebase is not yet providing data or for specific items
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
     });
@@ -82,6 +101,9 @@ function AppContent() {
       socket.off('init_data');
       socket.off('waiter_approved');
       socket.off('admin_notification');
+      socket.off('error_message');
+      socket.off('update_pizza_flavors');
+      socket.off('update_pizza_crusts');
     };
   }, []);
 
@@ -96,14 +118,54 @@ function AppContent() {
     );
   }
 
+  const loginScreen = (
+    <div className="h-screen flex items-center justify-center bg-[#F5F5F3] p-4">
+      <div className="w-full max-w-md bg-white p-8 rounded-2xl border border-[#141414]/10 shadow-sm text-center">
+        <div className="w-16 h-16 bg-[#141414] rounded-full flex items-center justify-center mx-auto mb-6">
+          <LogIn className="text-[#E4E3E0] w-8 h-8" />
+        </div>
+        <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao PizzaFlow</h1>
+        <p className="text-gray-500 mb-8">Faça login para acessar o sistema de gestão.</p>
+        <button 
+          onClick={signIn}
+          className="w-full bg-[#141414] text-white py-4 rounded-xl font-bold flex items-center justify-center space-x-3 hover:opacity-90 transition-opacity"
+        >
+          <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+          <span>Entrar com o Google</span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <BrowserRouter>
-      <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" />} />
-          <Route 
-            path="/dashboard" 
-            element={
+    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
+      <Routes>
+        {/* Rota do Garçom - Sempre acessível para permitir auto-onboarding (via login anônimo ou salvo) */}
+        <Route 
+          path="/waiter" 
+          element={
+            isApproved ? (
+              <WaiterTerminal 
+                tables={tables} 
+                comandas={comandas} 
+                orders={orders} 
+                menu={menu} 
+                pizzaFlavors={pizzaFlavors} 
+                pizzaCrusts={pizzaCrusts} 
+                isCashRegisterOpen={isCashRegisterOpen} 
+                printerConfig={printerConfig} 
+              />
+            ) : (
+              <SelfOnboarding waiters={waiters} />
+            )
+          } 
+        />
+
+        {/* Dashboard e outras rotas administrativas - Requerem Admin */}
+        <Route 
+          path="/dashboard" 
+          element={
+            !user ? loginScreen : (
               isAdmin ? (
                 <Dashboard 
                   tables={tables} 
@@ -117,6 +179,7 @@ function AppContent() {
                   activeTab={dashboardTab}
                   setActiveTab={setDashboardTab}
                   isCashRegisterOpen={isCashRegisterOpen}
+                  toggleCashRegister={toggleCashRegister}
                   printerConfig={printerConfig}
                   setPrinterConfig={setPrinterConfig}
                 />
@@ -127,22 +190,28 @@ function AppContent() {
                   </div>
                 </div>
               )
-            } 
-          />
-          <Route path="/waiter" element={isApproved ? <WaiterTerminal tables={tables} comandas={comandas} orders={orders} menu={menu} pizzaFlavors={pizzaFlavors} pizzaCrusts={pizzaCrusts} isCashRegisterOpen={isCashRegisterOpen} /> : <SelfOnboarding />} />
-          <Route path="/kitchen" element={<KitchenDisplay orders={orders} />} />
-          <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
-        </Routes>
-        <Toaster position="top-right" richColors />
-      </div>
-    </BrowserRouter>
+            )
+          } 
+        />
+        
+        <Route path="/kitchen" element={!user ? loginScreen : <KitchenDisplay orders={orders} />} />
+        <Route path="/pos" element={!user ? loginScreen : <POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
+        
+        {/* Redirecionamentos padrão */}
+        <Route path="/" element={<Navigate to={isAdmin ? "/dashboard" : "/waiter"} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <Toaster position="top-right" richColors />
+    </div>
   );
 }
 
 export default function App() {
   return (
-    <FirebaseProvider>
-      <AppContent />
-    </FirebaseProvider>
+    <BrowserRouter>
+      <FirebaseProvider>
+        <AppContent />
+      </FirebaseProvider>
+    </BrowserRouter>
   );
 }

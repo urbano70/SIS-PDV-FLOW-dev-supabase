@@ -4,6 +4,7 @@ import socket from '../lib/socket';
 import { Plus, Minus, Send, ShoppingBasket, ChevronRight, X, Layers, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { auth } from '../lib/firebase';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
 
@@ -15,9 +16,10 @@ interface WaiterTerminalProps {
   pizzaFlavors: any[];
   pizzaCrusts: string[];
   isCashRegisterOpen: boolean;
+  printerConfig: any;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig }: WaiterTerminalProps) {
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -36,8 +38,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [isCartExpanded, setIsCartExpanded] = useState(false);
 
   const currentList = selectionType === 'tables' ? tables : comandas;
-  const tableData = currentList.find(t => t.id === selectedId);
-  const currentOrder = orders.find(o => o.id === tableData?.currentOrder);
+  const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
+  const currentOrder = orders.find(o => tableData?.currentOrder && o.id && String(o.id) === String(tableData.currentOrder));
   const showOrderSummary = selectedId !== null && tableData?.status !== 'free' && !isAddingItems;
 
   const filteredCategories = menu.filter(cat => cat.type === activeType);
@@ -71,7 +73,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const addToCart = (pizza: any) => {
     // Check if it's a pizza category
-    const category = menu.find(cat => cat.items.some(i => i.id === pizza.id || i.name === pizza.name));
+    const category = menu.find(cat => cat.items?.some(i => i.id === pizza.id || i.name === pizza.name));
     const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
     const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || pizza.type === 'lanches' || pizza.type === 'bebidas';
 
@@ -102,33 +104,53 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       size: 'G',
       crust: pizza.crust,
       extras: [],
-      observations: pizza.observations || '',
+      observations: (pizza.observations || '').trim(),
       price: pizza.price,
+      quantity: pizza.quantity || 1,
       ingredients: pizza.ingredients
     };
-    setCart([...cart, newItem]);
+
+    // Merge existing items in cart if identical
+    setCart(prevCart => {
+      const existingItemIndex = prevCart.findIndex(item => 
+        item.name === newItem.name && 
+        item.crust === newItem.crust && 
+        JSON.stringify(item.flavors) === JSON.stringify(newItem.flavors) &&
+        item.observations === newItem.observations
+      );
+
+      if (existingItemIndex !== -1) {
+        const updatedCart = [...prevCart];
+        const existingItem = updatedCart[existingItemIndex];
+        const newQty = (existingItem.quantity || 1) + (newItem.quantity || 1);
+        const unitPrice = existingItem.price / (existingItem.quantity || 1);
+        
+        updatedCart[existingItemIndex] = {
+          ...existingItem,
+          quantity: newQty,
+          price: unitPrice * newQty
+        };
+        return updatedCart;
+      }
+      return [...prevCart, newItem];
+    });
+
     setIsFlavorModalOpen(false);
   };
 
   const confirmQuantitySelection = () => {
     if (!selectedQuantityItem) return;
 
-    const category = menu.find(cat => cat.items.some(i => i.name === selectedQuantityItem.name));
+    const category = menu.find(cat => cat.items?.some(i => i.name === selectedQuantityItem.name));
 
-    const newItem: PizzaItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: selectedQuantityItem.name,
+    const itemToAdd = {
+      ...selectedQuantityItem,
       type: selectedQuantityItem.type || category?.type,
-      flavors: [selectedQuantityItem.name],
-      size: 'G',
-      extras: [],
       observations: itemObservations,
-      price: selectedQuantityItem.price * itemQuantity,
-      quantity: itemQuantity,
-      ingredients: selectedQuantityItem.ingredients
+      quantity: itemQuantity
     };
 
-    setCart([...cart, newItem]);
+    addToCart(itemToAdd);
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
   };
@@ -155,19 +177,45 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     addToCart(itemWithDetails);
   };
 
-  const submitOrder = () => {
+  const submitOrder = async () => {
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Peça ao gerente para abrir o caixa.');
       return;
     }
     if (selectedId === null || cart.length === 0) return;
     
-    socket.emit('new_order', {
-      tableId: selectedId,
-      isComanda: isComandaSelected,
-      items: cart,
-      observations: cartObservations.trim()
-    });
+    const waiterName = auth.currentUser?.displayName || 'Garçom';
+    const waiterId = auth.currentUser?.uid || 'unknown';
+    
+    // Check if there's already an active order for this table/comanda
+    const activeOrder = orders.find(o => 
+      selectedId && o.tableId && String(o.tableId) === String(selectedId) && 
+      o.isComanda === isComandaSelected && 
+      o.status !== 'finalizada'
+    );
+
+    // Send order to socket (for production/alerts)
+    if (activeOrder) {
+      // Append items to existing order via socket
+      cart.forEach(item => {
+        socket.emit('add_item_to_order', {
+          orderId: activeOrder.id,
+          item: {
+            ...item,
+            waiterName: waiterName
+          }
+        });
+      });
+    } else {
+      socket.emit('new_order', {
+        tableId: selectedId,
+        isComanda: isComandaSelected,
+        items: cart,
+        observations: cartObservations.trim()
+      });
+    }
+
+    toast.success('Pedido enviado com sucesso!');
     
     setCart([]);
     setCartObservations('');
@@ -177,7 +225,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const removeItem = (itemId: string) => {
-    const item = currentOrder?.items.find(i => i.id === itemId);
+    const item = currentOrder?.items?.find(i => i.id === itemId);
     if (item) {
       setItemToRemove(item);
       setRemovalQuantity(item.quantity || 1);
@@ -256,7 +304,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             </div>
 
             <div className="grid grid-cols-5 gap-4">
-              {currentList.map(item => (
+              {[...currentList].sort((a, b) => a.id - b.id).map(item => (
                 <button
                   key={item.id}
                   onClick={() => {
@@ -369,16 +417,40 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             <div className="bg-[#141414] text-[#E4E3E0] p-6 rounded-3xl space-y-3 shadow-xl">
               <div className="flex justify-between items-center opacity-50 text-[10px] font-bold uppercase tracking-widest">
                 <span>Total Consumido</span>
-                <span>R$ {orderTotal.toFixed(2)}</span>
+                <span>R$ {(() => {
+                  const itemsTotal = (currentOrder?.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0);
+                  return itemsTotal.toFixed(2);
+                })()}</span>
               </div>
               <div className="flex justify-between items-center text-green-400 text-[10px] font-bold uppercase tracking-widest">
                 <span>Já Pago</span>
-                <span>- R$ {currentOrder?.items.filter(i => !i.removed && i.paid).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+                <span>- R$ {(() => {
+                  const totalPaidFromLog = (currentOrder?.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+                  return totalPaidFromLog.toFixed(2);
+                })()}</span>
               </div>
               <div className="pt-2 border-t border-white/10 flex justify-between items-center">
                 <div className="flex flex-col">
                   <span className="font-bold uppercase text-[10px] tracking-widest opacity-50">Restante a Pagar</span>
-                  <span className="text-3xl font-bold text-white">R$ {currentOrder?.items.filter(i => !i.removed && !i.paid).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+                  <span className="text-3xl font-bold text-white">R$ {(() => {
+                    const itemsTotal = (currentOrder?.items || []).filter(i => !i.removed).reduce((acc, i) => {
+                      let price = i.price;
+                      if (i.discount) {
+                        if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+                        else price = Math.max(0, price - i.discount);
+                      }
+                      return acc + price;
+                    }, 0);
+                    
+                    let finalTotal = itemsTotal;
+                    if (currentOrder?.discount) {
+                      if (currentOrder.discountType === 'percentage') finalTotal *= (1 - currentOrder.discount / 100);
+                      else finalTotal = Math.max(0, finalTotal - currentOrder.discount);
+                    }
+                    
+                    const totalPaidFromLog = (currentOrder?.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+                    return Math.max(0, finalTotal - totalPaidFromLog).toFixed(2);
+                  })()}</span>
                 </div>
                 <div className="text-right text-[10px] opacity-50 font-bold uppercase tracking-tighter">
                   <p>{currentOrder?.items.filter(i => !i.removed).length || 0} itens ativos</p>
@@ -449,21 +521,24 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             </div>
 
             <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
-              {filteredCategories.map(cat => (
-                <button
-                  key={cat.name}
-                  onClick={() => setActiveCategory(cat.name)}
-                  className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase transition-colors ${
-                    activeCategory === cat.name ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
+              {filteredCategories.map(cat => {
+                const displayName = cat.name;
+                return (
+                  <button
+                    key={cat.name}
+                    onClick={() => setActiveCategory(cat.name)}
+                    className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase transition-colors ${
+                      activeCategory === cat.name ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
+                    }`}
+                  >
+                    {displayName}
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex-1 overflow-y-auto grid grid-cols-1 gap-3 pb-4">
-              {menu.find(c => c.name === activeCategory)?.items.map(pizza => {
+              {menu.find(c => c.name === activeCategory)?.items?.map(pizza => {
                 return (
                   <button 
                     key={pizza.id}
