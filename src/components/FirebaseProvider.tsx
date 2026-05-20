@@ -39,6 +39,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stock, setStock] = useState<StockItem[]>([]);
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
+  const [firebaseActive, setFirebaseActive] = useState(true);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -65,6 +66,10 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const handleInitData = (data: any) => {
       console.log("Received init_data from socket, populating states immediately");
+      if (data.firebaseActive !== undefined) {
+        setFirebaseActive(data.firebaseActive);
+        console.log("Firebase status from server is:", data.firebaseActive);
+      }
       if (data.tables) setTables(data.tables);
       if (data.comandas) setComandas(data.comandas);
       if (data.orders) setOrders(data.orders);
@@ -98,62 +103,70 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socket.off('update_cash_register', handleUpdateCashRegister);
     });
 
-    // 2. Inicializar Firebase Auth e Firestore em segundo plano
-    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      cleanupFirestore();
-      console.log("Auth state changed:", currentUser?.uid, currentUser?.email, currentUser?.isAnonymous);
-      setUser(currentUser);
-      setIsAdmin(true);
-      
-      if (!currentUser) {
-        // Se não houver usuário, faz login anônimo automático em segundo plano
-        try {
-          await signInAnonymously(auth);
-        } catch (e) {
-          console.error("Error signing in anonymously:", e);
-        }
-        return;
-      }
-      
-      if (currentUser) {
-        console.log("Syncing Firestore collections in background...");
-        
-        // Sync waiters (open to all signed in users)
-        const unsubWaiters = syncCollection('waiters', (data) => {
-          setWaiters(data as Waiter[]);
-        });
-        if (unsubWaiters) firestoreUnsubscribes.push(unsubWaiters);
+    // 2. Inicializar Firebase Auth e Firestore em segundo plano (apenas se firebase estiver ativo no backend)
+    let unsubscribeAuth = () => {};
 
-        // Sempre sincroniza dados restritos para o painel livre
-        const collectionsToSync = [
-          { name: 'tables', setter: setTables },
-          { name: 'comandas', setter: setComandas },
-          { name: 'orders', setter: (d: any) => setOrders(d as Order[]) },
-          { name: 'stock', setter: (d: any) => setStock(d as StockItem[]) },
-          { name: 'menu', setter: (d: any) => {
-            const transformedData = (d as MenuCategory[]).map(cat => ({
-              ...cat,
-              name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
-            }));
-            setMenu(transformedData);
-          } }
-        ];
-
-        collectionsToSync.forEach(col => {
-          const unsub = syncCollection(col.name, col.setter);
-          if (unsub) firestoreUnsubscribes.push(unsub);
-        });
+    if (firebaseActive) {
+      unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+        cleanupFirestore();
+        console.log("Auth state changed:", currentUser?.uid, currentUser?.email, currentUser?.isAnonymous);
+        setUser(currentUser);
+        setIsAdmin(true);
         
-        // Sync config
-        const configRef = doc(db, 'config', 'app');
-        const unsubConfig = onSnapshot(configRef, (snapshot) => {
-          if (snapshot.exists()) {
-            setIsCashRegisterOpen(snapshot.data().isCashRegisterOpen);
+        if (!currentUser) {
+          // Se não houver usuário, faz login anônimo automático em segundo plano
+          try {
+            await signInAnonymously(auth);
+          } catch (e) {
+            console.error("Error signing in anonymously:", e);
           }
-        });
-        firestoreUnsubscribes.push(unsubConfig);
-      }
-    });
+          return;
+        }
+        
+        if (currentUser) {
+          console.log("Syncing Firestore collections in background...");
+          
+          // Sync waiters (open to all signed in users)
+          const unsubWaiters = syncCollection('waiters', (data) => {
+            setWaiters(data as Waiter[]);
+          });
+          if (unsubWaiters) firestoreUnsubscribes.push(unsubWaiters);
+
+          // Sempre sincroniza dados restritos para o painel livre
+          const collectionsToSync = [
+            { name: 'tables', setter: setTables },
+            { name: 'comandas', setter: setComandas },
+            { name: 'orders', setter: (d: any) => setOrders(d as Order[]) },
+            { name: 'stock', setter: (d: any) => setStock(d as StockItem[]) },
+            { name: 'menu', setter: (d: any) => {
+              const transformedData = (d as MenuCategory[]).map(cat => ({
+                ...cat,
+                name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
+              }));
+              setMenu(transformedData);
+            } }
+          ];
+
+          collectionsToSync.forEach(col => {
+            const unsub = syncCollection(col.name, col.setter);
+            if (unsub) firestoreUnsubscribes.push(unsub);
+          });
+          
+          // Sync config
+          const configRef = doc(db, 'config', 'app');
+          const unsubConfig = onSnapshot(configRef, (snapshot) => {
+            if (snapshot.exists()) {
+              setIsCashRegisterOpen(snapshot.data().isCashRegisterOpen);
+            }
+          });
+          firestoreUnsubscribes.push(unsubConfig);
+        }
+      });
+    } else {
+      console.log("Firebase Admin is disabled on server. Skipping Firestore sync, relying solely on Socket.io.");
+      setUser(null);
+      setIsAdmin(true);
+    }
 
     // Fallback de emergência (reduzido para 4 segundos se nada responder)
     const loadingTimeout = setTimeout(() => {
@@ -166,7 +179,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socketUnsubscribes.forEach(unsub => unsub());
       clearTimeout(loadingTimeout);
     };
-  }, []);
+  }, [firebaseActive]);
 
   const signIn = async () => {
     const provider = new GoogleAuthProvider();

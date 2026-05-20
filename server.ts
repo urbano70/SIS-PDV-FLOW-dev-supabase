@@ -312,7 +312,8 @@ async function startServer() {
       menu,
       pizzaFlavors,
       pizzaCrusts,
-      isCashRegisterOpen
+      isCashRegisterOpen,
+      firebaseActive: !!db
     });
 
     socket.on("request_init_data", () => {
@@ -325,7 +326,8 @@ async function startServer() {
         menu,
         pizzaFlavors,
         pizzaCrusts,
-        isCashRegisterOpen
+        isCashRegisterOpen,
+        firebaseActive: !!db
       });
     });
 
