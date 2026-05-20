@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { PizzaItem, Order } from '../types';
 import { X, Check, CreditCard, Banknote, QrCode, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -106,6 +107,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   useEffect(() => {
     if (isOpen) {
+      if (activeItems.length === 0 || remainingOrderTotal <= 0.01) {
+        toast.error('Esta comanda/mesa não possui valores pendentes de pagamento!');
+        onClose();
+        return;
+      }
       setStep('selection');
       setIsSplitPayment(false);
       setSplitAmount(0);
@@ -122,7 +128,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       });
       setIsConfirming(false);
     }
-  }, [isOpen]);
+  }, [isOpen, order.id, onClose]);
 
   const toggleItem = (item: PizzaItem) => {
     if (existingPartialPaid > 0) return; // Forced selection when partial payment exists
@@ -205,7 +211,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const handleSplitEqually = (people: number) => {
     setSelectedItems({});
     setIsSplitPayment(true);
-    setSplitAmount(remainingOrderTotal / people);
+    setSplitAmount(Number((remainingOrderTotal / people).toFixed(2)));
     setIsSplitModalOpen(false);
     setStep('methods');
   };
@@ -213,7 +219,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const handleSplitByAmount = (amount: number) => {
     setSelectedItems({});
     setIsSplitPayment(true);
-    setSplitAmount(amount);
+    setSplitAmount(Number(amount.toFixed(2)));
     setIsSplitModalOpen(false);
     setStep('methods');
   };
@@ -615,15 +621,25 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
                 <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
                   {isSplitPayment ? (
-                    <div className="col-span-full bg-blue-50 border border-blue-100 rounded-3xl p-8 text-center space-y-4">
+                    <div className="col-span-full bg-blue-50 border border-blue-100 rounded-3xl p-8 text-center space-y-6">
                       <div className="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center mx-auto shadow-lg">
                         <Wallet size={32} />
                       </div>
                       <div>
                         <h4 className="text-xl font-bold text-blue-900">Pagamento Parcial Ativo</h4>
-                        <p className="text-sm text-blue-700 opacity-70">Você está pagando uma parte do total da conta.</p>
+                        <p className="text-sm text-blue-700 opacity-70">Você está pagando uma parte do total restante da conta.</p>
                       </div>
-                      <div className="text-4xl font-bold text-blue-900">
+                      <div className="grid grid-cols-2 gap-4 max-w-md mx-auto pt-4 border-t border-blue-200/50">
+                        <div className="text-center border-r border-blue-200/50">
+                          <p className="text-[10px] uppercase font-bold text-blue-600 opacity-70">Valor Restante do Pedido</p>
+                          <p className="text-xl font-bold text-blue-900">R$ {remainingOrderTotal.toFixed(2)}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] uppercase font-bold text-blue-600 opacity-70">Valor Deste Pagamento</p>
+                          <p className="text-xl font-bold text-blue-900">R$ {splitAmount.toFixed(2)}</p>
+                        </div>
+                      </div>
+                      <div className="text-3xl font-black text-blue-900">
                         R$ {splitAmount.toFixed(2)}
                       </div>
                     </div>
@@ -796,21 +812,42 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   <button onClick={() => setStep('selection')} className="text-xs font-bold flex items-center opacity-50 hover:opacity-100">
                     <X size={14} className="mr-1 rotate-45" /> Voltar para seleção
                   </button>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase font-bold opacity-50">
-                      {existingPartialPaid > 0 && !isSplitPayment ? 'Restante a Pagar' : 'Valor a Pagar'}
-                    </p>
-                    <div className="flex items-baseline justify-end space-x-3">
-                      {existingPartialPaid > 0 && !isSplitPayment ? (
-                        <p className="text-3xl font-bold leading-none text-green-600">R$ {Math.max(0, finalSelectedTotal - existingPartialPaid).toFixed(2)}</p>
-                      ) : order.discount ? (
-                        <>
-                          <p className="text-xl font-bold leading-none line-through opacity-30">R$ {selectedTotal.toFixed(2)}</p>
-                          <p className="text-3xl font-bold leading-none text-green-600">R$ {finalSelectedTotal.toFixed(2)}</p>
-                        </>
-                      ) : (
-                        <p className="text-3xl font-bold leading-none">R$ {finalSelectedTotal.toFixed(2)}</p>
-                      )}
+                  <div className="flex flex-col md:flex-row md:items-center gap-4 text-right">
+                    {(isSplitPayment || existingPartialPaid > 0) && (
+                      <div className="flex items-center space-x-4 text-xs bg-white/50 border border-[#141414]/5 rounded-2xl px-4 py-2">
+                        <div>
+                          <p className="text-[9px] uppercase font-bold opacity-40">Total da Venda</p>
+                          <p className="font-bold">R$ {finalOrderTotal.toFixed(2)}</p>
+                        </div>
+                        <div className="border-l border-[#141414]/15 pl-4">
+                          <p className="text-[9px] uppercase font-bold text-blue-600 opacity-70">Total Pago</p>
+                          <p className="font-bold text-blue-600">R$ {existingPartialPaid.toFixed(2)}</p>
+                        </div>
+                        <div className="border-l border-[#141414]/15 pl-4">
+                          <p className="text-[9px] uppercase font-bold text-green-600 opacity-70">Restante</p>
+                          <p className="font-bold text-green-600">R$ {remainingOrderTotal.toFixed(2)}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="text-right flex flex-col items-end">
+                      <p className="text-[10px] uppercase font-bold opacity-50">
+                        {isSplitPayment ? 'Valor Parcial a Pagar' : (existingPartialPaid > 0 ? 'Restante a Pagar' : 'Valor a Pagar')}
+                      </p>
+                      <div className="flex items-baseline justify-end space-x-3">
+                        {isSplitPayment ? (
+                          <p className="text-3xl font-bold leading-none text-blue-600">R$ {splitAmount.toFixed(2)}</p>
+                        ) : existingPartialPaid > 0 ? (
+                          <p className="text-3xl font-bold leading-none text-green-600">R$ {Math.max(0, finalSelectedTotal - existingPartialPaid).toFixed(2)}</p>
+                        ) : order.discount ? (
+                          <>
+                            <p className="text-xl font-bold leading-none line-through opacity-30">R$ {selectedTotal.toFixed(2)}</p>
+                            <p className="text-3xl font-bold leading-none text-green-600">R$ {finalSelectedTotal.toFixed(2)}</p>
+                          </>
+                        ) : (
+                          <p className="text-3xl font-bold leading-none">R$ {finalSelectedTotal.toFixed(2)}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

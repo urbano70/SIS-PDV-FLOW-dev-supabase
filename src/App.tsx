@@ -165,40 +165,30 @@ function AppContent() {
         <Route 
           path="/dashboard" 
           element={
-            !user ? loginScreen : (
-              isAdmin ? (
-                <Dashboard 
-                  tables={tables} 
-                  comandas={comandas}
-                  orders={orders} 
-                  waiters={waiters} 
-                  stock={stock} 
-                  menu={menu}
-                  pizzaFlavors={pizzaFlavors}
-                  pizzaCrusts={pizzaCrusts}
-                  activeTab={dashboardTab}
-                  setActiveTab={setDashboardTab}
-                  isCashRegisterOpen={isCashRegisterOpen}
-                  toggleCashRegister={toggleCashRegister}
-                  printerConfig={printerConfig}
-                  setPrinterConfig={setPrinterConfig}
-                />
-              ) : (
-                <div className="h-screen flex items-center justify-center bg-[#F5F5F3]">
-                  <div className="text-center p-8 bg-white rounded-2xl border border-red-100 italic font-serif">
-                    Acesso restrito ao Administrador.
-                  </div>
-                </div>
-              )
-            )
+            <Dashboard 
+              tables={tables} 
+              comandas={comandas}
+              orders={orders} 
+              waiters={waiters} 
+              stock={stock} 
+              menu={menu}
+              pizzaFlavors={pizzaFlavors}
+              pizzaCrusts={pizzaCrusts}
+              activeTab={dashboardTab}
+              setActiveTab={setDashboardTab}
+              isCashRegisterOpen={isCashRegisterOpen}
+              toggleCashRegister={toggleCashRegister}
+              printerConfig={printerConfig}
+              setPrinterConfig={setPrinterConfig}
+            />
           } 
         />
         
-        <Route path="/kitchen" element={!user ? loginScreen : <KitchenDisplay orders={orders} />} />
-        <Route path="/pos" element={!user ? loginScreen : <POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
+        <Route path="/kitchen" element={<KitchenDisplay orders={orders} />} />
+        <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
         
         {/* Redirecionamentos padrão */}
-        <Route path="/" element={<Navigate to={isAdmin ? "/dashboard" : "/waiter"} replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster position="top-right" richColors />

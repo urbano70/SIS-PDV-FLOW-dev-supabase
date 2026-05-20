@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "node --experimental-strip-types server.ts",
-    "build": "vite build",
+    "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:firebase-admin --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react && node server.js",
+    "start": "node server.js",
+    "build": "npm run build:server && vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:firebase-admin --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -38,7 +39,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
+    "tsx": "^4.22.3",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -10,6 +10,7 @@ import { GoogleGenAI } from "@google/genai";
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
+import { useFirebase } from './FirebaseProvider';
 
 interface DashboardProps {
   tables: Table[];
@@ -86,6 +87,32 @@ const OrderDetails = ({
   }, [orders, currentItem, targetId, isComandaSelected]);
   const waiter = waiters.find((w: any) => String(w.id) === String(activeOrder?.waiterId));
   const hasItems = activeOrder && activeOrder.items && activeOrder.items.filter((i: any) => !i.removed).length > 0;
+
+  const pendingAmount = React.useMemo(() => {
+    if (!activeOrder || !activeOrder.items) return 0;
+    const activeItems = activeOrder.items.filter((i: any) => !i.removed && !i.paid);
+    const orderTotal = activeItems.reduce((acc: number, i: any) => {
+      let price = i.price;
+      if (i.discount) {
+        if (i.discountType === 'percentage') {
+          price = price * (1 - i.discount / 100);
+        } else {
+          price = Math.max(0, price - i.discount);
+        }
+      }
+      return acc + price;
+    }, 0);
+    let finalOrderTotal = orderTotal;
+    if (activeOrder.discount) {
+      if (activeOrder.discountType === 'percentage') {
+        finalOrderTotal = orderTotal * (1 - activeOrder.discount / 100);
+      } else {
+        finalOrderTotal = Math.max(0, orderTotal - activeOrder.discount);
+      }
+    }
+    const existingPartialPaid = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + p.amount, 0);
+    return Math.max(0, finalOrderTotal - existingPartialPaid);
+  }, [activeOrder]);
 
   return (
     <div className="flex flex-col h-full">
@@ -195,10 +222,10 @@ const OrderDetails = ({
             Transferir
           </button>
           <button 
-            onClick={() => hasItems && setIsPaymentModalOpen(true)}
-            disabled={!hasItems}
+            onClick={() => hasItems && pendingAmount > 0.01 && setIsPaymentModalOpen(true)}
+            disabled={!hasItems || pendingAmount <= 0.01}
             className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
-              hasItems 
+              hasItems && pendingAmount > 0.01
                 ? 'bg-green-600 hover:bg-green-700 text-white' 
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
@@ -276,7 +303,7 @@ const OrderDetails = ({
                         })()}
                       </span>
                     </div>
-                    {!item.removed && (
+                    {!item.removed && !item.paid && (
                       <button 
                         onClick={() => handleRemoveItem(activeOrder.id, item)}
                         className="text-red-500 opacity-20 hover:opacity-100 transition-opacity p-1"
@@ -421,6 +448,7 @@ export default function Dashboard({
   printerConfig,
   setPrinterConfig
 }: DashboardProps) {
+  const { updateTableStatusLocal } = useFirebase();
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
@@ -716,6 +744,10 @@ export default function Dashboard({
   }, [selectedTableId, selectedComandaId, isComandaSelected]);
 
   const handleRemoveItem = (orderId: number | string, item: any) => {
+    if (item.paid) {
+      toast.error('Não é possível remover um item já pago!');
+      return;
+    }
     setItemToRemove({ orderId, item });
     setRemovalQuantity(1);
     setRemovalReason('');
@@ -806,6 +838,7 @@ export default function Dashboard({
         item: newItem
       });
     } else {
+      updateTableStatusLocal(tableId, isComandaSelected, 'occupied');
       socket.emit('new_order', {
         tableId,
         isComanda: isComandaSelected,
@@ -821,6 +854,10 @@ export default function Dashboard({
   };
 
   const confirmQuantitySelection = () => {
+    if (!isCashRegisterOpen) {
+      toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
+      return;
+    }
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
     if (!selectedQuantityItem || !targetId) return;
 
@@ -853,6 +890,7 @@ export default function Dashboard({
         item: newItem
       });
     } else {
+      updateTableStatusLocal(targetId, isComandaSelected, 'occupied');
       socket.emit('new_order', {
         tableId: targetId,
         isComanda: isComandaSelected,
@@ -1227,8 +1265,9 @@ export default function Dashboard({
               className="flex-1 min-h-0 pt-2 lg:pt-4"
             >
               <section className="grid grid-cols-1 md:grid-cols-5 gap-4 h-full">
-                <div className="md:col-span-2 md:col-start-1 md:row-start-1 space-y-4 order-2 md:order-1">
-                  <div className="flex items-center space-x-1 bg-white p-0.5 rounded-xl border border-[#141414]/10 w-fit">
+                {/* Column 1 (Left): Tables/Comandas & Recent Orders */}
+                <div className="md:col-span-2 md:col-start-1 md:row-start-1 h-full flex flex-col min-h-0 space-y-3 order-2 md:order-1">
+                  <div className="flex items-center space-x-1 bg-white p-0.5 rounded-xl border border-[#141414]/10 w-fit shrink-0">
                     <button 
                       onClick={() => setOverviewTab('tables')}
                       className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'tables' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
@@ -1243,105 +1282,86 @@ export default function Dashboard({
                     </button>
                   </div>
 
-                  <AnimatePresence mode="wait">
-                    {overviewTab === 'tables' ? (
-                      <motion.div 
-                        key="tables-grid"
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: 10 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex-1 overflow-y-auto scrollbar-hide pr-1"
-                      >
-                        <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
-                          {[...tables].sort((a, b) => a.id - b.id).map(table => (
-                            <button 
-                              key={table.id}
-                              onClick={() => {
-                                setSelectedTableId(table.id);
-                                setIsComandaSelected(false);
-                              }}
-                              className={`p-1.5 rounded-lg border transition-all text-left w-full ${
-                                selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
-                              } ${
-                                table.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
-                                table.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
-                                table.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                                'border-yellow-500 bg-yellow-50 animate-pulse'
-                              }`}
-                            >
-                              <p className="text-[6px] uppercase tracking-widest opacity-50">Mesa</p>
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs font-bold">{table.id}</p>
-                                {table.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    ) : (
-                      <motion.div 
-                        key="comandas-grid"
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        transition={{ duration: 0.2 }}
-                        className="flex-1 overflow-y-auto scrollbar-hide pr-1"
-                      >
-                        <div className="grid grid-cols-5 sm:grid-cols-5 lg:grid-cols-5 gap-1.5">
-                          {[...comandas].sort((a, b) => a.id - b.id).map(comanda => (
-                            <button 
-                              key={comanda.id}
-                              onClick={() => {
-                                setSelectedComandaId(comanda.id);
-                                setIsComandaSelected(true);
-                              }}
-                              className={`p-1.5 rounded-lg border transition-all text-left w-full ${
-                                selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
-                              } ${
-                                comanda.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
-                                comanda.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
-                                comanda.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                                'border-yellow-500 bg-yellow-50 animate-pulse'
-                              }`}
-                            >
-                              <p className="text-[6px] uppercase tracking-widest opacity-50">Com.</p>
-                              <div className="flex items-center justify-between">
-                                <p className="text-xs font-bold">{comanda.id}</p>
-                                {comanda.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                <div ref={detailsRef} className="md:col-span-3 md:col-start-3 md:row-start-1 md:row-span-2 order-1 md:order-2 h-full flex flex-col min-h-0">
-                                      <OrderDetails 
-                      isComandaSelected={isComandaSelected}
-                      selectedComandaId={selectedComandaId}
-                      selectedTableId={selectedTableId}
-                      comandas={comandas}
-                      tables={tables}
-                      orders={orders}
-                      waiters={waiters}
-                      isCashRegisterOpen={isCashRegisterOpen}
-                      setIsAddItemModalOpen={setIsAddItemModalOpen}
-                      setIsHistoryModalOpen={setIsHistoryModalOpen}
-                      setIsLinkModalOpen={setIsLinkModalOpen}
-                      setIsTransferModalOpen={setIsTransferModalOpen}
-                      setIsPaymentModalOpen={setIsPaymentModalOpen}
-                      handleRemoveItem={handleRemoveItem}
-                      printerConfig={printerConfig}
-                    />
+                  <div className="flex-1 min-h-0">
+                    <AnimatePresence mode="wait">
+                      {overviewTab === 'tables' ? (
+                        <motion.div 
+                          key="tables-grid"
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: 10 }}
+                          transition={{ duration: 0.2 }}
+                          className="h-full overflow-y-auto scrollbar-hide pr-1"
+                        >
+                          <div className="grid grid-cols-5 gap-1.5 pb-2">
+                            {[...tables].sort((a, b) => a.id - b.id).map(table => (
+                              <button 
+                                key={table.id}
+                                onClick={() => {
+                                  setSelectedTableId(table.id);
+                                  setIsComandaSelected(false);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-all text-left w-full ${
+                                  selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
+                                } ${
+                                  table.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
+                                  table.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
+                                  table.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                                  'border-yellow-500 bg-yellow-50 animate-pulse'
+                                }`}
+                              >
+                                <p className="text-[6px] uppercase tracking-widest opacity-50">Mesa</p>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-bold">{table.id}</p>
+                                  {table.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div 
+                          key="comandas-grid"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="h-full overflow-y-auto scrollbar-hide pr-1"
+                        >
+                          <div className="grid grid-cols-5 gap-1.5 pb-2">
+                            {[...comandas].sort((a, b) => a.id - b.id).map(comanda => (
+                              <button 
+                                key={comanda.id}
+                                onClick={() => {
+                                  setSelectedComandaId(comanda.id);
+                                  setIsComandaSelected(true);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-all text-left w-full ${
+                                  selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
+                                } ${
+                                  comanda.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
+                                  comanda.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
+                                  comanda.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
+                                  'border-yellow-500 bg-yellow-50 animate-pulse'
+                                }`}
+                              >
+                                <p className="text-[6px] uppercase tracking-widest opacity-50">Com.</p>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-bold">{comanda.id}</p>
+                                  {comanda.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
 
-                <div className="lg:col-span-2 lg:col-start-1 lg:row-start-2 space-y-4 order-3 lg:order-3 mt-4 lg:mt-0 pt-6 border-t border-[#141414]/5">
-                  <div>
-                    <h3 className="font-serif italic text-lg mb-3 opacity-50">Pedidos Recentes</h3>
-                    <div className="grid grid-cols-1 gap-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
+                  {/* Recent Orders Section embedded inside Column 1 */}
+                  <div className="shrink-0 pt-2 border-t border-[#141414]/5 flex flex-col min-h-0 max-h-[140px] lg:max-h-[180px]">
+                    <h3 className="font-serif italic text-base mb-1.5 opacity-50 shrink-0">Pedidos Recentes</h3>
+                    <div className="grid grid-cols-1 gap-1.5 overflow-y-auto pr-1 scrollbar-hide flex-1 min-h-0">
                       {orders.slice(-8).reverse().map(order => {
                         const waiter = waiters.find(w => w.id === order.waiterId);
                         return (
@@ -1375,6 +1395,27 @@ export default function Dashboard({
                       })}
                     </div>
                   </div>
+                </div>
+
+                {/* Column 2 (Right): Order Details */}
+                <div ref={detailsRef} className="md:col-span-3 md:col-start-3 md:row-start-1 h-full flex flex-col min-h-0 order-1 md:order-2">
+                  <OrderDetails 
+                    isComandaSelected={isComandaSelected}
+                    selectedComandaId={selectedComandaId}
+                    selectedTableId={selectedTableId}
+                    comandas={comandas}
+                    tables={tables}
+                    orders={orders}
+                    waiters={waiters}
+                    isCashRegisterOpen={isCashRegisterOpen}
+                    setIsAddItemModalOpen={setIsAddItemModalOpen}
+                    setIsHistoryModalOpen={setIsHistoryModalOpen}
+                    setIsLinkModalOpen={setIsLinkModalOpen}
+                    setIsTransferModalOpen={setIsTransferModalOpen}
+                    setIsPaymentModalOpen={setIsPaymentModalOpen}
+                    handleRemoveItem={handleRemoveItem}
+                    printerConfig={printerConfig}
+                  />
                 </div>
               </section>
             </motion.div>
@@ -2535,29 +2576,29 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="h-full flex flex-col space-y-3"
+              className="h-full flex flex-col space-y-2"
             >
               <header className="flex items-center justify-between shrink-0">
                 <div>
-                  <h2 className="font-serif italic text-2xl mb-1">Configurações</h2>
-                  <p className="text-[10px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
+                  <h2 className="font-serif italic text-xl mb-0.5">Configurações</h2>
+                  <p className="text-[9px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 flex-1 min-h-0 pb-2 overflow-y-auto lg:overflow-hidden scrollbar-hide">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 flex-1 min-h-0 pb-1 overflow-y-auto lg:overflow-hidden scrollbar-hide">
                 {/* Column 1: Printers and Tests */}
-                <div className="space-y-3 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0">
-                    <div className="flex items-center space-x-2 mb-2 shrink-0">
-                      <Printer className="text-[#141414]" size={14} />
-                      <h3 className="font-serif italic text-base leading-none">Direcionamento</h3>
+                <div className="space-y-2.5 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
+                      <Printer className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Direcionamento</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto pr-1 flex-1 scrollbar-hide">
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 pr-1 shrink-0">
                       {['pizzas', 'drinks', 'kitchen', 'receipts'].map((key) => (
                         <div key={key}>
                           <div className="flex items-center justify-between mb-0.5">
-                            <label className="text-[7px] uppercase font-bold opacity-40">
+                            <label className="text-[7px] uppercase font-bold opacity-45 leading-none">
                               {key === 'pizzas' ? 'Pizzas' : key === 'drinks' ? 'Bebidas' : key === 'kitchen' ? (printerConfig.kitchenLabel || 'Extra') : 'Recibos'}
                             </label>
                             {key === 'kitchen' && (
@@ -2573,7 +2614,7 @@ export default function Dashboard({
                           <select 
                             value={printerConfig[key as keyof typeof printerConfig]}
                             onChange={(e) => setPrinterConfig({...printerConfig, [key]: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
                           >
                             <option value="none">Sem impressora</option>
                             {discoveredPrinters.map(p => (
@@ -2586,22 +2627,22 @@ export default function Dashboard({
                     
                     <button 
                       onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold mt-3 hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
+                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold mt-2 hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
                     >
                       Salvar Dispositivos
                     </button>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden flex flex-col shrink-0">
-                    <div className="flex items-center justify-between mb-2">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                    <div className="flex items-center justify-between mb-1.5 shrink-0">
                       <div className="flex items-center space-x-2">
-                        <Printer className="text-[#141414]" size={14} />
-                        <h3 className="font-serif italic text-base leading-none">Teste das Impressoras</h3>
+                        <Printer className="text-[#141414]" size={12} />
+                        <h3 className="font-serif italic text-sm leading-none">Teste das Impressoras</h3>
                       </div>
                       <Wifi size={10} className="text-green-500 animate-pulse" />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-hide">
-                      {discoveredPrinters.slice(0, 6).map((printer) => (
+                    <div className="grid grid-cols-1 gap-1 max-h-[85px] overflow-y-auto pr-1 scrollbar-hide shrink-0">
+                      {discoveredPrinters.slice(0, 4).map((printer) => (
                         <div key={printer.ip} className={`flex justify-between items-center px-1.5 py-1 rounded-lg border ${
                           printer.status === 'online' ? 'bg-green-50/20 border-green-100' : 'bg-red-50/20 border-red-100'
                         }`}>
@@ -2622,62 +2663,64 @@ export default function Dashboard({
                 </div>
 
                 {/* Column 2: Receipt Layout and Data */}
-                <div className="space-y-3 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0">
-                    <div className="flex items-center space-x-2 mb-2 shrink-0">
-                      <FileText className="text-[#141414]" size={14} />
-                      <h3 className="font-serif italic text-base leading-none">Detalhes do Cupom</h3>
+                <div className="space-y-2.5 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
+                      <FileText className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Detalhes do Cupom</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 overflow-y-auto pr-1 flex-1 scrollbar-hide">
-                      <div className="sm:col-span-2 lg:col-span-1">
-                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Nome do Estabelecimento</label>
+                    <div className="grid grid-cols-1 gap-1.5 pr-1 shrink-0">
+                      <div>
+                        <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Nome do Estabelecimento</label>
                         <input 
                           type="text"
                           value={printerConfig.establishmentName}
                           onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})}
-                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
                         />
                       </div>
-                      <div className="grid grid-cols-1 gap-2 sm:col-span-2 lg:col-span-1">
+                      
+                      <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Endereço Completo</label>
+                          <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Endereço Completo</label>
                           <input 
                             type="text"
                             value={printerConfig.address}
                             onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
                           />
                         </div>
                         <div>
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Telefone para Contato</label>
+                          <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Telefone para Contato</label>
                           <input 
                             type="text"
                             value={printerConfig.phone}
                             onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
                           />
                         </div>
                       </div>
-                      <div className="sm:col-span-2 lg:col-span-1">
-                        <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Mensagem de Rodapé</label>
-                        <textarea 
+                      
+                      <div>
+                        <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
+                        <input 
+                          type="text"
                           value={printerConfig.receiptFooter}
                           onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})}
-                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none resize-none"
-                          rows={1}
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 pt-1 pb-1 sm:col-span-2 lg:col-span-1">
-                        <div className="col-span-2">
-                          <label className="text-[7px] uppercase font-bold opacity-40 mb-0.5 block">Tamanho da Fonte (Itens)</label>
-                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                      <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <div className="col-span-3 flex items-center justify-between gap-2 mb-0.5">
+                          <span className="text-[7px] uppercase font-bold opacity-45 shrink-0 leading-none">Fonte (Itens)</span>
+                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg flex-1 max-w-[120px]">
                             {['10px', '12px', '14px', '16px'].map((size) => (
                               <button
                                 key={size}
                                 onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})}
-                                className={`flex-1 py-1 text-[8px] font-bold rounded-md transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
+                                className={`flex-1 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
                               >
                                 {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
                               </button>
@@ -2687,67 +2730,68 @@ export default function Dashboard({
 
                         <button 
                           onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})}
-                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
                         >
-                          <span className="text-[7px] font-bold uppercase truncate">Itens em Negrito</span>
-                          {printerConfig.boldItems && <CheckCircle size={8} className="text-green-600" />}
+                          <span className="text-[7px] font-bold uppercase truncate leading-none">Negrito</span>
+                          <span className="text-[6px] opacity-60 leading-none">Itens</span>
                         </button>
 
                         <button 
                           onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})}
-                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
                         >
-                          <span className="text-[7px] font-bold uppercase">Mostrar Garçom</span>
-                          {printerConfig.showWaiter && <CheckCircle size={8} className="text-green-600" />}
+                          <span className="text-[7px] font-bold uppercase truncate leading-none">Garçom</span>
+                          <span className="text-[6px] opacity-60 leading-none">Mostrar</span>
                         </button>
 
                         <button 
                           onClick={() => setPrinterConfig({...printerConfig, autoPrintKitchen: !printerConfig.autoPrintKitchen})}
-                          className={`flex items-center justify-between px-2 py-1 rounded-lg border transition-all ${printerConfig.autoPrintKitchen ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}
+                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.autoPrintKitchen ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
                         >
-                          <span className="text-[7px] font-bold uppercase">Auto-Imprimir</span>
-                          {printerConfig.autoPrintKitchen && <CheckCircle size={8} className="text-green-600" />}
+                          <span className="text-[7px] font-bold uppercase truncate leading-none">Auto</span>
+                          <span className="text-[6px] opacity-60 leading-none">Imprimir</span>
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex-initial shrink-0">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Lock className="text-[#141414]" size={14} />
-                      <h3 className="font-serif italic text-base leading-none">Dados</h3>
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
+                      <Lock className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Dados</h3>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button className="flex items-center justify-center space-x-1.5 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
-                        <Download size={12} />
-                        <span className="text-[8px] font-bold uppercase">Exportar</span>
+                    <div className="grid grid-cols-3 gap-1.5 shrink-0">
+                      <button className="flex items-center justify-center space-x-1 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                        <Download size={10} />
+                        <span className="text-[7px] font-bold uppercase">Exportar</span>
                       </button>
-                      <button className="flex items-center justify-center space-x-1.5 py-1.5 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
-                        <RefreshCcw size={12} />
-                        <span className="text-[8px] font-bold uppercase">Importar</span>
+                      <button className="flex items-center justify-center space-x-1 py-1 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
+                        <RefreshCcw size={10} />
+                        <span className="text-[7px] font-bold uppercase">Importar</span>
+                      </button>
+                      <button 
+                        onClick={handleSeedDatabase}
+                        className="flex items-center justify-center space-x-1 py-1 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95"
+                      >
+                        <Database size={10} />
+                        <span className="text-[7px] font-bold uppercase">Seed DB</span>
                       </button>
                     </div>
-                    <button 
-                      onClick={handleSeedDatabase}
-                      className="w-full mt-2 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 text-[8px] font-bold uppercase transition-all hover:bg-red-100 active:scale-95"
-                    >
-                      Inicializar DB (Seed)
-                    </button>
                   </div>
                 </div>
 
                 {/* Column 3: Preview */}
-                <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col h-full overflow-hidden">
-                  <div className="flex items-center space-x-2 mb-3">
-                    <FileText className="text-[#141414]" size={14} />
-                    <h3 className="font-serif italic text-base leading-none">Preview Cupom</h3>
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col h-full overflow-hidden">
+                  <div className="flex items-center space-x-2 mb-2 shrink-0">
+                    <FileText className="text-[#141414]" size={12} />
+                    <h3 className="font-serif italic text-sm leading-none">Preview Cupom</h3>
                   </div>
 
                   <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center flex-1 overflow-hidden min-h-0">
-                    <div className="bg-white w-full max-w-[160px] shadow-sm p-3 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
+                    <div className="bg-white w-full max-w-[155px] shadow-sm p-2.5 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
                       <div className="text-center space-y-0.5">
-                        <p className="font-bold text-[9px] uppercase truncate">{printerConfig.establishmentName}</p>
-                        <p className="opacity-70 text-[6px] truncate">{printerConfig.address}</p>
+                        <p className="font-bold text-[8.5px] uppercase truncate">{printerConfig.establishmentName}</p>
+                        <p className="opacity-70 text-[5.5px] truncate">{printerConfig.address}</p>
                       </div>
                       
                       <div className="border-t border-dashed border-[#141414]/20 pt-1 space-y-0.5">
@@ -2774,7 +2818,7 @@ export default function Dashboard({
                         <span>R$ 109,00</span>
                       </div>
 
-                      <div className="pt-1 text-center opacity-70 italic text-[6px] truncate">
+                      <div className="pt-1 text-center opacity-70 italic text-[5.5px] truncate">
                         {printerConfig.receiptFooter}
                       </div>
                     </div>

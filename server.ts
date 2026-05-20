@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
@@ -168,7 +169,7 @@ async function startServer() {
   };
 
   // Daily order counter state
-  const COUNTER_FILE = path.join(process.cwd(), '.order-counter.json');
+  const COUNTER_FILE = path.join(os.tmpdir(), 'sistema-pdv-flow-order-counter.json');
   let counterData = { dailyCounter: 0, lastOrderDate: "" };
   try {
     if (fs.existsSync(COUNTER_FILE)) {
@@ -312,6 +313,20 @@ async function startServer() {
       pizzaFlavors,
       pizzaCrusts,
       isCashRegisterOpen
+    });
+
+    socket.on("request_init_data", () => {
+      socket.emit("init_data", {
+        waiters,
+        orders,
+        tables,
+        comandas,
+        stock,
+        menu,
+        pizzaFlavors,
+        pizzaCrusts,
+        isCashRegisterOpen
+      });
     });
 
     socket.on("waiter_register", (waiterData) => {
@@ -493,10 +508,8 @@ async function startServer() {
       
       console.log("Emitted initial updates for new order");
       
-      await saveToFirestore('orders', newOrder, newOrder.id);
-      
-      // Update config with new counter in Firestore
-      await saveToFirestore('config', { dailyCounter, lastOrderDate }, 'app');
+      saveToFirestore('orders', newOrder, newOrder.id);
+      saveToFirestore('config', { dailyCounter, lastOrderDate }, 'app');
       
       if (table) {
         const orderId = newOrder.id;
@@ -505,24 +518,25 @@ async function startServer() {
         
         console.log("Updating table status to occupied for:", targetId);
         
-        // Update the main table and all tables/comandas linked to it
-        const updateEntity = async (t: any) => {
-          if (t.id === targetId || t.linkedTo === targetId) {
-            t.status = t.id === targetId ? "occupied" : "linked";
-            t.currentOrder = orderId;
-            await saveToFirestore(collName, t, t.id.toString());
-          }
-        };
-
         if (isComanda) {
-          for (const c of comandas) await updateEntity(c);
+          comandas.forEach(c => {
+            if (c.id === targetId || c.linkedTo === targetId) {
+              c.status = c.id === targetId ? "occupied" : "linked";
+              c.currentOrder = orderId;
+              saveToFirestore(collName, c, c.id.toString());
+            }
+          });
+          io.emit("update_comandas", comandas);
         } else {
-          for (const t of tables) await updateEntity(t);
+          tables.forEach(t => {
+            if (t.id === targetId || t.linkedTo === targetId) {
+              t.status = t.id === targetId ? "occupied" : "linked";
+              t.currentOrder = orderId;
+              saveToFirestore(collName, t, t.id.toString());
+            }
+          });
+          io.emit("update_tables", tables);
         }
-
-        // Re-emit table/comanda updates after individual field changes for final consistency
-        if (isComanda) io.emit("update_comandas", comandas);
-        else io.emit("update_tables", tables);
         
         console.log("Emitted final table updates for new order");
       }

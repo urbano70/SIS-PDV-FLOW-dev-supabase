@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import socket from '../lib/socket';
 import { syncCollection } from '../lib/firebaseService';
@@ -14,6 +14,7 @@ interface FirebaseContextType {
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   toggleCashRegister: (open: boolean) => Promise<void>;
+  updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   data: {
     tables: Table[];
     comandas: Table[];
@@ -30,7 +31,7 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(true);
   const [tables, setTables] = useState<Table[]>([]);
   const [comandas, setComandas] = useState<Table[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -39,113 +40,130 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
 
-  useEffect(() => {
-    let unsubscribes: (() => void)[] = [];
+  const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
+    if (isComanda) {
+      setComandas(prev => prev.map(c => c.id === id ? { ...c, status } : c));
+    } else {
+      setTables(prev => prev.map(t => t.id === id ? { ...t, status } : t));
+    }
+  };
 
-    const cleanup = () => {
-      unsubscribes.forEach(unsub => unsub());
-      unsubscribes = [];
+  useEffect(() => {
+    let socketUnsubscribes: (() => void)[] = [];
+    let firestoreUnsubscribes: (() => void)[] = [];
+
+    const cleanupFirestore = () => {
+      firestoreUnsubscribes.forEach(unsub => unsub());
+      firestoreUnsubscribes = [];
     };
 
+    // 1. Inicializar Socket.io imediatamente para carregamento rápido
+    const handleUpdateOrders = (data: Order[]) => setOrders(data);
+    const handleUpdateTables = (data: Table[]) => setTables(data);
+    const handleUpdateComandas = (data: Table[]) => setComandas(data);
+    const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
+
+    const handleInitData = (data: any) => {
+      console.log("Received init_data from socket, populating states immediately");
+      if (data.tables) setTables(data.tables);
+      if (data.comandas) setComandas(data.comandas);
+      if (data.orders) setOrders(data.orders);
+      if (data.stock) setStock(data.stock);
+      if (data.waiters) setWaiters(data.waiters);
+      if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
+      if (data.menu) {
+        const transformedData = data.menu.map((cat: any) => ({
+          ...cat,
+          name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
+        }));
+        setMenu(transformedData);
+      }
+      setLoading(false); // Finaliza o loading assim que os dados do socket chegam!
+    };
+
+    socket.on('init_data', handleInitData);
+    socket.on('update_orders', handleUpdateOrders);
+    socket.on('update_tables', handleUpdateTables);
+    socket.on('update_comandas', handleUpdateComandas);
+    socket.on('update_cash_register', handleUpdateCashRegister);
+
+    // Solicitar os dados iniciais ativamente
+    socket.emit('request_init_data');
+
+    socketUnsubscribes.push(() => {
+      socket.off('init_data', handleInitData);
+      socket.off('update_orders', handleUpdateOrders);
+      socket.off('update_tables', handleUpdateTables);
+      socket.off('update_comandas', handleUpdateComandas);
+      socket.off('update_cash_register', handleUpdateCashRegister);
+    });
+
+    // 2. Inicializar Firebase Auth e Firestore em segundo plano
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-      cleanup();
+      cleanupFirestore();
       console.log("Auth state changed:", currentUser?.uid, currentUser?.email, currentUser?.isAnonymous);
       setUser(currentUser);
+      setIsAdmin(true);
+      
+      if (!currentUser) {
+        // Se não houver usuário, faz login anônimo automático em segundo plano
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.error("Error signing in anonymously:", e);
+        }
+        return;
+      }
       
       if (currentUser) {
-        // Check if Admin
-        const adminEmail = 'urbano70@gmail.com';
-        const isUserAdmin = currentUser.email === adminEmail;
-        setIsAdmin(isUserAdmin);
+        console.log("Syncing Firestore collections in background...");
         
-        console.log("Starting waiters sync...");
         // Sync waiters (open to all signed in users)
         const unsubWaiters = syncCollection('waiters', (data) => {
-          console.log(`Synced ${data.length} waiters`);
           setWaiters(data as Waiter[]);
         });
-        if (unsubWaiters) unsubscribes.push(unsubWaiters);
+        if (unsubWaiters) firestoreUnsubscribes.push(unsubWaiters);
 
-        // Check if this user is an approved waiter (even if anonymous)
-        let isApprovedWaiter = false;
-        if (!isUserAdmin) {
-          try {
-            const waiterDoc = await getDoc(doc(db, 'waiters', currentUser.uid));
-            if (waiterDoc.exists() && waiterDoc.data().status === 'approved') {
-              isApprovedWaiter = true;
-            }
-          } catch (e) {
-            console.error("Error checking waiter status:", e);
+        // Sempre sincroniza dados restritos para o painel livre
+        const collectionsToSync = [
+          { name: 'tables', setter: setTables },
+          { name: 'comandas', setter: setComandas },
+          { name: 'orders', setter: (d: any) => setOrders(d as Order[]) },
+          { name: 'stock', setter: (d: any) => setStock(d as StockItem[]) },
+          { name: 'menu', setter: (d: any) => {
+            const transformedData = (d as MenuCategory[]).map(cat => ({
+              ...cat,
+              name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
+            }));
+            setMenu(transformedData);
+          } }
+        ];
+
+        collectionsToSync.forEach(col => {
+          const unsub = syncCollection(col.name, col.setter);
+          if (unsub) firestoreUnsubscribes.push(unsub);
+        });
+        
+        // Sync config
+        const configRef = doc(db, 'config', 'app');
+        const unsubConfig = onSnapshot(configRef, (snapshot) => {
+          if (snapshot.exists()) {
+            setIsCashRegisterOpen(snapshot.data().isCashRegisterOpen);
           }
-        }
-
-        if (currentUser.emailVerified || isUserAdmin || isApprovedWaiter) {
-          console.log("Syncing restricted data...");
-          // Sync Restricted Data
-          const collectionsToSync = [
-            { name: 'tables', setter: setTables },
-            { name: 'comandas', setter: setComandas },
-            { name: 'orders', setter: (d: any) => setOrders(d as Order[]) },
-            { name: 'stock', setter: (d: any) => setStock(d as StockItem[]) },
-            { name: 'menu', setter: (d: any) => {
-              const transformedData = (d as MenuCategory[]).map(cat => ({
-                ...cat,
-                name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
-              }));
-              setMenu(transformedData);
-            } }
-          ];
-
-          collectionsToSync.forEach(col => {
-            const unsub = syncCollection(col.name, col.setter);
-            if (unsub) unsubscribes.push(unsub);
-          });
-          
-          // Socket.io sync for faster UI response
-          const handleUpdateOrders = (data: Order[]) => setOrders(data);
-          const handleUpdateTables = (data: Table[]) => setTables(data);
-          const handleUpdateComandas = (data: Table[]) => setComandas(data);
-          const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
-
-          socket.on('update_orders', handleUpdateOrders);
-          socket.on('update_tables', handleUpdateTables);
-          socket.on('update_comandas', handleUpdateComandas);
-          socket.on('update_cash_register', handleUpdateCashRegister);
-
-          unsubscribes.push(() => {
-            socket.off('update_orders', handleUpdateOrders);
-            socket.off('update_tables', handleUpdateTables);
-            socket.off('update_comandas', handleUpdateComandas);
-            socket.off('update_cash_register', handleUpdateCashRegister);
-          });
-          
-          // Sync config
-          const configRef = doc(db, 'config', 'app');
-          const unsubConfig = onSnapshot(configRef, (snapshot) => {
-            if (snapshot.exists()) {
-              setIsCashRegisterOpen(snapshot.data().isCashRegisterOpen);
-            }
-          });
-          unsubscribes.push(unsubConfig);
-        }
-        setLoading(false);
-      } else {
-        // If no user, just stop loading. Anonymous auth is often disabled in Firebase console by default.
-        setLoading(false);
+        });
+        firestoreUnsubscribes.push(unsubConfig);
       }
     });
 
-    // Emergency loading fallback
+    // Fallback de emergência (reduzido para 4 segundos se nada responder)
     const loadingTimeout = setTimeout(() => {
-      if (loading) {
-        console.warn("Loading timeout reached, forcing ready state");
-        setLoading(false);
-      }
-    }, 6000);
+      setLoading(false);
+    }, 4000);
 
     return () => {
       unsubscribeAuth();
-      cleanup();
+      cleanupFirestore();
+      socketUnsubscribes.forEach(unsub => unsub());
       clearTimeout(loadingTimeout);
     };
   }, []);
@@ -191,6 +209,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       signIn, 
       logout,
       toggleCashRegister,
+      updateTableStatusLocal,
       data: { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen }
     }}>
       {children}
