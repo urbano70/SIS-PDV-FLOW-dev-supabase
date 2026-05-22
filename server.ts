@@ -29,7 +29,12 @@ async function startServer() {
   // Initialize Firebase Admin on Server
   let db: admin.firestore.Firestore | any;
   try {
-    const firebaseConfig = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8'));
+    const rawConfig = process.env.FIREBASE_CONFIG
+      || (fs.existsSync(path.join(process.cwd(), 'firebase-applet-config.json'))
+          ? fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8')
+          : null);
+    if (!rawConfig) throw new Error('Firebase config not found');
+    const firebaseConfig = JSON.parse(rawConfig);
     if (!admin.apps.length) {
       admin.initializeApp({
         projectId: firebaseConfig.projectId
@@ -654,7 +659,7 @@ async function startServer() {
       io.emit("update_stock_log", stockLog);
     }));
 
-    socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit }) => {
+    socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit, reason }) => {
       const prev = stock.find((s: any) => s.menuItemId === menuItemId);
       if (!prev) return;
       const prevQty = prev.quantity ?? 0;
@@ -665,11 +670,12 @@ async function startServer() {
       );
       if (quantity !== prevQty) {
         const change = quantity - prevQty;
+        const defaultReason = change > 0 ? 'Entrada manual' : 'Ajuste manual';
         stockLog = [{
           id: randomUUID(),
           itemName: prev.name,
           change,
-          reason: change > 0 ? 'Entrada manual' : 'Ajuste manual',
+          reason: (reason && String(reason).trim()) ? String(reason).trim() : defaultReason,
           timestamp: new Date().toISOString(),
         }, ...stockLog].slice(0, 100);
         io.emit("update_stock_log", stockLog);

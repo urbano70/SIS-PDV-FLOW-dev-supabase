@@ -492,6 +492,7 @@ export default function Dashboard({
   const [transferReason, setTransferReason] = useState('');
   const [isMergeConfirmOpen, setIsMergeConfirmOpen] = useState(false);
   const [overviewTab, setOverviewTab] = useState<'tables' | 'comandas'>('tables');
+  const [showingRecentOrders, setShowingRecentOrders] = useState(false);
   const detailsRef = useRef<HTMLDivElement>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportStartDate, setReportStartDate] = useState(new Date().toISOString().split('T')[0]);
@@ -522,6 +523,8 @@ export default function Dashboard({
 
   const [stockEdits, setStockEdits] = useState<Record<string, { quantity: string; minQuantity: string; unit: string }>>({});
   const [isStockHistoryModalOpen, setIsStockHistoryModalOpen] = useState(false);
+  const [stockAdjustPending, setStockAdjustPending] = useState<{ menuItemId: string; quantity: number; minQuantity: number; unit: string; itemName: string; change: number } | null>(null);
+  const [stockAdjustReason, setStockAdjustReason] = useState('');
   const [stockHistoryStart, setStockHistoryStart] = useState(new Date().toISOString().split('T')[0]);
   const [stockHistoryEnd, setStockHistoryEnd] = useState(new Date().toISOString().split('T')[0]);
 
@@ -1553,18 +1556,31 @@ export default function Dashboard({
               <section className="grid grid-cols-1 md:grid-cols-5 gap-4 h-full">
                 {/* Column 1 (Left): Tables/Comandas & Recent Orders */}
                 <div className="md:col-span-2 md:col-start-1 md:row-start-1 h-full flex flex-col min-h-0 space-y-3 order-2 md:order-1">
-                  <div className="flex items-center space-x-1 bg-white p-0.5 rounded-xl border border-[#141414]/10 w-fit shrink-0">
-                    <button 
-                      onClick={() => setOverviewTab('tables')}
-                      className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'tables' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <div className="flex items-center space-x-1 bg-white p-0.5 rounded-xl border border-[#141414]/10">
+                      <button
+                        onClick={() => setOverviewTab('tables')}
+                        className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'tables' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
+                      >
+                        Mesas
+                      </button>
+                      <button
+                        onClick={() => setOverviewTab('comandas')}
+                        className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'comandas' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
+                      >
+                        Comandas
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowingRecentOrders(prev => !prev);
+                        setSelectedTableId(null);
+                        setSelectedComandaId(null);
+                      }}
+                      title="Pedidos recentes"
+                      className={`p-1.5 rounded-lg border transition-all ${showingRecentOrders ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white text-[#141414]/40 border-[#141414]/10 hover:text-[#141414] hover:border-[#141414]/30'}`}
                     >
-                      Mesas
-                    </button>
-                    <button 
-                      onClick={() => setOverviewTab('comandas')}
-                      className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'comandas' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
-                    >
-                      Comandas
+                      <History size={12} />
                     </button>
                   </div>
 
@@ -1586,6 +1602,7 @@ export default function Dashboard({
                                 onClick={() => {
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
+                                  setShowingRecentOrders(false);
                                   if (shouldShowInactivityIcon(table.id, false)) {
                                     setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
                                   }
@@ -1627,6 +1644,7 @@ export default function Dashboard({
                                 onClick={() => {
                                   setSelectedComandaId(comanda.id);
                                   setIsComandaSelected(true);
+                                  setShowingRecentOrders(false);
                                   if (shouldShowInactivityIcon(comanda.id, true)) {
                                     setInactivityPopup({ tableId: comanda.id, isComanda: true, minutes: getInactivityMinutes(comanda.id, true) });
                                   }
@@ -1656,16 +1674,38 @@ export default function Dashboard({
                     </AnimatePresence>
                   </div>
 
-                  {/* Recent Orders Section embedded inside Column 1 */}
-                  <div className="shrink-0 pt-2 border-t border-[#141414]/5 flex flex-col min-h-0 max-h-[140px] lg:max-h-[180px]">
-                    <h3 className="font-serif italic text-base mb-1.5 opacity-50 shrink-0">Pedidos Recentes</h3>
-                    <div className="grid grid-cols-1 gap-1.5 overflow-y-auto pr-1 scrollbar-hide flex-1 min-h-0">
-                      {orders.slice(-8).reverse().map(order => {
-                        const waiter = waiters.find(w => w.id === order.waiterId);
-                        return (
-                          <div key={order.id} className="bg-white/40 hover:bg-white p-2 rounded-lg border border-[#141414]/5 transition-colors text-[10px]">
-                            <div className="flex justify-between items-center">
-                              <button 
+                </div>
+
+                {/* Column 2 (Right): Order Details or Recent Orders */}
+                <div ref={detailsRef} className="md:col-span-3 md:col-start-3 md:row-start-1 h-full flex flex-col min-h-0 order-1 md:order-2">
+                  <AnimatePresence mode="wait">
+                    {showingRecentOrders ? (
+                      <motion.div
+                        key="recent-orders"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.2 }}
+                        className="flex flex-col h-full min-h-0"
+                      >
+                        <div className="flex items-center justify-between mb-3 shrink-0">
+                          <h3 className="font-serif italic text-xl flex items-center space-x-2">
+                            <History size={16} className="opacity-40" />
+                            <span>Pedidos Recentes</span>
+                          </h3>
+                          <span className="text-[9px] uppercase font-bold opacity-30">{orders.length} registro{orders.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-2 pr-1">
+                          {[...orders].reverse().map(order => {
+                            const waiter = waiters.find((w: any) => w.id === order.waiterId);
+                            const activeItems = (order.items || []).filter((i: any) => !i.removed);
+                            const total = activeItems.reduce((acc: number, i: any) => acc + (Number(i.price) || 0), 0);
+                            const paid = (order.paymentLog || []).reduce((acc: number, p: any) => acc + (Number(p.amount) || 0), 0);
+                            const pending = Math.max(0, total - paid);
+                            const time = order.timestamp ? new Date(order.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+                            return (
+                              <button
+                                key={order.id}
                                 onClick={() => {
                                   if (order.isComanda) {
                                     setSelectedComandaId(order.tableId);
@@ -1674,46 +1714,92 @@ export default function Dashboard({
                                     setSelectedTableId(order.tableId);
                                     setIsComandaSelected(false);
                                   }
+                                  setShowingRecentOrders(false);
                                 }}
-                                className="font-bold hover:underline text-[#141414]"
+                                className="w-full bg-white/60 hover:bg-white border border-[#141414]/8 hover:border-[#141414]/20 rounded-xl p-3 text-left transition-all group"
                               >
-                                {order.isComanda ? 'C' : 'M'}{order.tableId}
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex items-center space-x-2 min-w-0">
+                                    <span className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold bg-[#141414]/6 text-[#141414]">
+                                      {order.isComanda ? 'C' : 'M'}{order.tableId}
+                                    </span>
+                                    <div className="min-w-0">
+                                      <p className="text-[11px] font-bold truncate">{waiter?.name?.split(' ')[0] || '—'}</p>
+                                      <p className="text-[9px] opacity-40">{activeItems.length} iten{activeItems.length !== 1 ? 's' : ''} · {time}</p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="text-xs font-bold font-mono">R$ {total.toFixed(2)}</p>
+                                    {pending > 0.01 && order.status !== 'finalizada' ? (
+                                      <p className="text-[9px] text-amber-600 font-bold">Pend. R$ {pending.toFixed(2)}</p>
+                                    ) : (
+                                      <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                        order.status === 'finalizada' ? 'bg-green-50 text-green-600' :
+                                        order.status === 'preparing' ? 'bg-blue-50 text-blue-600' :
+                                        'bg-orange-50 text-orange-600'
+                                      }`}>
+                                        {order.status === 'finalizada' ? 'Pago' : order.status === 'preparing' ? 'Preparo' : 'Aberto'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {(() => {
+                                  const payers = [...new Set(
+                                    (order.paymentLog || [])
+                                      .filter((p: any) => p.payer && String(p.payer).trim())
+                                      .map((p: any) => String(p.payer).trim())
+                                  )];
+                                  if (payers.length === 0) return null;
+                                  return (
+                                    <div className="mt-2 pt-2 border-t border-[#141414]/6 flex flex-wrap gap-1">
+                                      {payers.map((payer: string, idx: number) => (
+                                        <span key={idx} className="inline-flex items-center gap-1 text-[9px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">
+                                          <span className="opacity-50">Pagou:</span> {payer}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
                               </button>
-                              <span className="opacity-40">{waiter?.name?.split(' ')[0] || 'G'}</span>
-                              <span className={`px-1.5 py-0.5 rounded font-bold uppercase text-[7px] ${
-                                order.status === 'pending' ? 'text-red-600' :
-                                order.status === 'preparing' ? 'text-blue-600' :
-                                'text-green-600'
-                              }`}>
-                                      R$ {(order.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0).toFixed(2)}
-                              </span>
+                            );
+                          })}
+                          {orders.length === 0 && (
+                            <div className="flex flex-col items-center justify-center h-full opacity-30">
+                              <History size={32} className="mb-2" />
+                              <p className="text-sm">Nenhum pedido registrado.</p>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2 (Right): Order Details */}
-                <div ref={detailsRef} className="md:col-span-3 md:col-start-3 md:row-start-1 h-full flex flex-col min-h-0 order-1 md:order-2">
-                  <OrderDetails 
-                    isComandaSelected={isComandaSelected}
-                    selectedComandaId={selectedComandaId}
-                    selectedTableId={selectedTableId}
-                    comandas={comandas}
-                    tables={tables}
-                    orders={orders}
-                    waiters={waiters}
-                    isCashRegisterOpen={isCashRegisterOpen}
-                    setIsAddItemModalOpen={setIsAddItemModalOpen}
-                    setIsHistoryModalOpen={setIsHistoryModalOpen}
-                    setIsLinkModalOpen={setIsLinkModalOpen}
-                    setIsTransferModalOpen={setIsTransferModalOpen}
-                    setIsPaymentModalOpen={setIsPaymentModalOpen}
-                    handleRemoveItem={handleRemoveItem}
-                    printerConfig={printerConfig}
-                  />
+                          )}
+                        </div>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="order-details"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="h-full flex flex-col min-h-0"
+                      >
+                        <OrderDetails
+                          isComandaSelected={isComandaSelected}
+                          selectedComandaId={selectedComandaId}
+                          selectedTableId={selectedTableId}
+                          comandas={comandas}
+                          tables={tables}
+                          orders={orders}
+                          waiters={waiters}
+                          isCashRegisterOpen={isCashRegisterOpen}
+                          setIsAddItemModalOpen={setIsAddItemModalOpen}
+                          setIsHistoryModalOpen={setIsHistoryModalOpen}
+                          setIsLinkModalOpen={setIsLinkModalOpen}
+                          setIsTransferModalOpen={setIsTransferModalOpen}
+                          setIsPaymentModalOpen={setIsPaymentModalOpen}
+                          handleRemoveItem={handleRemoveItem}
+                          printerConfig={printerConfig}
+                        />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               </section>
             </motion.div>
@@ -1965,6 +2051,7 @@ export default function Dashboard({
                                   min="0"
                                   step="1"
                                   value={edit.quantity}
+                                  onFocus={e => e.target.select()}
                                   onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, quantity: e.target.value } }))}
                                   className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
                                 />
@@ -1975,6 +2062,7 @@ export default function Dashboard({
                                   min="0"
                                   step="1"
                                   value={edit.minQuantity}
+                                  onFocus={e => e.target.select()}
                                   onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, minQuantity: e.target.value } }))}
                                   className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
                                 />
@@ -2001,14 +2089,28 @@ export default function Dashboard({
                                 {isDirty && (
                                   <button
                                     onClick={() => {
-                                      socket.emit('update_stock_item', {
-                                        menuItemId: item.menuItemId,
-                                        quantity: parseFloat(edit.quantity) || 0,
-                                        minQuantity: parseFloat(edit.minQuantity) || 0,
-                                        unit: edit.unit,
-                                      });
-                                      setStockEdits(prev => { const n = { ...prev }; delete n[item.menuItemId]; return n; });
-                                      toast.success('Estoque atualizado!');
+                                      const newQty = parseFloat(edit.quantity) || 0;
+                                      const currentQty = item.quantity ?? 0;
+                                      if (newQty < currentQty) {
+                                        setStockAdjustReason('');
+                                        setStockAdjustPending({
+                                          menuItemId: item.menuItemId,
+                                          quantity: newQty,
+                                          minQuantity: parseFloat(edit.minQuantity) || 0,
+                                          unit: edit.unit,
+                                          itemName: item.name,
+                                          change: newQty - currentQty,
+                                        });
+                                      } else {
+                                        socket.emit('update_stock_item', {
+                                          menuItemId: item.menuItemId,
+                                          quantity: newQty,
+                                          minQuantity: parseFloat(edit.minQuantity) || 0,
+                                          unit: edit.unit,
+                                        });
+                                        setStockEdits(prev => { const n = { ...prev }; delete n[item.menuItemId]; return n; });
+                                        toast.success('Estoque atualizado!');
+                                      }
                                     }}
                                     className="px-3 py-1 bg-[#141414] text-[#E4E3E0] rounded-lg text-[10px] font-bold uppercase hover:opacity-80 transition-opacity"
                                   >
@@ -3356,6 +3458,100 @@ export default function Dashboard({
             )}
         </AnimatePresence>
       </main>
+
+      {/* Modal Motivo do Ajuste de Estoque */}
+      <AnimatePresence>
+        {stockAdjustPending && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setStockAdjustPending(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 z-10"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="font-serif italic text-xl">Motivo do Ajuste</h3>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Registro obrigatório para reduções</p>
+                </div>
+                <button onClick={() => setStockAdjustPending(null)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Resumo do ajuste */}
+              <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 flex items-center justify-between">
+                <span className="text-sm font-bold">{stockAdjustPending.itemName}</span>
+                <span className="text-red-600 font-mono font-bold text-sm">{stockAdjustPending.change} {(() => { const s = stock.find((s: any) => s.menuItemId === stockAdjustPending.menuItemId); return s?.unit || ''; })()}</span>
+              </div>
+
+              {/* Opções rápidas */}
+              <p className="text-[9px] uppercase font-bold opacity-40 mb-2 tracking-widest">Selecione ou descreva o motivo</p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                {['Perda / Vencimento', 'Uso interno', 'Correção de inventário', 'Furto / Quebra'].map(opt => (
+                  <button
+                    key={opt}
+                    onClick={() => setStockAdjustReason(opt)}
+                    className={`px-3 py-2 rounded-xl border text-[11px] font-bold text-left transition-all ${
+                      stockAdjustReason === opt
+                        ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]'
+                        : 'bg-white border-[#141414]/10 hover:border-[#141414]/30 text-[#141414]'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+
+              {/* Campo livre */}
+              <input
+                type="text"
+                value={stockAdjustReason}
+                onChange={e => setStockAdjustReason(e.target.value)}
+                placeholder="Ou descreva o motivo livremente..."
+                className="w-full border border-[#141414]/15 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#141414] mb-4"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && stockAdjustReason.trim()) {
+                    socket.emit('update_stock_item', { ...stockAdjustPending, reason: stockAdjustReason.trim() });
+                    setStockEdits(prev => { const n = { ...prev }; delete n[stockAdjustPending.menuItemId]; return n; });
+                    setStockAdjustPending(null);
+                    toast.success('Estoque atualizado!');
+                  }
+                }}
+              />
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setStockAdjustPending(null)}
+                  className="flex-1 py-3 border border-[#141414]/15 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  disabled={!stockAdjustReason.trim()}
+                  onClick={() => {
+                    socket.emit('update_stock_item', { ...stockAdjustPending, reason: stockAdjustReason.trim() });
+                    setStockEdits(prev => { const n = { ...prev }; delete n[stockAdjustPending.menuItemId]; return n; });
+                    setStockAdjustPending(null);
+                    toast.success('Estoque atualizado!');
+                  }}
+                  className="flex-1 py-3 bg-[#141414] text-[#E4E3E0] rounded-xl text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                >
+                  Confirmar Ajuste
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modal Histórico de Estoque */}
       <AnimatePresence>

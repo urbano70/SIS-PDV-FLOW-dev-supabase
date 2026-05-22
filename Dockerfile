@@ -33,12 +33,6 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/server.js ./
 COPY --from=builder /app/dist     ./dist
 
-# Configuração Firebase (lida pelo servidor no startup)
-COPY firebase-applet-config.json ./
-
 EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
 
 CMD ["node", "server.js"]
