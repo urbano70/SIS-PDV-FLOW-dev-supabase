@@ -18,13 +18,13 @@ import { LogIn } from 'lucide-react';
 
 function AppContent() {
   const { user, loading, signIn, data, isAdmin, toggleCashRegister } = useFirebase();
-  const { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen } = data;
+  const { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
   
-  const [printerConfig, setPrinterConfig] = useState({
+  const defaultPrinterConfig = {
     drinks: 'Impressora Bar',
     kitchen: 'Impressora Cozinha 2',
     kitchenLabel: 'Cozinha Geral',
@@ -39,6 +39,14 @@ function AppContent() {
     itemFontSize: '12px',
     boldItems: false,
     autoPrintKitchen: true
+  };
+  const [printerConfig, setPrinterConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('printerConfig');
+      return saved ? { ...defaultPrinterConfig, ...JSON.parse(saved) } : defaultPrinterConfig;
+    } catch {
+      return defaultPrinterConfig;
+    }
   });
 
   useEffect(() => {
@@ -124,7 +132,7 @@ function AppContent() {
         <div className="w-16 h-16 bg-[#141414] rounded-full flex items-center justify-center mx-auto mb-6">
           <LogIn className="text-[#E4E3E0] w-8 h-8" />
         </div>
-        <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao PizzaFlow</h1>
+        <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao FechaConta</h1>
         <p className="text-gray-500 mb-8">Faça login para acessar o sistema de gestão.</p>
         <button 
           onClick={signIn}
@@ -165,12 +173,13 @@ function AppContent() {
         <Route 
           path="/dashboard" 
           element={
-            <Dashboard 
-              tables={tables} 
+            <Dashboard
+              tables={tables}
               comandas={comandas}
-              orders={orders} 
-              waiters={waiters} 
-              stock={stock} 
+              orders={orders}
+              waiters={waiters}
+              stock={stock}
+              stockLog={stockLog}
               menu={menu}
               pizzaFlavors={pizzaFlavors}
               pizzaCrusts={pizzaCrusts}

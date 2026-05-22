@@ -8,3 +8,10 @@ coverage/
 !.env.example
 server.js
 
+# Credenciais Firebase — nunca versionar
+firebase-applet-config.json
+service-account.json
+
+# Configurações locais do Claude Code
+.claude/
+

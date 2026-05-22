@@ -7,6 +7,7 @@ import os from "os";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
+import { getFirestore } from "firebase-admin/firestore";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 
 async function startServer() {
@@ -34,12 +35,11 @@ async function startServer() {
         projectId: firebaseConfig.projectId
       });
     }
-    db = admin.firestore();
-    if (firebaseConfig.firestoreDatabaseId) {
-      // In case we need to specify a database ID for Enterprise edition
-      // admin.firestore() doesn't easily support databaseId in initializeApp options without a newer version or specific config
-      // But usually default is fine.
-    }
+    // Usa o banco nomeado se configurado (firestoreDatabaseId no firebase-applet-config.json),
+    // garantindo que servidor e cliente React leiam/gravem no mesmo banco.
+    db = firebaseConfig.firestoreDatabaseId
+      ? getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)
+      : getFirestore();
     console.log("Firebase Admin initialized on server");
   } catch (error) {
     console.error("Failed to initialize Firebase Admin on server:", error);
@@ -220,19 +220,10 @@ async function startServer() {
     return `${dateStr}${dailyCounter.toString().padStart(4, '0')}`;
   };
 
-  let stock = [
-    { id: "1", name: "Farinha de Trigo", quantity: 50, unit: "kg", minQuantity: 10 },
-    { id: "2", name: "Queijo Mussarela", quantity: 30, unit: "kg", minQuantity: 5 },
-    { id: "3", name: "Molho de Tomate", quantity: 20, unit: "L", minQuantity: 4 },
-    { id: "4", name: "Calabresa", quantity: 15, unit: "kg", minQuantity: 3 },
-    { id: "5", name: "Frango Desfiado", quantity: 12, unit: "kg", minQuantity: 3 },
-    { id: "6", name: "Bacon", quantity: 10, unit: "kg", minQuantity: 2 },
-    { id: "7", name: "Catupiry", quantity: 8, unit: "kg", minQuantity: 2 },
-    { id: "8", name: "Camarão", quantity: 5, unit: "kg", minQuantity: 1 },
-    { id: "9", name: "Pão de Hambúrguer", quantity: 50, unit: "un", minQuantity: 10 },
-    { id: "10", name: "Hambúrguer de Carne", quantity: 40, unit: "un", minQuantity: 8 },
-    { id: "11", name: "Presunto", quantity: 10, unit: "kg", minQuantity: 2 },
-  ];
+  // Stock is now driven by menu items with trackStock=true.
+  // Each entry: { id, menuItemId, name, quantity, unit, minQuantity }
+  let stock: any[] = [];
+  let stockLog: any[] = [];
 
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
@@ -251,29 +242,32 @@ async function startServer() {
   };
 
   const applyStockReduction = (items: any[]) => {
+    const newEntries: any[] = [];
     items.forEach(item => {
-      stock = stock.map(s => {
-        let reduction = 0;
-        const itemName = item.name.toLowerCase();
-        if (!itemName.includes("x-") && !["coca", "suco", "cerveja", "água", "guaraná"].some(b => itemName.includes(b))) {
-          if (s.name === "Farinha de Trigo") reduction = 0.3;
-          if (s.name === "Queijo Mussarela") reduction = 0.2;
-          if (s.name === "Molho de Tomate") reduction = 0.1;
-        }
-        if (itemName.startsWith("x-")) {
-          if (s.name === "Pão de Hambúrguer") reduction = 1;
-          if (s.name === "Hambúrguer de Carne") reduction = 1;
-          if (s.name === "Queijo Mussarela") reduction = 0.05;
-        }
-        if (s.name === "Calabresa" && itemName.includes("calabresa")) reduction += 0.15;
-        if (s.name === "Frango Desfiado" && itemName.includes("frango")) reduction += 0.2;
-        if (s.name === "Bacon" && itemName.includes("bacon")) reduction += 0.1;
-        if (s.name === "Catupiry" && itemName.includes("catupiry")) reduction += 0.15;
-        if (s.name === "Camarão" && itemName.includes("camarão")) reduction += 0.25;
-        if (s.name === "Presunto" && itemName.includes("presunto")) reduction += 0.1;
-        return { ...s, quantity: Math.max(0, s.quantity - reduction) };
-      });
+      const qty = item.quantity || 1;
+      const entry = stock.find((s: any) =>
+        (item.menuItemId && s.menuItemId === item.menuItemId) || s.name === item.name
+      );
+      if (entry) {
+        stock = stock.map((s: any) => {
+          if (s.id === entry.id) {
+            newEntries.push({
+              id: randomUUID(),
+              itemName: s.name,
+              change: -qty,
+              reason: 'Venda',
+              timestamp: new Date().toISOString(),
+            });
+            return { ...s, quantity: Math.max(0, s.quantity - qty) };
+          }
+          return s;
+        });
+      }
     });
+    if (newEntries.length > 0) {
+      stockLog = [...newEntries, ...stockLog].slice(0, 100);
+      io.emit("update_stock_log", stockLog);
+    }
     io.emit("update_stock", stock);
   };
 
@@ -309,6 +303,7 @@ async function startServer() {
       tables,
       comandas,
       stock,
+      stockLog,
       menu,
       pizzaFlavors,
       pizzaCrusts,
@@ -323,6 +318,7 @@ async function startServer() {
         tables,
         comandas,
         stock,
+        stockLog,
         menu,
         pizzaFlavors,
         pizzaCrusts,
@@ -620,6 +616,67 @@ async function startServer() {
       io.emit("update_menu", menu);
     }));
 
+    socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, enabled }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name === categoryName) {
+          return {
+            ...cat,
+            items: cat.items.map((item: any) =>
+              item.id === menuItemId ? { ...item, trackStock: enabled } : item
+            ),
+          };
+        }
+        return cat;
+      });
+
+      if (enabled) {
+        const menuItem = menu.flatMap((c: any) => c.items).find((i: any) => i.id === menuItemId);
+        if (menuItem && !stock.find((s: any) => s.menuItemId === menuItemId)) {
+          stock.push({
+            id: menuItemId,
+            menuItemId,
+            name: menuItem.name,
+            quantity: 0,
+            unit: 'un',
+            minQuantity: 0,
+          });
+        }
+      } else {
+        stock = stock.filter((s: any) => s.menuItemId !== menuItemId);
+        stockLog = stockLog.filter((l: any) => {
+          const entry = stock.find((s: any) => s.menuItemId === menuItemId);
+          return entry ? l.itemName !== entry.name : true;
+        });
+      }
+
+      io.emit("update_menu", menu);
+      io.emit("update_stock", stock);
+      io.emit("update_stock_log", stockLog);
+    }));
+
+    socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit }) => {
+      const prev = stock.find((s: any) => s.menuItemId === menuItemId);
+      if (!prev) return;
+      const prevQty = prev.quantity ?? 0;
+      stock = stock.map((s: any) =>
+        s.menuItemId === menuItemId
+          ? { ...s, quantity, minQuantity, unit: unit || s.unit }
+          : s
+      );
+      if (quantity !== prevQty) {
+        const change = quantity - prevQty;
+        stockLog = [{
+          id: randomUUID(),
+          itemName: prev.name,
+          change,
+          reason: change > 0 ? 'Entrada manual' : 'Ajuste manual',
+          timestamp: new Date().toISOString(),
+        }, ...stockLog].slice(0, 100);
+        io.emit("update_stock_log", stockLog);
+      }
+      io.emit("update_stock", stock);
+    }));
+
     socket.on("update_pizza_flavor", requireAdmin(({ flavorName, updatedData }) => {
       pizzaFlavors = pizzaFlavors.map(f => {
         if (f.name === flavorName) {
@@ -653,6 +710,23 @@ async function startServer() {
     socket.on("delete_pizza_crust", requireAdmin((crustName) => {
       pizzaCrusts = pizzaCrusts.filter(c => c !== crustName);
       io.emit("update_pizza_crusts", pizzaCrusts);
+    }));
+
+    socket.on("bulk_import", requireAdmin(({ menu: importedMenu, stock: importedStock }) => {
+      if (importedMenu && Array.isArray(importedMenu)) {
+        menu = importedMenu;
+        io.emit("update_menu", menu);
+      }
+      if (importedStock && Array.isArray(importedStock)) {
+        stock = importedStock;
+        io.emit("update_stock", stock);
+        stockLog = [];
+        io.emit("update_stock_log", stockLog);
+      }
+      socket.emit("import_complete", {
+        menuCategories: importedMenu?.length ?? 0,
+        stockItems: importedStock?.length ?? 0,
+      });
     }));
 
     socket.on("add_item_to_order", async ({ orderId, item }) => {
@@ -696,6 +770,11 @@ async function startServer() {
 
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
+        const hasPartialPayment = (order.paymentLog || []).some((p: any) => p.type === 'partial');
+        if (hasPartialPayment) {
+          socket.emit("error_message", "Não é possível remover itens de uma comanda com pagamento parcial registrado.");
+          return;
+        }
         const itemIndex = order.items.findIndex(i => String(i.id) === String(itemId));
         if (itemIndex !== -1) {
           const item = order.items[itemIndex];
@@ -727,7 +806,7 @@ async function startServer() {
       }
     });
 
-    socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod }) => {
+    socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName }) => {
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
@@ -738,12 +817,13 @@ async function startServer() {
         const numericPartialAmount = partialAmount !== undefined ? Number(partialAmount) : 0;
 
         if (isPartialOnly && numericPartialAmount > 0) {
-          const payment = {
+          const payment: any = {
             amount: numericPartialAmount,
             method: paymentMethod || "Não informado",
             timestamp: new Date().toISOString(),
             type: 'partial' as const
           };
+          if (payerName && typeof payerName === 'string') payment.payer = payerName.trim();
           order.paymentLog.push(payment);
         } else if (itemIds.length > 0) {
           const activeItemsForTotal = (order.items || []).filter(i => !i.removed);
@@ -758,12 +838,14 @@ async function startServer() {
 
           const actualAmountPaid = partialAmount !== undefined ? Number(partialAmount) : selectedItemsTotal;
 
-          order.paymentLog.push({
+          const itemPayment: any = {
             amount: actualAmountPaid,
             method: paymentMethod || "Não informado",
             timestamp: new Date().toISOString(),
             type: 'items'
-          });
+          };
+          if (payerName && typeof payerName === 'string') itemPayment.payer = payerName.trim();
+          order.paymentLog.push(itemPayment);
           
           itemIds.forEach(itemId => {
             const itemIndex = order.items.findIndex(i => String(i.id) === String(itemId));
@@ -878,8 +960,23 @@ async function startServer() {
             if (targetTable.currentOrder) {
               const targetOrder = orders.find(o => String(o.id) === String(targetTable.currentOrder));
               if (targetOrder) {
+                // Merge items preserving paid flags
                 targetOrder.items.push(...sourceOrder.items);
-                sourceOrder.status = "finalizada"; // Effectively closing it
+
+                // Merge paymentLog so partial payments from source are preserved
+                // in the pending amount calculation of the unified order
+                if (sourceOrder.paymentLog && sourceOrder.paymentLog.length > 0) {
+                  if (!targetOrder.paymentLog) targetOrder.paymentLog = [];
+                  targetOrder.paymentLog.push(...sourceOrder.paymentLog);
+                }
+
+                // Carry over source discount to target only if target has none
+                if (sourceOrder.discount && !targetOrder.discount) {
+                  targetOrder.discount = sourceOrder.discount;
+                  targetOrder.discountType = sourceOrder.discountType;
+                }
+
+                sourceOrder.status = "finalizada";
               }
             } else {
               sourceOrder.tableId = finalTargetTableId;
@@ -1096,12 +1193,65 @@ async function startServer() {
       }
     });
 
+    // Reset all in-memory state: free all tables/comandas and wipe orders.
+    // No requireAdmin wrapper — auth may be unavailable when Firebase is disabled,
+    // and the button is already protected by the admin-only dashboard UI.
+    socket.on("reset_system", async () => {
+      console.log("reset_system: clearing all in-memory orders, tables, comandas and stockLog");
+
+      orders = [];
+      stockLog = [];
+
+      tables.forEach(t => {
+        t.status = "free";
+        t.currentOrder = null;
+        t.linkedTo = null;
+      });
+
+      comandas.forEach(c => {
+        c.status = "free";
+        c.currentOrder = null;
+        c.linkedTo = null;
+      });
+
+      isCashRegisterOpen = false;
+
+      io.emit("update_orders", orders);
+      io.emit("update_stock_log", stockLog);
+      io.emit("update_tables", tables);
+      io.emit("update_comandas", comandas);
+      io.emit("update_cash_register", false);
+    });
+
     // Consolidated init_data is at the beginning of connection
   });
 
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/admin/create-waiter", express.json(), (req, res) => {
+    const { name, password } = req.body;
+    if (!name || !password) {
+      return res.status(400).json({ error: "name e password são obrigatórios" });
+    }
+    const existing = waiters.find((w: any) => w.name === name);
+    if (existing) {
+      return res.status(409).json({ error: "Garçom com esse nome já existe" });
+    }
+    const newWaiter = {
+      id: `waiter_${Date.now()}`,
+      name,
+      password,
+      status: "approved",
+      role: "waiter",
+      createdAt: new Date().toISOString(),
+    };
+    waiters.push(newWaiter);
+    io.emit("update_waiters", waiters);
+    console.log(`[admin] Garçom criado: ${name}`);
+    return res.json({ success: true, waiter: { id: newWaiter.id, name: newWaiter.name, status: newWaiter.status } });
   });
 
   // Vite middleware

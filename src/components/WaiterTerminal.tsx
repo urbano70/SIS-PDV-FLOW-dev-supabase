@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, PizzaItem, Order, MenuCategory } from '../types';
 import socket from '../lib/socket';
-import { Plus, Minus, Send, ShoppingBasket, ChevronRight, X, Layers, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { auth } from '../lib/firebase';
@@ -28,11 +28,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [activeCategory, setActiveCategory] = useState(menu[0]?.name || '');
   const [isAddingItems, setIsAddingItems] = useState(false);
   const [isObservationModalOpen, setIsObservationModalOpen] = useState(false);
-  const [isRemovalModalOpen, setIsRemovalModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-  const [itemToRemove, setItemToRemove] = useState<PizzaItem | null>(null);
-  const [removalQuantity, setRemovalQuantity] = useState(1);
-  const [removalReason, setRemovalReason] = useState('');
   const [cartObservations, setCartObservations] = useState('');
 
   const [isCartExpanded, setIsCartExpanded] = useState(false);
@@ -40,9 +36,31 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const currentList = selectionType === 'tables' ? tables : comandas;
   const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
   const currentOrder = orders.find(o => tableData?.currentOrder && o.id && String(o.id) === String(tableData.currentOrder));
-  const showOrderSummary = selectedId !== null && tableData?.status !== 'free' && !isAddingItems;
 
   const filteredCategories = menu.filter(cat => cat.type === activeType);
+
+  const [, forceInactivityUpdate] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => forceInactivityUpdate(n => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const getInactivityMinutes = (tableItem: Table): number | null => {
+    if (tableItem.status === 'free' || !tableItem.currentOrder) return null;
+    const order = orders.find(o => String(o.id) === String(tableItem.currentOrder));
+    if (!order) return null;
+    const activeItems = (order.items || []).filter((i: any) => !i.removed);
+    const timestamps = activeItems.filter((i: any) => i.timestamp).map((i: any) => new Date(i.timestamp).getTime());
+    const lastMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
+    return Math.floor((Date.now() - lastMs) / 60_000);
+  };
+
+  const formatInactivity = (minutes: number): string => {
+    if (minutes < 60) return `${minutes} min`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
   
   // Update active category when type changes
   useEffect(() => {
@@ -96,8 +114,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       return;
     }
 
+    const qty = pizza.quantity || 1;
     const newItem: PizzaItem = {
       id: Math.random().toString(36).substr(2, 9),
+      menuItemId: pizza.id,
       name: pizza.name,
       type: pizza.type || category?.type,
       flavors: pizza.flavors || [pizza.name],
@@ -105,8 +125,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       crust: pizza.crust,
       extras: [],
       observations: (pizza.observations || '').trim(),
-      price: pizza.price,
-      quantity: pizza.quantity || 1,
+      price: pizza.price * qty,
+      quantity: qty,
       ingredients: pizza.ingredients
     };
 
@@ -216,36 +236,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     }
 
     toast.success('Pedido enviado com sucesso!');
-    
+
     setCart([]);
     setCartObservations('');
-    setSelectedId(null);
-    setIsComandaSelected(false);
     setIsAddingItems(false);
-  };
-
-  const removeItem = (itemId: string) => {
-    const item = currentOrder?.items?.find(i => i.id === itemId);
-    if (item) {
-      setItemToRemove(item);
-      setRemovalQuantity(item.quantity || 1);
-      setRemovalReason('');
-      setIsRemovalModalOpen(true);
-    }
-  };
-
-  const confirmRemoval = () => {
-    if (!currentOrder || !itemToRemove) return;
-    socket.emit('remove_item', {
-      orderId: currentOrder.id,
-      itemId: itemToRemove.id,
-      quantity: removalQuantity,
-      reason: removalReason.trim()
-    });
-    setIsRemovalModalOpen(false);
-    setItemToRemove(null);
-    setRemovalQuantity(1);
-    setRemovalReason('');
   };
 
   const handlePaymentComplete = (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => {
@@ -265,6 +259,28 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const orderTotal = currentOrder?.items
     .filter(i => !i.removed)
     .reduce((acc, i) => acc + i.price, 0) || 0;
+
+  const pendingAmount = React.useMemo(() => {
+    if (!currentOrder) return 0;
+    const activeItems = (currentOrder.items || []).filter((i: any) => !i.removed && !i.paid);
+    const itemsTotal = activeItems.reduce((acc: number, i: any) => {
+      let price = i.price;
+      if (i.discount) {
+        if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+        else price = Math.max(0, price - i.discount);
+      }
+      return acc + price;
+    }, 0);
+    let finalTotal = itemsTotal;
+    if (currentOrder.discount) {
+      if ((currentOrder as any).discountType === 'percentage') finalTotal *= (1 - (currentOrder as any).discount / 100);
+      else finalTotal = Math.max(0, finalTotal - (currentOrder as any).discount);
+    }
+    const existingPartialPaid = (currentOrder.paymentLog || [])
+      .filter((p: any) => p.type === 'partial')
+      .reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+    return Math.max(0, finalTotal - existingPartialPaid);
+  }, [currentOrder]);
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
@@ -289,13 +305,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         {selectedId === null ? (
           <div className="space-y-6">
             <div className="flex bg-white p-1 rounded-2xl border border-[#141414]/10">
-              <button 
+              <button
                 onClick={() => setSelectionType('tables')}
                 className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'tables' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
               >
                 Mesas
               </button>
-              <button 
+              <button
                 onClick={() => setSelectionType('comandas')}
                 className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'comandas' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
               >
@@ -313,7 +329,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     setIsAddingItems(false);
                   }}
                   className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center transition-all relative ${
-                    item.status === 'free' ? 'border-[#141414]/10 bg-white' : 
+                    item.status === 'free' ? 'border-[#141414]/10 bg-white' :
                     item.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
                     'border-[#141414] bg-[#141414] text-[#E4E3E0]'
                   }`}
@@ -330,144 +346,181 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       <span className="text-[10px] font-bold">→ {item.linkedTo}</span>
                     )}
                   </div>
+                  {item.status !== 'free' && (() => {
+                    const mins = getInactivityMinutes(item);
+                    if (mins === null) return null;
+                    return (
+                      <div className={`flex items-center space-x-0.5 mt-0.5 ${mins >= 30 ? 'text-amber-400' : 'opacity-40'}`}>
+                        <Clock size={8} />
+                        <span className="text-[8px] font-bold">{formatInactivity(mins)}</span>
+                      </div>
+                    );
+                  })()}
                 </button>
               ))}
             </div>
           </div>
-        ) : showOrderSummary ? (
+        ) : !isAddingItems ? (
+          /* ── TABLE OVERVIEW: shows order (if occupied) or empty state (if free) + "Adicionar Item" button ── */
           <div className="flex flex-col h-full space-y-4">
             <div className="flex items-center justify-between">
-              <button onClick={() => {
-                setSelectedId(null);
-                setIsComandaSelected(false);
-              }} className="text-sm font-bold flex items-center">
-                <X size={16} className="mr-1" /> Voltar
+              <button onClick={() => { setSelectedId(null); setIsComandaSelected(false); }} className="text-sm font-bold flex items-center">
+                <ChevronLeft size={18} className="mr-1" /> Voltar
               </button>
               <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
-              <button 
-                onClick={() => setIsAddingItems(true)}
-                className="bg-[#141414] text-white px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase flex items-center space-x-1 active:scale-95 transition-transform"
-              >
-                <Plus size={12} />
-                <span>Acrescentar</span>
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
-              <h3 className="font-bold text-lg border-b pb-2">Histórico da Comanda</h3>
-              <div className="space-y-4">
-                {currentOrder?.items.map((item) => (
-                  <div key={item.id} className={`flex justify-between items-start text-sm ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 rounded-xl border border-green-100' : ''}`}>
-                    <div className="flex-1 pr-4">
-                      <div className="flex items-center space-x-2">
-                        <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
-                          {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                        </p>
-                        {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
-                          <OrderTimer timestamp={item.timestamp} />
-                        )}
-                        {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
-                      </div>
-                      <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
-                        {item.type === 'pizzas' ? (
-                          item.observations && <span className="uppercase font-bold text-blue-700 italic">{item.observations}</span>
-                        ) : (
-                          <>
-                            {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
-                            <span>{item.flavors.join(' / ')}</span>
-                          </>
-                        )}
-                        <span>•</span>
-                        <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
-                      </div>
-                      {item.removed && (
-                        <p className="text-[10px] text-red-600 font-bold mt-1">
-                          Removido por: {item.removedBy}
-                          {item.removalReason && <span className="block italic opacity-90 font-bold">Motivo: {item.removalReason}</span>}
-                        </p>
-                      )}
+              <div className="flex flex-col items-end space-y-1">
+                <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded-full ${
+                  tableData?.status === 'free' ? 'bg-gray-100 text-gray-500' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {tableData?.status === 'free' ? 'Livre' : 'Ocupada'}
+                </span>
+                {tableData && (() => {
+                  const mins = getInactivityMinutes(tableData);
+                  if (mins === null) return null;
+                  return (
+                    <div className={`flex items-center space-x-1 ${mins >= 30 ? 'text-amber-500' : 'text-[#141414]/30'}`}>
+                      <Clock size={10} />
+                      <span className="text-[9px] font-bold">{formatInactivity(mins)} sem pedido</span>
                     </div>
-                    <div className="flex flex-col items-end space-y-1">
-                      <span className={`font-mono font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
-                        R$ {item.price.toFixed(2)}
-                      </span>
-                      {!item.removed && !item.paid && (
-                        <button 
-                          onClick={() => removeItem(item.id)}
-                          className="text-[9px] text-red-500 hover:text-red-700 font-bold uppercase tracking-tighter border border-red-200 px-1.5 py-0.5 rounded"
-                        >
-                          Remover
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {currentOrder?.observations && (
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações Gerais</p>
-                    <p className="text-xs text-blue-700 italic">{currentOrder.observations}</p>
-                  </div>
-                )}
-                {(!currentOrder || currentOrder.items.length === 0) && (
-                  <p className="text-center py-10 opacity-30 italic text-sm">Nenhum item registrado.</p>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
-            <div className="bg-[#141414] text-[#E4E3E0] p-6 rounded-3xl space-y-3 shadow-xl">
-              <div className="flex justify-between items-center opacity-50 text-[10px] font-bold uppercase tracking-widest">
-                <span>Total Consumido</span>
-                <span>R$ {(() => {
-                  const itemsTotal = (currentOrder?.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0);
-                  return itemsTotal.toFixed(2);
-                })()}</span>
-              </div>
-              <div className="flex justify-between items-center text-green-400 text-[10px] font-bold uppercase tracking-widest">
-                <span>Já Pago</span>
-                <span>- R$ {(() => {
-                  const totalPaidFromLog = (currentOrder?.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
-                  return totalPaidFromLog.toFixed(2);
-                })()}</span>
-              </div>
-              <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                <div className="flex flex-col">
-                  <span className="font-bold uppercase text-[10px] tracking-widest opacity-50">Restante a Pagar</span>
-                  <span className="text-3xl font-bold text-white">R$ {(() => {
-                    const itemsTotal = (currentOrder?.items || []).filter(i => !i.removed).reduce((acc, i) => {
-                      let price = i.price;
-                      if (i.discount) {
-                        if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
-                        else price = Math.max(0, price - i.discount);
+            {tableData?.status !== 'free' && currentOrder ? (
+              <>
+                <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
+                  <h3 className="font-bold text-base border-b pb-2">Pedidos em Aberto</h3>
+                  <div className="space-y-3">
+                    {currentOrder.items.map((item) => (
+                      <div key={item.id} className={`flex justify-between items-start text-sm ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 rounded-xl border border-green-100' : ''}`}>
+                        <div className="flex-1 pr-4">
+                          <div className="flex items-center space-x-2">
+                            <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
+                              {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                            </p>
+                            {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
+                              <OrderTimer timestamp={item.timestamp} />
+                            )}
+                            {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
+                            {item.type === 'pizzas' ? (
+                              item.observations && <span className="uppercase font-bold text-blue-700 italic">{item.observations}</span>
+                            ) : (
+                              <>
+                                {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
+                                <span>{item.flavors.join(' / ')}</span>
+                              </>
+                            )}
+                            <span>•</span>
+                            <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
+                          </div>
+                          {item.removed && (
+                            <p className="text-[10px] text-red-600 font-bold mt-1">
+                              Removido por: {item.removedBy}
+                              {item.removalReason && <span className="block italic opacity-90 font-bold">Motivo: {item.removalReason}</span>}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end space-y-1">
+                          <span className={`font-mono font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
+                            R$ {item.price.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {currentOrder.observations && (
+                      <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações Gerais</p>
+                        <p className="text-xs text-blue-700 italic">{currentOrder.observations}</p>
+                      </div>
+                    )}
+                    {currentOrder.items.length === 0 && (
+                      <p className="text-center py-10 opacity-30 italic text-sm">Nenhum item registrado.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-[#141414] text-[#E4E3E0] p-5 rounded-2xl space-y-2 shadow-xl shrink-0">
+                  <div className="flex justify-between items-center opacity-50 text-[10px] font-bold uppercase tracking-widest">
+                    <span>Total Consumido</span>
+                    <span>R$ {(currentOrder.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-green-400 text-[10px] font-bold uppercase tracking-widest">
+                    <span>Já Pago</span>
+                    <span>- R$ {(currentOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0).toFixed(2)}</span>
+                  </div>
+                  <div className="pt-2 border-t border-white/10 flex justify-between items-center">
+                    <span className="font-bold uppercase text-[10px] tracking-widest opacity-50">Restante a Pagar</span>
+                    <span className="text-2xl font-bold text-white">R$ {(() => {
+                      const itemsTotal = (currentOrder.items || []).filter(i => !i.removed).reduce((acc, i) => {
+                        let price = i.price;
+                        if (i.discount) {
+                          if (i.discountType === 'percentage') price *= (1 - i.discount / 100);
+                          else price = Math.max(0, price - i.discount);
+                        }
+                        return acc + price;
+                      }, 0);
+                      let finalTotal = itemsTotal;
+                      if (currentOrder.discount) {
+                        if (currentOrder.discountType === 'percentage') finalTotal *= (1 - currentOrder.discount / 100);
+                        else finalTotal = Math.max(0, finalTotal - currentOrder.discount);
                       }
-                      return acc + price;
-                    }, 0);
-                    
-                    let finalTotal = itemsTotal;
-                    if (currentOrder?.discount) {
-                      if (currentOrder.discountType === 'percentage') finalTotal *= (1 - currentOrder.discount / 100);
-                      else finalTotal = Math.max(0, finalTotal - currentOrder.discount);
-                    }
-                    
-                    const totalPaidFromLog = (currentOrder?.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
-                    return Math.max(0, finalTotal - totalPaidFromLog).toFixed(2);
-                  })()}</span>
+                      const paid = (currentOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+                      return Math.max(0, finalTotal - paid).toFixed(2);
+                    })()}</span>
+                  </div>
                 </div>
-                <div className="text-right text-[10px] opacity-50 font-bold uppercase tracking-tighter">
-                  <p>{currentOrder?.items.filter(i => !i.removed).length || 0} itens ativos</p>
-                  <p>{currentOrder?.items.filter(i => i.removed).length || 0} removidos</p>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center space-y-3">
+                  <div className="w-16 h-16 rounded-full border-2 border-[#141414]/10 flex items-center justify-center mx-auto">
+                    <Pizza size={28} className="opacity-20" />
+                  </div>
+                  <p className="text-sm font-bold opacity-30 uppercase tracking-widest">Mesa Livre</p>
+                  <p className="text-xs opacity-20 italic">Nenhum pedido em aberto</p>
                 </div>
               </div>
-            </div>
+            )}
+
+            {tableData?.status === 'free' ? (
+              <button
+                onClick={() => setIsAddingItems(true)}
+                disabled={!isCashRegisterOpen}
+                className="w-full py-5 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40 shrink-0"
+              >
+                <Plus size={20} />
+                <span>Iniciar Nova Comanda</span>
+              </button>
+            ) : (
+              <div className="flex space-x-3 shrink-0">
+                <button
+                  onClick={() => setIsAddingItems(true)}
+                  disabled={!isCashRegisterOpen}
+                  className="flex-1 py-5 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                >
+                  <Plus size={20} />
+                  <span>Adicionar Item</span>
+                </button>
+                <button
+                  onClick={() => setIsPaymentModalOpen(true)}
+                  disabled={!currentOrder || pendingAmount <= 0.01}
+                  className="flex-1 py-5 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                >
+                  <Wallet size={20} className="text-green-400" />
+                  <span className="text-green-400">Pagar</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
+          /* ── ITEM SELECTION ── */
           <div className="flex flex-col h-full space-y-4">
             <div className="flex items-center justify-between">
-              <button onClick={() => {
-                setSelectedId(null);
-                setIsComandaSelected(false);
-                setIsAddingItems(false);
-              }} className="text-sm font-bold flex items-center">
-                <X size={16} className="mr-1" /> Voltar
+              <button onClick={() => setIsAddingItems(false)} className="text-sm font-bold flex items-center">
+                <ChevronLeft size={18} className="mr-1" /> Voltar
               </button>
               <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
               <div className="w-10" />
@@ -867,80 +920,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm"
                 >
                   OK
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Removal Modal */}
-      <AnimatePresence>
-        {isRemovalModalOpen && (
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/50 backdrop-blur-sm"
-          >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex justify-between items-center">
-                <h3 className="font-serif italic text-xl">Remover este Ítem?</h3>
-                <button onClick={() => setIsRemovalModalOpen(false)} className="opacity-50">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              {itemToRemove && itemToRemove.quantity && itemToRemove.quantity > 1 && (
-                <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-3">
-                  <p className="text-xs font-bold text-red-800 uppercase opacity-70">Quantidade para remover</p>
-                  <div className="flex items-center justify-center space-x-6">
-                    <button 
-                      onClick={() => setRemovalQuantity(Math.max(1, removalQuantity - 1))}
-                      className="w-10 h-10 rounded-full bg-white border border-red-200 flex items-center justify-center text-red-600 shadow-sm active:scale-90 transition-transform"
-                    >
-                      <Minus size={20} />
-                    </button>
-                    <span className="text-3xl font-bold text-red-600 w-12 text-center">{removalQuantity}</span>
-                    <button 
-                      onClick={() => setRemovalQuantity(Math.min(itemToRemove.quantity || 1, removalQuantity + 1))}
-                      className="w-10 h-10 rounded-full bg-white border border-red-200 flex items-center justify-center text-red-600 shadow-sm active:scale-90 transition-transform"
-                    >
-                      <Plus size={20} />
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-center text-red-400 font-medium">
-                    Máximo disponível: {itemToRemove.quantity}
-                  </p>
-                </div>
-              )}
-
-              <p className="text-sm opacity-50 font-bold text-red-600">O motivo da remoção é obrigatório para prosseguir.</p>
-              <textarea 
-                value={removalReason}
-                onChange={(e) => setRemovalReason(e.target.value)}
-                placeholder="Motivo da remoção..."
-                className="w-full h-24 p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                autoFocus
-              />
-              <div className="flex space-x-2">
-                <button 
-                  onClick={() => setIsRemovalModalOpen(false)}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={confirmRemoval}
-                  disabled={!removalReason.trim()}
-                  className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confirmar
                 </button>
               </div>
             </motion.div>

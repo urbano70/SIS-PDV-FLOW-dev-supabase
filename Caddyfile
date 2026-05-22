@@ -1,0 +1,9 @@
+# Substitua "fechaconta.seudominio.com" pelo seu domínio real.
+# O Caddy obtém e renova o certificado HTTPS automaticamente via Let's Encrypt.
+
+fechaconta.seudominio.com {
+
+    # Encaminha todas as requisições para o container da aplicação.
+    # Socket.io (WebSocket) funciona automaticamente com o reverse_proxy do Caddy.
+    reverse_proxy fechaconta:3000
+}

@@ -8,7 +8,7 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order;
-  onPaymentComplete: (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => void;
+  onPaymentComplete: (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => void;
   onApplyDiscount: (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => void;
 }
 
@@ -55,8 +55,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   const [isSplitPayment, setIsSplitPayment] = useState(false);
   const [splitAmount, setSplitAmount] = useState(0);
+  const [payerName, setPayerName] = useState('');
 
-  const existingPartialPaid = (order.paymentLog || []).reduce((acc, p) => acc + p.amount, 0);
+  // Only 'partial' payments need deduction — 'items' payments already mark items as paid: true,
+  // removing them from activeItems, so subtracting their amount again would double-count.
+  const existingPartialPaid = (order.paymentLog || [])
+    .filter(p => p.type === 'partial')
+    .reduce((acc, p) => acc + p.amount, 0);
   const activeItems = order.items.filter(i => !i.removed && !i.paid);
   
   const calculateItemPrice = (item: PizzaItem) => {
@@ -127,6 +132,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         'Dinheiro': { method: 'Dinheiro', enabled: false, amount: 0, received: 0 },
       });
       setIsConfirming(false);
+      setPayerName('');
     }
   }, [isOpen, order.id, onClose]);
 
@@ -269,7 +275,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         }
       }
       
-      onPaymentComplete(adjustedSelected, totalPaid, method);
+      onPaymentComplete(adjustedSelected, totalPaid, method, payerName || undefined);
       onClose();
       setIsConfirming(false);
       return;
@@ -309,9 +315,9 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     const method = (Object.keys(payments) as PaymentMethod[]).find(m => payments[m].enabled && payments[m].amount > 0);
     
     if (isSplitPayment) {
-      onPaymentComplete({}, totalPaid, method);
+      onPaymentComplete({}, totalPaid, method, payerName || undefined);
     } else {
-      onPaymentComplete(selectedItems, totalPaid, method);
+      onPaymentComplete(selectedItems, totalPaid, method, payerName || undefined);
     }
     onClose();
     setIsConfirming(false);
@@ -591,11 +597,14 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         <Wallet size={12} className="mr-1" /> PAGAMENTO PARCIAL
                       </button>
                       {isSplitPayment && (
-                        <button 
+                        <button
                           onClick={() => {
                             setIsSplitPayment(false);
                             setSplitAmount(0);
-                            setSelectedItems({});
+                            // Restore all active items so button stays enabled
+                            const allSelected: Record<string, number> = {};
+                            activeItems.forEach(i => { allSelected[i.id] = i.quantity || 1; });
+                            setSelectedItems(allSelected);
                           }}
                           className="text-[10px] font-bold uppercase tracking-widest text-red-600 flex items-center hover:underline"
                         >
@@ -712,15 +721,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                           </div>
                           <span className="font-mono font-bold text-base">R$ {displayPrice.toFixed(2)}</span>
                         </button>
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openDiscountModal(item.id, item.name);
-                          }}
-                          className="absolute -bottom-2 right-4 bg-white border border-[#141414] rounded-full px-2 py-0.5 text-[8px] font-bold uppercase opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                        >
-                          Desconto
-                        </button>
                       </div>
                     );
                   })}
@@ -742,11 +742,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                           <span className="text-[10px] uppercase opacity-60 font-bold">Total pago:</span>
                           <span className="text-xs font-bold">- R$ {existingPartialPaid.toFixed(2)}</span>
                         </div>
-                        {order.paymentLog && order.paymentLog.length > 0 && (
+                        {order.paymentLog?.some(p => p.type === 'partial') && (
                           <div className="space-y-0.5 pl-4 border-l border-blue-200 ml-1">
-                            {order.paymentLog.map((p, idx) => (
+                            {order.paymentLog.filter(p => p.type === 'partial').map((p, idx) => (
                               <div key={idx} className="flex justify-between items-center text-[9px] text-blue-500/70 italic">
-                                <span>{p.type === 'partial' ? 'parcial' : 'itens'} ({p.method}):</span>
+                                <span>parcial ({p.method}){p.payer ? ` — ${p.payer}` : ''}:</span>
                                 <span>- R$ {p.amount.toFixed(2)}</span>
                               </div>
                             ))}
@@ -797,8 +797,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                       </button>
                     ) : null}
                   </div>
-                  <button 
-                    disabled={Object.keys(selectedItems).length === 0}
+                  <button
+                    disabled={!isSplitPayment && Object.keys(selectedItems).length === 0}
                     onClick={() => setStep('methods')}
                     className="bg-[#141414] text-[#E4E3E0] px-8 py-3 rounded-2xl font-bold text-base shadow-lg disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
                   >
@@ -940,8 +940,19 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
+                <div className="flex items-center bg-white/60 border border-[#141414]/10 rounded-xl px-3 py-2 shrink-0">
+                  <span className="text-[9px] uppercase font-bold opacity-40 mr-2 whitespace-nowrap">Pagador</span>
+                  <input
+                    type="text"
+                    value={payerName}
+                    onChange={(e) => setPayerName(e.target.value)}
+                    placeholder="Nome (opcional)"
+                    className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
+                  />
+                </div>
+
                 {errorMessage && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
@@ -951,7 +962,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </motion.div>
                 )}
 
-                <button 
+                <button
                   onClick={handleFinishPayment}
                   className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
                 >

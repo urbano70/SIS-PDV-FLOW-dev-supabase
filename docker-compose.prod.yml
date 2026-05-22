@@ -1,0 +1,57 @@
+version: "3.9"
+
+# Arquivo de produção para VPS.
+# Uso: docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+
+  # ─── Aplicação PizzaFlow ────────────────────────────────────────────────
+  fechaconta:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        GEMINI_API_KEY: ${GEMINI_API_KEY}
+    image: fechaconta:latest
+    container_name: fechaconta
+    restart: unless-stopped
+    # NÃO expõe a porta 3000 diretamente na internet — só o Caddy acessa.
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Deve ser o endereço HTTPS do seu domínio.
+      # Exemplo: https://fechaconta.seudominio.com
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-sa
+    volumes:
+      - ./service-account.json:/run/secrets/firebase-sa:ro
+      - order_counter:/tmp
+    networks:
+      - internal
+
+  # ─── Caddy — Reverse proxy + HTTPS automático ───────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"     # Redireciona HTTP → HTTPS automaticamente
+      - "443:443"   # HTTPS
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # Armazena certificados SSL
+      - caddy_config:/config
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  order_counter:
+  caddy_data:
+  caddy_config:

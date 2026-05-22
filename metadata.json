@@ -1,5 +1,5 @@
 {
-  "name": "PizzaFlow POS - Sistema de Alta Performance",
+  "name": "FechaConta PDV - Sistema de Gestão de Mesas",
   "description": "Sistema PDV especializado para pizzarias de alto fluxo com self-onboarding de garçons, KDS digital e inteligência artificial para análise de vídeo.",
   "requestFramePermissions": ["camera", "microphone"]
 }

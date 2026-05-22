@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.gitignore
+.env*
+!.env.example
+server.js
+.order-counter.json
+coverage
+*.log
+service-account.json
+README.md
+security_spec.md

@@ -1,5 +1,6 @@
 export interface PizzaItem {
   id: string;
+  menuItemId?: string;
   name: string;
   type?: 'pizzas' | 'lanches' | 'bebidas';
   flavors: string[];
@@ -33,7 +34,7 @@ export interface Order {
   discount?: number;
   discountType?: 'percentage' | 'value';
   partialPayments?: { amount: number, method: string, timestamp: string }[];
-  paymentLog?: { amount: number, method: string, timestamp: string, type: 'partial' | 'items' }[];
+  paymentLog?: { amount: number, method: string, timestamp: string, type: 'partial' | 'items', payer?: string }[];
 }
 
 export interface Table {
@@ -67,6 +68,7 @@ export interface MenuItem {
   name: string;
   price: number;
   ingredients?: string;
+  trackStock?: boolean;
 }
 
 export interface MenuCategory {

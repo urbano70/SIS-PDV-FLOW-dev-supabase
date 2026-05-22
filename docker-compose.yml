@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  fechaconta:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Lido automaticamente do arquivo .env na raiz do projeto
+        GEMINI_API_KEY: ${GEMINI_API_KEY}
+    image: fechaconta:latest
+    container_name: fechaconta
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+
+      # Origens permitidas pelo Socket.io e CORS.
+      # Adicione aqui todos os endereços pelos quais o sistema será acessado.
+      # Exemplos: http://192.168.1.100:3000,http://meudominio.com
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+
+      # Aponta para o arquivo de credenciais do Firebase Admin montado abaixo.
+      # Remova esta linha (e o volume) se não tiver service account — o app
+      # continuará funcionando em modo somente memória, sem persistência Firestore.
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-sa
+
+    volumes:
+      # ── Credenciais Firebase Admin ──────────────────────────────────────
+      # Gere o arquivo em: Firebase Console → Project Settings →
+      # Service Accounts → Generate new private key
+      # Salve como service-account.json na raiz do projeto (não sobe pro git).
+      - ./service-account.json:/run/secrets/firebase-sa:ro
+
+      # ── Contador diário de pedidos ──────────────────────────────────────
+      # Persiste o arquivo .json de contador entre reinicializações do container.
+      - order_counter:/tmp
+
+volumes:
+  order_counter:

@@ -18,6 +18,7 @@ interface DashboardProps {
   orders: Order[];
   waiters: Waiter[];
   stock: StockItem[];
+  stockLog: any[];
   menu: MenuCategory[];
   pizzaFlavors: any[];
   pizzaCrusts: string[];
@@ -55,7 +56,17 @@ const OrderDetails = ({
   );
 
   const currentItem = (isComandaSelected ? comandas : tables).find((t: any) => targetId && t.id && String(t.id) === String(targetId));
-  
+
+  const hasHistory = React.useMemo(() => {
+    if (!targetId) return false;
+    const today = new Date().toISOString().split('T')[0];
+    return orders.some((o: any) =>
+      String(o.tableId) === String(targetId) &&
+      !!o.isComanda === !!isComandaSelected &&
+      o.timestamp?.startsWith(today)
+    );
+  }, [orders, targetId, isComandaSelected]);
+
   const activeOrder = React.useMemo(() => {
     if (!targetId) return null;
     
@@ -110,7 +121,9 @@ const OrderDetails = ({
         finalOrderTotal = Math.max(0, orderTotal - activeOrder.discount);
       }
     }
-    const existingPartialPaid = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + p.amount, 0);
+    const existingPartialPaid = (activeOrder.paymentLog || [])
+      .filter((p: any) => p.type === 'partial')
+      .reduce((acc: number, p: any) => acc + p.amount, 0);
     return Math.max(0, finalOrderTotal - existingPartialPaid);
   }, [activeOrder]);
 
@@ -260,9 +273,9 @@ const OrderDetails = ({
             )}
           </div>
           <div className="flex flex-col items-end space-y-2">
-            <button 
+            <button
               onClick={() => setIsHistoryModalOpen(true)}
-              className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
+              className={`transition-opacity ${hasHistory ? 'text-green-600 opacity-100 hover:opacity-80' : 'text-[#141414] opacity-30 hover:opacity-100'}`}
               title="Histórico de Vendas"
             >
               <History size={20} />
@@ -295,6 +308,7 @@ const OrderDetails = ({
                     </div>
                     {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
                     {item.ingredients && item.type !== 'pizzas' && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>}
+                    {item.waiterName && <span className="text-[9px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
                   </div>
                   <div className="flex items-center space-x-3">
                     <div className="flex flex-col items-end">
@@ -309,8 +323,8 @@ const OrderDetails = ({
                         })()}
                       </span>
                     </div>
-                    {!item.removed && !item.paid && (
-                      <button 
+                    {!item.removed && !item.paid && !activeOrder.paymentLog?.some((p: any) => p.type === 'partial') && (
+                      <button
                         onClick={() => handleRemoveItem(activeOrder.id, item)}
                         className="text-red-500 opacity-20 hover:opacity-100 transition-opacity p-1"
                         title="Remover Item (ADM)"
@@ -421,34 +435,25 @@ const OrderDetails = ({
               </div>
             </div>
           </>
-        ) : (
-          <div className="pt-2 border-t border-[#141414]/5">
-            <button 
-              onClick={() => setIsHistoryModalOpen(true)}
-              className="text-[10px] uppercase font-bold opacity-30 hover:opacity-100 transition-opacity flex items-center space-x-1"
-            >
-              <Clock size={12} />
-              <span>Ver histórico de hoje</span>
-            </button>
-          </div>
-        )}
+        ) : null}
       </div>
     </div>
   </div>
   );
 };
 
-export default function Dashboard({ 
-  tables, 
-  comandas, 
-  orders, 
-  waiters, 
-  stock, 
-  menu, 
-  pizzaFlavors, 
-  pizzaCrusts, 
-  activeTab, 
-  setActiveTab, 
+export default function Dashboard({
+  tables,
+  comandas,
+  orders,
+  waiters,
+  stock,
+  stockLog,
+  menu,
+  pizzaFlavors,
+  pizzaCrusts,
+  activeTab,
+  setActiveTab,
   isCashRegisterOpen,
   toggleCashRegister,
   printerConfig,
@@ -495,7 +500,12 @@ export default function Dashboard({
   const [reportSelectedCategory, setReportSelectedCategory] = useState<string>('todos');
   const [showItemSuggestions, setShowItemSuggestions] = useState(false);
   const [reportSelectedPaymentMethod, setReportSelectedPaymentMethod] = useState<string>('todos');
+  const [reportSelectedWaiter, setReportSelectedWaiter] = useState<string>('todos');
   const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | null>(null);
+  const [snoozeMap, setSnoozeMap] = useState<Record<string, number>>({});
+  const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
+  const [, forceInactivityUpdate] = useState(0);
+  const prevActivityRef = useRef<Record<string, number>>({});
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -510,6 +520,14 @@ export default function Dashboard({
   const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '' });
   const [editingProduct, setEditingProduct] = useState<{categoryName: string, item: MenuItem} | null>(null);
 
+  const [stockEdits, setStockEdits] = useState<Record<string, { quantity: string; minQuantity: string; unit: string }>>({});
+  const [isStockHistoryModalOpen, setIsStockHistoryModalOpen] = useState(false);
+  const [stockHistoryStart, setStockHistoryStart] = useState(new Date().toISOString().split('T')[0]);
+  const [stockHistoryEnd, setStockHistoryEnd] = useState(new Date().toISOString().split('T')[0]);
+
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [pendingImport, setPendingImport] = useState<{ menu: any[]; stock: any[]; printerConfig?: any; fileName: string } | null>(null);
+
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [seedSteps, setSeedSteps] = useState<string[]>([]);
   const [isSeedComplete, setIsSeedComplete] = useState(false);
@@ -520,15 +538,19 @@ export default function Dashboard({
     setIsSeeding(true);
     setSeedSteps([]);
     setIsSeedComplete(false);
-    
+
     try {
       await seedDatabase((step) => {
         setSeedSteps(prev => [...prev, step]);
-        if (step === 'Concluído!') {
-          setIsSeedComplete(true);
-          setIsSeeding(false);
-        }
       });
+
+      // Reset server in-memory state immediately (free all tables/comandas, clear orders)
+      setSeedSteps(prev => [...prev, 'Liberando mesas e zerando pedidos...']);
+      socket.emit('reset_system');
+
+      setSeedSteps(prev => [...prev, 'Concluído!']);
+      setIsSeedComplete(true);
+      setIsSeeding(false);
     } catch (error: any) {
       console.error('Seed process failed:', error);
       setIsSeeding(false);
@@ -549,16 +571,208 @@ export default function Dashboard({
       return;
     }
     const printer = discoveredPrinters.find(p => p.name === printerName);
-    if (printer?.status === 'offline') {
-      toast.error(`Erro ao imprimir em ${printerName}`, {
-        description: `A impressora no IP ${printer.ip} está offline.`
-      });
-      return;
+    const now = new Date();
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(`<html><head><title>Teste de Impressora</title><style>
+        body{font-family:monospace;padding:16px;width:280px;margin:0 auto;color:#000}
+        .center{text-align:center}.big{font-size:28px;font-weight:bold;border:3px solid #000;padding:8px;margin:10px 0}
+        .sep{border-top:1px dashed #000;margin:8px 0}.small{font-size:10px;opacity:.6}
+        @media print{body{width:100%;margin:0}}
+      </style></head><body>
+        <div class="center">
+          <div style="font-size:11px;font-weight:bold;text-transform:uppercase">${printerConfig.establishmentName}</div>
+          <div class="sep"></div>
+          <div class="big">TESTE OK</div>
+          <div style="font-size:13px;font-weight:bold">${printerName}</div>
+          ${printer ? `<div class="small">IP: ${printer.ip}</div>` : ''}
+          <div class="sep"></div>
+          <div class="small">${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR')}</div>
+          <div class="small">FechaConta PDV</div>
+        </div>
+      </body></html>`);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
     }
-    
-    toast.success(`Teste enviado para ${printerName}`, {
-      description: `Conteúdo: "${printerName}: OK"`
+    toast.success(`Página de teste aberta para ${printerName}`);
+  };
+
+  const openPrint = (title: string, body: string) => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(`<html><head><title>${title}</title><style>
+      *{box-sizing:border-box}
+      body{font-family:sans-serif;padding:24px;color:#141414;font-size:13px;margin:0}
+      h2{margin:0 0 2px;font-size:20px}
+      .sub{margin:0 0 20px;color:#666;font-size:12px}
+      table{width:100%;border-collapse:collapse}
+      th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#888;padding:8px 12px;border-bottom:2px solid #141414}
+      td{padding:7px 12px;border-bottom:1px solid #e5e5e5;font-size:12px}
+      .tr-total td{background:#f5f5f5;font-weight:900;border-top:2px solid #141414;border-bottom:none}
+      .tr-date td{background:#f9f9f9;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.05em;border-top:1px solid #ccc;border-bottom:1px solid #ddd}
+      .block{margin-bottom:20px;border:1px solid #e5e5e5;border-radius:8px;overflow:hidden;page-break-inside:avoid}
+      .block-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#141414;color:#fff}
+      .block-head-name{font-weight:700;font-size:14px}
+      .block-head-val{font-family:monospace;font-size:13px}
+      .cards{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+      .card{flex:1;min-width:120px;border:1px solid #e5e5e5;border-radius:8px;padding:12px 16px}
+      .card-label{font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.05em}
+      .card-value{font-size:20px;font-weight:900;font-family:monospace;margin-top:4px}
+      @media print{body{padding:0}}
+    </style></head><body>${body}</body></html>`);
+    w.document.close();
+    w.focus();
+    w.print();
+  };
+
+  const handlePrintReport = () => {
+    const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR');
+    const period = reportStartDate === reportEndDate
+      ? fmtDate(reportStartDate)
+      : `${fmtDate(reportStartDate)} até ${fmtDate(reportEndDate)}`;
+
+    const filteredOrders = orders.filter(o => {
+      const d = (o.timestamp || '').split('T')[0];
+      return d >= reportStartDate && d <= reportEndDate;
     });
+
+    if (currentReportView === 'items_all') {
+      const stats: Record<string, { qty: number; total: number }> = {};
+      filteredOrders.forEach(o => o.items.filter((i: any) => !i.removed).forEach((i: any) => {
+        if (!stats[i.name]) stats[i.name] = { qty: 0, total: 0 };
+        stats[i.name].qty += i.quantity || 1;
+        stats[i.name].total += i.price;
+      }));
+      const rows = Object.entries(stats).sort((a, b) => b[1].total - a[1].total);
+      if (rows.length === 0) { toast.error('Nenhum dado no período.'); return; }
+      const totalQty = rows.reduce((a, [, v]) => a + v.qty, 0);
+      const totalAmt = rows.reduce((a, [, v]) => a + v.total, 0);
+      const trs = rows.map(([name, d]) =>
+        `<tr><td>${name}</td><td style="font-family:monospace">R$ ${(d.total/d.qty).toFixed(2)}</td><td style="text-align:center;font-family:monospace">${d.qty}</td><td style="text-align:right;font-family:monospace;color:#16a34a">R$ ${d.total.toFixed(2)}</td></tr>`
+      ).join('') + `<tr class="tr-total"><td>TOTAIS</td><td style="font-size:10px;color:#888">Ticket médio: R$ ${(totalAmt/totalQty).toFixed(2)}</td><td style="text-align:center;font-family:monospace">${totalQty}</td><td style="text-align:right;font-family:monospace">R$ ${totalAmt.toFixed(2)}</td></tr>`;
+      openPrint('Geral de Itens', `<h2>Geral de Itens</h2><p class="sub">Período: ${period} · ${rows.length} produto(s)</p>
+        <table><thead><tr><th>Item</th><th>Preço Médio</th><th style="text-align:center">Qtd.</th><th style="text-align:right">Faturamento</th></tr></thead><tbody>${trs}</tbody></table>`);
+    }
+
+    else if (currentReportView === 'items_specific') {
+      const itemStats: Record<string, Record<string, { qty: number; total: number }>> = {};
+      let grandQty = 0; let grandAmt = 0;
+      filteredOrders.forEach(o => {
+        const date = (o.timestamp || '').split('T')[0];
+        o.items.filter((i: any) => {
+          if (i.removed) return false;
+          const matchName = reportSelectedItem === '' || i.name.toLowerCase().includes(reportSelectedItem.toLowerCase());
+          let matchCat = true;
+          if (reportSelectedCategory !== 'todos') {
+            const cat = menu.find((c: any) => c.name === reportSelectedCategory);
+            matchCat = cat?.items.some((mi: any) => mi.name === i.name) || false;
+          }
+          return matchName && matchCat;
+        }).forEach((i: any) => {
+          if (!itemStats[i.name]) itemStats[i.name] = {};
+          if (!itemStats[i.name][date]) itemStats[i.name][date] = { qty: 0, total: 0 };
+          const qty = i.quantity || 1;
+          itemStats[i.name][date].qty += qty;
+          itemStats[i.name][date].total += i.price;
+          grandQty += qty; grandAmt += i.price;
+        });
+      });
+      const itemNames = Object.keys(itemStats).sort();
+      if (itemNames.length === 0) { toast.error('Nenhum dado para o filtro selecionado.'); return; }
+      const filterLabel = reportSelectedItem ? `Item: "${reportSelectedItem}"` : reportSelectedCategory !== 'todos' ? `Categoria: ${reportSelectedCategory}` : 'Todos os itens';
+      const blocks = itemNames.map(name => {
+        const tqs = Object.entries(itemStats[name]).sort((a,b)=>a[0].localeCompare(b[0]));
+        const iQty = tqs.reduce((a,[,v])=>a+v.qty,0);
+        const iAmt = tqs.reduce((a,[,v])=>a+v.total,0);
+        const rows = tqs.map(([d,v]) => `<tr><td>${d.split('-').reverse().join('/')}</td><td style="text-align:center;font-family:monospace">${v.qty}</td><td style="text-align:right;font-family:monospace">R$ ${v.total.toFixed(2)}</td></tr>`).join('');
+        return `<div class="block"><div class="block-head"><span class="block-head-name">${name}</span><span class="block-head-val">${iQty} un. · R$ ${iAmt.toFixed(2)}</span></div>
+          <table><thead><tr><th>Data</th><th style="text-align:center">Qtd.</th><th style="text-align:right">Valor</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      }).join('');
+      openPrint('Itens Específicos', `<h2>Itens Específicos</h2><p class="sub">Filtro: ${filterLabel} · Período: ${period}</p>${blocks}
+        <div style="border-top:2px solid #141414;margin-top:16px;padding-top:12px;display:flex;justify-content:space-between">
+          <span style="font-weight:700">Total Geral</span>
+          <span style="font-family:monospace;font-weight:900">${grandQty} un. · R$ ${grandAmt.toFixed(2)}</span></div>`);
+    }
+
+    else if (currentReportView === 'sales_by_day') {
+      const stats: Record<string, Record<string, { total: number; count: number }>> = {};
+      filteredOrders.forEach(o => {
+        const date = (o.timestamp || '').split('T')[0];
+        const label = `${o.isComanda ? 'Com.' : 'Mesa'} ${o.tableId}`;
+        if (!stats[date]) stats[date] = {};
+        if (!stats[date][label]) stats[date][label] = { total: 0, count: 0 };
+        stats[date][label].total += (o.paymentLog || []).reduce((a: number, p: any) => a + p.amount, 0);
+        stats[date][label].count += 1;
+      });
+      const days = Object.entries(stats).sort((a,b) => b[0].localeCompare(a[0]));
+      if (days.length === 0) { toast.error('Nenhuma venda no período.'); return; }
+      let grandTotal = 0;
+      const rows = days.map(([date, tablesData]) => {
+        const dayTotal = Object.values(tablesData).reduce((a,v) => a+v.total, 0);
+        grandTotal += dayTotal;
+        const sub = Object.entries(tablesData).sort((a,b)=>a[0].localeCompare(b[0])).map(([lbl,d]) =>
+          `<tr><td></td><td>${lbl}</td><td style="text-align:center;font-family:monospace">${d.count}</td><td style="text-align:right;font-family:monospace;color:#16a34a">R$ ${d.total.toFixed(2)}</td></tr>`
+        ).join('');
+        return `<tr class="tr-date"><td colspan="4">${date.split('-').reverse().join('/')} — R$ ${dayTotal.toFixed(2)}</td></tr>${sub}`;
+      }).join('');
+      openPrint('Vendas por Período', `<h2>Vendas por Período</h2><p class="sub">Período: ${period}</p>
+        <table><thead><tr><th>Data</th><th>Local</th><th style="text-align:center">Pedidos</th><th style="text-align:right">Total</th></tr></thead>
+        <tbody>${rows}<tr class="tr-total"><td colspan="3">TOTAL GERAL</td><td style="text-align:right;font-family:monospace">R$ ${grandTotal.toFixed(2)}</td></tr></tbody></table>`);
+    }
+
+    else if (currentReportView === 'sales_by_payment') {
+      const methods = ['Dinheiro', 'PIX', 'Crédito', 'Débito'];
+      const methodTotals: Record<string, number> = {};
+      const logs: any[] = [];
+      filteredOrders.forEach(o => (o.paymentLog || []).forEach((p: any) => {
+        if (reportSelectedPaymentMethod === 'todos' || p.method === reportSelectedPaymentMethod) {
+          if (!methodTotals[p.method]) methodTotals[p.method] = 0;
+          methodTotals[p.method] += p.amount;
+          logs.push({ ...p, orderId: o.id });
+        }
+      }));
+      if (logs.length === 0) { toast.error('Nenhum pagamento no período.'); return; }
+      logs.sort((a,b) => b.timestamp.localeCompare(a.timestamp));
+      const grandTotal = logs.reduce((a,l)=>a+l.amount, 0);
+      const cards = methods.filter(m => reportSelectedPaymentMethod === 'todos' || reportSelectedPaymentMethod === m)
+        .map(m => `<div class="card"><div class="card-label">${m}</div><div class="card-value">R$ ${(methodTotals[m]||0).toFixed(2)}</div></div>`).join('');
+      const methodLabel = reportSelectedPaymentMethod !== 'todos' ? ` · Método: ${reportSelectedPaymentMethod}` : '';
+      const trs = logs.map(l => {
+        const d = new Date(l.timestamp);
+        return `<tr><td style="font-family:monospace">#${l.orderId}</td><td>${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td><td><b>${l.method}</b></td><td>${l.payer||'—'}</td><td style="text-align:right;font-family:monospace">R$ ${l.amount.toFixed(2)}</td></tr>`;
+      }).join('') + `<tr class="tr-total"><td colspan="4">TOTAL</td><td style="text-align:right;font-family:monospace">R$ ${grandTotal.toFixed(2)}</td></tr>`;
+      openPrint('Meios de Pagamento', `<h2>Meios de Pagamento</h2><p class="sub">Período: ${period}${methodLabel} · ${logs.length} transação(ões)</p>
+        <div class="cards">${cards}</div>
+        <table><thead><tr><th>Pedido</th><th>Data/Hora</th><th>Método</th><th>Pagador</th><th style="text-align:right">Valor</th></tr></thead><tbody>${trs}</tbody></table>`);
+    }
+
+    else if (currentReportView === 'waiter_performance') {
+      const waiterStats: Record<string, { total: number; itemsCount: number; items: Record<string, { qty: number; total: number }> }> = {};
+      filteredOrders.forEach(o => o.items.filter((i: any) => !i.removed).forEach((i: any) => {
+        const name = i.waiterName || 'Desconhecido';
+        if (reportSelectedWaiter !== 'todos' && name !== reportSelectedWaiter) return;
+        if (!waiterStats[name]) waiterStats[name] = { total: 0, itemsCount: 0, items: {} };
+        const qty = i.quantity || 1;
+        waiterStats[name].total += i.price; waiterStats[name].itemsCount += qty;
+        if (!waiterStats[name].items[i.name]) waiterStats[name].items[i.name] = { qty: 0, total: 0 };
+        waiterStats[name].items[i.name].qty += qty; waiterStats[name].items[i.name].total += i.price;
+      }));
+      const waitersList = Object.entries(waiterStats).sort((a,b)=>b[1].total-a[1].total);
+      if (waitersList.length === 0) { toast.error('Nenhum dado no período.'); return; }
+      const waiterLabel = reportSelectedWaiter !== 'todos' ? ` · Garçom: ${reportSelectedWaiter}` : '';
+      const blocks = waitersList.map(([waiter, stats]) => {
+        const rows = Object.entries(stats.items).sort((a,b)=>b[1].qty-a[1].qty).map(([item, d]) =>
+          `<tr><td>${item}</td><td style="text-align:center;color:#2563eb;font-family:monospace;font-weight:700">${d.qty}</td><td style="text-align:right;font-family:monospace;font-weight:700">R$ ${d.total.toFixed(2)}</td></tr>`
+        ).join('');
+        return `<div class="block"><div class="block-head" style="display:flex;gap:12px;align-items:center">
+          <div style="width:34px;height:34px;background:#fff;color:#141414;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:16px;flex-shrink:0">${waiter[0].toUpperCase()}</div>
+          <div style="flex:1"><div style="font-weight:700">${waiter}</div><div style="font-size:10px;opacity:.6;text-transform:uppercase">${stats.itemsCount} itens lançados</div></div>
+          <div style="font-family:monospace;font-size:18px;font-weight:900;color:#4ade80">R$ ${stats.total.toFixed(2)}</div></div>
+          <table><thead><tr><th>Item</th><th style="text-align:center">Qtd.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      }).join('');
+      openPrint('Performance Garçons', `<h2>Performance Garçons</h2><p class="sub">Período: ${period}${waiterLabel} · ${waitersList.length} colaborador(es)</p>${blocks}`);
+    }
   };
 
   useEffect(() => {
@@ -569,10 +783,14 @@ export default function Dashboard({
   }, [isAddItemModalOpen]);
 
   const handleSavePrinters = () => {
-    // In a real app, this would save to a database or localStorage
-    toast.success('Configurações de impressora salvas com sucesso!', {
-      description: 'O direcionamento dos pedidos foi atualizado.'
-    });
+    try {
+      localStorage.setItem('printerConfig', JSON.stringify(printerConfig));
+      toast.success('Configurações salvas!', {
+        description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
+      });
+    } catch {
+      toast.error('Erro ao salvar configurações.');
+    }
   };
 
   const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
@@ -684,12 +902,13 @@ export default function Dashboard({
     }
   };
 
-  const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => {
+  const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     socket.emit('pay_items', {
       orderId,
       selectedItems,
       partialAmount,
-      paymentMethod
+      paymentMethod,
+      payerName
     });
 
     // Handle receipt printing
@@ -749,9 +968,68 @@ export default function Dashboard({
     }
   }, [selectedTableId, selectedComandaId, isComandaSelected]);
 
+  // Ticker: re-renderiza a cada 60s para atualizar ícones de inatividade
+  useEffect(() => {
+    const id = setInterval(() => forceInactivityUpdate(n => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Detecta novo item adicionado e apaga o snooze da mesa correspondente
+  useEffect(() => {
+    const check = (entities: typeof tables, isComandaType: boolean) => {
+      entities.forEach(entity => {
+        if (entity.status === 'free' || !entity.currentOrder) return;
+        const key = `${isComandaType ? 'c' : 't'}_${entity.id}`;
+        const order = orders.find(o => String(o.id) === String(entity.currentOrder));
+        if (!order) return;
+        const activeItems = (order.items || []).filter(i => !i.removed);
+        const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
+        const lastActivity = ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+        const prev = prevActivityRef.current[key];
+        if (prev !== undefined && lastActivity > prev) {
+          setSnoozeMap(m => { const n = { ...m }; delete n[key]; return n; });
+        }
+        prevActivityRef.current[key] = lastActivity;
+      });
+    };
+    check(tables, false);
+    check(comandas, true);
+  }, [orders, tables, comandas]);
+
+  const getLastActivityMs = (id: number, isComanda: boolean): number | null => {
+    const list = isComanda ? comandas : tables;
+    const entity = list.find(e => e.id === id);
+    if (!entity || entity.status === 'free' || !entity.currentOrder) return null;
+    const order = orders.find(o => String(o.id) === String(entity.currentOrder));
+    if (!order) return null;
+    const activeItems = (order.items || []).filter(i => !i.removed);
+    const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
+    return ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+  };
+
+  const getInactivityMinutes = (id: number, isComanda: boolean): number => {
+    const last = getLastActivityMs(id, isComanda);
+    if (last === null) return 0;
+    return Math.floor((Date.now() - last) / 60_000);
+  };
+
+  const shouldShowInactivityIcon = (id: number, isComanda: boolean): boolean => {
+    const list = isComanda ? comandas : tables;
+    const entity = list.find(e => e.id === id);
+    if (!entity || entity.status === 'free' || !entity.currentOrder) return false;
+    if (getInactivityMinutes(id, isComanda) < 30) return false;
+    const key = `${isComanda ? 'c' : 't'}_${id}`;
+    return Date.now() > (snoozeMap[key] ?? 0);
+  };
+
   const handleRemoveItem = (orderId: number | string, item: any) => {
     if (item.paid) {
       toast.error('Não é possível remover um item já pago!');
+      return;
+    }
+    const order = orders.find((o: any) => String(o.id) === String(orderId));
+    if (order?.paymentLog?.some((p: any) => p.type === 'partial')) {
+      toast.error('Não é possível remover itens de uma comanda com pagamento parcial registrado.');
       return;
     }
     setItemToRemove({ orderId, item });
@@ -826,6 +1104,7 @@ export default function Dashboard({
 
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
+      menuItemId: item.id,
       name: item.name,
       type: item.type || category?.type,
       flavors: item.flavors || [item.name],
@@ -871,6 +1150,7 @@ export default function Dashboard({
 
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
+      menuItemId: selectedQuantityItem.id,
       name: selectedQuantityItem.name,
       type: selectedQuantityItem.type || category?.type,
       flavors: [selectedQuantityItem.name],
@@ -1085,7 +1365,7 @@ export default function Dashboard({
             <div className="w-8 h-8 bg-[#141414] rounded-full flex items-center justify-center">
               <ShoppingCart className="text-[#E4E3E0] w-4 h-4" />
             </div>
-            <h1 className="font-serif italic text-xl font-bold">PizzaFlow</h1>
+            <h1 className="font-serif italic text-xl font-bold">FechaConta</h1>
           </div>
           <button onClick={() => setIsSidebarOpen(false)}>
             <X size={20} />
@@ -1139,7 +1419,7 @@ export default function Dashboard({
             <span className="text-sm font-medium">IA Vision</span>
           </button>
           <button 
-            onClick={() => { setActiveTab('reports'); setIsSidebarOpen(false); }}
+            onClick={() => { setActiveTab('reports'); setCurrentReportView(null); setIsSidebarOpen(false); }}
             className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
           >
             <FileText size={20} />
@@ -1210,7 +1490,7 @@ export default function Dashboard({
                   <Video size={16} />
                 </button>
                 <button 
-                  onClick={() => setActiveTab('reports')}
+                  onClick={() => { setActiveTab('reports'); setCurrentReportView(null); }}
                   className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Relatórios"
                 >
@@ -1301,11 +1581,14 @@ export default function Dashboard({
                         >
                           <div className="grid grid-cols-5 gap-1.5 pb-2">
                             {[...tables].sort((a, b) => a.id - b.id).map(table => (
-                              <button 
+                              <button
                                 key={table.id}
                                 onClick={() => {
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
+                                  if (shouldShowInactivityIcon(table.id, false)) {
+                                    setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
+                                  }
                                 }}
                                 className={`p-1.5 rounded-lg border transition-all text-left w-full ${
                                   selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
@@ -1319,7 +1602,10 @@ export default function Dashboard({
                                 <p className="text-[6px] uppercase tracking-widest opacity-50">Mesa</p>
                                 <div className="flex items-center justify-between">
                                   <p className="text-xs font-bold">{table.id}</p>
-                                  {table.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                  <div className="flex items-center space-x-0.5">
+                                    {table.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                    {shouldShowInactivityIcon(table.id, false) && <Clock size={8} className="text-amber-400 animate-pulse" />}
+                                  </div>
                                 </div>
                               </button>
                             ))}
@@ -1336,11 +1622,14 @@ export default function Dashboard({
                         >
                           <div className="grid grid-cols-5 gap-1.5 pb-2">
                             {[...comandas].sort((a, b) => a.id - b.id).map(comanda => (
-                              <button 
+                              <button
                                 key={comanda.id}
                                 onClick={() => {
                                   setSelectedComandaId(comanda.id);
                                   setIsComandaSelected(true);
+                                  if (shouldShowInactivityIcon(comanda.id, true)) {
+                                    setInactivityPopup({ tableId: comanda.id, isComanda: true, minutes: getInactivityMinutes(comanda.id, true) });
+                                  }
                                 }}
                                 className={`p-1.5 rounded-lg border transition-all text-left w-full ${
                                   selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
@@ -1354,7 +1643,10 @@ export default function Dashboard({
                                 <p className="text-[6px] uppercase tracking-widest opacity-50">Com.</p>
                                 <div className="flex items-center justify-between">
                                   <p className="text-xs font-bold">{comanda.id}</p>
-                                  {comanda.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                  <div className="flex items-center space-x-0.5">
+                                    {comanda.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
+                                    {shouldShowInactivityIcon(comanda.id, true) && <Clock size={8} className="text-amber-400 animate-pulse" />}
+                                  </div>
                                 </div>
                               </button>
                             ))}
@@ -1428,12 +1720,12 @@ export default function Dashboard({
           )}
 
           {activeTab === 'waiters' && (
-            <motion.div 
+            <motion.div
               key="waiters"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 lg:space-y-10"
+              className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-6 lg:space-y-10 pr-1 pt-2"
             >
               <header>
                 <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Equipe</h2>
@@ -1604,50 +1896,135 @@ export default function Dashboard({
           )}
 
           {activeTab === 'stock' && (
-            <motion.div 
+            <motion.div
               key="stock"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-6 lg:space-y-10 pt-6"
+              className="space-y-6 lg:space-y-8 pt-6 flex-1 overflow-y-auto pr-1 scrollbar-hide"
             >
-              <header>
-                <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Insumos</h2>
-                <p className="text-xs lg:text-sm opacity-60">Controle de estoque e alertas de reposição.</p>
+              <header className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Insumos</h2>
+                  <p className="text-xs lg:text-sm opacity-60">
+                    Controle de estoque dos produtos do cardápio. Ative o rastreamento na aba{' '}
+                    <button onClick={() => setActiveTab('products')} className="underline hover:opacity-80">Produtos</button>.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsStockHistoryModalOpen(true)}
+                  className="flex items-center space-x-2 px-4 py-2.5 bg-white border border-[#141414]/10 rounded-2xl text-sm font-bold hover:bg-[#141414] hover:text-[#E4E3E0] transition-all shadow-sm shrink-0"
+                >
+                  <History size={16} />
+                  <span>Histórico</span>
+                  {stockLog.length > 0 && (
+                    <span className="bg-[#141414] text-[#E4E3E0] text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                      {stockLog.length}
+                    </span>
+                  )}
+                </button>
               </header>
 
-              <div className="bg-white border border-[#141414]/10 rounded-2xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto scrollbar-hide">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-[#141414] text-[#E4E3E0]">
-                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Insumo</th>
-                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Quantidade Atual</th>
-                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Mínimo</th>
-                        <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stock.map(item => (
-                        <tr key={item.id} className="border-b border-[#141414]/10 hover:bg-gray-50 transition-colors">
-                          <td className="p-3 lg:p-4 font-bold text-sm whitespace-nowrap">{item.name}</td>
-                          <td className="p-3 lg:p-4 font-mono text-sm whitespace-nowrap">{item.quantity.toFixed(1)} {item.unit}</td>
-                          <td className="p-3 lg:p-4 font-mono text-sm opacity-50 whitespace-nowrap">{item.minQuantity} {item.unit}</td>
-                          <td className="p-3 lg:p-4 whitespace-nowrap">
-                            {item.quantity <= item.minQuantity ? (
-                              <span className="flex items-center text-red-600 text-[10px] font-bold uppercase">
-                                <AlertTriangle size={12} className="mr-1 shrink-0" /> Reposição
-                              </span>
-                            ) : (
-                              <span className="text-green-600 text-[10px] font-bold uppercase">Estável</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {stock.length === 0 ? (
+                <div className="bg-white border-2 border-dashed border-[#141414]/10 rounded-3xl p-16 text-center">
+                  <Package size={48} className="mx-auto mb-4 opacity-20" />
+                  <p className="font-bold text-lg opacity-30 mb-2">Nenhum item rastreado</p>
+                  <p className="text-sm opacity-40 mb-6">Ative o rastreamento de estoque nos produtos desejados.</p>
+                  <button
+                    onClick={() => setActiveTab('products')}
+                    className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-2xl text-sm font-bold hover:opacity-90 transition-opacity"
+                  >
+                    Ir para Produtos
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="bg-white border border-[#141414]/10 rounded-2xl overflow-hidden shadow-sm">
+                  <div className="overflow-x-auto scrollbar-hide">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-[#141414] text-[#E4E3E0]">
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Produto</th>
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Qtd. Atual</th>
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Mínimo</th>
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Unidade</th>
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap">Status</th>
+                          <th className="p-3 lg:p-4 text-[8px] lg:text-[10px] uppercase tracking-widest whitespace-nowrap"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stock.map((item: any) => {
+                          const edit = stockEdits[item.menuItemId] ?? { quantity: String(item.quantity), minQuantity: String(item.minQuantity), unit: item.unit };
+                          const isDirty = stockEdits[item.menuItemId] !== undefined;
+                          const isLow = item.quantity <= item.minQuantity;
+                          return (
+                            <tr key={item.id} className={`border-b border-[#141414]/10 transition-colors ${isLow ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}>
+                              <td className="p-3 lg:p-4 font-bold text-sm whitespace-nowrap">{item.name}</td>
+                              <td className="p-3 lg:p-4">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={edit.quantity}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, quantity: e.target.value } }))}
+                                  className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
+                                />
+                              </td>
+                              <td className="p-3 lg:p-4">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={edit.minQuantity}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, minQuantity: e.target.value } }))}
+                                  className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
+                                />
+                              </td>
+                              <td className="p-3 lg:p-4">
+                                <select
+                                  value={edit.unit}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, unit: e.target.value } }))}
+                                  className="border border-[#141414]/20 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#141414] bg-white"
+                                >
+                                  {['un', 'kg', 'g', 'L', 'ml', 'cx', 'pct'].map(u => <option key={u} value={u}>{u}</option>)}
+                                </select>
+                              </td>
+                              <td className="p-3 lg:p-4 whitespace-nowrap">
+                                {isLow ? (
+                                  <span className="flex items-center text-red-600 text-[10px] font-bold uppercase">
+                                    <AlertTriangle size={12} className="mr-1 shrink-0" /> Repor
+                                  </span>
+                                ) : (
+                                  <span className="text-green-600 text-[10px] font-bold uppercase">Estável</span>
+                                )}
+                              </td>
+                              <td className="p-3 lg:p-4">
+                                {isDirty && (
+                                  <button
+                                    onClick={() => {
+                                      socket.emit('update_stock_item', {
+                                        menuItemId: item.menuItemId,
+                                        quantity: parseFloat(edit.quantity) || 0,
+                                        minQuantity: parseFloat(edit.minQuantity) || 0,
+                                        unit: edit.unit,
+                                      });
+                                      setStockEdits(prev => { const n = { ...prev }; delete n[item.menuItemId]; return n; });
+                                      toast.success('Estoque atualizado!');
+                                    }}
+                                    className="px-3 py-1 bg-[#141414] text-[#E4E3E0] rounded-lg text-[10px] font-bold uppercase hover:opacity-80 transition-opacity"
+                                  >
+                                    Salvar
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
             </motion.div>
           )}
 
@@ -1786,7 +2163,32 @@ export default function Dashboard({
                           </div>
                           <div className="flex items-center space-x-4">
                             <p className="font-mono font-bold text-xl mr-4">R$ {item.price.toFixed(2)}</p>
-                            <button 
+
+                            {/* Toggle rastrear estoque */}
+                            <div className="flex flex-col items-center space-y-1">
+                              <span className="text-[7px] uppercase font-bold opacity-40 tracking-widest">Estoque</span>
+                              <button
+                                onClick={() => {
+                                  const enabled = !(item as any).trackStock;
+                                  socket.emit('toggle_stock_tracking', {
+                                    menuItemId: item.id,
+                                    categoryName: category.name,
+                                    enabled,
+                                  });
+                                  toast.success(enabled ? `"${item.name}" adicionado ao estoque` : `"${item.name}" removido do estoque`);
+                                }}
+                                className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${
+                                  (item as any).trackStock ? 'bg-green-500' : 'bg-gray-200'
+                                }`}
+                                title={(item as any).trackStock ? 'Desativar rastreamento de estoque' : 'Ativar rastreamento de estoque'}
+                              >
+                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                                  (item as any).trackStock ? 'translate-x-5' : 'translate-x-0.5'
+                                }`} />
+                              </button>
+                            </div>
+
+                            <button
                               onClick={() => {
                                 setEditingProduct({ categoryName: category.name, item: { ...item } });
                                 setIsEditProductModalOpen(true);
@@ -1795,7 +2197,7 @@ export default function Dashboard({
                             >
                               <Edit size={18} />
                             </button>
-                            <button 
+                            <button
                               onClick={() => {
                                 if (confirm(`Deseja realmente excluir o produto "${item.name}"?`)) {
                                   socket.emit('delete_product', { categoryName: category.name, productId: item.id });
@@ -1930,12 +2332,12 @@ export default function Dashboard({
           )}
 
           {activeTab === 'reports' && (
-            <motion.div 
+            <motion.div
               key="reports"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-10"
+              className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-8 pr-1 pt-2"
             >
               {!currentReportView ? (
                 <>
@@ -2127,6 +2529,22 @@ export default function Dashboard({
                         </div>
                       )}
 
+                      {currentReportView === 'waiter_performance' && (
+                        <div>
+                          <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Garçom</label>
+                          <select
+                            value={reportSelectedWaiter}
+                            onChange={(e) => setReportSelectedWaiter(e.target.value)}
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
+                          >
+                            <option value="todos">Todos</option>
+                            {waiters.filter(w => w.status === 'approved').map(w => (
+                              <option key={w.id} value={w.name}>{w.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
                       {currentReportView === 'items_specific' && (
                         <>
                           <div>
@@ -2161,11 +2579,12 @@ export default function Dashboard({
                         </>
                       )}
                       
-                      <button 
+                      <button
+                        onClick={handlePrintReport}
                         className="bg-[#141414] text-[#E4E3E0] py-1.5 px-3 rounded-lg font-bold text-[10px] flex items-center justify-center space-x-1.5 hover:opacity-90 transition-opacity"
                       >
                         <Download size={12} />
-                        <span>PDF</span>
+                        <span>Imprimir</span>
                       </button>
                     </div>
                   </div>
@@ -2280,15 +2699,6 @@ export default function Dashboard({
                                     </div>
                                   </div>
                                   
-                                  <div className="flex justify-end pt-4 no-print">
-                                    <button 
-                                      onClick={() => window.print()}
-                                      className="bg-blue-600 text-white py-4 px-8 rounded-2xl font-bold flex items-center space-x-3 hover:scale-[1.02] active:scale-95 transition-all shadow-lg active:shadow-sm"
-                                    >
-                                      <Printer size={20} />
-                                      <span>Imprimir Relatório</span>
-                                    </button>
-                                  </div>
                                 </div>
                               );
                             })()}
@@ -2443,6 +2853,7 @@ export default function Dashboard({
                                    <th className="p-4">Pedido</th>
                                    <th className="p-4">Data/Hora</th>
                                    <th className="p-4">Método</th>
+                                   <th className="p-4">Pagador</th>
                                    <th className="p-4 text-right">Valor Pago</th>
                                  </tr>
                                </thead>
@@ -2475,6 +2886,7 @@ export default function Dashboard({
                                            {log.method}
                                          </span>
                                        </td>
+                                       <td className="p-4 text-xs font-medium opacity-70">{log.payer || '—'}</td>
                                        <td className="p-4 text-right font-bold font-mono">R$ {log.amount.toFixed(2)}</td>
                                      </tr>
                                    ));
@@ -2496,12 +2908,13 @@ export default function Dashboard({
                               if (orderDate >= reportStartDate && orderDate <= reportEndDate) {
                                 o.items.filter(i => !i.removed).forEach(i => {
                                   const waiterName = i.waiterName || 'Desconhecido';
+                                  if (reportSelectedWaiter !== 'todos' && waiterName !== reportSelectedWaiter) return;
                                   if (!waiterStats[waiterName]) waiterStats[waiterName] = { total: 0, itemsCount: 0, items: {} };
-                                  
+
                                   const qty = i.quantity || 1;
                                   waiterStats[waiterName].total += i.price;
                                   waiterStats[waiterName].itemsCount += qty;
-                                  
+
                                   if (!waiterStats[waiterName].items[i.name]) waiterStats[waiterName].items[i.name] = { qty: 0, total: 0 };
                                   waiterStats[waiterName].items[i.name].qty += qty;
                                   waiterStats[waiterName].items[i.name].total += i.price;
@@ -2766,16 +3179,124 @@ export default function Dashboard({
                       <Lock className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Dados</h3>
                     </div>
+
+                    {/* Painel de confirmação de import */}
+                    <AnimatePresence>
+                      {pendingImport && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden mb-2"
+                        >
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 space-y-1.5">
+                            <p className="text-[8px] font-bold uppercase text-orange-700 leading-none">Confirmar importação</p>
+                            <p className="text-[7px] text-orange-600 leading-tight truncate">{pendingImport.fileName}</p>
+                            <div className="flex gap-1.5 text-[6px]">
+                              <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.menu.length} categorias</span>
+                              <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.stock.length} insumos</span>
+                              {pendingImport.printerConfig && (
+                                <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">config impressora</span>
+                              )}
+                            </div>
+                            <p className="text-[6.5px] text-orange-500 leading-tight">O cardápio e estoque atuais serão substituídos.</p>
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => {
+                                  socket.emit('bulk_import', { menu: pendingImport.menu, stock: pendingImport.stock });
+                                  if (pendingImport.printerConfig) {
+                                    try { localStorage.setItem('printerConfig', JSON.stringify(pendingImport.printerConfig)); } catch {}
+                                  }
+                                  socket.once('import_complete', (result: any) => {
+                                    toast.success('Importação concluída!', {
+                                      description: `${result.menuCategories} categorias e ${result.stockItems} insumos restaurados.`
+                                    });
+                                  });
+                                  setPendingImport(null);
+                                }}
+                                className="flex-1 py-1 bg-orange-600 text-white rounded text-[7px] font-bold uppercase hover:bg-orange-700 transition-colors"
+                              >
+                                Confirmar
+                              </button>
+                              <button
+                                onClick={() => setPendingImport(null)}
+                                className="flex-1 py-1 bg-white border border-orange-200 text-orange-600 rounded text-[7px] font-bold uppercase hover:bg-orange-50 transition-colors"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Input oculto para seleção de arquivo */}
+                    <input
+                      ref={importFileRef}
+                      type="file"
+                      accept=".json"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          try {
+                            const parsed = JSON.parse(ev.target?.result as string);
+                            if (!parsed.menu && !parsed.stock) {
+                              toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' });
+                              return;
+                            }
+                            setPendingImport({
+                              menu: parsed.menu ?? [],
+                              stock: parsed.stock ?? [],
+                              printerConfig: parsed.printerConfig ?? null,
+                              fileName: file.name,
+                            });
+                          } catch {
+                            toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' });
+                          }
+                        };
+                        reader.readAsText(file);
+                        e.target.value = '';
+                      }}
+                    />
+
                     <div className="grid grid-cols-3 gap-1.5 shrink-0">
-                      <button className="flex items-center justify-center space-x-1 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                      <button
+                        onClick={() => {
+                          try {
+                            const data = {
+                              menu,
+                              stock,
+                              printerConfig,
+                              exportedAt: new Date().toISOString(),
+                              version: '1.0',
+                            };
+                            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            const totalItems = menu.reduce((acc, cat) => acc + (cat.items?.length ?? 0), 0);
+                            toast.success('Backup exportado!', {
+                              description: `${menu.length} categorias · ${totalItems} produtos · ${stock.length} insumos`
+                            });
+                          } catch { toast.error('Erro ao exportar dados.'); }
+                        }}
+                        className="flex items-center justify-center space-x-1 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
                         <Download size={10} />
                         <span className="text-[7px] font-bold uppercase">Exportar</span>
                       </button>
-                      <button className="flex items-center justify-center space-x-1 py-1 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
+                      <button
+                        onClick={() => importFileRef.current?.click()}
+                        className="flex items-center justify-center space-x-1 py-1 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
                         <RefreshCcw size={10} />
                         <span className="text-[7px] font-bold uppercase">Importar</span>
                       </button>
-                      <button 
+                      <button
                         onClick={handleSeedDatabase}
                         className="flex items-center justify-center space-x-1 py-1 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95"
                       >
@@ -2836,15 +3357,193 @@ export default function Dashboard({
         </AnimatePresence>
       </main>
 
+      {/* Modal Histórico de Estoque */}
+      <AnimatePresence>
+        {isStockHistoryModalOpen && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setIsStockHistoryModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border-2 border-[#141414] flex flex-col max-h-[90vh]"
+            >
+              {/* Header do modal */}
+              <div className="flex items-center justify-between p-6 border-b border-[#141414]/10 shrink-0">
+                <div>
+                  <h3 className="font-serif italic text-2xl">Histórico de Movimentações</h3>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Estoque de insumos</p>
+                </div>
+                <button onClick={() => setIsStockHistoryModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Filtro de período */}
+              <div className="px-6 py-4 bg-gray-50/50 border-b border-[#141414]/5 shrink-0">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <span className="text-[10px] uppercase font-bold opacity-50 tracking-widest shrink-0">Período:</span>
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      type="date"
+                      value={stockHistoryStart}
+                      onChange={e => setStockHistoryStart(e.target.value)}
+                      className="border border-[#141414]/20 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#141414] bg-white"
+                    />
+                    <span className="text-sm opacity-40">até</span>
+                    <input
+                      type="date"
+                      value={stockHistoryEnd}
+                      onChange={e => setStockHistoryEnd(e.target.value)}
+                      className="border border-[#141414]/20 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#141414] bg-white"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      const start = new Date(stockHistoryStart + 'T00:00:00');
+                      const end = new Date(stockHistoryEnd + 'T23:59:59');
+                      const filtered = stockLog.filter((e: any) => {
+                        const t = new Date(e.timestamp);
+                        return t >= start && t <= end;
+                      });
+                      if (filtered.length === 0) {
+                        toast.error('Nenhuma movimentação no período selecionado.');
+                        return;
+                      }
+                      const rows = filtered.map((e: any) => {
+                        const d = new Date(e.timestamp);
+                        const changeStr = (e.change > 0 ? '+' : '') + e.change;
+                        const changeColor = e.change < 0 ? '#dc2626' : '#16a34a';
+                        return `
+                          <tr>
+                            <td>${e.itemName}</td>
+                            <td style="color:${changeColor};font-weight:bold;font-family:monospace">${changeStr}</td>
+                            <td>${e.reason}</td>
+                            <td>${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td>
+                          </tr>`;
+                      }).join('');
+                      const periodLabel = stockHistoryStart === stockHistoryEnd
+                        ? new Date(stockHistoryStart + 'T12:00:00').toLocaleDateString('pt-BR')
+                        : `${new Date(stockHistoryStart + 'T12:00:00').toLocaleDateString('pt-BR')} até ${new Date(stockHistoryEnd + 'T12:00:00').toLocaleDateString('pt-BR')}`;
+                      const printWindow = window.open('', '_blank');
+                      if (printWindow) {
+                        printWindow.document.write(`
+                          <html>
+                            <head>
+                              <title>Histórico de Estoque</title>
+                              <style>
+                                body { font-family: sans-serif; padding: 24px; color: #141414; font-size: 13px; }
+                                h2 { margin: 0 0 4px; font-size: 18px; }
+                                p { margin: 0 0 16px; color: #666; font-size: 12px; }
+                                table { width: 100%; border-collapse: collapse; }
+                                th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #888; padding: 8px 10px; border-bottom: 2px solid #141414; }
+                                td { padding: 8px 10px; border-bottom: 1px solid #e5e5e5; font-size: 12px; }
+                                tr:last-child td { border-bottom: none; }
+                                @media print { body { padding: 0; } }
+                              </style>
+                            </head>
+                            <body>
+                              <h2>Histórico de Movimentação de Estoque</h2>
+                              <p>Período: ${periodLabel} &nbsp;·&nbsp; ${filtered.length} registro(s)</p>
+                              <table>
+                                <thead>
+                                  <tr>
+                                    <th>Produto</th>
+                                    <th>Variação</th>
+                                    <th>Motivo</th>
+                                    <th>Data / Hora</th>
+                                  </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                              </table>
+                            </body>
+                          </html>`);
+                        printWindow.document.close();
+                        printWindow.focus();
+                        printWindow.print();
+                      }
+                    }}
+                    className="flex items-center space-x-1.5 px-4 py-2 bg-[#141414] text-[#E4E3E0] rounded-xl text-xs font-bold hover:opacity-80 transition-opacity shrink-0"
+                  >
+                    <Download size={14} />
+                    <span>Imprimir</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tabela de histórico */}
+              <div className="flex-1 overflow-y-auto scrollbar-hide">
+                {(() => {
+                  const start = new Date(stockHistoryStart + 'T00:00:00');
+                  const end = new Date(stockHistoryEnd + 'T23:59:59');
+                  const filtered = stockLog.filter((e: any) => {
+                    const t = new Date(e.timestamp);
+                    return t >= start && t <= end;
+                  });
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center py-20 opacity-30">
+                        <History size={40} className="mb-3" />
+                        <p className="text-sm font-bold uppercase tracking-widest">Sem movimentações no período</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <table className="w-full text-left border-collapse">
+                      <thead className="sticky top-0 bg-white border-b border-[#141414]/10">
+                        <tr>
+                          <th className="p-3 lg:p-4 text-[8px] uppercase tracking-widest opacity-50">Produto</th>
+                          <th className="p-3 lg:p-4 text-[8px] uppercase tracking-widest opacity-50">Variação</th>
+                          <th className="p-3 lg:p-4 text-[8px] uppercase tracking-widest opacity-50">Motivo</th>
+                          <th className="p-3 lg:p-4 text-[8px] uppercase tracking-widest opacity-50">Data / Hora</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((entry: any) => (
+                          <tr key={entry.id} className="border-b border-[#141414]/5 hover:bg-gray-50 transition-colors">
+                            <td className="p-3 lg:p-4 text-xs font-bold">{entry.itemName}</td>
+                            <td className="p-3 lg:p-4">
+                              <span className={`text-xs font-mono font-bold ${entry.change < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {entry.change > 0 ? '+' : ''}{entry.change}
+                              </span>
+                            </td>
+                            <td className="p-3 lg:p-4 text-[10px] opacity-60 uppercase font-bold">{entry.reason}</td>
+                            <td className="p-3 lg:p-4 text-[10px] font-mono opacity-50 whitespace-nowrap">
+                              {new Date(entry.timestamp).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                              {' '}
+                              {new Date(entry.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
+
+              <div className="px-6 py-3 border-t border-[#141414]/5 shrink-0 text-[10px] opacity-40 text-right">
+                {stockLog.length} registro(s) total · exibindo período selecionado
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {(() => {
         const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
         const activeOrder = orders.find(o => targetId && o.tableId && String(o.tableId) === String(targetId) && !!o.isComanda === !!isComandaSelected && o.status !== 'finalizada');
         return activeOrder && (
-          <PaymentModal 
+          <PaymentModal
             isOpen={isPaymentModalOpen}
             onClose={() => setIsPaymentModalOpen(false)}
             order={activeOrder}
-            onPaymentComplete={(selectedItems, partialAmount, paymentMethod) => handlePaymentComplete(activeOrder.id, selectedItems, partialAmount, paymentMethod)}
+            onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName) => handlePaymentComplete(activeOrder.id, selectedItems, partialAmount, paymentMethod, payerName)}
             onApplyDiscount={handleApplyDiscount}
           />
         );
@@ -3135,6 +3834,9 @@ export default function Dashboard({
                                   <span className="font-medium text-[#141414]/70">
                                     {p.type === 'partial' ? 'Pagamento Parcial' : 'Pagamento de Itens'} ({p.method})
                                   </span>
+                                  {p.payer && (
+                                    <span className="text-[9px] font-bold text-blue-600">Pagador: {p.payer}</span>
+                                  )}
                                   <span className="text-[8px] opacity-40">{new Date(p.timestamp).toLocaleTimeString()}</span>
                                 </div>
                                 <span className="font-mono font-bold text-green-600">R$ {p.amount.toFixed(2)}</span>
@@ -3194,6 +3896,52 @@ export default function Dashboard({
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* Inactivity Alert Popup */}
+      <AnimatePresence>
+        {inactivityPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, y: 10 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.85, opacity: 0, y: 10 }}
+              className="bg-white rounded-3xl p-8 w-full max-w-xs shadow-2xl text-center space-y-5 border border-amber-100"
+            >
+              <div className="w-14 h-14 bg-amber-50 rounded-full flex items-center justify-center mx-auto border-2 border-amber-200">
+                <Clock size={28} className="text-amber-500" />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase font-bold tracking-widest text-amber-500 mb-1">
+                  Atenção
+                </p>
+                <h3 className="font-bold text-xl text-[#141414]">
+                  {inactivityPopup.isComanda ? 'Comanda' : 'Mesa'} {inactivityPopup.tableId}
+                </h3>
+                <p className="text-sm text-[#141414]/60 mt-2 leading-relaxed">
+                  Esta {inactivityPopup.isComanda ? 'comanda' : 'mesa'} está há{' '}
+                  <span className="font-bold text-amber-600">{inactivityPopup.minutes} min</span>{' '}
+                  sem registrar pedido.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  const key = `${inactivityPopup.isComanda ? 'c' : 't'}_${inactivityPopup.tableId}`;
+                  setSnoozeMap(m => ({ ...m, [key]: Date.now() + 10 * 60_000 }));
+                  setInactivityPopup(null);
+                }}
+                className="w-full bg-[#141414] text-[#E4E3E0] py-3 rounded-2xl font-bold text-sm active:scale-95 transition-transform"
+              >
+                OK
+              </button>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

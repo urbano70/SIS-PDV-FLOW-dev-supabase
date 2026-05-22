@@ -21,6 +21,7 @@ interface FirebaseContextType {
     orders: Order[];
     waiters: Waiter[];
     stock: StockItem[];
+    stockLog: any[];
     menu: MenuCategory[];
     isCashRegisterOpen: boolean;
   };
@@ -37,6 +38,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [orders, setOrders] = useState<Order[]>([]);
   const [waiters, setWaiters] = useState<Waiter[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
+  const [stockLog, setStockLog] = useState<any[]>([]);
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
   const [firebaseActive, setFirebaseActive] = useState(true);
@@ -63,6 +65,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const handleUpdateTables = (data: Table[]) => setTables(data);
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
     const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
+    const handleUpdateMenu = (data: MenuCategory[]) => {
+      const transformed = data.map((cat: any) => ({
+        ...cat,
+        name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
+      }));
+      setMenu(transformed);
+    };
+    const handleUpdateStock = (data: StockItem[]) => setStock(data);
+    const handleUpdateStockLog = (data: any[]) => setStockLog(data);
 
     const handleInitData = (data: any) => {
       console.log("Received init_data from socket, populating states immediately");
@@ -74,6 +85,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (data.comandas) setComandas(data.comandas);
       if (data.orders) setOrders(data.orders);
       if (data.stock) setStock(data.stock);
+      if (data.stockLog) setStockLog(data.stockLog);
       if (data.waiters) setWaiters(data.waiters);
       if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
       if (data.menu) {
@@ -91,6 +103,9 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     socket.on('update_tables', handleUpdateTables);
     socket.on('update_comandas', handleUpdateComandas);
     socket.on('update_cash_register', handleUpdateCashRegister);
+    socket.on('update_menu', handleUpdateMenu);
+    socket.on('update_stock', handleUpdateStock);
+    socket.on('update_stock_log', handleUpdateStockLog);
 
     // Solicitar os dados iniciais ativamente
     socket.emit('request_init_data');
@@ -101,6 +116,9 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socket.off('update_tables', handleUpdateTables);
       socket.off('update_comandas', handleUpdateComandas);
       socket.off('update_cash_register', handleUpdateCashRegister);
+      socket.off('update_menu', handleUpdateMenu);
+      socket.off('update_stock', handleUpdateStock);
+      socket.off('update_stock_log', handleUpdateStockLog);
     });
 
     // 2. Inicializar Firebase Auth e Firestore em segundo plano (apenas se firebase estiver ativo no backend)
@@ -132,20 +150,17 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           });
           if (unsubWaiters) firestoreUnsubscribes.push(unsubWaiters);
 
-          // Sempre sincroniza dados restritos para o painel livre
-          const collectionsToSync = [
-            { name: 'tables', setter: setTables },
-            { name: 'comandas', setter: setComandas },
-            { name: 'orders', setter: (d: any) => setOrders(d as Order[]) },
-            { name: 'stock', setter: (d: any) => setStock(d as StockItem[]) },
-            { name: 'menu', setter: (d: any) => {
-              const transformedData = (d as MenuCategory[]).map(cat => ({
-                ...cat,
-                name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
-              }));
-              setMenu(transformedData);
-            } }
-          ];
+          // Tables e comandas são sincronizadas APENAS via Socket.io (update_tables /
+          // update_comandas / init_data). O servidor já faz seu próprio onSnapshot do
+          // Firestore e emite os eventos com as 40 mesas completas. Escutar o Firestore
+          // aqui diretamente sobrescreveria o estado com apenas os documentos existentes
+          // (somente mesas que já foram usadas), fazendo as demais desaparecerem.
+          // Orders também são sincronizados APENAS via Socket.io (update_orders / init_data).
+          // O Firestore client-side sobrescreve os dados do socket com cache local possivelmente
+          // desatualizado, fazendo itens recém-adicionados desaparecerem ao recarregar a página.
+          // Menu e stock são sincronizados APENAS via socket.
+          // O Firestore client-side sobrescreveria dados do socket com cache desatualizado.
+          const collectionsToSync: { name: string; setter: (d: any) => void }[] = [];
 
           collectionsToSync.forEach(col => {
             const unsub = syncCollection(col.name, col.setter);
@@ -223,7 +238,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       logout,
       toggleCashRegister,
       updateTableStatusLocal,
-      data: { tables, comandas, orders, waiters, stock, menu, isCashRegisterOpen }
+      data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen }
     }}>
       {children}
     </FirebaseContext.Provider>
