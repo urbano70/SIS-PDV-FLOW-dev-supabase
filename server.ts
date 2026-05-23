@@ -1227,6 +1227,34 @@ async function startServer() {
       io.emit("update_tables", tables);
       io.emit("update_comandas", comandas);
       io.emit("update_cash_register", false);
+
+      // Persist reset to Firestore so server restarts don't reload stale state
+      if (db) {
+        try {
+          const batch = db.batch();
+
+          // Delete all orders from Firestore
+          const ordersSnap = await db.collection("orders").get();
+          ordersSnap.docs.forEach(doc => batch.delete(doc.ref));
+
+          // Free all tables in Firestore
+          const tablesSnap = await db.collection("tables").get();
+          tablesSnap.docs.forEach(doc =>
+            batch.set(doc.ref, { status: "free", currentOrder: null, linkedTo: null }, { merge: true })
+          );
+
+          // Free all comandas in Firestore
+          const comandasSnap = await db.collection("comandas").get();
+          comandasSnap.docs.forEach(doc =>
+            batch.set(doc.ref, { status: "free", currentOrder: null, linkedTo: null }, { merge: true })
+          );
+
+          await batch.commit();
+          console.log("reset_system: Firestore cleared successfully");
+        } catch (err) {
+          console.error("reset_system: failed to clear Firestore", err);
+        }
+      }
     });
 
     // Consolidated init_data is at the beginning of connection
