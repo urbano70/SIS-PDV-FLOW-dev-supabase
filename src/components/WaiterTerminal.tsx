@@ -519,7 +519,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           /* ── ITEM SELECTION ── */
           <div className="flex flex-col h-full space-y-4">
             <div className="flex items-center justify-between">
-              <button onClick={() => setIsAddingItems(false)} className="text-sm font-bold flex items-center">
+              <button onClick={() => { setIsAddingItems(false); setSelectedId(null); setIsComandaSelected(false); setCart([]); }} className="text-sm font-bold flex items-center">
                 <ChevronLeft size={18} className="mr-1" /> Voltar
               </button>
               <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
