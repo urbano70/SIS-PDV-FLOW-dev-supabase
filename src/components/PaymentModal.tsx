@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PizzaItem, Order } from '../types';
 import { X, Check, CreditCard, Banknote, QrCode, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,6 +22,8 @@ interface PaymentState {
 }
 
 export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete, onApplyDiscount }: PaymentModalProps) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
   const [step, setStep] = useState<'selection' | 'methods'>('selection');
   const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
   const [isConfirming, setIsConfirming] = useState(false);
@@ -114,7 +116,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     if (isOpen) {
       if (activeItems.length === 0 || remainingOrderTotal <= 0.01) {
         toast.error('Esta comanda/mesa não possui valores pendentes de pagamento!');
-        onClose();
+        onCloseRef.current();
         return;
       }
       setStep('selection');
@@ -134,7 +136,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       setIsConfirming(false);
       setPayerName('');
     }
-  }, [isOpen, order.id, onClose]);
+  }, [isOpen, order.id]); // onClose excluded — stabilized via onCloseRef to avoid stale closure re-runs
 
   const toggleItem = (item: PizzaItem) => {
     if (existingPartialPaid > 0) return; // Forced selection when partial payment exists
