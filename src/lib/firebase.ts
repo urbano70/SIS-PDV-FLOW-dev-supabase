@@ -1,7 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+
+// __FIREBASE_CONFIG__ é injetado pelo vite.config.ts via define (lê env var ou arquivo local)
+declare const __FIREBASE_CONFIG__: string;
+const firebaseConfig = JSON.parse(__FIREBASE_CONFIG__);
 
 const app = initializeApp(firebaseConfig);
 // Use the custom databaseId if provided, otherwise default

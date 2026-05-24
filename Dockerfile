@@ -13,7 +13,9 @@ COPY . .
 # Passe via: docker build --build-arg GEMINI_API_KEY=xxx
 # ou defina no .env e use docker-compose (que lê .env automaticamente).
 ARG GEMINI_API_KEY=""
+ARG FIREBASE_CONFIG=""
 ENV GEMINI_API_KEY=$GEMINI_API_KEY
+ENV FIREBASE_CONFIG=$FIREBASE_CONFIG
 
 RUN npm run build
 
