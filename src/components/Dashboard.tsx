@@ -305,7 +305,14 @@ const OrderDetails = ({
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
-                        <OrderTimer timestamp={item.timestamp} />
+                        item.deliveredAt ? (
+                          <span className="text-[8px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded flex items-center gap-1 ml-1 shrink-0">
+                            <CheckCircle size={9} />
+                            Entregue
+                          </span>
+                        ) : (
+                          <OrderTimer timestamp={item.timestamp} />
+                        )
                       )}
                     </div>
                     {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
