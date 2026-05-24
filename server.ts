@@ -36,14 +36,16 @@ async function startServer() {
     if (!rawConfig) throw new Error('Firebase config not found');
     const firebaseConfig = JSON.parse(rawConfig);
     if (!admin.apps.length) {
-      const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT
-        || (fs.existsSync(path.join(process.cwd(), 'service-account.json'))
-            ? fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf-8')
-            : null);
-      console.log('[firebase-init] FIREBASE_SERVICE_ACCOUNT present:', !!process.env.FIREBASE_SERVICE_ACCOUNT);
-      console.log('[firebase-init] service-account.json present:', fs.existsSync(path.join(process.cwd(), 'service-account.json')));
-      if (serviceAccountJson) {
-        const credential = admin.credential.cert(JSON.parse(serviceAccountJson));
+      // Aceita base64 (FIREBASE_SERVICE_ACCOUNT_B64) ou JSON puro (FIREBASE_SERVICE_ACCOUNT) ou arquivo local
+      const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_B64
+        ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf-8')
+        : process.env.FIREBASE_SERVICE_ACCOUNT
+          || (fs.existsSync(path.join(process.cwd(), 'service-account.json'))
+              ? fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf-8')
+              : null);
+      console.log('[firebase-init] credential source:', process.env.FIREBASE_SERVICE_ACCOUNT_B64 ? 'B64 env' : process.env.FIREBASE_SERVICE_ACCOUNT ? 'JSON env' : fs.existsSync(path.join(process.cwd(), 'service-account.json')) ? 'file' : 'none');
+      if (rawServiceAccount) {
+        const credential = admin.credential.cert(JSON.parse(rawServiceAccount));
         admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
       } else {
         admin.initializeApp({ projectId: firebaseConfig.projectId });
