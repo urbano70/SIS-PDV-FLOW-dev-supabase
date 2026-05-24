@@ -241,7 +241,7 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
-  let pizzariaConfig = { enabled: false, yellowMinutes: 15, redMinutes: 25 };
+  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25 };
 
   const getEffectiveItemPrice = (item: any) => {
     let price = Number(item.price) || 0;

@@ -37,6 +37,7 @@ export interface DeliveryRecord {
 export interface PizzeriaConfig {
   enabled: boolean;
   yellowMinutes: number;
+  orangeMinutes: number;
   redMinutes: number;
 }
 

@@ -53,7 +53,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return () => clearInterval(id);
   }, [pizzariaConfig?.enabled]);
 
-  const getPizzeriaTableColor = (tableItem: Table): 'green' | 'yellow' | 'red' | null => {
+  const getPizzeriaTableColor = (tableItem: Table): 'green' | 'yellow' | 'orange' | 'red' | null => {
     if (!pizzariaConfig?.enabled || tableItem.status === 'free') return null;
     const order = orders.find((o: any) =>
       tableItem.currentOrder && String(o.id) === String(tableItem.currentOrder) && o.status !== 'finalizada'
@@ -74,6 +74,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (oldest === Infinity) return 'green';
     const elapsed = (now - oldest) / 60000;
     if (elapsed >= pizzariaConfig.redMinutes) return 'red';
+    if (elapsed >= pizzariaConfig.orangeMinutes) return 'orange';
     if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
     return 'green';
   };
@@ -365,6 +366,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     const pc = getPizzeriaTableColor(item);
                     if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
                     if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                    if (pc === 'orange') return 'border-orange-500 bg-orange-500 text-white';
                     if (pc === 'red') return 'border-red-500 bg-red-500 text-white';
                     if (item.status === 'free') return 'border-[#141414]/10 bg-white';
                     if (item.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';

@@ -514,11 +514,13 @@ export default function Dashboard({
 
   // Pizzaria mode: local state for config editing
   const [localYellow, setLocalYellow] = useState(pizzariaConfig.yellowMinutes);
+  const [localOrange, setLocalOrange] = useState(pizzariaConfig.orangeMinutes);
   const [localRed, setLocalRed] = useState(pizzariaConfig.redMinutes);
   useEffect(() => {
     setLocalYellow(pizzariaConfig.yellowMinutes);
+    setLocalOrange(pizzariaConfig.orangeMinutes);
     setLocalRed(pizzariaConfig.redMinutes);
-  }, [pizzariaConfig.yellowMinutes, pizzariaConfig.redMinutes]);
+  }, [pizzariaConfig.yellowMinutes, pizzariaConfig.orangeMinutes, pizzariaConfig.redMinutes]);
 
   // Tick every 30s to re-compute pizzaria table colors
   const [, setPizzeriaColorTick] = useState(0);
@@ -528,7 +530,7 @@ export default function Dashboard({
     return () => clearInterval(id);
   }, [pizzariaConfig.enabled]);
 
-  const getPizzeriaTableColor = (tableId: number | string, isComanda: boolean): 'green' | 'yellow' | 'red' | null => {
+  const getPizzeriaTableColor = (tableId: number | string, isComanda: boolean): 'green' | 'yellow' | 'orange' | 'red' | null => {
     if (!pizzariaConfig.enabled) return null;
     const tableObj = (isComanda ? comandas : tables).find((t: any) => String(t.id) === String(tableId));
     if (!tableObj || tableObj.status === 'free') return null;
@@ -551,6 +553,7 @@ export default function Dashboard({
     if (oldest === Infinity) return 'green';
     const elapsed = (now - oldest) / 60000;
     if (elapsed >= pizzariaConfig.redMinutes) return 'red';
+    if (elapsed >= pizzariaConfig.orangeMinutes) return 'orange';
     if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
     return 'green';
   };
@@ -1660,6 +1663,7 @@ export default function Dashboard({
                                   const pc = getPizzeriaTableColor(table.id, false);
                                   if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
                                   if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                                  if (pc === 'orange') return 'border-orange-500 bg-orange-500 text-white';
                                   if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
                                   if (table.status === 'free') return 'border-[#141414]/10 bg-white/50';
                                   if (table.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
@@ -1706,6 +1710,7 @@ export default function Dashboard({
                                   const pc = getPizzeriaTableColor(comanda.id, true);
                                   if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
                                   if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                                  if (pc === 'orange') return 'border-orange-500 bg-orange-500 text-white';
                                   if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
                                   if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/50';
                                   if (comanda.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
@@ -3253,8 +3258,8 @@ export default function Dashboard({
                     {pizzariaConfig.enabled ? (
                       <div className="space-y-1.5">
                         <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo de entrega</p>
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div>
                             <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🟡 Amarelo (min)</label>
                             <input
                               type="number"
@@ -3264,7 +3269,17 @@ export default function Dashboard({
                               className="w-full bg-yellow-50 border border-yellow-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-yellow-400 outline-none"
                             />
                           </div>
-                          <div className="flex-1">
+                          <div>
+                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🟠 Laranja (min)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={localOrange}
+                              onChange={(e) => setLocalOrange(Math.max(1, Number(e.target.value)))}
+                              className="w-full bg-orange-50 border border-orange-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-orange-400 outline-none"
+                            />
+                          </div>
+                          <div>
                             <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🔴 Vermelho (min)</label>
                             <input
                               type="number"
@@ -3276,13 +3291,13 @@ export default function Dashboard({
                           </div>
                         </div>
                         <button
-                          onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, redMinutes: localRed })}
+                          onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed })}
                           className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase"
                         >
                           Salvar Configurações
                         </button>
                         <p className="text-[6px] opacity-40 leading-tight text-center">
-                          Verde: pedido recebido • Amarelo após {pizzariaConfig.yellowMinutes} min • Vermelho após {pizzariaConfig.redMinutes} min
+                          Verde • Amarelo {pizzariaConfig.yellowMinutes}min • Laranja {pizzariaConfig.orangeMinutes}min • Vermelho {pizzariaConfig.redMinutes}min
                         </p>
                       </div>
                     ) : (
