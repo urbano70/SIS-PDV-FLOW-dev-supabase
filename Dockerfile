@@ -1,7 +1,7 @@
 # ──────────────────────────────────────────────────────────────────
 # Stage 1: Builder — compila server.ts e faz o vite build do frontend
 # ──────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
@@ -15,12 +15,12 @@ COPY . .
 ARG GEMINI_API_KEY=""
 ENV GEMINI_API_KEY=$GEMINI_API_KEY
 
-RUN npm run build
+RUN npm run build 2>&1 || (echo "=== BUILD FAILED ===" && npm run build:server && npx vite build --debug 2>&1 | tail -50 && exit 1)
 
 # ──────────────────────────────────────────────────────────────────
 # Stage 2: Runner — imagem mínima de produção
 # ──────────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runner
+FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
