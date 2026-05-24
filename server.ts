@@ -36,9 +36,14 @@ async function startServer() {
     if (!rawConfig) throw new Error('Firebase config not found');
     const firebaseConfig = JSON.parse(rawConfig);
     if (!admin.apps.length) {
-      admin.initializeApp({
-        projectId: firebaseConfig.projectId
-      });
+      const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT
+        || (fs.existsSync(path.join(process.cwd(), 'service-account.json'))
+            ? fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf-8')
+            : null);
+      const credential = serviceAccountJson
+        ? admin.credential.cert(JSON.parse(serviceAccountJson))
+        : admin.credential.applicationDefault();
+      admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
     }
     // Usa o banco nomeado se configurado (firestoreDatabaseId no firebase-applet-config.json),
     // garantindo que servidor e cliente React leiam/gravem no mesmo banco.
