@@ -3291,7 +3291,7 @@ export default function Dashboard({
                           </div>
                         </div>
                         <button
-                          onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed })}
+                          onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed }); toast.success('Configurações do Modo Pizzaria salvas!'); }}
                           className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase"
                         >
                           Salvar Configurações
