@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, PizzaItem, Order, MenuCategory } from '../types';
+import { Table, PizzaItem, Order, MenuCategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,9 +17,10 @@ interface WaiterTerminalProps {
   pizzaCrusts: string[];
   isCashRegisterOpen: boolean;
   printerConfig: any;
+  pizzariaConfig: PizzeriaConfig;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -44,6 +45,38 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const id = setInterval(() => forceInactivityUpdate(n => n + 1), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  const [, setPizzeriaColorTick] = useState(0);
+  useEffect(() => {
+    if (!pizzariaConfig?.enabled) return;
+    const id = setInterval(() => setPizzeriaColorTick(n => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, [pizzariaConfig?.enabled]);
+
+  const getPizzeriaTableColor = (tableItem: Table): 'green' | 'yellow' | 'red' | null => {
+    if (!pizzariaConfig?.enabled || tableItem.status === 'free') return null;
+    const order = orders.find((o: any) =>
+      tableItem.currentOrder && String(o.id) === String(tableItem.currentOrder) && o.status !== 'finalizada'
+    );
+    if (!order) return null;
+    const pending = (order.items || []).filter(
+      (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches')
+    );
+    if (pending.length === 0) return null;
+    const now = Date.now();
+    let oldest = Infinity;
+    for (const i of pending) {
+      if (i.timestamp) {
+        const t = new Date(i.timestamp).getTime();
+        if (t < oldest) oldest = t;
+      }
+    }
+    if (oldest === Infinity) return 'green';
+    const elapsed = (now - oldest) / 60000;
+    if (elapsed >= pizzariaConfig.redMinutes) return 'red';
+    if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
+    return 'green';
+  };
 
   const getInactivityMinutes = (tableItem: Table): number | null => {
     if (tableItem.status === 'free' || !tableItem.currentOrder) return null;
@@ -328,11 +361,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     setIsComandaSelected(selectionType === 'comandas');
                     setIsAddingItems(false);
                   }}
-                  className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center transition-all relative ${
-                    item.status === 'free' ? 'border-[#141414]/10 bg-white' :
-                    item.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                    'border-[#141414] bg-[#141414] text-[#E4E3E0]'
-                  }`}
+                  className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center transition-all relative ${(() => {
+                    const pc = getPizzeriaTableColor(item);
+                    if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
+                    if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                    if (pc === 'red') return 'border-red-500 bg-red-500 text-white';
+                    if (item.status === 'free') return 'border-[#141414]/10 bg-white';
+                    if (item.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                    return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
+                  })()}`}
                 >
                   {item.status === 'linked' && (
                     <div className="absolute top-2 right-2">
@@ -400,7 +437,23 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                             </p>
                             {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
-                              <OrderTimer timestamp={item.timestamp} />
+                              item.deliveredAt ? (
+                                <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold uppercase ml-1 shrink-0">
+                                  ✓ Entregue
+                                </span>
+                              ) : (
+                                <div className="flex items-center shrink-0">
+                                  <OrderTimer timestamp={item.timestamp} />
+                                  {pizzariaConfig?.enabled && (
+                                    <button
+                                      onClick={() => socket.emit('deliver_item', { orderId: currentOrder?.id, itemId: item.id })}
+                                      className="ml-1 text-[8px] bg-green-500 text-white px-1.5 py-0.5 rounded font-bold uppercase active:scale-95 transition-transform shrink-0"
+                                    >
+                                      ✓ Entregue
+                                    </button>
+                                  )}
+                                </div>
+                              )
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
                           </div>

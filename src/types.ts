@@ -19,6 +19,25 @@ export interface PizzaItem {
   timestamp?: string; // ISO string for order tracking
   discount?: number;
   discountType?: 'percentage' | 'value';
+  deliveredAt?: string; // ISO string when item was marked as delivered
+  deliveredBy?: string; // Waiter who marked as delivered
+}
+
+export interface DeliveryRecord {
+  itemId: string;
+  itemName: string;
+  orderedAt?: string;
+  deliveredAt: string;
+  durationMinutes: number | null;
+  tableId: number | string;
+  isComanda?: boolean;
+  waiterName?: string;
+}
+
+export interface PizzeriaConfig {
+  enabled: boolean;
+  yellowMinutes: number;
+  redMinutes: number;
 }
 
 export interface Order {
@@ -35,6 +54,7 @@ export interface Order {
   discountType?: 'percentage' | 'value';
   partialPayments?: { amount: number, method: string, timestamp: string }[];
   paymentLog?: { amount: number, method: string, timestamp: string, type: 'partial' | 'items', payer?: string }[];
+  deliveryLog?: DeliveryRecord[];
 }
 
 export interface Table {

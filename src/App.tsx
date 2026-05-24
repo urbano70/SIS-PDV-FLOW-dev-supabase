@@ -17,8 +17,8 @@ import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
 import { LogIn } from 'lucide-react';
 
 function AppContent() {
-  const { user, loading, signIn, data, isAdmin, toggleCashRegister } = useFirebase();
-  const { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen } = data;
+  const { user, loading, signIn, data, isAdmin, toggleCashRegister, updatePizzeriaConfig } = useFirebase();
+  const { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
@@ -160,8 +160,9 @@ function AppContent() {
                 menu={menu} 
                 pizzaFlavors={pizzaFlavors} 
                 pizzaCrusts={pizzaCrusts} 
-                isCashRegisterOpen={isCashRegisterOpen} 
-                printerConfig={printerConfig} 
+                isCashRegisterOpen={isCashRegisterOpen}
+                printerConfig={printerConfig}
+                pizzariaConfig={pizzariaConfig}
               />
             ) : (
               <SelfOnboarding waiters={waiters} />
@@ -189,6 +190,8 @@ function AppContent() {
               toggleCashRegister={toggleCashRegister}
               printerConfig={printerConfig}
               setPrinterConfig={setPrinterConfig}
+              pizzariaConfig={pizzariaConfig}
+              updatePizzeriaConfig={updatePizzeriaConfig}
             />
           } 
         />

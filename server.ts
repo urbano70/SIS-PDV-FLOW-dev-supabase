@@ -149,6 +149,14 @@ async function startServer() {
       pizzaCrusts = snapshot.docs.map(doc => doc.data().name || doc.id);
       io.emit("update_pizza_crusts", pizzaCrusts);
     });
+
+    // Sync pizzaria config
+    db.collection("config").doc("pizzaria").onSnapshot((snapshot) => {
+      if (snapshot.exists) {
+        pizzariaConfig = { ...pizzariaConfig, ...snapshot.data() };
+        io.emit("update_pizzaria_config", pizzariaConfig);
+      }
+    });
   }
 
   // Helper to save to Firestore
@@ -233,6 +241,7 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
+  let pizzariaConfig = { enabled: false, yellowMinutes: 15, redMinutes: 25 };
 
   const getEffectiveItemPrice = (item: any) => {
     let price = Number(item.price) || 0;
@@ -313,6 +322,7 @@ async function startServer() {
       pizzaFlavors,
       pizzaCrusts,
       isCashRegisterOpen,
+      pizzariaConfig,
       firebaseActive: !!db
     });
 
@@ -330,6 +340,54 @@ async function startServer() {
         isCashRegisterOpen,
         firebaseActive: !!db
       });
+    });
+
+    socket.on("update_pizzaria_config", requireAdmin((config) => {
+      pizzariaConfig = { ...pizzariaConfig, ...config };
+      io.emit("update_pizzaria_config", pizzariaConfig);
+      if (db) {
+        db.collection("config").doc("pizzaria").set(pizzariaConfig, { merge: true })
+          .catch((err: any) => console.error("Error saving pizzaria config:", err));
+      }
+    }));
+
+    socket.on("deliver_item", ({ orderId, itemId }) => {
+      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order) return;
+      const item = order.items.find((i: any) => i.id === itemId);
+      if (!item || item.deliveredAt) return;
+
+      const now = new Date().toISOString();
+      const durationMinutes = item.timestamp
+        ? Math.round((new Date(now).getTime() - new Date(item.timestamp).getTime()) / 60000)
+        : null;
+
+      const waiter = waiters.find((w: any) => w.id === (socket as any).waiterId);
+      const waiterName = waiter?.name || '';
+
+      item.deliveredAt = now;
+      item.deliveredBy = waiterName;
+
+      if (!order.deliveryLog) order.deliveryLog = [];
+      order.deliveryLog.push({
+        itemId,
+        itemName: item.name,
+        orderedAt: item.timestamp || null,
+        deliveredAt: now,
+        durationMinutes,
+        tableId: order.tableId,
+        isComanda: order.isComanda || false,
+        waiterName,
+      });
+
+      io.emit("update_orders", orders);
+
+      if (db) {
+        db.collection("orders").doc(String(orderId)).set(
+          { items: order.items, deliveryLog: order.deliveryLog },
+          { merge: true }
+        ).catch((err: any) => console.error("Error saving delivery:", err));
+      }
     });
 
     socket.on("waiter_register", (waiterData) => {

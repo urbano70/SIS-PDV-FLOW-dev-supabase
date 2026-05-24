@@ -3,7 +3,7 @@ import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut,
 import { auth, db } from '../lib/firebase';
 import socket from '../lib/socket';
 import { syncCollection } from '../lib/firebaseService';
-import { Table, Order, Waiter, StockItem, MenuCategory } from '../types';
+import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
 
@@ -15,6 +15,7 @@ interface FirebaseContextType {
   logout: () => Promise<void>;
   toggleCashRegister: (open: boolean) => Promise<void>;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
+  updatePizzeriaConfig: (config: PizzeriaConfig) => void;
   data: {
     tables: Table[];
     comandas: Table[];
@@ -24,6 +25,7 @@ interface FirebaseContextType {
     stockLog: any[];
     menu: MenuCategory[];
     isCashRegisterOpen: boolean;
+    pizzariaConfig: PizzeriaConfig;
   };
 }
 
@@ -41,6 +43,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stockLog, setStockLog] = useState<any[]>([]);
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
+  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>({ enabled: false, yellowMinutes: 15, redMinutes: 25 });
   const [firebaseActive, setFirebaseActive] = useState(true);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
@@ -65,6 +68,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const handleUpdateTables = (data: Table[]) => setTables(data);
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
     const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
+    const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
     const handleUpdateMenu = (data: MenuCategory[]) => {
       const transformed = data.map((cat: any) => ({
         ...cat,
@@ -88,6 +92,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (data.stockLog) setStockLog(data.stockLog);
       if (data.waiters) setWaiters(data.waiters);
       if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
+      if (data.pizzariaConfig) setPizzeriaConfig(data.pizzariaConfig);
       if (data.menu) {
         const transformedData = data.menu.map((cat: any) => ({
           ...cat,
@@ -103,6 +108,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     socket.on('update_tables', handleUpdateTables);
     socket.on('update_comandas', handleUpdateComandas);
     socket.on('update_cash_register', handleUpdateCashRegister);
+    socket.on('update_pizzaria_config', handleUpdatePizzeriaConfig);
     socket.on('update_menu', handleUpdateMenu);
     socket.on('update_stock', handleUpdateStock);
     socket.on('update_stock_log', handleUpdateStockLog);
@@ -116,6 +122,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socket.off('update_tables', handleUpdateTables);
       socket.off('update_comandas', handleUpdateComandas);
       socket.off('update_cash_register', handleUpdateCashRegister);
+      socket.off('update_pizzaria_config', handleUpdatePizzeriaConfig);
       socket.off('update_menu', handleUpdateMenu);
       socket.off('update_stock', handleUpdateStock);
       socket.off('update_stock_log', handleUpdateStockLog);
@@ -216,6 +223,11 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const updatePizzeriaConfig = (config: PizzeriaConfig) => {
+    setPizzeriaConfig(config);
+    socket.emit('update_pizzaria_config', config);
+  };
+
   const toggleCashRegister = async (open: boolean) => {
     try {
       const configRef = doc(db, 'config', 'app');
@@ -230,15 +242,16 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   return (
-    <FirebaseContext.Provider value={{ 
-      user, 
-      loading, 
-      isAdmin, 
-      signIn, 
+    <FirebaseContext.Provider value={{
+      user,
+      loading,
+      isAdmin,
+      signIn,
       logout,
       toggleCashRegister,
       updateTableStatusLocal,
-      data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen }
+      updatePizzeriaConfig,
+      data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig }
     }}>
       {children}
     </FirebaseContext.Provider>

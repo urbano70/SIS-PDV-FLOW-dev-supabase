@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem } from '../types';
+import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -28,6 +28,8 @@ interface DashboardProps {
   toggleCashRegister: (open: boolean) => Promise<void>;
   printerConfig: any;
   setPrinterConfig: (config: any) => void;
+  pizzariaConfig: PizzeriaConfig;
+  updatePizzeriaConfig: (config: PizzeriaConfig) => void;
 }
 
 // Separate component for Order Details to avoid Hook issues and improve readability
@@ -457,7 +459,9 @@ export default function Dashboard({
   isCashRegisterOpen,
   toggleCashRegister,
   printerConfig,
-  setPrinterConfig
+  setPrinterConfig,
+  pizzariaConfig,
+  updatePizzeriaConfig,
 }: DashboardProps) {
   const { updateTableStatusLocal } = useFirebase();
   const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
@@ -507,6 +511,49 @@ export default function Dashboard({
   const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
   const [, forceInactivityUpdate] = useState(0);
   const prevActivityRef = useRef<Record<string, number>>({});
+
+  // Pizzaria mode: local state for config editing
+  const [localYellow, setLocalYellow] = useState(pizzariaConfig.yellowMinutes);
+  const [localRed, setLocalRed] = useState(pizzariaConfig.redMinutes);
+  useEffect(() => {
+    setLocalYellow(pizzariaConfig.yellowMinutes);
+    setLocalRed(pizzariaConfig.redMinutes);
+  }, [pizzariaConfig.yellowMinutes, pizzariaConfig.redMinutes]);
+
+  // Tick every 30s to re-compute pizzaria table colors
+  const [, setPizzeriaColorTick] = useState(0);
+  useEffect(() => {
+    if (!pizzariaConfig.enabled) return;
+    const id = setInterval(() => setPizzeriaColorTick(n => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, [pizzariaConfig.enabled]);
+
+  const getPizzeriaTableColor = (tableId: number | string, isComanda: boolean): 'green' | 'yellow' | 'red' | null => {
+    if (!pizzariaConfig.enabled) return null;
+    const tableObj = (isComanda ? comandas : tables).find((t: any) => String(t.id) === String(tableId));
+    if (!tableObj || tableObj.status === 'free') return null;
+    const order = orders.find((o: any) =>
+      tableObj.currentOrder && String(o.id) === String(tableObj.currentOrder) && o.status !== 'finalizada'
+    );
+    if (!order) return null;
+    const pending = (order.items || []).filter(
+      (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches')
+    );
+    if (pending.length === 0) return null;
+    const now = Date.now();
+    let oldest = Infinity;
+    for (const i of pending) {
+      if (i.timestamp) {
+        const t = new Date(i.timestamp).getTime();
+        if (t < oldest) oldest = t;
+      }
+    }
+    if (oldest === Infinity) return 'green';
+    const elapsed = (now - oldest) / 60000;
+    if (elapsed >= pizzariaConfig.redMinutes) return 'red';
+    if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
+    return 'green';
+  };
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -1609,12 +1656,16 @@ export default function Dashboard({
                                 }}
                                 className={`p-1.5 rounded-lg border transition-all text-left w-full ${
                                   selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
-                                } ${
-                                  table.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
-                                  table.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
-                                  table.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                                  'border-yellow-500 bg-yellow-50 animate-pulse'
-                                }`}
+                                } ${(() => {
+                                  const pc = getPizzeriaTableColor(table.id, false);
+                                  if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                                  if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
+                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/50';
+                                  if (table.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
+                                  if (table.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                                  return 'border-yellow-500 bg-yellow-50 animate-pulse';
+                                })()}`}
                               >
                                 <p className="text-[6px] uppercase tracking-widest opacity-50">Mesa</p>
                                 <div className="flex items-center justify-between">
@@ -1651,12 +1702,16 @@ export default function Dashboard({
                                 }}
                                 className={`p-1.5 rounded-lg border transition-all text-left w-full ${
                                   selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
-                                } ${
-                                  comanda.status === 'free' ? 'border-[#141414]/10 bg-white/50' :
-                                  comanda.status === 'occupied' ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' :
-                                  comanda.status === 'linked' ? 'border-blue-500 bg-blue-50 text-blue-700' :
-                                  'border-yellow-500 bg-yellow-50 animate-pulse'
-                                }`}
+                                } ${(() => {
+                                  const pc = getPizzeriaTableColor(comanda.id, true);
+                                  if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
+                                  if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
+                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/50';
+                                  if (comanda.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
+                                  if (comanda.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                                  return 'border-yellow-500 bg-yellow-50 animate-pulse';
+                                })()}`}
                               >
                                 <p className="text-[6px] uppercase tracking-widest opacity-50">Com.</p>
                                 <div className="flex items-center justify-between">
@@ -3180,6 +3235,61 @@ export default function Dashboard({
                         </div>
                       ))}
                     </div>
+                  </div>
+                  {/* Modo Pizzaria */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                    <div className="flex items-center justify-between mb-2 shrink-0">
+                      <div className="flex items-center space-x-2">
+                        <Pizza className="text-[#141414]" size={12} />
+                        <h3 className="font-serif italic text-sm leading-none">Modo Pizzaria</h3>
+                      </div>
+                      <button
+                        onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, enabled: !pizzariaConfig.enabled })}
+                        className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${pizzariaConfig.enabled ? 'bg-green-500' : 'bg-[#141414]/20'}`}
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${pizzariaConfig.enabled ? 'translate-x-4' : ''}`} />
+                      </button>
+                    </div>
+                    {pizzariaConfig.enabled ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo de entrega</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1">
+                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🟡 Amarelo (min)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={localYellow}
+                              onChange={(e) => setLocalYellow(Math.max(1, Number(e.target.value)))}
+                              className="w-full bg-yellow-50 border border-yellow-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-yellow-400 outline-none"
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🔴 Vermelho (min)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={localRed}
+                              onChange={(e) => setLocalRed(Math.max(1, Number(e.target.value)))}
+                              className="w-full bg-red-50 border border-red-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-red-400 outline-none"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, redMinutes: localRed })}
+                          className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase"
+                        >
+                          Salvar Configurações
+                        </button>
+                        <p className="text-[6px] opacity-40 leading-tight text-center">
+                          Verde: pedido recebido • Amarelo após {pizzariaConfig.yellowMinutes} min • Vermelho após {pizzariaConfig.redMinutes} min
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[7px] opacity-40 leading-tight">
+                        Mesas mudam de cor conforme o tempo de espera de pizzas e lanches. Garçom marca como entregue para voltar ao normal.
+                      </p>
+                    )}
                   </div>
                 </div>
 
