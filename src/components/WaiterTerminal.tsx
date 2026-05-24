@@ -431,8 +431,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
                   <h3 className="font-bold text-base border-b pb-2">Pedidos em Aberto</h3>
                   <div className="space-y-3">
-                    {currentOrder.items.map((item) => (
-                      <div key={item.id} className={`flex justify-between items-start text-sm ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 rounded-xl border border-green-100' : ''}`}>
+                    {currentOrder.items.map((item) => {
+                      const pendingDelivery = pizzariaConfig?.enabled && !item.removed && !item.paid && !item.deliveredAt && (item.type === 'pizzas' || item.type === 'lanches');
+                      return (
+                      <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-orange-50 p-3 border border-orange-200' : ''}`}>
                         <div className="flex-1 pr-4">
                           <div className="flex items-center space-x-2">
                             <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
@@ -440,21 +442,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             </p>
                             {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
                               item.deliveredAt ? (
-                                <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold uppercase ml-1 shrink-0">
+                                <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
                                   ✓ Entregue
                                 </span>
                               ) : (
-                                <div className="flex items-center shrink-0">
-                                  <OrderTimer timestamp={item.timestamp} />
-                                  {pizzariaConfig?.enabled && (
-                                    <button
-                                      onClick={() => socket.emit('deliver_item', { orderId: currentOrder?.id, itemId: item.id })}
-                                      className="ml-1 text-[8px] bg-green-500 text-white px-1.5 py-0.5 rounded font-bold uppercase active:scale-95 transition-transform shrink-0"
-                                    >
-                                      ✓ Entregue
-                                    </button>
-                                  )}
-                                </div>
+                                <OrderTimer timestamp={item.timestamp} />
                               )
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
@@ -477,6 +469,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               {item.removalReason && <span className="block italic opacity-90 font-bold">Motivo: {item.removalReason}</span>}
                             </p>
                           )}
+                          {pendingDelivery && (
+                            <button
+                              onClick={() => socket.emit('deliver_item', { orderId: currentOrder?.id, itemId: item.id })}
+                              className="mt-2 w-full flex items-center justify-center gap-2 bg-orange-500 active:bg-orange-600 text-white py-2 rounded-xl font-bold text-xs uppercase tracking-wide active:scale-95 transition-transform"
+                            >
+                              <span className="w-2 h-2 bg-white rounded-full animate-pulse shrink-0" />
+                              Confirmar Entrega
+                            </button>
+                          )}
                         </div>
                         <div className="flex flex-col items-end space-y-1">
                           <span className={`font-mono font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
@@ -484,7 +485,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           </span>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {currentOrder.observations && (
                       <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
                         <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações Gerais</p>
