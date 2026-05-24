@@ -533,7 +533,7 @@ export default function Dashboard({
   const [, setPizzeriaColorTick] = useState(0);
   useEffect(() => {
     if (!pizzariaConfig.enabled) return;
-    const id = setInterval(() => setPizzeriaColorTick(n => n + 1), 30_000);
+    const id = setInterval(() => setPizzeriaColorTick(n => n + 1), 1_000);
     return () => clearInterval(id);
   }, [pizzariaConfig.enabled]);
 
