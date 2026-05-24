@@ -40,10 +40,14 @@ async function startServer() {
         || (fs.existsSync(path.join(process.cwd(), 'service-account.json'))
             ? fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf-8')
             : null);
-      const credential = serviceAccountJson
-        ? admin.credential.cert(JSON.parse(serviceAccountJson))
-        : admin.credential.applicationDefault();
-      admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
+      console.log('[firebase-init] FIREBASE_SERVICE_ACCOUNT present:', !!process.env.FIREBASE_SERVICE_ACCOUNT);
+      console.log('[firebase-init] service-account.json present:', fs.existsSync(path.join(process.cwd(), 'service-account.json')));
+      if (serviceAccountJson) {
+        const credential = admin.credential.cert(JSON.parse(serviceAccountJson));
+        admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
+      } else {
+        admin.initializeApp({ projectId: firebaseConfig.projectId });
+      }
     }
     // Usa o banco nomeado se configurado (firestoreDatabaseId no firebase-applet-config.json),
     // garantindo que servidor e cliente React leiam/gravem no mesmo banco.
