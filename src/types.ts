@@ -39,6 +39,7 @@ export interface PizzeriaConfig {
   yellowMinutes: number;
   orangeMinutes: number;
   redMinutes: number;
+  inactivityMinutes: number;
 }
 
 export interface Order {

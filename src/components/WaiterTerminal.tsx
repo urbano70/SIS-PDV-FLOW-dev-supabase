@@ -390,12 +390,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     if (mins === null) return null;
                     return (
                       <div className={`flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full ${
-                        mins >= 30
+                        mins >= (pizzariaConfig?.inactivityMinutes ?? 30)
                           ? 'bg-amber-500 text-white animate-pulse'
                           : 'text-[#141414]/40'
                       }`}>
-                        <Clock size={mins >= 30 ? 11 : 9} />
-                        <span className={`font-bold ${mins >= 30 ? 'text-[11px]' : 'text-[9px]'}`}>{formatInactivity(mins)}</span>
+                        <Clock size={mins >= (pizzariaConfig?.inactivityMinutes ?? 30) ? 11 : 9} />
+                        <span className={`font-bold ${mins >= (pizzariaConfig?.inactivityMinutes ?? 30) ? 'text-[11px]' : 'text-[9px]'}`}>{formatInactivity(mins)}</span>
                       </div>
                     );
                   })()}
@@ -421,7 +421,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   const mins = getInactivityMinutes(tableData);
                   if (mins === null) return null;
                   return (
-                    <div className={`flex items-center space-x-1 ${mins >= 30 ? 'text-amber-500' : 'text-[#141414]/30'}`}>
+                    <div className={`flex items-center space-x-1 ${mins >= (pizzariaConfig?.inactivityMinutes ?? 30) ? 'text-amber-500' : 'text-[#141414]/30'}`}>
                       <Clock size={10} />
                       <span className="text-[9px] font-bold">{formatInactivity(mins)} sem pedido</span>
                     </div>
@@ -447,7 +447,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
                               item.deliveredAt ? (
                                 <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
-                                  ✓ Entregue
+                                  ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : (
                                 <OrderTimer timestamp={item.timestamp} />

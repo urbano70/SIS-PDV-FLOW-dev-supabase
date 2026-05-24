@@ -25,10 +25,21 @@ function AppContent() {
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
   
   const defaultPrinterConfig = {
+    pizzas: 'Impressora Cozinha 1',
     drinks: 'Impressora Bar',
     kitchen: 'Impressora Cozinha 2',
     kitchenLabel: 'Cozinha Geral',
     receipts: 'Impressora Caixa',
+    registeredPrinters: [
+      { name: 'Impressora Cozinha 1', ip: '192.168.1.101' },
+      { name: 'Impressora Bar',       ip: '192.168.1.102' },
+      { name: 'Impressora Cozinha 2', ip: '192.168.1.103' },
+      { name: 'Impressora Caixa',     ip: '192.168.1.100' },
+    ],
+    autoPrintPizzas: true,
+    autoPrintDrinks: false,
+    autoPrintKitchen: true,
+    autoPrintReceipts: false,
     establishmentName: 'Pizzaria & Restaurante',
     address: 'Rua Principal, 123 - Centro',
     phone: '(11) 99999-9999',
@@ -38,7 +49,6 @@ function AppContent() {
     showLogo: true,
     itemFontSize: '12px',
     boldItems: false,
-    autoPrintKitchen: true
   };
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {

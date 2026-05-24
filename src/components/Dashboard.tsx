@@ -190,7 +190,7 @@ const OrderDetails = ({
                         <div class="info">
                           <div>${tableType}: ${tableId}</div>
                           <div>Garçom: ${waiterName}</div>
-                          <div>Data: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}</div>
+                          <div>Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
                         </div>
                         <div style="border-bottom: 1px dashed #000; margin: 10px 0;"></div>
                         <div class="items">
@@ -272,7 +272,7 @@ const OrderDetails = ({
               </button>
             </div>
             {waiter && (
-              <span className="text-[10px] opacity-50 italic">Garçom: {waiter.name}</span>
+              <span className="text-xs opacity-50 italic">Garçom: {waiter.name}</span>
             )}
           </div>
           <div className="flex flex-col items-end space-y-2">
@@ -283,7 +283,7 @@ const OrderDetails = ({
             >
               <History size={20} />
             </button>
-            <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${
+            <span className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${
               currentItem?.status === 'free' ? 'bg-gray-100' : 'bg-[#141414] text-[#E4E3E0]'
             }`}>
               {currentItem?.status === 'occupied' ? 'ocupada' : 
@@ -299,47 +299,43 @@ const OrderDetails = ({
           <div className="space-y-4">
             <div className="border-b pb-2 space-y-1 pr-1">
               {(activeOrder.items || []).map((item: any) => (
-                <div key={item.id} className={`flex justify-between items-center text-[11px] ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 px-2 py-1 rounded-md border border-green-100/50 mb-1' : ''}`}>
-                  <div className="flex flex-col">
-                    <div className="flex items-center space-x-2">
+                <div key={item.id} className={`flex justify-between items-start text-sm gap-3 ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 px-2 py-1 rounded-md border border-green-100/50 mb-1' : ''}`}>
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
-                        item.deliveredAt ? (
-                          <span className="text-[8px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded flex items-center gap-1 ml-1 shrink-0">
-                            <CheckCircle size={9} />
-                            Entregue
-                          </span>
-                        ) : (
-                          <OrderTimer
-                            timestamp={item.timestamp}
-                            urgent={
-                              pizzariaConfig?.enabled &&
-                              !!item.timestamp &&
-                              (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= pizzariaConfig.redMinutes
-                            }
-                          />
-                        )
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
+                        <OrderTimer
+                          timestamp={item.timestamp}
+                          urgent={
+                            pizzariaConfig?.enabled &&
+                            !!item.timestamp &&
+                            (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= pizzariaConfig.redMinutes
+                          }
+                        />
                       )}
                     </div>
-                    {item.observations && <span className="text-[9px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
-                    {item.ingredients && item.type !== 'pizzas' && <span className="text-[9px] text-[#141414] opacity-40 uppercase mt-0.5 leading-none">{item.ingredients}</span>}
-                    {item.waiterName && <span className="text-[9px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <div className="flex flex-col items-end">
-                      <span className={`font-mono font-bold ${item.paid ? 'text-green-700' : ''}`}>
-                        R$ {(() => {
-                          let price = item.price;
-                          if (item.discount) {
-                            if (item.discountType === 'percentage') price *= (1 - item.discount / 100);
-                            else price = Math.max(0, price - item.discount);
-                          }
-                          return price.toFixed(2);
-                        })()}
+                    {!item.removed && !item.paid && item.deliveredAt && (
+                      <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1 mt-1 self-start">
+                        <CheckCircle size={10} />
+                        Entregue{item.deliveredBy ? ` · ${item.deliveredBy}` : ''}
                       </span>
-                    </div>
+                    )}
+                    {item.observations && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
+                    {item.waiterName && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`font-mono font-bold whitespace-nowrap ${item.paid ? 'text-green-700' : ''}`}>
+                      R$ {(() => {
+                        let price = item.price;
+                        if (item.discount) {
+                          if (item.discountType === 'percentage') price *= (1 - item.discount / 100);
+                          else price = Math.max(0, price - item.discount);
+                        }
+                        return price.toFixed(2);
+                      })()}
+                    </span>
                     {!item.removed && !item.paid && !activeOrder.paymentLog?.some((p: any) => p.type === 'partial') && (
                       <button
                         onClick={() => handleRemoveItem(activeOrder.id, item)}
@@ -354,15 +350,15 @@ const OrderDetails = ({
               ))}
               {activeOrder.observations && (
                 <div className="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
-                  <p className="text-[10px] uppercase font-bold text-blue-800 opacity-50 mb-1">Observações da Comanda</p>
-                  <p className="text-xs text-blue-700 italic">{activeOrder.observations}</p>
+                  <p className="text-xs uppercase font-bold text-blue-800 opacity-50 mb-1">Observações da Comanda</p>
+                  <p className="text-sm text-blue-700 italic">{activeOrder.observations}</p>
                 </div>
               )}
             </div>
           </div>
         ) : (
           <div className="space-y-6">
-            <p className="text-sm opacity-50 italic">Nenhum pedido ativo para esta {isComandaSelected ? 'comanda' : 'mesa'}.</p>
+            <p className="text-base opacity-50 italic">Nenhum pedido ativo para esta {isComandaSelected ? 'comanda' : 'mesa'}.</p>
           </div>
         )}
       </div>
@@ -372,8 +368,8 @@ const OrderDetails = ({
           <>
             <div className="space-y-1">
               <div className="flex justify-between items-center opacity-50">
-                <span className="text-[10px] uppercase font-bold">Total Consumido</span>
-                <span className="text-sm font-bold">
+                <span className="text-xs uppercase font-bold">Total Consumido</span>
+                <span className="text-base font-bold">
                   R$ {activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
                     let price = i.price;
                     if (i.discount && !i.paid) {
@@ -386,15 +382,15 @@ const OrderDetails = ({
               </div>
               {activeOrder.discount && (
                 <div className="flex justify-between items-center text-green-600">
-                  <span className="text-[10px] uppercase font-bold">Desconto no Total</span>
-                  <span className="text-sm font-bold">
+                  <span className="text-xs uppercase font-bold">Desconto no Total</span>
+                  <span className="text-base font-bold">
                     - {activeOrder.discountType === 'percentage' ? `${activeOrder.discount}%` : `R$ ${activeOrder.discount.toFixed(2)}`}
                   </span>
                 </div>
               )}
               <div className="flex justify-between items-center pt-1 border-t border-[#141414]/5">
-                <span className="text-[10px] uppercase font-bold opacity-70">Total Líquido</span>
-                <span className="text-sm font-bold">
+                <span className="text-xs uppercase font-bold opacity-70">Total Líquido</span>
+                <span className="text-base font-bold">
                   R$ {(() => {
                     const total = activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
                       let price = Number(i.price) || 0;
@@ -415,10 +411,10 @@ const OrderDetails = ({
                 </span>
               </div>
               <div className="flex justify-between items-center text-blue-600">
-                <span className="text-[10px] uppercase font-bold">
+                <span className="text-xs uppercase font-bold">
                   Já Pago {activeOrder.paymentLog && activeOrder.paymentLog.length > 0 ? '(Registrado)' : ''}
                 </span>
-                <span className="text-sm font-bold">
+                <span className="text-base font-bold">
                   - R$ {(() => {
                     const totalPaidFromLog = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
                     return totalPaidFromLog.toFixed(2);
@@ -426,7 +422,7 @@ const OrderDetails = ({
                 </span>
               </div>
               <div className="flex justify-between items-center pt-2 border-t border-dashed border-[#141414]/10">
-                <span className="text-xs uppercase font-bold">Restante a Pagar</span>
+                <span className="text-sm uppercase font-bold">Restante a Pagar</span>
                 <span className="text-2xl font-bold">
                   R$ {(() => {
                     const total = activeOrder.items.filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
@@ -509,6 +505,8 @@ export default function Dashboard({
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [targetTableId, setTargetTableId] = useState<number | null>(null);
   const [transferReason, setTransferReason] = useState('');
+  const [transferMode, setTransferMode] = useState<'all' | 'items'>('all');
+  const [transferSelectedItemIds, setTransferSelectedItemIds] = useState<Record<string, boolean>>({});
   const [isMergeConfirmOpen, setIsMergeConfirmOpen] = useState(false);
   const [overviewTab, setOverviewTab] = useState<'tables' | 'comandas'>('tables');
   const [showingRecentOrders, setShowingRecentOrders] = useState(false);
@@ -521,7 +519,8 @@ export default function Dashboard({
   const [showItemSuggestions, setShowItemSuggestions] = useState(false);
   const [reportSelectedPaymentMethod, setReportSelectedPaymentMethod] = useState<string>('todos');
   const [reportSelectedWaiter, setReportSelectedWaiter] = useState<string>('todos');
-  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | null>(null);
+  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | 'table_sales' | null>(null);
+  const [reportSelectedTable, setReportSelectedTable] = useState<string>('todas');
   const [snoozeMap, setSnoozeMap] = useState<Record<string, number>>({});
   const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
   const [, forceInactivityUpdate] = useState(0);
@@ -531,11 +530,13 @@ export default function Dashboard({
   const [localYellow, setLocalYellow] = useState(pizzariaConfig.yellowMinutes);
   const [localOrange, setLocalOrange] = useState(pizzariaConfig.orangeMinutes);
   const [localRed, setLocalRed] = useState(pizzariaConfig.redMinutes);
+  const [localInactivity, setLocalInactivity] = useState(pizzariaConfig.inactivityMinutes ?? 30);
   useEffect(() => {
     setLocalYellow(pizzariaConfig.yellowMinutes);
     setLocalOrange(pizzariaConfig.orangeMinutes);
     setLocalRed(pizzariaConfig.redMinutes);
-  }, [pizzariaConfig.yellowMinutes, pizzariaConfig.orangeMinutes, pizzariaConfig.redMinutes]);
+    setLocalInactivity(pizzariaConfig.inactivityMinutes ?? 30);
+  }, [pizzariaConfig.yellowMinutes, pizzariaConfig.orangeMinutes, pizzariaConfig.redMinutes, pizzariaConfig.inactivityMinutes]);
 
   // Tick every 30s to re-compute pizzaria table colors
   const [, setPizzeriaColorTick] = useState(0);
@@ -626,19 +627,12 @@ export default function Dashboard({
     }
   };
 
-  const [discoveredPrinters] = useState([
-    { name: 'Impressora Cozinha 1', ip: '192.168.1.101', status: 'online' },
-    { name: 'Impressora Cozinha 2', ip: '192.168.1.103', status: 'online' },
-    { name: 'Impressora Bar', ip: '192.168.1.102', status: 'online' },
-    { name: 'Impressora Caixa', ip: '192.168.1.100', status: 'offline' },
-  ]);
-
   const handleTestPrinter = (printerName: string) => {
-    if (printerName === 'none') {
+    if (!printerName || printerName === 'none') {
       toast.info('Nenhuma impressora configurada para este canal.');
       return;
     }
-    const printer = discoveredPrinters.find(p => p.name === printerName);
+    const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === printerName);
     const now = new Date();
     const printWindow = window.open('', '_blank');
     if (printWindow) {
@@ -669,11 +663,14 @@ export default function Dashboard({
   const openPrint = (title: string, body: string) => {
     const w = window.open('', '_blank');
     if (!w) return;
+    const _now = new Date();
+    const _printedAt = `${_now.toLocaleDateString('pt-BR')} às ${_now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
     w.document.write(`<html><head><title>${title}</title><style>
       *{box-sizing:border-box}
       body{font-family:sans-serif;padding:24px;color:#141414;font-size:13px;margin:0}
       h2{margin:0 0 2px;font-size:20px}
       .sub{margin:0 0 20px;color:#666;font-size:12px}
+      .print-ts{font-size:10px;color:#999;text-align:right;margin:0 0 16px}
       table{width:100%;border-collapse:collapse}
       th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#888;padding:8px 12px;border-bottom:2px solid #141414}
       td{padding:7px 12px;border-bottom:1px solid #e5e5e5;font-size:12px}
@@ -688,7 +685,7 @@ export default function Dashboard({
       .card-label{font-size:10px;text-transform:uppercase;color:#888;letter-spacing:.05em}
       .card-value{font-size:20px;font-weight:900;font-family:monospace;margin-top:4px}
       @media print{body{padding:0}}
-    </style></head><body>${body}</body></html>`);
+    </style></head><body><p class="print-ts">Impresso em: ${_printedAt}</p>${body}</body></html>`);
     w.document.close();
     w.focus();
     w.print();
@@ -815,6 +812,52 @@ export default function Dashboard({
         <table><thead><tr><th>Pedido</th><th>Data/Hora</th><th>Método</th><th>Pagador</th><th style="text-align:right">Valor</th></tr></thead><tbody>${trs}</tbody></table>`);
     }
 
+    else if (currentReportView === 'table_sales') {
+      let tableOrders = filteredOrders.filter(o => (o.paymentLog || []).length > 0);
+      if (reportSelectedTable !== 'todas') {
+        const isComanda = reportSelectedTable.startsWith('comanda_');
+        const tableId = reportSelectedTable.split('_')[1];
+        tableOrders = tableOrders.filter(o => String(o.tableId) === tableId && !!o.isComanda === isComanda);
+      }
+      if (tableOrders.length === 0) { toast.error('Nenhuma venda no período.'); return; }
+      const tableGroups: Record<string, any[]> = {};
+      tableOrders.forEach(o => {
+        const key = `${o.isComanda ? 'comanda' : 'mesa'}_${o.tableId}`;
+        if (!tableGroups[key]) tableGroups[key] = [];
+        tableGroups[key].push(o);
+      });
+      const tableFilterLabel = reportSelectedTable !== 'todas' ? ` · ${reportSelectedTable.startsWith('comanda_') ? 'Comanda' : 'Mesa'} ${reportSelectedTable.split('_')[1]}` : '';
+      let grandTotal = 0;
+      const blocks = Object.entries(tableGroups).sort((a,b)=>a[0].localeCompare(b[0])).map(([key, tOrders]) => {
+        const isCom = key.startsWith('comanda_');
+        const tId = key.split('_')[1];
+        const tLabel = `${isCom ? 'Comanda' : 'Mesa'} ${tId}`;
+        const tTotal = tOrders.reduce((a, o) => a + (o.paymentLog || []).reduce((s: number, p: any) => s + p.amount, 0), 0);
+        grandTotal += tTotal;
+        const orderRows = tOrders.sort((a,b)=>(a.timestamp||'').localeCompare(b.timestamp||'')).map(o => {
+          const oTotal = (o.paymentLog || []).reduce((a: number, p: any) => a + p.amount, 0);
+          const oDate = new Date(o.timestamp);
+          const items = (o.items || []).filter((i: any) => !i.removed).map((i: any) =>
+            `<tr><td style="padding:4px 12px 4px 24px;font-size:11px">${i.quantity||1}× ${i.name}</td><td style="padding:4px 12px;font-size:11px;color:#888">${i.waiterName||'—'}</td><td style="padding:4px 12px;text-align:right;font-family:monospace;font-size:11px">R$ ${i.price.toFixed(2)}</td></tr>`
+          ).join('');
+          const payLog = o.paymentLog || [];
+          const payments = payLog.length > 0
+            ? `<tr><td colspan="3" style="padding:3px 12px 3px 20px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;opacity:.5;background:#f0fdf4;border-top:1px solid #dcfce7">Pagamentos</td></tr>` +
+              payLog.map((p: any) => {
+                const mc = p.method==='Dinheiro'?'#16a34a':p.method==='PIX'?'#2563eb':p.method==='Crédito'?'#7c3aed':'#ea580c';
+                const partial = p.type==='partial' ? `<span style="margin-left:6px;font-size:8px;background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:700">PARCIAL</span>` : '';
+                const payer = p.payer ? `<span style="margin-left:6px;font-size:10px;opacity:.5">${p.payer}</span>` : '';
+                const pTime = new Date(p.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+                return `<tr style="background:#f0fdf4;border-top:1px solid #dcfce7"><td style="padding:3px 12px 3px 24px;font-size:11px"><span style="color:${mc};font-weight:700">${p.method}</span>${partial}${payer}</td><td style="padding:3px 12px;font-size:10px;color:#888">${pTime}</td><td style="padding:3px 12px;text-align:right;font-family:monospace;font-size:11px;font-weight:700;color:#16a34a">R$ ${p.amount.toFixed(2)}</td></tr>`;
+              }).join('')
+            : '';
+          return `<tr style="background:#f9f9f9;border-top:1px solid #ddd"><td colspan="2" style="padding:6px 12px;font-size:11px;font-weight:700">#${o.id} &nbsp; ${oDate.toLocaleDateString('pt-BR')} ${oDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td><td style="padding:6px 12px;text-align:right;font-family:monospace;font-size:12px;font-weight:700;color:#16a34a">R$ ${oTotal.toFixed(2)}</td></tr>${items}${payments}`;
+        }).join('');
+        return `<div class="block"><div class="block-head"><span class="block-head-name">${tLabel}</span><span class="block-head-val">R$ ${tTotal.toFixed(2)}</span></div><table style="width:100%"><thead><tr><th>Pedido / Item</th><th>Garçom</th><th style="text-align:right">Valor</th></tr></thead><tbody>${orderRows}</tbody></table></div>`;
+      }).join('');
+      openPrint('Relatório por Mesas', `<h2>Relatório por Mesas</h2><p class="sub">Período: ${period}${tableFilterLabel} · ${Object.keys(tableGroups).length} mesa(s)</p>${blocks}<div style="border-top:2px solid #141414;margin-top:16px;padding-top:12px;display:flex;justify-content:space-between"><span style="font-weight:700">Total Geral</span><span style="font-family:monospace;font-weight:900">R$ ${grandTotal.toFixed(2)}</span></div>`);
+    }
+
     else if (currentReportView === 'waiter_performance') {
       const waiterStats: Record<string, { total: number; itemsCount: number; items: Record<string, { qty: number; total: number }> }> = {};
       filteredOrders.forEach(o => o.items.filter((i: any) => !i.removed).forEach((i: any) => {
@@ -851,14 +894,17 @@ export default function Dashboard({
   }, [isAddItemModalOpen]);
 
   const handleSavePrinters = () => {
-    try {
-      localStorage.setItem('printerConfig', JSON.stringify(printerConfig));
-      toast.success('Configurações salvas!', {
-        description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
-      });
-    } catch {
-      toast.error('Erro ao salvar configurações.');
-    }
+    (setPrinterConfig as any)((latest: any) => {
+      try {
+        localStorage.setItem('printerConfig', JSON.stringify(latest));
+        toast.success('Configurações salvas!', {
+          description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
+        });
+      } catch {
+        toast.error('Erro ao salvar configurações.');
+      }
+      return latest;
+    });
   };
 
   const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
@@ -892,8 +938,8 @@ export default function Dashboard({
         document.body.appendChild(printFrame);
 
         const now = new Date();
-        const dateStr = now.toLocaleDateString();
-        const timeStr = now.toLocaleTimeString();
+        const dateStr = now.toLocaleDateString('pt-BR');
+        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         
         const html = `
           <html>
@@ -912,6 +958,7 @@ export default function Dashboard({
               <div class="header">
                 <div style="font-size: 12px; font-weight: bold;">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
                 <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
+                <div style="font-size: 13px; font-weight: bold; margin-top: 4px;">${dateStr} &nbsp; ${timeStr}</div>
               </div>
               <div class="item-detail">
                 ${item.quantity || 1}x ${item.name}
@@ -919,11 +966,9 @@ export default function Dashboard({
               ${item.flavors && item.flavors.length > 1 ? `<div style="font-size: 14px; font-weight: bold;">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
               ${item.crust ? `<div style="font-size: 14px;">BORDA: ${item.crust}</div>` : ''}
               ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-              
+
               <div class="footer">
                 <div>Operador: ${item.waiterName || 'SISTEMA'}</div>
-                <div>ID: #${Math.floor(Math.random() * 100000)}</div>
-                <div>Data: ${dateStr} - ${timeStr}</div>
               </div>
             </body>
           </html>
@@ -960,8 +1005,8 @@ export default function Dashboard({
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
     if (targetPrinterName) {
-      const printer = discoveredPrinters.find(p => p.name === targetPrinterName);
-      if (printer?.status === 'online') {
+      const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
+      if (printer) {
         toast.info(`Imprimindo comprovante em ${targetPrinterName}`, {
           description: `Total: R$ ${amount.toFixed(2)}`,
           icon: <FileText size={16} />
@@ -1010,21 +1055,56 @@ export default function Dashboard({
     }
   };
 
+  const closeTransferModal = () => {
+    setIsTransferModalOpen(false);
+    setIsMergeConfirmOpen(false);
+    setTargetTableId(null);
+    setTransferReason('');
+    setTransferMode('all');
+    setTransferSelectedItemIds({});
+  };
+
   const handleTransferTable = () => {
     const sourceTableId = isComandaSelected ? selectedComandaId : selectedTableId;
-    if (sourceTableId && targetTableId) {
-      socket.emit('transfer_table', { 
-        sourceTableId, 
-        targetTableId,
+    const destId = targetTableId; // save before closeTransferModal nulls it
+    if (sourceTableId && destId) {
+      socket.emit('transfer_table', {
+        sourceTableId,
+        targetTableId: destId,
         isComanda: isComandaSelected,
         reason: transferReason
       });
-      setIsTransferModalOpen(false);
-      setIsMergeConfirmOpen(false);
-      setTargetTableId(null);
-      setTransferReason('');
-      toast.success(`Conta da ${isComandaSelected ? 'Comanda' : 'Mesa'} ${sourceTableId} transferida para ${isComandaSelected ? 'Comanda' : 'Mesa'} ${targetTableId}`);
+      closeTransferModal();
+      // Navigate to destination so the user sees the merged account
+      if (isComandaSelected) setSelectedComandaId(destId);
+      else setSelectedTableId(destId);
+      toast.success(`Conta da ${isComandaSelected ? 'Comanda' : 'Mesa'} ${sourceTableId} transferida para ${isComandaSelected ? 'Comanda' : 'Mesa'} ${destId}`);
     }
+  };
+
+  const handleTransferItems = () => {
+    const sourceId = isComandaSelected ? selectedComandaId : selectedTableId;
+    const destId = targetTableId; // save before closeTransferModal nulls it
+    const selectedIds = Object.entries(transferSelectedItemIds).filter(([,v]) => v).map(([k]) => k);
+    if (!sourceId || !destId || selectedIds.length === 0) return;
+
+    socket.emit('transfer_items', {
+      sourceTableId: sourceId,
+      targetTableId: destId,
+      isComanda: isComandaSelected,
+      itemIds: selectedIds
+    });
+
+    closeTransferModal();
+
+    // Navigate to the destination table so the user sees the transferred items
+    if (isComandaSelected) {
+      setSelectedComandaId(destId);
+    } else {
+      setSelectedTableId(destId);
+    }
+
+    toast.success(`${selectedIds.length} item(s) transferido(s) para ${isComandaSelected ? 'Comanda' : 'Mesa'} ${destId}`);
   };
 
   useEffect(() => {
@@ -1085,7 +1165,7 @@ export default function Dashboard({
     const list = isComanda ? comandas : tables;
     const entity = list.find(e => e.id === id);
     if (!entity || entity.status === 'free' || !entity.currentOrder) return false;
-    if (getInactivityMinutes(id, isComanda) < 30) return false;
+    if (getInactivityMinutes(id, isComanda) < (pizzariaConfig?.inactivityMinutes ?? 30)) return false;
     const key = `${isComanda ? 'c' : 't'}_${id}`;
     return Date.now() > (snoozeMap[key] ?? 0);
   };
@@ -2587,7 +2667,7 @@ export default function Dashboard({
 
                   <div className="space-y-4">
                     <h3 className="font-serif italic text-xl">Gerar Relatórios</h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                       <button 
                         onClick={() => setCurrentReportView('items_specific')}
                         className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
@@ -2632,7 +2712,7 @@ export default function Dashboard({
                         <p className="text-[8px] opacity-50 leading-tight">Análise por tipo.</p>
                       </button>
 
-                      <button 
+                      <button
                         onClick={() => setCurrentReportView('waiter_performance')}
                         className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
                       >
@@ -2641,6 +2721,17 @@ export default function Dashboard({
                         </div>
                         <h4 className="font-bold text-[10px] uppercase mb-0.5">Garçons</h4>
                         <p className="text-[8px] opacity-50 leading-tight">Desempenho e valores.</p>
+                      </button>
+
+                      <button
+                        onClick={() => setCurrentReportView('table_sales')}
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <LayoutDashboard size={16} />
+                        </div>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Por Mesa</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Vendas detalhadas por mesa.</p>
                       </button>
                     </div>
                   </div>
@@ -2662,6 +2753,7 @@ export default function Dashboard({
                           {currentReportView === 'sales_by_day' && 'Vendas por Período'}
                           {currentReportView === 'sales_by_payment' && 'Meios de Pagamento'}
                           {currentReportView === 'waiter_performance' && 'Performance Garçons'}
+                          {currentReportView === 'table_sales' && 'Relatório por Mesas'}
                         </h2>
                         <p className="text-[9px] opacity-60">Filtre para gerar o relatório.</p>
                       </div>
@@ -2718,6 +2810,36 @@ export default function Dashboard({
                             {waiters.filter(w => w.status === 'approved').map(w => (
                               <option key={w.id} value={w.name}>{w.name}</option>
                             ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {currentReportView === 'table_sales' && (
+                        <div>
+                          <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Mesa</label>
+                          <select
+                            value={reportSelectedTable}
+                            onChange={(e) => setReportSelectedTable(e.target.value)}
+                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
+                          >
+                            <option value="todas">Todas as Mesas</option>
+                            {Array.from(new Set(
+                              orders
+                                .filter(o => {
+                                  const d = (o.timestamp || '').split('T')[0];
+                                  return d >= reportStartDate && d <= reportEndDate && (o.paymentLog || []).length > 0;
+                                })
+                                .map(o => `${o.isComanda ? 'comanda' : 'mesa'}_${o.tableId}`)
+                            )).sort((a,b) => {
+                              const [ta, na] = a.split('_');
+                              const [tb, nb] = b.split('_');
+                              if (ta !== tb) return ta.localeCompare(tb);
+                              return Number(na) - Number(nb);
+                            }).map(key => {
+                              const isCom = key.startsWith('comanda_');
+                              const tId = key.split('_')[1];
+                              return <option key={key} value={key}>{isCom ? 'Comanda' : 'Mesa'} {tId}</option>;
+                            })}
                           </select>
                         </div>
                       )}
@@ -2834,7 +2956,7 @@ export default function Dashboard({
                                         <h3 className="font-bold text-lg">{itemName}</h3>
                                         <div className="text-right">
                                           <span className="text-[10px] uppercase opacity-60 block">Total Item</span>
-                                          <span className="font-mono font-bold">
+                                          <span className="font-mono font-bold whitespace-nowrap">
                                             {Object.values(itemStats[itemName]).reduce((a, b) => a + b.qty, 0)} un. | R$ {Object.values(itemStats[itemName]).reduce((a, b) => a + b.total, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                           </span>
                                         </div>
@@ -2853,7 +2975,7 @@ export default function Dashboard({
                                               <tr key={date} className="border-b border-[#141414]/5 last:border-0 hover:bg-[#141414]/2 transition-colors">
                                                 <td className="p-4 font-medium">{date.split('-').reverse().join('/')}</td>
                                                 <td className="p-4 text-center font-mono">{itemStats[itemName][date].qty}</td>
-                                                <td className="p-4 text-right font-mono">R$ {itemStats[itemName][date].total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                                                <td className="p-4 text-right font-mono whitespace-nowrap">R$ {itemStats[itemName][date].total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -2872,7 +2994,7 @@ export default function Dashboard({
                                     </div>
                                     <div className="text-center md:text-right">
                                       <p className="text-sm uppercase font-bold opacity-50">Valor Total Acumulado</p>
-                                      <p className="text-5xl font-bold font-mono text-[#22C55E]">R$ {grandTotalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                                      <p className="text-5xl font-bold font-mono text-[#22C55E] whitespace-nowrap">R$ {grandTotalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                                     </div>
                                   </div>
                                   
@@ -2922,18 +3044,18 @@ export default function Dashboard({
                                     {items.map(([name, data]) => (
                                       <tr key={name} className="border-t border-[#141414]/5 hover:bg-[#141414]/5 transition-colors">
                                         <td className="py-1.5 px-3 font-bold">{name}</td>
-                                        <td className="py-1.5 px-3 font-mono opacity-60 text-[8px]">R$ {(data.total / data.qty).toFixed(2)}</td>
+                                        <td className="py-1.5 px-3 font-mono opacity-60 text-[8px] whitespace-nowrap">R$ {(data.total / data.qty).toFixed(2)}</td>
                                         <td className="py-1.5 px-3 text-center font-mono">{data.qty}</td>
-                                        <td className="py-1.5 px-3 text-right font-bold text-green-600 font-mono">R$ {data.total.toFixed(2)}</td>
+                                        <td className="py-1.5 px-3 text-right font-bold text-green-600 font-mono whitespace-nowrap">R$ {data.total.toFixed(2)}</td>
                                       </tr>
                                     ))}
                                     <tr className="bg-[#141414]/5 border-t border-[#141414]">
                                       <td className="py-1.5 px-3 font-bold uppercase text-[8px]">Totais</td>
-                                      <td className="py-1.5 px-3 text-[8px] opacity-40">Ticket Médio: R$ {items.length > 0 ? (amountTotal / itemsCountTotal).toFixed(2) : '0.00'}</td>
+                                      <td className="py-1.5 px-3 text-[8px] opacity-40 whitespace-nowrap">Ticket Médio: R$ {items.length > 0 ? (amountTotal / itemsCountTotal).toFixed(2) : '0.00'}</td>
                                       <td className="py-1.5 px-3 text-center font-bold font-mono">
                                         {itemsCountTotal}
                                       </td>
-                                      <td className="py-1.5 px-3 text-right font-black text-xs font-mono">
+                                      <td className="py-1.5 px-3 text-right font-black text-xs font-mono whitespace-nowrap">
                                         R$ {amountTotal.toFixed(2)}
                                       </td>
                                     </tr>
@@ -2987,7 +3109,7 @@ export default function Dashboard({
                                           <td className="p-4 opacity-0">{date}</td>
                                           <td className="p-4 font-bold">{label}</td>
                                           <td className="p-4 text-center font-mono opacity-60">{data.count}</td>
-                                          <td className="p-4 text-right font-bold text-green-600 font-mono">R$ {data.total.toFixed(2)}</td>
+                                          <td className="p-4 text-right font-bold text-green-600 font-mono whitespace-nowrap">R$ {data.total.toFixed(2)}</td>
                                         </tr>
                                       ))}
                                     </React.Fragment>
@@ -3017,7 +3139,7 @@ export default function Dashboard({
                                return (
                                  <div key={method} className="bg-white p-6 rounded-2xl border-2 border-[#141414]/10 space-y-2">
                                    <p className="text-[10px] uppercase font-bold opacity-50 tracking-widest">{method}</p>
-                                   <p className="text-3xl font-bold font-mono">R$ {methodTotal.toFixed(2)}</p>
+                                   <p className="text-3xl font-bold font-mono whitespace-nowrap">R$ {methodTotal.toFixed(2)}</p>
                                  </div>
                                );
                              })}
@@ -3064,13 +3186,112 @@ export default function Dashboard({
                                          </span>
                                        </td>
                                        <td className="p-4 text-xs font-medium opacity-70">{log.payer || '—'}</td>
-                                       <td className="p-4 text-right font-bold font-mono">R$ {log.amount.toFixed(2)}</td>
+                                       <td className="p-4 text-right font-bold font-mono whitespace-nowrap">R$ {log.amount.toFixed(2)}</td>
                                      </tr>
                                    ));
                                  })()}
                                </tbody>
                              </table>
                            </div>
+                        </div>
+                      )}
+
+                        {currentReportView === 'table_sales' && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                          {(() => {
+                            let tableOrders = orders.filter(o => {
+                              const d = (o.timestamp || '').split('T')[0];
+                              return d >= reportStartDate && d <= reportEndDate && (o.paymentLog || []).length > 0;
+                            });
+                            if (reportSelectedTable !== 'todas') {
+                              const isCom = reportSelectedTable.startsWith('comanda_');
+                              const tId = reportSelectedTable.split('_')[1];
+                              tableOrders = tableOrders.filter(o => String(o.tableId) === tId && !!o.isComanda === isCom);
+                            }
+                            if (tableOrders.length === 0) return (
+                              <div className="p-20 text-center bg-white rounded-3xl border border-dashed border-[#141414]/10">
+                                <p className="text-gray-400 italic font-serif">Nenhuma venda encontrada para o período.</p>
+                              </div>
+                            );
+                            const tableGroups: Record<string, any[]> = {};
+                            tableOrders.forEach(o => {
+                              const key = `${o.isComanda ? 'comanda' : 'mesa'}_${o.tableId}`;
+                              if (!tableGroups[key]) tableGroups[key] = [];
+                              tableGroups[key].push(o);
+                            });
+                            const grandTotal = tableOrders.reduce((a, o) => a + (o.paymentLog || []).reduce((s: number, p: any) => s + p.amount, 0), 0);
+                            return (
+                              <>
+                                {Object.entries(tableGroups).sort((a,b)=>{
+                                  const [ta,na]=a[0].split('_'); const [tb,nb]=b[0].split('_');
+                                  if(ta!==tb) return ta.localeCompare(tb); return Number(na)-Number(nb);
+                                }).map(([key, tOrders]) => {
+                                  const isCom = key.startsWith('comanda_');
+                                  const tId = key.split('_')[1];
+                                  const tLabel = `${isCom ? 'Comanda' : 'Mesa'} ${tId}`;
+                                  const tTotal = tOrders.reduce((a, o) => a + (o.paymentLog || []).reduce((s: number, p: any) => s + p.amount, 0), 0);
+                                  return (
+                                    <div key={key} className="bg-white border border-[#141414]/10 rounded-xl overflow-hidden shadow-sm">
+                                      <div className="bg-[#141414] text-[#E4E3E0] p-3 flex justify-between items-center">
+                                        <h3 className="font-bold text-sm">{tLabel}</h3>
+                                        <span className="font-mono font-bold text-green-400 whitespace-nowrap">R$ {tTotal.toFixed(2)}</span>
+                                      </div>
+                                      <div className="divide-y divide-[#141414]/5">
+                                        {tOrders.sort((a,b)=>(a.timestamp||'').localeCompare(b.timestamp||'')).map(o => {
+                                          const oDate = new Date(o.timestamp);
+                                          const oTotal = (o.paymentLog || []).reduce((a: number, p: any) => a + p.amount, 0);
+                                          return (
+                                            <div key={o.id}>
+                                              <div className="px-3 py-2 bg-[#141414]/3 flex justify-between items-center">
+                                                <span className="text-[10px] font-bold opacity-70">#{o.id} &nbsp; {oDate.toLocaleDateString('pt-BR')} {oDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+                                                <span className="font-mono text-xs font-bold text-green-600 whitespace-nowrap">R$ {oTotal.toFixed(2)}</span>
+                                              </div>
+                                              <table className="w-full text-left">
+                                                <tbody>
+                                                  {(o.items || []).filter((i: any) => !i.removed).map((i: any, idx: number) => (
+                                                    <tr key={idx} className="border-t border-[#141414]/5 hover:bg-[#141414]/2">
+                                                      <td className="py-1 pl-6 pr-3 text-[11px] font-medium">{i.quantity||1}× {i.name}</td>
+                                                      <td className="py-1 px-3 text-[10px] opacity-40">{i.waiterName||'—'}</td>
+                                                      <td className="py-1 px-3 text-right font-mono text-[11px] whitespace-nowrap">R$ {i.price.toFixed(2)}</td>
+                                                    </tr>
+                                                  ))}
+                                                  {(o.paymentLog || []).length > 0 && <>
+                                                    <tr className="border-t border-green-200 bg-green-50">
+                                                      <td colSpan={3} className="py-1 pl-6 pr-3 text-[9px] font-bold uppercase tracking-widest text-green-700 opacity-60">Pagamentos</td>
+                                                    </tr>
+                                                    {(o.paymentLog || []).map((p: any, pidx: number) => (
+                                                      <tr key={pidx} className="border-t border-green-100 bg-green-50/40">
+                                                        <td className="py-1 pl-6 pr-3 text-[11px]">
+                                                          <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold mr-1.5 ${
+                                                            p.method==='Dinheiro'?'bg-green-100 text-green-700':
+                                                            p.method==='PIX'?'bg-blue-100 text-blue-700':
+                                                            p.method==='Crédito'?'bg-purple-100 text-purple-700':
+                                                            'bg-orange-100 text-orange-700'
+                                                          }`}>{p.method}</span>
+                                                          {p.type==='partial' && <span className="inline-block px-1 py-0.5 rounded text-[8px] font-bold bg-amber-100 text-amber-700 mr-1.5">PARCIAL</span>}
+                                                          {p.payer && <span className="text-[10px] opacity-40">{p.payer}</span>}
+                                                        </td>
+                                                        <td className="py-1 px-3 text-[10px] opacity-40">{new Date(p.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td>
+                                                        <td className="py-1 px-3 text-right font-mono text-[11px] font-bold text-green-700 whitespace-nowrap">R$ {p.amount.toFixed(2)}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </>}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                <div className="bg-[#141414] p-6 rounded-2xl text-[#E4E3E0] flex justify-between items-center">
+                                  <span className="font-bold uppercase text-sm opacity-60">Total Geral</span>
+                                  <span className="font-mono font-black text-2xl text-green-400 whitespace-nowrap">R$ {grandTotal.toFixed(2)}</span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
@@ -3129,7 +3350,7 @@ export default function Dashboard({
                                       </div>
                                       <div className="text-left sm:text-right bg-white py-1.5 px-3 rounded-lg border border-[#141414]/5">
                                         <p className="text-[8px] uppercase font-bold opacity-40 mb-0.5 leading-none">Total Lançado</p>
-                                        <p className="text-lg font-black font-mono text-green-600 leading-none">R$ {stats.total.toFixed(2)}</p>
+                                        <p className="text-lg font-black font-mono text-green-600 leading-none whitespace-nowrap">R$ {stats.total.toFixed(2)}</p>
                                       </div>
                                     </div>
 
@@ -3149,7 +3370,7 @@ export default function Dashboard({
                                              <tr key={itemName} className="border-t border-[#141414]/5 hover:bg-gray-50 transition-colors">
                                                <td className="py-1.5 px-3 font-medium">{itemName}</td>
                                                <td className="py-1.5 px-3 text-center font-mono font-bold text-blue-600/70">{itemData.qty}</td>
-                                               <td className="py-1.5 px-3 text-right font-mono font-bold">R$ {itemData.total.toFixed(2)}</td>
+                                               <td className="py-1.5 px-3 text-right font-mono font-bold whitespace-nowrap">R$ {itemData.total.toFixed(2)}</td>
                                              </tr>
                                            ))}
                                        </tbody>
@@ -3181,83 +3402,127 @@ export default function Dashboard({
                 </div>
               </header>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 flex-1 min-h-0 pb-1 overflow-y-auto lg:overflow-hidden scrollbar-hide">
+              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 pb-4">
                 {/* Column 1: Printers and Tests */}
-                <div className="space-y-2.5 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                <div className="space-y-2.5">
+                  {/* Card: Impressoras Cadastradas */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
                     <div className="flex items-center space-x-2 mb-1.5 shrink-0">
                       <Printer className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Direcionamento</h3>
+                      <h3 className="font-serif italic text-sm leading-none">Impressoras</h3>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 pr-1 shrink-0">
-                      {['pizzas', 'drinks', 'kitchen', 'receipts'].map((key) => (
-                        <div key={key}>
-                          <div className="flex items-center justify-between mb-0.5">
-                            <label className="text-[7px] uppercase font-bold opacity-45 leading-none">
-                              {key === 'pizzas' ? 'Pizzas' : key === 'drinks' ? 'Bebidas' : key === 'kitchen' ? (printerConfig.kitchenLabel || 'Extra') : 'Recibos'}
-                            </label>
-                            {key === 'kitchen' && (
-                              <input 
-                                type="text"
-                                value={printerConfig.kitchenLabel}
-                                onChange={(e) => setPrinterConfig({...printerConfig, kitchenLabel: e.target.value})}
-                                className="text-[7px] font-bold bg-transparent border-b border-[#141414]/10 focus:border-[#141414] outline-none px-1 text-right w-12"
-                                placeholder="Nome"
-                              />
-                            )}
-                          </div>
-                          <select 
-                            value={printerConfig[key as keyof typeof printerConfig]}
-                            onChange={(e) => setPrinterConfig({...printerConfig, [key]: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                          >
-                            <option value="none">Sem impressora</option>
-                            {discoveredPrinters.map(p => (
-                              <option key={p.ip} value={p.name}>{p.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                      ))}
-                    </div>
-                    
-                    <button 
-                      onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold mt-2 hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
-                    >
-                      Salvar Dispositivos
-                    </button>
-                  </div>
-
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
-                    <div className="flex items-center justify-between mb-1.5 shrink-0">
-                      <div className="flex items-center space-x-2">
-                        <Printer className="text-[#141414]" size={12} />
-                        <h3 className="font-serif italic text-sm leading-none">Teste das Impressoras</h3>
-                      </div>
-                      <Wifi size={10} className="text-green-500 animate-pulse" />
-                    </div>
-                    <div className="grid grid-cols-1 gap-1 max-h-[85px] overflow-y-auto pr-1 scrollbar-hide shrink-0">
-                      {discoveredPrinters.slice(0, 4).map((printer) => (
-                        <div key={printer.ip} className={`flex justify-between items-center px-1.5 py-1 rounded-lg border ${
-                          printer.status === 'online' ? 'bg-green-50/20 border-green-100' : 'bg-red-50/20 border-red-100'
-                        }`}>
-                          <div className="flex flex-col">
-                            <span className="text-[8px] font-bold leading-none">{printer.name}</span>
-                            <span className="text-[6px] opacity-40">IP: {printer.ip}</span>
-                          </div>
-                          <button 
-                            onClick={() => handleTestPrinter(printer.name)}
-                            className="text-[6px] bg-[#141414] text-white px-1 py-0.5 rounded font-bold uppercase"
+                    <div className="space-y-1 mb-1.5 max-h-[140px] overflow-y-auto pr-0.5 scrollbar-hide">
+                      {(printerConfig.registeredPrinters || []).map((p: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={p.name}
+                            onChange={(e) => {
+                              const name = e.target.value;
+                              (setPrinterConfig as any)((prev: any) => {
+                                const updated = [...prev.registeredPrinters];
+                                updated[idx] = { ...updated[idx], name };
+                                return { ...prev, registeredPrinters: updated };
+                              });
+                            }}
+                            placeholder="Nome"
+                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                          />
+                          <input
+                            type="text"
+                            value={p.ip}
+                            onChange={(e) => {
+                              const ip = e.target.value;
+                              (setPrinterConfig as any)((prev: any) => {
+                                const updated = [...prev.registeredPrinters];
+                                updated[idx] = { ...updated[idx], ip };
+                                return { ...prev, registeredPrinters: updated };
+                              });
+                            }}
+                            placeholder="IP"
+                            className="w-24 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none font-mono"
+                          />
+                          <button
+                            onClick={() => handleTestPrinter(p.name)}
+                            className="text-[6px] bg-[#141414] text-white px-1.5 py-1 rounded-lg font-bold uppercase shrink-0"
                           >
                             Testar
+                          </button>
+                          <button
+                            onClick={() => (setPrinterConfig as any)((prev: any) => ({
+                              ...prev,
+                              registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx)
+                            }))}
+                            className="text-red-400 hover:text-red-600 shrink-0"
+                          >
+                            <Trash2 size={10} />
                           </button>
                         </div>
                       ))}
                     </div>
+                    <button
+                      onClick={() => (setPrinterConfig as any)((prev: any) => ({
+                        ...prev,
+                        registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '' }]
+                      }))}
+                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/50 py-1 rounded-lg text-[7px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors mb-1.5"
+                    >
+                      + Adicionar Impressora
+                    </button>
+                    <button
+                      onClick={handleSavePrinters}
+                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
+                    >
+                      Salvar Impressoras
+                    </button>
+                  </div>
+
+                  {/* Card: Direcionamento */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
+                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
+                      <Printer className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Direcionamento</h3>
+                    </div>
+                    <div className="space-y-1.5 mb-2">
+                      {([
+                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: 'Pizzas',   icon: <Pizza size={9} /> },
+                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas',  icon: <Beer size={9} /> },
+                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: printerConfig.kitchenLabel || 'Extra', icon: <ChefHat size={9} /> },
+                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos',  icon: <FileText size={9} /> },
+                      ] as const).map(({ key, autoKey, label, icon }) => (
+                        <div key={key} className="flex items-center gap-1.5">
+                          <span className="opacity-40 shrink-0">{icon}</span>
+                          <span className="text-[8px] font-bold uppercase opacity-60 w-12 shrink-0 leading-none">{label}</span>
+                          <select
+                            value={(printerConfig as any)[key] || 'none'}
+                            onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, [key]: v })); }}
+                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                          >
+                            <option value="none">Sem impressora</option>
+                            {(printerConfig.registeredPrinters || []).filter((p: any) => p.name).map((p: any, i: number) => (
+                              <option key={i} value={p.name}>{p.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [autoKey]: !prev[autoKey] }))}
+                            title="Impressão automática ao enviar"
+                            className={`shrink-0 px-1.5 py-1 rounded-lg text-[6.5px] font-bold uppercase border transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white border-green-500' : 'border-[#141414]/20 text-[#141414]/40'}`}
+                          >
+                            Auto
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={handleSavePrinters}
+                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
+                    >
+                      Salvar Direcionamento
+                    </button>
                   </div>
                   {/* Modo Pizzaria */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
                     <div className="flex items-center justify-between mb-2 shrink-0">
                       <div className="flex items-center space-x-2">
                         <Pizza className="text-[#141414]" size={12} />
@@ -3305,14 +3570,32 @@ export default function Dashboard({
                             />
                           </div>
                         </div>
+                        <div className="border-t border-[#141414]/5 pt-1.5">
+                          <p className="text-[7px] uppercase font-bold opacity-40 leading-none mb-1">Alerta de inatividade da mesa</p>
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">⏰ Inatividade (min)</label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={localInactivity}
+                                onChange={(e) => setLocalInactivity(Math.max(1, Number(e.target.value)))}
+                                className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-amber-400 outline-none"
+                              />
+                            </div>
+                            <p className="text-[6px] opacity-40 leading-tight flex-1">
+                              Avisa quando a mesa está sem novos pedidos por este tempo.
+                            </p>
+                          </div>
+                        </div>
                         <button
-                          onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed }); toast.success('Configurações do Modo Pizzaria salvas!'); }}
+                          onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed, inactivityMinutes: localInactivity }); toast.success('Configurações do Modo Pizzaria salvas!'); }}
                           className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase"
                         >
                           Salvar Configurações
                         </button>
                         <p className="text-[6px] opacity-40 leading-tight text-center">
-                          Verde • Amarelo {pizzariaConfig.yellowMinutes}min • Laranja {pizzariaConfig.orangeMinutes}min • Vermelho {pizzariaConfig.redMinutes}min
+                          Verde • Amarelo {pizzariaConfig.yellowMinutes}min • Laranja {pizzariaConfig.orangeMinutes}min • Vermelho {pizzariaConfig.redMinutes}min • Inativo {pizzariaConfig.inactivityMinutes ?? 30}min
                         </p>
                       </div>
                     ) : (
@@ -3324,8 +3607,8 @@ export default function Dashboard({
                 </div>
 
                 {/* Column 2: Receipt Layout and Data */}
-                <div className="space-y-2.5 flex flex-col md:col-span-2 lg:col-span-1 min-h-0">
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                <div className="space-y-2.5">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
                     <div className="flex items-center space-x-2 mb-1.5 shrink-0">
                       <FileText className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Detalhes do Cupom</h3>
@@ -3416,7 +3699,7 @@ export default function Dashboard({
                     </div>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col min-h-0 shrink-0">
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
                     <div className="flex items-center space-x-2 mb-1.5 shrink-0">
                       <Lock className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Dados</h3>
@@ -3550,13 +3833,13 @@ export default function Dashboard({
                 </div>
 
                 {/* Column 3: Preview */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col h-full overflow-hidden">
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col md:col-span-2 xl:col-span-1">
                   <div className="flex items-center space-x-2 mb-2 shrink-0">
                     <FileText className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Preview Cupom</h3>
                   </div>
 
-                  <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center flex-1 overflow-hidden min-h-0">
+                  <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center">
                     <div className="bg-white w-full max-w-[155px] shadow-sm p-2.5 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
                       <div className="text-center space-y-0.5">
                         <p className="font-bold text-[8.5px] uppercase truncate">{printerConfig.establishmentName}</p>
@@ -3593,6 +3876,7 @@ export default function Dashboard({
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
               </motion.div>
             )}
@@ -3786,7 +4070,7 @@ export default function Dashboard({
                             </head>
                             <body>
                               <h2>Histórico de Movimentação de Estoque</h2>
-                              <p>Período: ${periodLabel} &nbsp;·&nbsp; ${filtered.length} registro(s)</p>
+                              <p>Período: ${periodLabel} &nbsp;·&nbsp; ${filtered.length} registro(s) &nbsp;·&nbsp; Impresso em: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                               <table>
                                 <thead>
                                   <tr>
@@ -3939,114 +4223,204 @@ export default function Dashboard({
       {/* Transfer Table Modal */}
       <AnimatePresence>
         {isTransferModalOpen && (
-          <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-6">
-            <motion.div 
+          <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4">
+            <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border-2 border-[#141414] space-y-6"
+              className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border-2 border-[#141414] space-y-5 max-h-[90vh] flex flex-col"
             >
               {!targetTableId ? (
+                /* ── STEP 1: pick destination ── */
                 <>
                   <div className="text-center">
                     <h3 className="font-serif italic text-2xl">Transferir {isComandaSelected ? 'Comanda' : 'Mesa'}</h3>
-                    <p className="text-sm opacity-50">Para qual {isComandaSelected ? 'comanda' : 'mesa'} deseja transferir esta conta?</p>
+                    <p className="text-sm opacity-50">Para qual {isComandaSelected ? 'comanda' : 'mesa'} deseja transferir?</p>
                   </div>
-
-                  <div className="grid grid-cols-5 gap-2 max-h-60 overflow-y-auto p-2">
+                  <div className="grid grid-cols-5 gap-2 overflow-y-auto max-h-64 p-1 flex-1">
                     {(isComandaSelected ? comandas : tables)
                       .filter(t => t.id !== (isComandaSelected ? selectedComandaId : selectedTableId))
                       .map(target => (
-                        <button 
+                        <button
                           key={target.id}
-                          onClick={() => setTargetTableId(target.id)}
+                          onClick={() => { setTargetTableId(target.id); setTransferMode('all'); setTransferSelectedItemIds({}); }}
                           className={`p-2 rounded-lg border-2 transition-all ${
-                            target.status === 'occupied' || target.status === 'bill_requested' ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-[#141414]/10 hover:border-[#141414]/30 text-[#141414]'
+                            target.status === 'occupied' || target.status === 'bill_requested'
+                              ? 'border-orange-200 bg-orange-50 text-orange-700'
+                              : 'border-[#141414]/10 hover:border-[#141414]/30 text-[#141414]'
                           }`}
                         >
                           <span className="text-xs font-bold">{target.id}</span>
                         </button>
                       ))}
                   </div>
-
-                  <div className="flex space-x-3 pt-4">
-                    <button 
-                      onClick={() => setIsTransferModalOpen(false)}
-                      className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
+                  <button onClick={closeTransferModal} className="w-full py-3 rounded-xl font-bold text-sm border border-[#141414]/10">
+                    Cancelar
+                  </button>
                 </>
               ) : (
-                <div className="space-y-6">
-                  {(() => {
-                    const targetTable = (isComandaSelected ? comandas : tables).find(t => targetTableId && t.id && String(t.id) === String(targetTableId));
-                    const targetOrder = targetTable?.currentOrder ? orders.find(o => targetTable.currentOrder && o.id && String(o.id) === String(targetTable.currentOrder)) : null;
-                    const isOccupied = targetOrder && targetOrder.items && targetOrder.items.length > 0;
+                /* ── STEP 2: mode + confirm ── */
+                (() => {
+                  const sourceId = isComandaSelected ? selectedComandaId : selectedTableId;
+                  const sourceTable = (isComandaSelected ? comandas : tables).find(t => t.id && String(t.id) === String(sourceId));
+                  const sourceOrder = sourceTable?.currentOrder ? orders.find(o => String(o.id) === String(sourceTable.currentOrder)) : null;
+                  const transferableItems = (sourceOrder?.items || []).filter((i: any) => !i.removed && !i.paid);
+                  const paidItemsCount = (sourceOrder?.items || []).filter((i: any) => !i.removed && i.paid).length;
 
-                    return (
-                      <>
-                        <div className="text-center">
-                          <h3 className="font-serif italic text-2xl">Confirmar Transferência</h3>
-                          <p className="text-sm opacity-50">
-                            Transferindo da {isComandaSelected ? 'Comanda' : 'Mesa'} {isComandaSelected ? selectedComandaId : selectedTableId} para a {isComandaSelected ? 'Comanda' : 'Mesa'} {targetTableId}
+                  const targetTable = (isComandaSelected ? comandas : tables).find(t => targetTableId && t.id && String(t.id) === String(targetTableId));
+                  const targetOrder = targetTable?.currentOrder ? orders.find(o => String(o.id) === String(targetTable.currentOrder)) : null;
+                  const isTargetOccupied = !!(targetOrder && (targetOrder.items || []).some((i: any) => !i.removed));
+
+                  const hasOrderPartialPayment = (sourceOrder?.paymentLog || []).some((p: any) => p.type === 'partial');
+                  const selectedCount = Object.values(transferSelectedItemIds).filter(Boolean).length;
+                  const transferBlocked = hasOrderPartialPayment;
+
+                  return (
+                    <>
+                      <div>
+                        <h3 className="font-serif italic text-xl leading-none">Transferência</h3>
+                        <p className="text-xs opacity-50 mt-0.5">
+                          {isComandaSelected ? 'Comanda' : 'Mesa'} {sourceId} → {isComandaSelected ? 'Comanda' : 'Mesa'} {targetTableId}
+                          {isTargetOccupied && <span className="ml-2 text-orange-600 font-bold">· Destino ocupado</span>}
+                        </p>
+                      </div>
+
+                      {transferBlocked && (
+                        <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2">
+                          <span className="text-red-500 text-base leading-none mt-0.5">⚠</span>
+                          <p className="text-xs text-red-700 font-medium">
+                            Esta {isComandaSelected ? 'comanda' : 'mesa'} possui pagamento parcial registrado. Finalize ou cancele o pagamento antes de transferir itens.
                           </p>
                         </div>
+                      )}
 
-                        {isOccupied ? (
-                          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 space-y-3">
-                            <p className="text-xs font-bold text-orange-800 uppercase">Atenção: Mesa Ocupada</p>
-                            <p className="text-xs text-orange-700">Esta mesa já possui itens lançados. Os itens serão mesclados.</p>
-                            <div className="max-h-32 overflow-y-auto space-y-1 pr-2">
-                              {(targetOrder?.items || []).map(item => (
+                      {!transferBlocked && paidItemsCount > 0 && transferMode === 'items' && (
+                        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                          {paidItemsCount} item(s) já pago(s) não aparecem na lista e não podem ser transferidos.
+                        </p>
+                      )}
+
+                      {/* Mode toggle */}
+                      <div className="flex rounded-xl overflow-hidden border border-[#141414]/15">
+                        <button
+                          onClick={() => setTransferMode('all')}
+                          className={`flex-1 py-2 text-xs font-bold transition-colors ${transferMode === 'all' ? 'bg-[#141414] text-white' : 'bg-white text-[#141414]/50 hover:text-[#141414]'}`}
+                        >
+                          Mesa Completa
+                        </button>
+                        <button
+                          onClick={() => setTransferMode('items')}
+                          className={`flex-1 py-2 text-xs font-bold transition-colors ${transferMode === 'items' ? 'bg-[#141414] text-white' : 'bg-white text-[#141414]/50 hover:text-[#141414]'}`}
+                        >
+                          Itens Específicos
+                        </button>
+                      </div>
+
+                      {transferMode === 'items' ? (
+                        /* ── Item checklist ── */
+                        <div className="flex-1 overflow-y-auto space-y-1.5 max-h-64">
+                          {transferableItems.length === 0 ? (
+                            <p className="text-center text-sm opacity-40 italic py-6">Nenhum item disponível para transferência.</p>
+                          ) : (
+                            <>
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-[10px] uppercase font-bold opacity-40">Selecione os itens</span>
+                                <button
+                                  onClick={() => {
+                                    const allSelected = transferableItems.every((i: any) => transferSelectedItemIds[i.id]);
+                                    const next: Record<string, boolean> = {};
+                                    if (!allSelected) transferableItems.forEach((i: any) => { next[i.id] = true; });
+                                    setTransferSelectedItemIds(next);
+                                  }}
+                                  className="text-[10px] font-bold underline opacity-50 hover:opacity-100"
+                                >
+                                  {transferableItems.every((i: any) => transferSelectedItemIds[i.id]) ? 'Desmarcar tudo' : 'Marcar tudo'}
+                                </button>
+                              </div>
+                              {transferableItems.map((item: any) => (
+                                <label
+                                  key={item.id}
+                                  className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                                    transferSelectedItemIds[item.id]
+                                      ? 'border-[#141414] bg-[#141414]/5'
+                                      : 'border-[#141414]/10 hover:border-[#141414]/30'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={!!transferSelectedItemIds[item.id]}
+                                    onChange={() => setTransferSelectedItemIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                    className="accent-[#141414] w-4 h-4 flex-shrink-0"
+                                  />
+                                  <span className="flex-1 text-sm font-medium">{item.quantity || 1}× {item.name}</span>
+                                  {item.waiterName && <span className="text-[10px] opacity-40">{item.waiterName}</span>}
+                                  <span className="text-sm font-mono opacity-60">R$ {item.price.toFixed(2)}</span>
+                                </label>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        /* ── Whole-table confirm ── */
+                        isTargetOccupied ? (
+                          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4 space-y-2">
+                            <p className="text-xs font-bold text-orange-800 uppercase">Destino Ocupado — Itens serão mesclados</p>
+                            <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                              {(targetOrder?.items || []).filter((i: any) => !i.removed).map((item: any) => (
                                 <div key={item.id} className="text-[10px] flex justify-between opacity-70">
-                                  <span>{item.name}</span>
+                                  <span>{item.quantity || 1}× {item.name}</span>
                                   <span>R$ {item.price.toFixed(2)}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-2">
-                            <p className="text-xs font-bold uppercase opacity-50">Motivo da Troca (Obrigatório)</p>
-                            <textarea 
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] font-bold uppercase opacity-50">Motivo da Troca (Obrigatório)</p>
+                            <textarea
                               value={transferReason}
                               onChange={(e) => setTransferReason(e.target.value)}
                               placeholder="Informe o motivo da troca de mesa..."
-                              className="w-full h-24 p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                              className="w-full h-20 p-3 bg-gray-50 border border-[#141414]/10 rounded-xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                               autoFocus
                             />
                           </div>
-                        )}
+                        )
+                      )}
 
-                        <div className="flex space-x-3 pt-4">
-                          <button 
-                            onClick={() => {
-                              setTargetTableId(null);
-                              setTransferReason('');
-                            }}
-                            className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
+                      {/* Footer */}
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => { setTargetTableId(null); setTransferReason(''); setTransferMode('all'); setTransferSelectedItemIds({}); }}
+                          className="flex-1 py-2.5 rounded-xl font-bold text-sm border border-[#141414]/10"
+                        >
+                          Voltar
+                        </button>
+                        {transferMode === 'items' ? (
+                          <button
+                            disabled={transferBlocked || selectedCount === 0}
+                            onClick={handleTransferItems}
+                            className="flex-1 bg-[#141414] text-white py-2.5 rounded-xl font-bold text-sm disabled:opacity-30"
                           >
-                            Voltar
+                            Transferir {selectedCount > 0 ? `${selectedCount} item(s)` : 'Itens'}
                           </button>
-                          <button 
-                            disabled={!isOccupied && !transferReason.trim()}
+                        ) : (
+                          <button
+                            disabled={transferBlocked || (!isTargetOccupied && !transferReason.trim())}
                             onClick={handleTransferTable}
-                            className="flex-1 bg-orange-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-30"
+                            className="flex-1 bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm disabled:opacity-30"
                           >
-                            {isOccupied ? 'Continuar e Mesclar' : 'Mover'}
+                            {isTargetOccupied ? 'Mesclar Mesas' : 'Confirmar Transferência'}
                           </button>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()
               )}
             </motion.div>
           </div>
         )}
-
       </AnimatePresence>
       <AnimatePresence>
         {isHistoryModalOpen && (selectedTableId || selectedComandaId) && (

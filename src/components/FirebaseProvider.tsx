@@ -43,7 +43,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [stockLog, setStockLog] = useState<any[]>([]);
   const [menu, setMenu] = useState<MenuCategory[]>([]);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
-  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>({ enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25 });
+  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>({ enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30 });
   const [firebaseActive, setFirebaseActive] = useState(true);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {

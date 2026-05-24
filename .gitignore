@@ -12,6 +12,9 @@ server.js
 firebase-applet-config.json
 service-account.json
 
+# Backup de estado local (gerado automaticamente em runtime)
+data/
+
 # Configurações locais do Claude Code
 .claude/
 

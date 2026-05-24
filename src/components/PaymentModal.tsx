@@ -24,6 +24,7 @@ interface PaymentState {
 export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete, onApplyDiscount }: PaymentModalProps) {
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
+  const dinheiroCardRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<'selection' | 'methods'>('selection');
   const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
   const [isConfirming, setIsConfirming] = useState(false);
@@ -43,6 +44,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     'PIX': { method: 'PIX', enabled: false, amount: 0 },
     'Dinheiro': { method: 'Dinheiro', enabled: false, amount: 0, received: 0 },
   });
+  useEffect(() => {
+    if (payments['Dinheiro'].enabled) {
+      setTimeout(() => dinheiroCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+    }
+  }, [payments['Dinheiro'].enabled]);
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [splitPeople, setSplitPeople] = useState(2);
@@ -871,40 +877,41 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                       const state = payments[method];
                       
                       return (
-                        <div 
-                          key={method} 
-                          className={`p-2.5 rounded-xl border-2 transition-all select-none flex flex-col ${
+                        <div
+                          key={method}
+                          ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
+                          className={`p-3 rounded-xl border-2 transition-all select-none flex flex-col ${
                             state.enabled ? 'border-[#141414] bg-white shadow-sm' : 'border-[#141414]/5 bg-white/50 opacity-60'
                           }`}
                         >
-                          <div className="flex flex-col h-full space-y-2">
-                             <button 
+                          <div className="flex flex-col h-full space-y-2.5">
+                            <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`flex items-center space-x-2 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[40px]'}`}
+                              className={`flex items-center space-x-2.5 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[48px]'}`}
                             >
-                              <div 
-                                className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                              <div
+                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
                                   state.enabled ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10 text-[#141414]/30 group-hover:border-[#141414]/30'
                                 }`}
                               >
-                                {state.enabled ? <Check size={14} /> : <Icon size={14} />}
+                                {state.enabled ? <Check size={16} /> : <Icon size={16} />}
                               </div>
-                              <span className={`font-bold text-xs truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
+                              <span className={`font-bold text-sm truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
-                              <div className="space-y-2 pt-2 border-t border-[#141414]/5" onClick={e => e.stopPropagation()}>
+                              <div className="space-y-2.5 pt-2 border-t border-[#141414]/5" onClick={e => e.stopPropagation()}>
                                 <div className="space-y-1">
-                                  <span className="text-[8px] uppercase font-bold opacity-40">Valor</span>
-                                  <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-0.5 focus-within:border-[#141414] transition-colors">
-                                    <span className="text-[10px] mr-1 opacity-50">R$</span>
-                                    <input 
+                                  <span className="text-[10px] uppercase font-bold opacity-40">Valor</span>
+                                  <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2.5 py-1.5 focus-within:border-[#141414] transition-colors">
+                                    <span className="text-xs mr-1.5 opacity-50 font-bold">R$</span>
+                                    <input
                                       type="number"
                                       step="0.01"
                                       value={state.amount || ''}
                                       onChange={(e) => handleAmountChange(method, parseFloat(e.target.value) || 0)}
-                                      className="w-full font-mono font-bold focus:outline-none text-right text-xs bg-transparent"
+                                      className="w-full font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
                                       autoFocus
                                     />
                                   </div>
@@ -912,22 +919,23 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
                                 {method === 'Dinheiro' && (
                                   <>
-                                    <div className="space-y-1 pt-1">
-                                      <span className="text-[8px] uppercase font-bold opacity-40">Recebido</span>
-                                      <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2 py-0.5 focus-within:border-[#141414] transition-colors">
-                                        <span className="text-[10px] mr-1 opacity-50">R$</span>
-                                        <input 
+                                    <div className="space-y-1">
+                                      <span className="text-[10px] uppercase font-bold opacity-40">Recebido</span>
+                                      <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2.5 py-1.5 focus-within:border-[#141414] transition-colors">
+                                        <span className="text-xs mr-1.5 opacity-50 font-bold">R$</span>
+                                        <input
                                           type="number"
                                           step="0.01"
                                           value={state.received || ''}
                                           onChange={(e) => handleReceivedChange(parseFloat(e.target.value) || 0)}
-                                          className="w-full font-mono font-bold focus:outline-none text-right text-xs bg-transparent"
+                                          onFocus={(e) => e.target.select()}
+                                          className="w-full font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
                                         />
                                       </div>
                                     </div>
-                                    <div className="flex justify-between items-center bg-green-50 p-1.5 rounded-lg border border-green-100">
-                                      <span className="text-[8px] uppercase font-bold text-green-700">Troco</span>
-                                      <span className="font-mono font-bold text-green-600 text-xs">
+                                    <div className="flex justify-between items-center bg-green-50 px-2.5 py-2 rounded-lg border border-green-100">
+                                      <span className="text-[10px] uppercase font-bold text-green-700">Troco</span>
+                                      <span className="font-mono font-bold text-green-600 text-sm">
                                         R$ {Math.max(0, (state.received || 0) - state.amount).toFixed(2)}
                                       </span>
                                     </div>

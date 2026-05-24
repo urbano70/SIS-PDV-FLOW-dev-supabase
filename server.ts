@@ -241,7 +241,59 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
-  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25 };
+  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30 };
+
+  // ── Local state backup ───────────────────────────────────────────────────
+  const LOCAL_BACKUP_FILE = path.join(process.cwd(), 'data', 'local-state.json');
+  let _backupTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const saveLocalBackup = () => {
+    if (_backupTimer) clearTimeout(_backupTimer);
+    _backupTimer = setTimeout(() => {
+      try {
+        const dir = path.dirname(LOCAL_BACKUP_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(LOCAL_BACKUP_FILE, JSON.stringify({
+          orders, tables, comandas, waiters, menu, stock, stockLog,
+          isCashRegisterOpen, pizzariaConfig,
+          savedAt: new Date().toISOString()
+        }), 'utf-8');
+      } catch (e) {
+        console.error('[backup] Erro ao salvar estado local:', e);
+      }
+    }, 800);
+  };
+
+  const loadLocalBackup = (): boolean => {
+    try {
+      if (!fs.existsSync(LOCAL_BACKUP_FILE)) return false;
+      const state = JSON.parse(fs.readFileSync(LOCAL_BACKUP_FILE, 'utf-8'));
+      if (state.orders?.length) orders = state.orders;
+      if (state.tables?.length) state.tables.forEach((t: any) => {
+        const idx = tables.findIndex((tt: any) => tt.id === t.id);
+        if (idx !== -1) tables[idx] = { ...tables[idx], ...t };
+      });
+      if (state.comandas?.length) state.comandas.forEach((c: any) => {
+        const idx = comandas.findIndex((cc: any) => cc.id === c.id);
+        if (idx !== -1) comandas[idx] = { ...comandas[idx], ...c };
+      });
+      if (state.waiters?.length) waiters = state.waiters;
+      if (state.menu?.length) menu = state.menu;
+      if (state.stock?.length) stock = state.stock;
+      if (state.stockLog?.length) stockLog = state.stockLog;
+      if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
+      if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
+      const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
+      console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `há ${age} min` : 'anteriormente'})`);
+      return true;
+    } catch (e) {
+      console.error('[backup] Erro ao carregar estado local:', e);
+      return false;
+    }
+  };
+
+  loadLocalBackup();
+  saveLocalBackup(); // Persist initial/restored state immediately on startup
 
   const getEffectiveItemPrice = (item: any) => {
     let price = Number(item.price) || 0;
@@ -283,6 +335,17 @@ async function startServer() {
       io.emit("update_stock_log", stockLog);
     }
     io.emit("update_stock", stock);
+  };
+
+  // Auto-save whenever state is broadcast to clients
+  const _origIoEmit = io.emit.bind(io);
+  (io as any).emit = (...args: Parameters<typeof io.emit>) => {
+    const result = _origIoEmit(...args);
+    if (['update_orders','update_tables','update_comandas','update_cash_register',
+         'update_menu','update_stock','update_stock_log','update_pizzaria_config'].includes(args[0] as string)) {
+      saveLocalBackup();
+    }
+    return result;
   };
 
   // Socket.io logic
@@ -1146,6 +1209,140 @@ async function startServer() {
         io.emit("update_tables", tables);
         io.emit("update_orders", orders);
       }
+    });
+
+    socket.on("transfer_items", async ({ sourceTableId, targetTableId, isComanda, itemIds }) => {
+      console.log(`[transfer_items] src=${sourceTableId} dst=${targetTableId} isComanda=${isComanda} itemIds=${JSON.stringify(itemIds)}`);
+
+      const tableList = isComanda ? comandas : tables;
+      const sourceTable = tableList.find(t => String(t.id) === String(sourceTableId));
+      const targetTable = tableList.find(t => String(t.id) === String(targetTableId));
+
+      if (!sourceTable || !targetTable) {
+        console.warn(`[transfer_items] table not found: src=${!!sourceTable} dst=${!!targetTable}`);
+        return;
+      }
+      if (!sourceTable.currentOrder) {
+        console.warn(`[transfer_items] sourceTable has no currentOrder`);
+        return;
+      }
+
+      const sourceOrder = orders.find(o => String(o.id) === String(sourceTable.currentOrder));
+      if (!sourceOrder) {
+        console.warn(`[transfer_items] sourceOrder not found for id=${sourceTable.currentOrder}`);
+        return;
+      }
+
+      const hasPartialPayment = (sourceOrder.paymentLog || []).some((p: any) => p.type === 'partial');
+      if (hasPartialPayment) {
+        socket.emit("error_message", "Não é possível transferir itens: a mesa possui pagamento parcial registrado.");
+        return;
+      }
+
+      const itemIdSet = new Set((itemIds || []).map(String));
+      console.log(`[transfer_items] itemIdSet=${JSON.stringify([...itemIdSet])}`);
+      console.log(`[transfer_items] sourceOrder.items ids=${JSON.stringify(sourceOrder.items.map((i: any) => ({ id: i.id, removed: i.removed, paid: i.paid })))}`);
+
+      // Reject if any of the requested items are already paid
+      const paidRequested = sourceOrder.items.filter(
+        (i: any) => itemIdSet.has(String(i.id)) && i.paid
+      );
+      if (paidRequested.length > 0) {
+        socket.emit("error_message", "Não é possível transferir item(s) já pagos.");
+        return;
+      }
+
+      // Collect items BEFORE any mutation (excludes removed and paid)
+      const itemsToTransfer = sourceOrder.items.filter(
+        (i: any) => itemIdSet.has(String(i.id)) && !i.removed && !i.paid
+      );
+      if (itemsToTransfer.length === 0) {
+        console.warn(`[transfer_items] itemsToTransfer is empty — no matching active items found`);
+        return;
+      }
+      console.log(`[transfer_items] itemsToTransfer.length=${itemsToTransfer.length}`);
+
+      // Find or create target order — ignore finalized orders (items would be invisible)
+      let targetOrder: any = targetTable.currentOrder
+        ? orders.find(o => String(o.id) === String(targetTable.currentOrder) && o.status !== 'finalizada')
+        : null;
+
+      if (!targetOrder) {
+        targetOrder = {
+          id: generateOrderId(),
+          tableId: Number(targetTableId),
+          isComanda: !!isComanda,
+          status: 'pending',
+          items: [],
+          timestamp: new Date().toISOString(),
+          paymentLog: [],
+          waiterName: sourceOrder.waiterName || 'Transferência'
+        };
+        orders.push(targetOrder);
+        targetTable.currentOrder = targetOrder.id;
+        targetTable.status = 'occupied';
+        console.log(`[transfer_items] created new targetOrder id=${targetOrder.id}`);
+      } else {
+        console.log(`[transfer_items] reusing existing targetOrder id=${targetOrder.id}`);
+      }
+
+      const tableCol = isComanda ? 'comandas' : 'tables';
+
+      // Mark each source item as removed, then deep-copy a clean version to target
+      itemsToTransfer.forEach((item: any) => {
+        item.removed = true;
+        item.removedBy = 'Sistema';
+        item.removalReason = `Transferido para ${isComanda ? 'Comanda' : 'Mesa'} ${targetTableId}`;
+
+        const clone = JSON.parse(JSON.stringify(item));
+        clone.id = randomUUID();
+        clone.removed = false;
+        delete clone.removedBy;
+        delete clone.removalReason;
+        clone.transferredFrom = `${isComanda ? 'Comanda' : 'Mesa'} ${sourceTableId}`;
+        targetOrder.items.push(clone);
+      });
+
+      // If source has no remaining active items, free source table and any tables linked to it
+      const remainingActive = sourceOrder.items.filter((i: any) => !i.removed && !i.paid);
+      console.log(`[transfer_items] remainingActive=${remainingActive.length}`);
+
+      // Capture linked tables BEFORE nulling their linkedTo (so we can persist them later)
+      const linkedTablesToFree = remainingActive.length === 0
+        ? tableList.filter((t: any) => t.id !== sourceTable.id && String(t.linkedTo) === String(sourceTableId))
+        : [];
+
+      if (remainingActive.length === 0) {
+        sourceOrder.status = 'finalizada';
+        sourceTable.currentOrder = null;
+        sourceTable.status = 'free';
+        sourceTable.linkedTo = null;
+        for (const lt of linkedTablesToFree) {
+          lt.linkedTo = null;
+          lt.currentOrder = null;
+          lt.status = 'free';
+        }
+      }
+
+      // Emit immediately with the correct in-memory state BEFORE async Firestore saves.
+      // This prevents the Firestore onSnapshot (triggered by saveToFirestore) from racing
+      // and emitting stale data that overwrites the correct state on clients.
+      io.emit("update_orders", orders);
+      io.emit("update_tables", tables);
+      io.emit("update_comandas", comandas);
+      console.log(`[transfer_items] emitted updates — persisting to Firestore`);
+
+      // Persist to Firestore (onSnapshot will re-emit after each save with the same correct data)
+      await saveToFirestore('orders', sourceOrder, String(sourceOrder.id));
+      await saveToFirestore('orders', targetOrder, String(targetOrder.id));
+      await saveToFirestore(tableCol, targetTable, targetTable.id.toString());
+      if (remainingActive.length === 0) {
+        await saveToFirestore(tableCol, sourceTable, sourceTable.id.toString());
+        for (const lt of linkedTablesToFree) {
+          await saveToFirestore(tableCol, lt, lt.id.toString());
+        }
+      }
+      console.log(`[transfer_items] Firestore persistence complete`);
     });
 
     socket.on("apply_discount", requireAdmin(async ({ orderId, itemId, discount, discountType }) => {
