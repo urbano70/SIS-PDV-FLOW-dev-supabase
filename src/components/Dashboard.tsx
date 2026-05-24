@@ -50,6 +50,7 @@ const OrderDetails = ({
   handleRemoveItem,
   printerConfig
 }: any) => {
+  const { data: { pizzariaConfig } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
   if (!targetId) return (
     <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
@@ -311,7 +312,14 @@ const OrderDetails = ({
                             Entregue
                           </span>
                         ) : (
-                          <OrderTimer timestamp={item.timestamp} />
+                          <OrderTimer
+                            timestamp={item.timestamp}
+                            urgent={
+                              pizzariaConfig?.enabled &&
+                              !!item.timestamp &&
+                              (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= pizzariaConfig.redMinutes
+                            }
+                          />
                         )
                       )}
                     </div>

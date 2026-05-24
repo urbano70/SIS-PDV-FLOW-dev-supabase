@@ -389,9 +389,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     const mins = getInactivityMinutes(item);
                     if (mins === null) return null;
                     return (
-                      <div className={`flex items-center space-x-0.5 mt-0.5 ${mins >= 30 ? 'text-amber-400' : 'opacity-40'}`}>
-                        <Clock size={8} />
-                        <span className="text-[8px] font-bold">{formatInactivity(mins)}</span>
+                      <div className={`flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full ${
+                        mins >= 30
+                          ? 'bg-amber-500 text-white animate-pulse'
+                          : 'text-[#141414]/40'
+                      }`}>
+                        <Clock size={mins >= 30 ? 11 : 9} />
+                        <span className={`font-bold ${mins >= 30 ? 'text-[11px]' : 'text-[9px]'}`}>{formatInactivity(mins)}</span>
                       </div>
                     );
                   })()}

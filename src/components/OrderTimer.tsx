@@ -3,9 +3,10 @@ import { Clock } from 'lucide-react';
 
 interface OrderTimerProps {
   timestamp?: string;
+  urgent?: boolean;
 }
 
-export const OrderTimer = ({ timestamp }: OrderTimerProps) => {
+export const OrderTimer = ({ timestamp, urgent }: OrderTimerProps) => {
   const [elapsed, setElapsed] = useState<string>('');
 
   useEffect(() => {
@@ -15,7 +16,7 @@ export const OrderTimer = ({ timestamp }: OrderTimerProps) => {
       const start = new Date(timestamp).getTime();
       const now = new Date().getTime();
       const diff = Math.floor((now - start) / 1000);
-      
+
       const mins = Math.floor(diff / 60);
       const secs = diff % 60;
       setElapsed(`${mins}:${secs.toString().padStart(2, '0')}`);
@@ -29,8 +30,12 @@ export const OrderTimer = ({ timestamp }: OrderTimerProps) => {
   if (!timestamp) return null;
 
   return (
-    <span className="text-[10px] font-mono bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 ml-2 flex items-center shrink-0">
-      <Clock size={10} className="mr-1 opacity-50" />
+    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ml-2 flex items-center shrink-0 transition-colors ${
+      urgent
+        ? 'bg-red-500 text-white animate-pulse'
+        : 'bg-gray-100 text-gray-500'
+    }`}>
+      <Clock size={10} className="mr-1 opacity-70" />
       {elapsed}
     </span>
   );
