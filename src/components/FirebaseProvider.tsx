@@ -1,10 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import socket from '../lib/socket';
-import { syncCollection } from '../lib/firebaseService';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { toast } from 'sonner';
 
 interface FirebaseContextType {
@@ -13,7 +11,7 @@ interface FirebaseContextType {
   isAdmin: boolean;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
-  toggleCashRegister: (open: boolean) => Promise<void>;
+  toggleCashRegister: (open: boolean) => void;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
   data: {
@@ -78,6 +76,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     };
     const handleUpdateStock = (data: StockItem[]) => setStock(data);
     const handleUpdateStockLog = (data: any[]) => setStockLog(data);
+    const handleUpdateWaiters = (data: Waiter[]) => setWaiters(data);
 
     const handleInitData = (data: any) => {
       console.log("Received init_data from socket, populating states immediately");
@@ -112,6 +111,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     socket.on('update_menu', handleUpdateMenu);
     socket.on('update_stock', handleUpdateStock);
     socket.on('update_stock_log', handleUpdateStockLog);
+    socket.on('update_waiters', handleUpdateWaiters);
 
     // Solicitar os dados iniciais ativamente
     socket.emit('request_init_data');
@@ -126,6 +126,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socket.off('update_menu', handleUpdateMenu);
       socket.off('update_stock', handleUpdateStock);
       socket.off('update_stock_log', handleUpdateStockLog);
+      socket.off('update_waiters', handleUpdateWaiters);
     });
 
     // 2. Inicializar Firebase Auth e Firestore em segundo plano (apenas se firebase estiver ativo no backend)
@@ -151,37 +152,11 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         if (currentUser) {
           console.log("Syncing Firestore collections in background...");
           
-          // Sync waiters (open to all signed in users)
-          const unsubWaiters = syncCollection('waiters', (data) => {
-            setWaiters(data as Waiter[]);
-          });
-          if (unsubWaiters) firestoreUnsubscribes.push(unsubWaiters);
-
-          // Tables e comandas são sincronizadas APENAS via Socket.io (update_tables /
-          // update_comandas / init_data). O servidor já faz seu próprio onSnapshot do
-          // Firestore e emite os eventos com as 40 mesas completas. Escutar o Firestore
-          // aqui diretamente sobrescreveria o estado com apenas os documentos existentes
-          // (somente mesas que já foram usadas), fazendo as demais desaparecerem.
-          // Orders também são sincronizados APENAS via Socket.io (update_orders / init_data).
-          // O Firestore client-side sobrescreve os dados do socket com cache local possivelmente
-          // desatualizado, fazendo itens recém-adicionados desaparecerem ao recarregar a página.
-          // Menu e stock são sincronizados APENAS via socket.
-          // O Firestore client-side sobrescreveria dados do socket com cache desatualizado.
-          const collectionsToSync: { name: string; setter: (d: any) => void }[] = [];
-
-          collectionsToSync.forEach(col => {
-            const unsub = syncCollection(col.name, col.setter);
-            if (unsub) firestoreUnsubscribes.push(unsub);
-          });
-          
-          // Sync config
-          const configRef = doc(db, 'config', 'app');
-          const unsubConfig = onSnapshot(configRef, (snapshot) => {
-            if (snapshot.exists()) {
-              setIsCashRegisterOpen(snapshot.data().isCashRegisterOpen);
-            }
-          });
-          firestoreUnsubscribes.push(unsubConfig);
+          // Waiters, tables, comandas, orders, menu, stock e config são sincronizados
+          // APENAS via Socket.io (init_data / update_waiters / update_tables / etc).
+          // O servidor já faz onSnapshot do Firestore e emite os eventos com dados completos.
+          // Escutar o Firestore aqui diretamente sobrescreveria o estado do socket com dados
+          // possivelmente desatualizados ou incompletos, causando desaparecimento de registros.
         }
       });
     } else {
@@ -228,17 +203,9 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     socket.emit('update_pizzaria_config', config);
   };
 
-  const toggleCashRegister = async (open: boolean) => {
-    try {
-      const configRef = doc(db, 'config', 'app');
-      await setDoc(configRef, { 
-        isCashRegisterOpen: open,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-      setIsCashRegisterOpen(open);
-    } catch (error) {
-      console.error("Error toggling cash register:", error);
-    }
+  const toggleCashRegister = (open: boolean) => {
+    socket.emit('toggle_cash_register', open);
+    setIsCashRegisterOpen(open);
   };
 
   return (

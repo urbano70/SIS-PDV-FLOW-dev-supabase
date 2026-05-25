@@ -252,7 +252,7 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
-  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30 };
+  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: true, waiterCanPay: true };
 
   // ── Local state backup ───────────────────────────────────────────────────
   const LOCAL_BACKUP_FILE = path.join(process.cwd(), 'data', 'local-state.json');
@@ -464,6 +464,24 @@ async function startServer() {
       }
     });
 
+    socket.on("kitchen_start_item", ({ orderId, itemId }) => {
+      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order) return;
+      const item = order.items.find((i: any) => i.id === itemId);
+      if (!item || item.deliveredAt) return;
+      item.kitchenStatus = 'preparing';
+      io.emit("update_orders", orders);
+    });
+
+    socket.on("kitchen_finish_item", ({ orderId, itemId }) => {
+      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order) return;
+      const item = order.items.find((i: any) => i.id === itemId);
+      if (!item || item.deliveredAt) return;
+      item.kitchenStatus = 'ready';
+      io.emit("update_orders", orders);
+    });
+
     socket.on("waiter_register", (waiterData) => {
       // Find by CPF or Name/Phone combination if CPF is missing
       const existingWaiterIndex = waiters.findIndex(w => 
@@ -499,9 +517,12 @@ async function startServer() {
       const waiter = waiters.find(w => w.name === name && w.password === password);
       if (waiter) {
         waiter.socketId = socket.id;
-        // Store waiter identity on the socket
+        // Armazena todos os identificadores possíveis para matching robusto
         (socket as any).waiterId = waiter.id;
-        
+        (socket as any).waiterUid = waiter.uid;
+        (socket as any).waiterCpf = waiter.cpf;
+        (socket as any).waiterName = waiter.name;
+
         socket.emit("waiter_approved", { status: waiter.status });
         io.emit("update_waiters", waiters);
       } else {
@@ -546,12 +567,17 @@ async function startServer() {
         waiter.status = "approved";
         io.emit("update_waiters", waiters);
         
-        // Notify the waiter via ALL their connected sockets
+        // Notifica o garçom por todos os identificadores possíveis
         const connectedSockets = io.sockets.sockets;
         connectedSockets.forEach((s) => {
-          if ((s as any).waiterId === waiter.id) {
-            s.emit("waiter_approved", { status: "approved" });
-          }
+          const matches =
+            (s as any).waiterId   === waiter.id   ||
+            (s as any).waiterId   === waiter.uid  ||
+            (s as any).waiterId   === waiter.cpf  ||
+            (s as any).waiterUid  === waiter.uid  ||
+            (s as any).waiterCpf  === waiter.cpf  ||
+            (s as any).waiterName === waiter.name;
+          if (matches) s.emit("waiter_approved", { status: "approved" });
         });
       }
     }));
@@ -600,6 +626,11 @@ async function startServer() {
         timestamp: new Date().toISOString()
       }));
 
+      if (table && table.status === "aguardando_baixa") {
+        socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
+        return;
+      }
+
       if (table && (table.status === "occupied" || table.status === "bill_requested") && table.currentOrder) {
         console.log("Adding items to existing order:", table.currentOrder);
         const existingOrder = orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder));
@@ -612,6 +643,7 @@ async function startServer() {
               : orderData.observations;
           }
           io.emit("update_orders", orders);
+          io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           await saveToFirestore('orders', existingOrder, existingOrder.id.toString());
           console.log("Existing order updated and emitted");
           return;
@@ -883,13 +915,18 @@ async function startServer() {
 
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
+        if (order.status === "aguardando_baixa") {
+          socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
+          return;
+        }
         const itemWithTimestamp = { ...item, timestamp: new Date().toISOString() };
         if (!order.items) order.items = [];
         order.items.push(itemWithTimestamp);
-        
+
         // Emit immediately for fast UI
         io.emit("update_orders", orders);
-        
+        io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
+
         await saveToFirestore('orders', order, String(order.id));
         
         // Update stock for the added item
@@ -1034,36 +1071,22 @@ async function startServer() {
         const IS_FULLY_PAID = roundedTotalPaid >= (roundedFinalTotal - 0.1);
 
         if (IS_FULLY_PAID) {
-          console.log(`Order ${orderId} fully paid. Closing tables/comandas.`);
-          const entitiesToUpdate: any[] = [];
-          
-          // Clear all tables AND comandas that point to this order
-          // (It's safer to check both since they share the order pool)
+          console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
+          order.status = "aguardando_baixa";
+
+          // Mark tables/comandas as aguardando_baixa (keep currentOrder, don't free yet)
           tables.forEach(t => {
             if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-              t.status = "free";
-              t.currentOrder = null;
-              t.linkedTo = null;
-              entitiesToUpdate.push({ entity: t, collection: 'tables' });
+              t.status = "aguardando_baixa";
+              saveToFirestore('tables', t, String(t.id)).catch(() => {});
             }
           });
-          
           comandas.forEach(c => {
             if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-              c.status = "free";
-              c.currentOrder = null;
-              c.linkedTo = null;
-              entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+              c.status = "aguardando_baixa";
+              saveToFirestore('comandas', c, String(c.id)).catch(() => {});
             }
           });
-
-          order.status = "finalizada";
-
-          // Persist changed tables only
-          for (const item of entitiesToUpdate) {
-            console.log(`Updating ${item.collection} ${item.entity.id} to free`);
-            await saveToFirestore(item.collection, item.entity, String(item.entity.id));
-          }
         }
 
         // Emit updates IMMEDIATELY for UI responsiveness
@@ -1373,6 +1396,41 @@ async function startServer() {
         io.emit("update_orders", orders);
       }
     }));
+
+    socket.on("confirm_baixa", async ({ orderId }) => {
+      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order || order.status !== "aguardando_baixa") return;
+
+      order.status = "finalizada";
+
+      const entitiesToUpdate: any[] = [];
+      tables.forEach((t: any) => {
+        if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+          t.status = "free";
+          t.currentOrder = null;
+          t.linkedTo = null;
+          entitiesToUpdate.push({ entity: t, collection: 'tables' });
+        }
+      });
+      comandas.forEach((c: any) => {
+        if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+          c.status = "free";
+          c.currentOrder = null;
+          c.linkedTo = null;
+          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+        }
+      });
+
+      io.emit("update_orders", orders);
+      io.emit("update_tables", tables);
+      io.emit("update_comandas", comandas);
+
+      await saveToFirestore('orders', order, String(order.id));
+      for (const item of entitiesToUpdate) {
+        await saveToFirestore(item.collection, item.entity, String(item.entity.id));
+      }
+      console.log(`Baixa confirmada para pedido ${orderId}`);
+    });
 
     socket.on("update_order_status", async ({ orderId, status }) => {
       const order = orders.find(o => String(o.id) === String(orderId));

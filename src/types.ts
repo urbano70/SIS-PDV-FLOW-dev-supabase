@@ -21,6 +21,7 @@ export interface PizzaItem {
   discountType?: 'percentage' | 'value';
   deliveredAt?: string; // ISO string when item was marked as delivered
   deliveredBy?: string; // Waiter who marked as delivered
+  kitchenStatus?: 'waiting' | 'preparing' | 'ready';
 }
 
 export interface DeliveryRecord {
@@ -40,13 +41,15 @@ export interface PizzeriaConfig {
   orangeMinutes: number;
   redMinutes: number;
   inactivityMinutes: number;
+  kdsEnabled: boolean;
+  waiterCanPay: boolean;
 }
 
 export interface Order {
   id: number | string;
   tableId: number;
   items: PizzaItem[];
-  status: 'pending' | 'preparing' | 'ready' | 'finalizada';
+  status: 'pending' | 'preparing' | 'ready' | 'aguardando_baixa' | 'finalizada';
   timestamp: string; // ISO string
   waiterId: string;
   waiterName?: string;
@@ -61,7 +64,7 @@ export interface Order {
 
 export interface Table {
   id: number;
-  status: 'free' | 'occupied' | 'bill_requested' | 'linked';
+  status: 'free' | 'occupied' | 'bill_requested' | 'aguardando_baixa' | 'linked';
   currentOrder: number | string | null;
   linkedTo?: number | null;
 }

@@ -1,15 +1,268 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Order } from '../types';
 import socket from '../lib/socket';
-import { Clock, CheckCircle2, ChefHat } from 'lucide-react';
+import { Clock, ChefHat, Pizza, Sandwich, CheckCircle2, Flame, BellRing } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface KitchenDisplayProps {
   orders: Order[];
 }
 
+interface KitchenItem {
+  orderId: string | number;
+  itemId: string;
+  tableId: string | number;
+  isComanda: boolean;
+  name: string;
+  flavors: string[];
+  ingredients: string;
+  observations: string;
+  crust?: string;
+  quantity?: number;
+  timestamp: string;
+  type: 'pizzas' | 'lanches';
+  kitchenStatus: 'waiting' | 'preparing' | 'ready';
+}
+
+const MAX_LARGE = 6;
+const MAX_MINI  = 4;
+
+function getElapsed(timestamp: string, now: number) {
+  const diff = Math.floor((now - new Date(timestamp).getTime()) / 1000);
+  const mins = Math.floor(diff / 60);
+  const secs = diff % 60;
+  return { text: `${mins}:${secs.toString().padStart(2, '0')}`, isLate: mins >= 15 };
+}
+
+/* ─── Large card ─────────────────────────────────────────────────────────── */
+const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
+  item: KitchenItem;
+  now: number;
+  onStart: (orderId: string | number, itemId: string) => void;
+  onFinish: (orderId: string | number, itemId: string) => void;
+}) => {
+  const { text: timerText, isLate } = getElapsed(item.timestamp, now);
+  const late = isLate && item.kitchenStatus !== 'ready';
+
+  const cardBg =
+    late                             ? 'bg-red-50 border-red-400'
+    : item.kitchenStatus === 'ready'    ? 'bg-green-50 border-green-400'
+    : item.kitchenStatus === 'preparing'? 'bg-amber-50 border-amber-300'
+    :                                    'bg-[#E4E3E0] border-transparent';
+
+  const timerBg =
+    late                             ? 'bg-red-600 text-white animate-pulse'
+    : item.kitchenStatus === 'ready'    ? 'bg-green-600 text-white animate-pulse'
+    : item.kitchenStatus === 'preparing'? 'bg-amber-500 text-white'
+    :                                    'bg-[#141414]/15 text-[#141414]';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.88 }}
+      className={`rounded-2xl border-2 flex flex-col overflow-hidden ${cardBg}`}
+    >
+      {/* Status + timer bar */}
+      <div className={`flex items-center justify-between px-3 py-2 ${timerBg}`}>
+        <span className="text-[10px] font-black uppercase tracking-widest">
+          {late
+            ? '⚠ Atrasado'
+            : item.kitchenStatus === 'ready'
+            ? 'Pronto — Aguardando Garçom'
+            : item.kitchenStatus === 'preparing'
+            ? 'Em Preparação'
+            : 'Aguardando Preparo'}
+        </span>
+        <div className="flex items-center gap-1 font-mono font-black text-base">
+          <Clock size={12} />
+          {timerText}
+        </div>
+      </div>
+
+      <div className="p-3 flex flex-col gap-2 flex-1 min-h-0">
+        {/* Mesa */}
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-sm font-bold opacity-50 leading-none">
+            {item.isComanda ? 'Comanda' : 'Mesa'}
+          </span>
+          <span className="text-2xl font-black leading-none">{item.tableId}</span>
+        </div>
+
+        {/* Descrição do item — destaque máximo */}
+        <div className="flex-1">
+          <p className="font-black text-base leading-snug">
+            {item.quantity && item.quantity > 1 ? `${item.quantity}× ` : ''}{item.name}
+          </p>
+
+          {/* Observação — bloco destacado */}
+          {item.observations && (
+            <div className="mt-2 bg-blue-600 text-white px-2.5 py-1.5 rounded-lg">
+              <p className="text-[10px] font-black uppercase tracking-wide opacity-70 mb-0.5">Obs</p>
+              <p className="text-sm font-bold leading-snug">{item.observations}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Botões — sempre visíveis */}
+        {item.kitchenStatus === 'waiting' && (
+          <button
+            onClick={() => onStart(item.orderId, item.itemId)}
+            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+          >
+            <Flame size={15} /> Preparar
+          </button>
+        )}
+        {item.kitchenStatus === 'preparing' && (
+          <button
+            onClick={() => onFinish(item.orderId, item.itemId)}
+            className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+          >
+            <CheckCircle2 size={15} /> Pronto
+          </button>
+        )}
+        {item.kitchenStatus === 'ready' && (
+          <div className="w-full py-3 rounded-xl bg-green-100 border-2 border-green-400 text-green-700 font-black text-sm flex items-center justify-center gap-2 shrink-0">
+            <BellRing size={15} /> Aguardando Garçom
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+});
+
+/* ─── Mini card (queue) ──────────────────────────────────────────────────── */
+const MiniCard = React.memo(({ item, now }: { item: KitchenItem; now: number }) => {
+  const { text: timerText, isLate } = getElapsed(item.timestamp, now);
+  const late = isLate && item.kitchenStatus !== 'ready';
+
+  const bg =
+    late                             ? 'bg-red-900/60 border-red-500'
+    : item.kitchenStatus === 'ready'    ? 'bg-green-900/60 border-green-500'
+    : item.kitchenStatus === 'preparing'? 'bg-amber-900/60 border-amber-500'
+    :                                    'bg-white/10 border-white/20';
+
+  const statusLabel =
+    item.kitchenStatus === 'ready'     ? 'Pronto'
+    : item.kitchenStatus === 'preparing' ? 'Preparo'
+    :                                    'Fila';
+
+  const statusColor =
+    item.kitchenStatus === 'ready'     ? 'bg-green-600'
+    : item.kitchenStatus === 'preparing' ? 'bg-amber-500'
+    :                                    'bg-zinc-600';
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.85 }}
+      className={`flex-1 min-w-0 rounded-xl border px-3 py-2.5 flex flex-col gap-1.5 ${bg}`}
+    >
+      {/* Mesa + timer */}
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-white font-black text-2xl leading-none">{item.tableId}</span>
+        <span className="font-mono text-[10px] text-white/60 flex items-center gap-0.5">
+          <Clock size={9} />{timerText}
+        </span>
+      </div>
+      {/* Descrição — destaque */}
+      <p className="text-white font-black text-xs leading-snug line-clamp-2">{item.name}</p>
+      {/* Status badge */}
+      <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded self-start text-white ${statusColor}`}>
+        {statusLabel}
+      </span>
+    </motion.div>
+  );
+});
+
+/* ─── Section ────────────────────────────────────────────────────────────── */
+const Section = React.memo(({
+  title, Icon, items, accentClass, now, onStart, onFinish,
+}: {
+  title: string;
+  Icon: React.ElementType;
+  items: KitchenItem[];
+  accentClass: string;
+  now: number;
+  onStart: (orderId: string | number, itemId: string) => void;
+  onFinish: (orderId: string | number, itemId: string) => void;
+}) => {
+  const largeItems  = items.slice(0, MAX_LARGE);
+  const queueItems  = items.slice(MAX_LARGE);
+  const visibleMini = queueItems.slice(0, MAX_MINI);
+  const hiddenCount = Math.max(0, queueItems.length - MAX_MINI);
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Header */}
+      <div className={`px-5 py-3 flex items-center gap-3 shrink-0 ${accentClass}`}>
+        <Icon className="text-white w-5 h-5" />
+        <h2 className="font-serif italic text-xl text-white">{title}</h2>
+        <div className="ml-auto flex items-center gap-2">
+          {queueItems.length > 0 && (
+            <span className="bg-white/30 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">
+              +{queueItems.length} na fila
+            </span>
+          )}
+          <span className="bg-white/20 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+            {items.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Large cards — 3 cols × 2 rows max */}
+      <div className="flex-1 min-h-0 p-3 grid grid-cols-3 gap-3 content-start overflow-y-auto">
+        <AnimatePresence mode="popLayout">
+          {largeItems.map(item => (
+            <ItemCard
+              key={item.itemId}
+              item={item}
+              now={now}
+              onStart={onStart}
+              onFinish={onFinish}
+            />
+          ))}
+        </AnimatePresence>
+
+        {items.length === 0 && (
+          <div className="col-span-3 flex flex-col items-center justify-center py-20 text-white/15">
+            <Icon size={48} className="mb-3 opacity-30" />
+            <p className="font-serif italic text-lg">Sem itens pendentes</p>
+          </div>
+        )}
+      </div>
+
+      {/* Mini queue row */}
+      <AnimatePresence>
+        {queueItems.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="shrink-0 px-3 pb-3 flex gap-2 overflow-hidden"
+          >
+            <AnimatePresence mode="popLayout">
+              {visibleMini.map(item => (
+                <MiniCard key={item.itemId} item={item} now={now} />
+              ))}
+            </AnimatePresence>
+            {hiddenCount > 0 && (
+              <div className="flex-1 min-w-0 rounded-xl border border-white/20 bg-white/5 flex items-center justify-center">
+                <span className="text-white/50 font-black text-sm">+{hiddenCount}</span>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+/* ─── Root ───────────────────────────────────────────────────────────────── */
 export default function KitchenDisplay({ orders }: KitchenDisplayProps) {
-  const activeOrders = orders.filter(o => o.status === 'pending' || o.status === 'preparing');
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -17,114 +270,94 @@ export default function KitchenDisplay({ orders }: KitchenDisplayProps) {
     return () => clearInterval(interval);
   }, []);
 
-  const updateStatus = (orderId: number | string, status: string) => {
-    socket.emit('update_order_status', { orderId, status });
-  };
+  const startItem = useCallback((orderId: string | number, itemId: string) => {
+    socket.emit('kitchen_start_item', { orderId, itemId });
+  }, []);
 
-  const getElapsedTime = (timestamp: string) => {
-    const start = new Date(timestamp).getTime();
-    const diff = Math.floor((now - start) / 1000);
-    const mins = Math.floor(diff / 60);
-    const secs = diff % 60;
-    const isLate = mins >= 15;
-    return {
-      text: `${mins}:${secs.toString().padStart(2, '0')}`,
-      isLate
-    };
-  };
+  const finishItem = useCallback((orderId: string | number, itemId: string) => {
+    socket.emit('kitchen_finish_item', { orderId, itemId });
+  }, []);
+
+  const kitchenItems: KitchenItem[] = [];
+  for (const order of orders) {
+    if (order.status === 'finalizada') continue;
+    for (const item of (order.items || [])) {
+      if (item.removed || item.deliveredAt || item.paid) continue;
+      if (item.type !== 'pizzas' && item.type !== 'lanches') continue;
+      kitchenItems.push({
+        orderId: order.id,
+        itemId: item.id,
+        tableId: order.tableId,
+        isComanda: (order as any).isComanda ?? false,
+        name: item.name,
+        flavors: item.flavors || [],
+        ingredients: (item as any).ingredients || '',
+        observations: item.observations || '',
+        crust: (item as any).crust,
+        quantity: item.quantity,
+        timestamp: item.timestamp || order.timestamp,
+        type: item.type as 'pizzas' | 'lanches',
+        kitchenStatus: (item as any).kitchenStatus || 'waiting',
+      });
+    }
+  }
+
+  // Oldest first → FIFO queue
+  kitchenItems.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const pizzaItems  = kitchenItems.filter(i => i.type === 'pizzas');
+  const lancheItems = kitchenItems.filter(i => i.type === 'lanches');
+
+  const waitingCount   = kitchenItems.filter(i => i.kitchenStatus === 'waiting').length;
+  const preparingCount = kitchenItems.filter(i => i.kitchenStatus === 'preparing').length;
+  const readyCount     = kitchenItems.filter(i => i.kitchenStatus === 'ready').length;
 
   return (
     <div className="h-screen flex flex-col bg-[#141414]">
-      <header className="p-8 border-b border-white/10 flex justify-between items-center shrink-0">
-        <div className="flex items-center space-x-4">
-          <ChefHat className="text-[#E4E3E0] w-10 h-10" />
-          <h1 className="font-serif italic text-4xl text-[#E4E3E0]">KDS Digital</h1>
+      <header className="px-8 py-3 border-b border-white/10 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <ChefHat className="text-[#E4E3E0] w-7 h-7" />
+          <h1 className="font-serif italic text-2xl text-[#E4E3E0]">KDS Digital</h1>
         </div>
-        <div className="text-[#E4E3E0] text-right">
-          <p className="text-[10px] uppercase tracking-widest opacity-50">Pedidos Ativos</p>
-          <p className="text-3xl font-bold">{activeOrders.length}</p>
+        <div className="flex items-center gap-5 text-sm">
+          <div className="flex items-center gap-1.5 text-zinc-400">
+            <span className="w-2 h-2 rounded-full bg-zinc-500" />
+            <span className="font-bold">{waitingCount}</span>
+            <span className="opacity-50 text-xs">aguardando</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-amber-400">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="font-bold">{preparingCount}</span>
+            <span className="opacity-50 text-xs">em preparo</span>
+          </div>
+          <div className={`flex items-center gap-1.5 text-green-400 ${readyCount > 0 ? 'animate-pulse' : ''}`}>
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            <span className="font-bold">{readyCount}</span>
+            <span className="opacity-50 text-xs">prontos</span>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-x-auto p-8 flex space-x-6">
-        <AnimatePresence>
-          {activeOrders.map(order => {
-            const elapsed = getElapsedTime(order.timestamp);
-            return (
-              <motion.div 
-                key={order.id}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, x: -100 }}
-                className={`w-80 flex-shrink-0 rounded-3xl p-6 flex flex-col h-full max-h-[700px] transition-colors ${
-                  elapsed.isLate ? 'bg-red-50' : 'bg-[#E4E3E0]'
-                }`}
-              >
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-widest opacity-50">Mesa</p>
-                    <p className="text-4xl font-bold">{order.tableId}</p>
-                  </div>
-                  <div className="text-right">
-                    <div className={`flex items-center text-xs font-mono font-bold mb-1 ${
-                      elapsed.isLate ? 'text-red-600 animate-pulse' : 'text-[#141414]'
-                    }`}>
-                      <Clock size={12} className="mr-1" />
-                      {elapsed.text}
-                    </div>
-                    <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase ${
-                      order.status === 'pending' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
-                    }`}>
-                      {order.status === 'pending' ? 'Novo' : 'Em Preparo'}
-                    </span>
-                  </div>
-                </div>
-
-              <div className="flex-1 overflow-y-auto space-y-4 mb-6">
-                {order.items.filter(i => !i.removed).map((item) => (
-                  <div key={item.id} className={`border-b border-[#141414]/10 pb-3 ${item.paid ? 'bg-green-100/50 p-2 rounded-lg' : ''}`}>
-                    <div className="flex items-center justify-between">
-                      <p className={`font-bold text-lg leading-tight ${item.paid ? 'text-green-800' : ''}`}>{item.name}</p>
-                      {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
-                    </div>
-                    <p className="text-[10px] opacity-50 uppercase font-bold">{item.size}</p>
-                    {item.observations && (
-                      <p className="text-[10px] text-blue-600 font-bold bg-blue-50 p-1 rounded mt-1 italic">
-                        Obs: {item.observations}
-                      </p>
-                    )}
-                  </div>
-                ))}
-                {order.observations && (
-                  <div className="bg-yellow-100 p-4 rounded-2xl border-2 border-yellow-200">
-                    <p className="text-[10px] uppercase font-bold text-yellow-800 opacity-50 mb-1">Observações do Pedido</p>
-                    <p className="text-sm text-yellow-900 font-medium italic">{order.observations}</p>
-                  </div>
-                )}
-              </div>
-
-              <button 
-                onClick={() => updateStatus(order.id, order.status === 'pending' ? 'preparing' : 'ready')}
-                className={`w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center transition-all ${
-                  order.status === 'pending' ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-green-600 text-white'
-                }`}
-              >
-                {order.status === 'pending' ? "Começar Preparo" : "Marcar como Pronto"}
-                <CheckCircle2 size={20} className="ml-2" />
-              </button>
-            </motion.div>
-          );
-        })}
-      </AnimatePresence>
-
-        {activeOrders.length === 0 && (
-          <div className="flex-1 flex flex-col items-center justify-center text-white/20 text-center">
-            <ChefHat size={120} className="mb-6" />
-            <h3 className="text-3xl font-serif italic">Cozinha Limpa</h3>
-            <p className="text-sm">Aguardando novos pedidos...</p>
-          </div>
-        )}
-      </main>
+      <div className="flex-1 flex min-h-0 divide-x divide-white/10">
+        <Section
+          title="Pizzas"
+          Icon={Pizza}
+          items={pizzaItems}
+          accentClass="bg-orange-950/60"
+          now={now}
+          onStart={startItem}
+          onFinish={finishItem}
+        />
+        <Section
+          title="Lanches"
+          Icon={Sandwich}
+          items={lancheItems}
+          accentClass="bg-yellow-950/60"
+          now={now}
+          onStart={startItem}
+          onFinish={finishItem}
+        />
+      </div>
     </div>
   );
 }

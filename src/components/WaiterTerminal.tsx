@@ -33,6 +33,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [cartObservations, setCartObservations] = useState('');
 
   const [isCartExpanded, setIsCartExpanded] = useState(false);
+  const [isCartPopupOpen, setIsCartPopupOpen] = useState(false);
 
   const currentList = selectionType === 'tables' ? tables : comandas;
   const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
@@ -276,13 +277,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     setIsAddingItems(false);
   };
 
-  const handlePaymentComplete = (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string) => {
+  const handlePaymentComplete = (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     if (!currentOrder) return;
     socket.emit('pay_items', {
       orderId: currentOrder.id,
       selectedItems,
       partialAmount,
-      paymentMethod
+      paymentMethod,
+      payerName
     });
   };
 
@@ -318,7 +320,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      <header className="bg-[#141414] text-[#E4E3E0] p-6 flex justify-between items-center shrink-0">
+      <header className="bg-[#141414] text-[#E4E3E0] p-3 flex justify-between items-center shrink-0">
         <h1 className="font-serif italic text-xl">Terminal Garçom</h1>
         <div className="flex items-center space-x-2">
           <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
@@ -335,9 +337,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-4">
+      <main className="flex-1 overflow-hidden p-4 flex flex-col min-h-0">
         {selectedId === null ? (
-          <div className="space-y-6">
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-6">
             <div className="flex bg-white p-1 rounded-2xl border border-[#141414]/10">
               <button
                 onClick={() => setSelectionType('tables')}
@@ -405,17 +407,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           </div>
         ) : !isAddingItems ? (
           /* ── TABLE OVERVIEW: shows order (if occupied) or empty state (if free) + "Adicionar Item" button ── */
-          <div className="flex flex-col h-full space-y-4">
+          <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <div className="flex items-center justify-between">
-              <button onClick={() => { setSelectedId(null); setIsComandaSelected(false); }} className="text-sm font-bold flex items-center">
-                <ChevronLeft size={18} className="mr-1" /> Voltar
+              <button onClick={() => { setSelectedId(null); setIsComandaSelected(false); }} className="flex items-center gap-1 bg-[#141414] text-[#E4E3E0] px-4 py-2.5 rounded-xl font-bold text-sm">
+                <ChevronLeft size={18} /> Voltar
               </button>
               <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
               <div className="flex flex-col items-end space-y-1">
                 <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded-full ${
-                  tableData?.status === 'free' ? 'bg-gray-100 text-gray-500' : 'bg-amber-100 text-amber-700'
+                  tableData?.status === 'free' ? 'bg-gray-100 text-gray-500'
+                  : tableData?.status === 'aguardando_baixa' ? 'bg-purple-100 text-purple-700 animate-pulse'
+                  : 'bg-amber-100 text-amber-700'
                 }`}>
-                  {tableData?.status === 'free' ? 'Livre' : 'Ocupada'}
+                  {tableData?.status === 'free' ? 'Livre'
+                    : tableData?.status === 'aguardando_baixa' ? 'Ag. Baixa no Caixa'
+                    : 'Ocupada'}
                 </span>
                 {tableData && (() => {
                   const mins = getInactivityMinutes(tableData);
@@ -432,13 +438,16 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
             {tableData?.status !== 'free' && currentOrder ? (
               <>
-                <div className="flex-1 overflow-y-auto bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
                   <h3 className="font-bold text-base border-b pb-2">Pedidos em Aberto</h3>
                   <div className="space-y-3">
                     {currentOrder.items.map((item) => {
-                      const pendingDelivery = pizzariaConfig?.enabled && !item.removed && !item.paid && !item.deliveredAt && (item.type === 'pizzas' || item.type === 'lanches');
+                      const kdsEnabled = pizzariaConfig?.kdsEnabled ?? true;
+                      const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt &&
+                        (item.type === 'pizzas' || item.type === 'lanches') &&
+                        (kdsEnabled ? (item as any).kitchenStatus === 'ready' : true);
                       return (
-                      <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-orange-50 p-3 border border-orange-200' : ''}`}>
+                      <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>
                         <div className="flex-1 pr-4">
                           <div className="flex items-center space-x-2">
                             <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
@@ -449,8 +458,20 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
-                              ) : (
+                              ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
                                 <OrderTimer timestamp={item.timestamp} />
+                              ) : (item as any).kitchenStatus === 'ready' ? (
+                                <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
+                                  ✓ Pronto — Retirar
+                                </span>
+                              ) : (item as any).kitchenStatus === 'preparing' ? (
+                                <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                  Em preparo...
+                                </span>
+                              ) : (
+                                <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                  Na fila
+                                </span>
                               )
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
@@ -546,6 +567,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             )}
 
+            {tableData?.status === 'aguardando_baixa' && (
+              <div className="shrink-0 bg-purple-50 border-2 border-purple-300 rounded-2xl p-4 text-center space-y-1">
+                <p className="text-purple-700 font-black text-sm uppercase tracking-wide">Aguardando Baixa no Caixa</p>
+                <p className="text-purple-500 text-xs">Pagamento registrado. O caixa precisa dar baixa para liberar a mesa.</p>
+              </div>
+            )}
+
             {tableData?.status === 'free' ? (
               <button
                 onClick={() => setIsAddingItems(true)}
@@ -555,7 +583,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <Plus size={20} />
                 <span>Iniciar Nova Comanda</span>
               </button>
-            ) : (
+            ) : tableData?.status === 'aguardando_baixa' ? null : (
               <div className="flex space-x-3 shrink-0">
                 <button
                   onClick={() => setIsAddingItems(true)}
@@ -565,50 +593,48 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <Plus size={20} />
                   <span>Adicionar Item</span>
                 </button>
-                <button
-                  onClick={() => setIsPaymentModalOpen(true)}
-                  disabled={!currentOrder || pendingAmount <= 0.01}
-                  className="flex-1 py-5 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
-                >
-                  <Wallet size={20} className="text-green-400" />
-                  <span className="text-green-400">Pagar</span>
-                </button>
+                {(pizzariaConfig?.waiterCanPay ?? true) && (
+                  <button
+                    onClick={() => setIsPaymentModalOpen(true)}
+                    disabled={!currentOrder || pendingAmount <= 0.01}
+                    className="flex-1 py-5 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                  >
+                    <Wallet size={20} className="text-green-400" />
+                    <span className="text-green-400">Pagar</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
         ) : (
           /* ── ITEM SELECTION ── */
-          <div className="flex flex-col h-full space-y-4">
+          <div className="flex flex-col flex-1 min-h-0 space-y-4">
             <div className="flex items-center justify-between">
-              <button onClick={() => { setIsAddingItems(false); setSelectedId(null); setIsComandaSelected(false); setCart([]); }} className="text-sm font-bold flex items-center">
-                <ChevronLeft size={18} className="mr-1" /> Voltar
+              <button onClick={() => { setIsAddingItems(false); setCart([]); }} className="flex items-center gap-1 bg-[#141414] text-[#E4E3E0] px-4 py-2.5 rounded-xl font-bold text-sm">
+                <ChevronLeft size={18} /> Voltar
               </button>
               <h2 className="font-serif italic text-2xl">{isComandaSelected ? 'Comanda' : 'Mesa'} {selectedId}</h2>
               <div className="w-10" />
             </div>
 
-            {currentOrder && (
-              <div className="max-h-24 overflow-y-auto bg-white rounded-xl border border-[#141414]/10 p-3 shrink-0">
-                <p className="text-[9px] font-bold uppercase opacity-30 mb-2">Histórico da Mesa</p>
+            {false && cart.length > 0 && (
+              <div className="max-h-32 overflow-y-auto min-h-0 bg-amber-50 rounded-xl border border-amber-200 p-3 shrink-0">
+                <p className="text-[9px] font-bold uppercase text-amber-600 mb-2">Itens a Enviar · {cart.length}</p>
                 <div className="space-y-1.5">
-                  {currentOrder.items.map((item, idx) => (
-                    <div key={idx} className={`flex justify-between text-[10px] ${item.removed ? 'opacity-30 line-through' : ''}`}>
-                      <div className="flex flex-col">
-                        <span>{item.name}</span>
-                        {item.observations && (
-                          <span className="text-[7px] text-blue-600 font-bold italic uppercase">Obs: {item.observations}</span>
-                        )}
-                        <span className="text-[8px] opacity-50">Por: {item.waiterName}</span>
+                  {cart.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-[10px]">
+                      <span className="flex-1 pr-2 font-medium">
+                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-mono font-bold">R$ {item.price.toFixed(2)}</span>
+                        <button onClick={() => setCart(cart.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600 transition-colors">
+                          <X size={12} />
+                        </button>
                       </div>
-                      <span className="font-mono">R$ {item.price.toFixed(2)}</span>
                     </div>
                   ))}
                 </div>
-                {currentOrder?.observations && (
-                  <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-                    <p className="text-[8px] uppercase font-bold text-blue-800 opacity-50">Obs: {currentOrder.observations}</p>
-                  </div>
-                )}
               </div>
             )}
 
@@ -624,11 +650,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     setActiveType(type.id as any);
                     setSelectedFlavors([]);
                   }}
-                  className={`flex-1 py-3 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 flex flex-col items-center justify-center space-y-1 ${
+                  className={`flex-1 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 flex items-center justify-center gap-1.5 ${
+                    cart.length > 0 ? 'py-2' : 'py-3 flex-col space-y-1'
+                  } ${
                     activeType === type.id ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white border-[#141414]/10'
                   }`}
                 >
-                  <type.icon size={16} />
+                  <type.icon size={cart.length > 0 ? 13 : 16} />
                   <span>{type.label}</span>
                 </button>
               ))}
@@ -651,10 +679,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               })}
             </div>
 
-            <div className="flex-1 overflow-y-auto grid grid-cols-1 gap-3 pb-4">
+            <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-1 gap-3 pb-2">
               {menu.find(c => c.name === activeCategory)?.items?.map(pizza => {
                 return (
-                  <button 
+                  <button
                     key={pizza.id}
                     onClick={() => addToCart(pizza)}
                     className="bg-white p-4 rounded-2xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
@@ -669,6 +697,51 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 );
               })}
             </div>
+
+            {/* Cart bar — inline, no overlap */}
+            <AnimatePresence>
+              {cart.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 16 }}
+                  className="shrink-0 bg-white border-t-2 border-[#141414] rounded-2xl shadow-lg"
+                >
+                  <div className="p-3 space-y-2">
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center space-x-2">
+                        <ShoppingBasket size={16} />
+                        <span className="font-bold text-sm">{cart.reduce((acc, i) => acc + (i.quantity || 1), 0)} {cart.reduce((acc, i) => acc + (i.quantity || 1), 0) === 1 ? 'item' : 'itens'}</span>
+                        {cartObservations && (
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Com Obs</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setIsCartPopupOpen(true)}
+                        className="bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-black text-sm px-4 py-1.5 rounded-xl transition-all shadow-md"
+                      >
+                        Ver Itens
+                      </button>
+                      <span className="text-xl font-bold">R$ {cart.reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => setIsObservationModalOpen(true)}
+                        className="px-4 py-2.5 bg-gray-100 text-[#141414] rounded-2xl font-bold text-xs flex items-center justify-center hover:bg-gray-200 transition-colors"
+                      >
+                        Observação
+                      </button>
+                      <button
+                        onClick={submitOrder}
+                        className="flex-1 bg-[#141414] text-[#E4E3E0] py-2.5 rounded-2xl font-bold text-base flex items-center justify-center active:scale-95 transition-transform"
+                      >
+                        Enviar Pedido <Send size={16} className="ml-2" />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </main>
@@ -853,89 +926,58 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           )}
         </AnimatePresence>
 
+
+      {/* Cart Popup */}
       <AnimatePresence>
-        {cart.length > 0 && (
-        <motion.div 
-          initial={{ y: 100 }}
-          animate={{ y: 0 }}
-          className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-[#141414] shadow-2xl z-50 flex flex-col"
-        >
-          {isCartExpanded && (
-            <div className="p-6 max-h-[60vh] overflow-y-auto border-b border-[#141414]/10">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold uppercase tracking-widest text-sm opacity-50">Itens no Carrinho</h3>
-                <button onClick={() => setIsCartExpanded(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                  <X size={20} />
+        {isCartPopupOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setIsCartPopupOpen(false)}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 60, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-2 border-[#141414] overflow-hidden"
+            >
+              <div className="bg-[#141414] px-5 py-4 flex items-center gap-3">
+                <button
+                  onClick={() => setIsCartPopupOpen(false)}
+                  className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 active:scale-95 text-white font-black text-sm px-4 py-2 rounded-xl transition-all"
+                >
+                  <ChevronLeft size={16} /> Voltar
                 </button>
+                <h3 className="font-serif italic text-xl text-white flex-1 text-center pr-16">Itens a Enviar</h3>
               </div>
-              <div className="space-y-4">
+              <div className="max-h-72 overflow-y-auto">
                 {cart.map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-start pb-4 border-b border-[#141414]/5 last:border-0">
-                    <div className="flex-1 pr-4">
-                      <p className="font-bold text-sm">
-                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                      </p>
-                      <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
-                        {item.type === 'pizzas' ? (
-                          <>
-                            <span>{item.flavors.join(' / ')}</span>
-                            {item.crust && <span>• Borda: {item.crust}</span>}
-                          </>
-                        ) : (
-                          <>
-                            {item.ingredients && <span className="uppercase font-bold text-[#141414] opacity-60">{item.ingredients}</span>}
-                          </>
-                        )}
-                        {item.observations && <span className="block w-full text-blue-700 italic font-bold mt-1 uppercase">Obs: {item.observations}</span>}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end space-y-2">
+                  <div key={idx} className={`flex justify-between items-center px-5 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                    <span className="flex-1 pr-3 font-medium text-sm">
+                      {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                    </span>
+                    <div className="flex items-center gap-3 shrink-0">
                       <span className="font-mono font-bold text-sm">R$ {item.price.toFixed(2)}</span>
-                      <button 
-                        onClick={() => setCart(cart.filter((_, i) => i !== idx))}
-                        className="text-[9px] text-red-500 font-bold uppercase tracking-tighter border border-red-100 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                      <button
+                        onClick={() => { setCart(cart.filter((_, i) => i !== idx)); if (cart.length === 1) setIsCartPopupOpen(false); }}
+                        className="text-red-400 hover:text-red-600 transition-colors"
                       >
-                        Remover
+                        <X size={14} />
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          <div className="p-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <button 
-                onClick={() => setIsCartExpanded(!isCartExpanded)}
-                className="flex items-center space-x-2 group"
-              >
-                <ShoppingBasket size={20} />
-                <span className="font-bold group-hover:underline">{cart.length} itens</span>
-                {cartObservations && (
-                  <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">Com Obs</span>
-                )}
-                <ChevronRight size={16} className={`transition-transform ${isCartExpanded ? '-rotate-90' : 'rotate-0'}`} />
-              </button>
-              <span className="text-xl font-bold">R$ {cart.reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
-            </div>
-            <div className="flex space-x-2">
-              <button 
-                onClick={() => setIsObservationModalOpen(true)}
-                className="px-4 bg-gray-100 text-[#141414] rounded-2xl font-bold text-xs flex items-center justify-center hover:bg-gray-200 transition-colors"
-              >
-                Observação
-              </button>
-              <button 
-                onClick={submitOrder}
-                className="flex-1 bg-[#141414] text-[#E4E3E0] py-4 rounded-2xl font-bold text-lg flex items-center justify-center active:scale-95 transition-transform"
-              >
-                Enviar Pedido <Send size={18} className="ml-2" />
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      )}
+              <div className="px-5 py-4 border-t-2 border-[#141414]/10 flex justify-between items-center bg-gray-50">
+                <span className="text-xs font-bold uppercase tracking-widest opacity-50">Total</span>
+                <span className="text-2xl font-bold">R$ {cart.reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {/* Observation Modal */}

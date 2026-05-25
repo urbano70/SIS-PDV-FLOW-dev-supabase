@@ -52,8 +52,6 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
         return;
       }
 
-      setIsWaiting(true);
-      
       const waiterId = user.uid;
       const waiterData: Waiter = {
         id: waiterId,
@@ -68,36 +66,16 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
         createdAt: new Date().toISOString()
       } as any;
 
-      try {
-        // First try to save to Firebase
-        const { createDocument } = await import('../lib/firebaseService');
-        await createDocument('waiters', waiterData, waiterId);
-        
-        // Also notify via socket for real-time legacy support
-        socket.emit('waiter_register', waiterData);
-        
-        localStorage.setItem('waiter_credentials', JSON.stringify(formData));
-        toast.success('Solicitação de acesso enviada com sucesso!');
-      } catch (error: any) {
-        console.error("Error registering waiter:", error);
-        let errorMessage = 'Verifique sua conexão ou permissões do Firebase.';
-        
-        try {
-          // If it's a JSON error from handleFirestoreError
-          const parsed = JSON.parse(error.message);
-          if (parsed.error) {
-            errorMessage = `Erro: ${parsed.error}`;
-            if (parsed.error.includes('Missing or insufficient permissions')) {
-              errorMessage = 'Erro de permissão no Firebase. Verifique as regras do Firestore.';
-            }
-          }
-        } catch {
-          errorMessage = error.message || errorMessage;
-        }
+      // Registro via socket (sempre funciona, mesmo sem Firestore)
+      socket.emit('waiter_register', waiterData);
+      localStorage.setItem('waiter_credentials', JSON.stringify(formData));
+      setIsWaiting(true);
+      toast.success('Solicitação de acesso enviada com sucesso!');
 
-        toast.error(`Erro ao enviar solicitação: ${errorMessage}`);
-        setIsWaiting(false);
-      }
+      // Persistência no Firestore em segundo plano
+      import('../lib/firebaseService').then(({ createDocument }) =>
+        createDocument('waiters', waiterData, waiterId)
+      ).catch(() => {});
     } else {
       socket.emit('waiter_login', { name: formData.name, password: formData.password });
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));

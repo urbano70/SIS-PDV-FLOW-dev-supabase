@@ -47,6 +47,7 @@ const OrderDetails = ({
   setIsLinkModalOpen,
   setIsTransferModalOpen,
   setIsPaymentModalOpen,
+  setIsBaixaModalOpen,
   handleRemoveItem,
   printerConfig
 }: any) => {
@@ -160,23 +161,25 @@ const OrderDetails = ({
                   const waiterName = waiters.find((w: any) => w.id === activeOrder.waiterId)?.name || 'N/A';
                   const total = (activeOrder.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => acc + i.price, 0);
                   
+                  const _pw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
+                  const _fs = (printerConfig.paperWidth || '80mm') === '50mm' ? '10px' : printerConfig.itemFontSize;
                   const html = `
                     <html>
                       <head>
                         <title>Resumo ${tableType} ${tableId}</title>
                         <style>
-                          body { font-family: monospace; padding: 20px; width: 300px; margin: 0 auto; color: #141414; }
-                          .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 10px; margin-bottom: 10px; }
-                          .items { margin-bottom: 10px; }
-                          .item { 
-                            display: flex; 
-                            justify-content: space-between; 
-                            margin-bottom: 5px; 
-                            font-size: ${printerConfig.itemFontSize};
+                          body { font-family: monospace; padding: 12px; width: ${_pw}; margin: 0 auto; color: #141414; font-size: ${_fs}; }
+                          .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
+                          .items { margin-bottom: 8px; }
+                          .item {
+                            display: flex;
+                            justify-content: space-between;
+                            margin-bottom: 4px;
+                            font-size: ${_fs};
                             font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
                           }
-                          .footer { border-top: 1px dashed #000; padding-top: 10px; text-align: right; }
-                          .establishment { font-weight: bold; font-size: 14px; text-transform: uppercase; }
+                          .footer { border-top: 1px dashed #000; padding-top: 8px; text-align: right; }
+                          .establishment { font-weight: bold; font-size: ${(printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '14px'}; text-transform: uppercase; }
                           @media print { body { width: 100%; margin: 0; } }
                         </style>
                       </head>
@@ -185,14 +188,14 @@ const OrderDetails = ({
                           <div class="establishment">${printerConfig.establishmentName}</div>
                           <div>${printerConfig.address}</div>
                           <div>Tel: ${printerConfig.phone}</div>
-                          <div style="margin-top: 10px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
+                          <div style="margin-top: 8px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
                         </div>
                         <div class="info">
                           <div>${tableType}: ${tableId}</div>
                           <div>Garçom: ${waiterName}</div>
                           <div>Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
                         </div>
-                        <div style="border-bottom: 1px dashed #000; margin: 10px 0;"></div>
+                        <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
                         <div class="items">
                           ${(activeOrder.items || []).filter((i: any) => !i.removed).map((item: any) => `
                             <div class="item">
@@ -202,9 +205,9 @@ const OrderDetails = ({
                           `).join('')}
                         </div>
                         <div class="footer">
-                          <div style="font-size: 14px; font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
+                          <div style="font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
                         </div>
-                        <div style="text-align: center; margin-top: 20px; font-size: 10px; opacity: 0.7;">
+                        <div style="text-align: center; margin-top: 16px; font-size: 9px; opacity: 0.7;">
                           ${printerConfig.receiptFooter}
                         </div>
                         <script>window.onload = () => { window.print(); window.close(); }</script>
@@ -237,18 +240,28 @@ const OrderDetails = ({
           >
             Transferir
           </button>
-          <button 
-            onClick={() => hasItems && pendingAmount > 0.01 && setIsPaymentModalOpen(true)}
-            disabled={!hasItems || pendingAmount <= 0.01}
-            className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
-              hasItems && pendingAmount > 0.01
-                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <Wallet size={10} />
-            <span>Pagar</span>
-          </button>
+          {activeOrder?.status === 'aguardando_baixa' ? (
+            <button
+              onClick={() => setIsBaixaModalOpen(true)}
+              className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center space-x-1 animate-pulse"
+            >
+              <CheckCircle size={10} />
+              <span>Dar Baixa</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => hasItems && pendingAmount > 0.01 && setIsPaymentModalOpen(true)}
+              disabled={!hasItems || pendingAmount <= 0.01}
+              className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
+                hasItems && pendingAmount > 0.01
+                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+            >
+              <Wallet size={10} />
+              <span>Pagar</span>
+            </button>
+          )}
         </div>
       </h3>
       <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
@@ -481,6 +494,8 @@ export default function Dashboard({
   const [selectedComandaId, setSelectedComandaId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isBaixaModalOpen, setIsBaixaModalOpen] = useState(false);
+  const [printOnBaixa, setPrintOnBaixa] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [isRemovalModalOpen, setIsRemovalModalOpen] = useState(false);
@@ -636,10 +651,12 @@ export default function Dashboard({
     const now = new Date();
     const printWindow = window.open('', '_blank');
     if (printWindow) {
+      const _testPw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
+      const _bigFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '20px' : '28px';
       printWindow.document.write(`<html><head><title>Teste de Impressora</title><style>
-        body{font-family:monospace;padding:16px;width:280px;margin:0 auto;color:#000}
-        .center{text-align:center}.big{font-size:28px;font-weight:bold;border:3px solid #000;padding:8px;margin:10px 0}
-        .sep{border-top:1px dashed #000;margin:8px 0}.small{font-size:10px;opacity:.6}
+        body{font-family:monospace;padding:12px;width:${_testPw};margin:0 auto;color:#000}
+        .center{text-align:center}.big{font-size:${_bigFs};font-weight:bold;border:3px solid #000;padding:6px;margin:8px 0}
+        .sep{border-top:1px dashed #000;margin:6px 0}.small{font-size:9px;opacity:.6}
         @media print{body{width:100%;margin:0}}
       </style></head><body>
         <div class="center">
@@ -846,7 +863,7 @@ export default function Dashboard({
               payLog.map((p: any) => {
                 const mc = p.method==='Dinheiro'?'#16a34a':p.method==='PIX'?'#2563eb':p.method==='Crédito'?'#7c3aed':'#ea580c';
                 const partial = p.type==='partial' ? `<span style="margin-left:6px;font-size:8px;background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:700">PARCIAL</span>` : '';
-                const payer = p.payer ? `<span style="margin-left:6px;font-size:10px;opacity:.5">${p.payer}</span>` : '';
+                const payer = p.payer ? `<span style="margin-left:8px;font-size:11px;font-weight:700;color:#374151">${p.payer}</span>` : '';
                 const pTime = new Date(p.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
                 return `<tr style="background:#f0fdf4;border-top:1px solid #dcfce7"><td style="padding:3px 12px 3px 24px;font-size:11px"><span style="color:${mc};font-weight:700">${p.method}</span>${partial}${payer}</td><td style="padding:3px 12px;font-size:10px;color:#888">${pTime}</td><td style="padding:3px 12px;text-align:right;font-family:monospace;font-size:11px;font-weight:700;color:#16a34a">R$ ${p.amount.toFixed(2)}</td></tr>`;
               }).join('')
@@ -908,26 +925,27 @@ export default function Dashboard({
   };
 
   const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
-    if (!printerConfig.autoPrintKitchen) return;
-
     const targetId = tableId || (isComandaSelected ? selectedComandaId : selectedTableId);
     const tableType = isComanda !== undefined ? (isComanda ? 'Comanda' : 'Mesa') : (isComandaSelected ? 'Comanda' : 'Mesa');
-    
+
     if (!targetId) return;
 
     orderItems.forEach(item => {
       let targetPrinterName = '';
-      
-      // Determine the printer based on item type
+      let shouldPrint = false;
+
       if (item.type === 'pizzas') {
         targetPrinterName = printerConfig.pizzas || printerConfig.kitchen;
+        shouldPrint = printerConfig.autoPrintPizzas ?? true;
       } else if (item.type === 'bebidas') {
         targetPrinterName = printerConfig.drinks || printerConfig.kitchen;
+        shouldPrint = printerConfig.autoPrintDrinks ?? false;
       } else if (item.type === 'lanches') {
         targetPrinterName = printerConfig.kitchen;
+        shouldPrint = printerConfig.autoPrintKitchen ?? true;
       }
-      
-      if (targetPrinterName && targetPrinterName !== 'none') {
+
+      if (shouldPrint && targetPrinterName && targetPrinterName !== 'none') {
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
         printFrame.style.right = '0';
@@ -941,32 +959,35 @@ export default function Dashboard({
         const dateStr = now.toLocaleDateString('pt-BR');
         const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         
+        const _pw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
+        const _tblFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '24px' : '36px';
+        const _itemFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '14px' : '20px';
+        const _obsFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '16px';
         const html = `
           <html>
             <head>
               <style>
-                body { font-family: monospace; padding: 10px; width: 280px; margin: 0 auto; color: #000; }
-                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 10px; }
-                .table-info { font-size: 36px; font-weight: bold; margin: 5px 0; border: 3px solid #000; padding: 10px; text-align: center; }
-                .item-detail { font-size: 20px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
-                .observation { background: #000; color: #fff; padding: 8px; font-weight: bold; font-size: 16px; margin-top: 5px; }
-                .footer { font-size: 10px; margin-top: 20px; border-top: 1px solid #000; padding-top: 5px; line-height: 1.4; }
+                body { font-family: monospace; padding: 8px; width: ${_pw}; margin: 0 auto; color: #000; }
+                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
+                .table-info { font-size: ${_tblFs}; font-weight: bold; margin: 4px 0; border: 3px solid #000; padding: 6px; text-align: center; }
+                .item-detail { font-size: ${_itemFs}; font-weight: bold; text-transform: uppercase; margin-bottom: 8px; }
+                .observation { background: #000; color: #fff; padding: 6px; font-weight: bold; font-size: ${_obsFs}; margin-top: 4px; }
+                .footer { font-size: 9px; margin-top: 16px; border-top: 1px solid #000; padding-top: 4px; line-height: 1.4; }
                 @media print { body { width: 100%; margin: 0; } }
               </style>
             </head>
             <body>
               <div class="header">
-                <div style="font-size: 12px; font-weight: bold;">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
+                <div style="font-size: 11px; font-weight: bold;">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
                 <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
-                <div style="font-size: 13px; font-weight: bold; margin-top: 4px;">${dateStr} &nbsp; ${timeStr}</div>
+                <div style="font-size: 11px; font-weight: bold; margin-top: 4px;">${dateStr} &nbsp; ${timeStr}</div>
               </div>
               <div class="item-detail">
                 ${item.quantity || 1}x ${item.name}
               </div>
-              ${item.flavors && item.flavors.length > 1 ? `<div style="font-size: 14px; font-weight: bold;">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
-              ${item.crust ? `<div style="font-size: 14px;">BORDA: ${item.crust}</div>` : ''}
+              ${item.flavors && item.flavors.length > 1 ? `<div style="font-size: ${_obsFs}; font-weight: bold;">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
+              ${item.crust ? `<div style="font-size: ${_obsFs};">BORDA: ${item.crust}</div>` : ''}
               ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-
               <div class="footer">
                 <div>Operador: ${item.waiterName || 'SISTEMA'}</div>
               </div>
@@ -991,8 +1012,9 @@ export default function Dashboard({
 
   useEffect(() => {
     const handleKitchenOrder = (data: any) => {
-      if (data?.order?.items && printerConfig.autoPrintKitchen) {
-        printOrderToPrinters(data.order.items, data.order.tableId, data.order.isComanda);
+      const items = data?.items;
+      if (items?.length > 0) {
+        printOrderToPrinters(items, data.tableId, data.isComanda);
       }
     };
 
@@ -1000,7 +1022,7 @@ export default function Dashboard({
     return () => {
       socket.off('kitchen_new_order', handleKitchenOrder);
     };
-  }, [printerConfig.autoPrintKitchen, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas]);
+  }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas]);
 
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
@@ -1375,26 +1397,21 @@ export default function Dashboard({
   const lowStockItems = stock.filter(item => item.quantity <= item.minQuantity);
   const waiterUrl = `${window.location.origin}/waiter`;
 
-  const approveWaiter = async (id: string) => {
-    try {
-      const { updateDocument } = await import('../lib/firebaseService');
-      await updateDocument('waiters', id, { status: 'approved' });
-      socket.emit('admin_approve_waiter', id);
-      toast.success('Garçom aprovado!');
-    } catch (error) {
-      toast.error('Erro ao aprovar garçom');
-    }
+  const approveWaiter = (id: string) => {
+    socket.emit('admin_approve_waiter', id);
+    toast.success('Garçom aprovado!');
+    // Persistência no Firestore em segundo plano (não bloqueia a operação)
+    import('../lib/firebaseService').then(({ updateDocument }) =>
+      updateDocument('waiters', id, { status: 'approved' })
+    ).catch(() => {});
   };
 
-  const denyWaiter = async (id: string) => {
-    try {
-      const { updateDocument } = await import('../lib/firebaseService');
-      await updateDocument('waiters', id, { status: 'rejected' });
-      socket.emit('toggle_waiter_status', { waiterId: id, status: 'rejected' });
-      toast.success('Solicitação recusada!');
-    } catch (error) {
-      toast.error('Erro ao recusar solicitação');
-    }
+  const denyWaiter = (id: string) => {
+    socket.emit('toggle_waiter_status', { waiterId: id, status: 'rejected' });
+    toast.success('Solicitação recusada!');
+    import('../lib/firebaseService').then(({ updateDocument }) =>
+      updateDocument('waiters', id, { status: 'rejected' })
+    ).catch(() => {});
   };
 
   const analyzeKitchenVideo = async () => {
@@ -1762,6 +1779,7 @@ export default function Dashboard({
                                   if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
                                   if (table.status === 'free') return 'border-[#141414]/10 bg-white/50';
                                   if (table.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
+                                  if (table.status === 'aguardando_baixa') return 'border-purple-500 bg-purple-600 text-white animate-pulse';
                                   if (table.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
@@ -1809,6 +1827,7 @@ export default function Dashboard({
                                   if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
                                   if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/50';
                                   if (comanda.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
+                                  if (comanda.status === 'aguardando_baixa') return 'border-purple-500 bg-purple-600 text-white animate-pulse';
                                   if (comanda.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
@@ -1949,6 +1968,7 @@ export default function Dashboard({
                           setIsLinkModalOpen={setIsLinkModalOpen}
                           setIsTransferModalOpen={setIsTransferModalOpen}
                           setIsPaymentModalOpen={setIsPaymentModalOpen}
+                          setIsBaixaModalOpen={setIsBaixaModalOpen}
                           handleRemoveItem={handleRemoveItem}
                           printerConfig={printerConfig}
                         />
@@ -3488,7 +3508,7 @@ export default function Dashboard({
                       {([
                         { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: 'Pizzas',   icon: <Pizza size={9} /> },
                         { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas',  icon: <Beer size={9} /> },
-                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: printerConfig.kitchenLabel || 'Extra', icon: <ChefHat size={9} /> },
+                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: 'Lanches', icon: <ChefHat size={9} /> },
                         { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos',  icon: <FileText size={9} /> },
                       ] as const).map(({ key, autoKey, label, icon }) => (
                         <div key={key} className="flex items-center gap-1.5">
@@ -3597,6 +3617,42 @@ export default function Dashboard({
                         <p className="text-[6px] opacity-40 leading-tight text-center">
                           Verde • Amarelo {pizzariaConfig.yellowMinutes}min • Laranja {pizzariaConfig.orangeMinutes}min • Vermelho {pizzariaConfig.redMinutes}min • Inativo {pizzariaConfig.inactivityMinutes ?? 30}min
                         </p>
+                        <div className="border-t border-[#141414]/10 pt-1.5 mt-0.5">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[7px] uppercase font-bold opacity-70 leading-none">Interagir com KDS</p>
+                              <p className="text-[6px] opacity-40 leading-tight mt-0.5">
+                                {(pizzariaConfig.kdsEnabled ?? true)
+                                  ? 'Garçom entrega após cozinha marcar "Pronto" no KDS.'
+                                  : 'Botão de entrega aparece direto no app, sem depender do KDS.'}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? true) })}
+                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.kdsEnabled ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? true) ? 'translate-x-4' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="border-t border-[#141414]/10 pt-1.5 mt-0.5">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-[7px] uppercase font-bold opacity-70 leading-none">Garçom pode pagar?</p>
+                              <p className="text-[6px] opacity-40 leading-tight mt-0.5">
+                                {(pizzariaConfig.waiterCanPay ?? true)
+                                  ? 'Botão "Pagar" visível no app do garçom.'
+                                  : 'Pagamento somente pelo caixa (ADM).'}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanPay: !(pizzariaConfig.waiterCanPay ?? true) })}
+                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanPay ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     ) : (
                       <p className="text-[7px] opacity-40 leading-tight">
@@ -3657,6 +3713,20 @@ export default function Dashboard({
                       </div>
 
                       <div className="grid grid-cols-3 gap-1.5 pt-1">
+                        <div className="col-span-3 flex items-center justify-between gap-2 mb-0.5">
+                          <span className="text-[7px] uppercase font-bold opacity-45 shrink-0 leading-none">Papel</span>
+                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg flex-1 max-w-[120px]">
+                            {['50mm', '80mm'].map((pw) => (
+                              <button
+                                key={pw}
+                                onClick={() => setPrinterConfig({...printerConfig, paperWidth: pw})}
+                                className={`flex-1 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.paperWidth || '80mm') === pw ? 'bg-white shadow-sm' : 'opacity-40'}`}
+                              >
+                                {pw}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                         <div className="col-span-3 flex items-center justify-between gap-2 mb-0.5">
                           <span className="text-[7px] uppercase font-bold opacity-45 shrink-0 leading-none">Fonte (Itens)</span>
                           <div className="flex bg-[#141414]/5 p-0.5 rounded-lg flex-1 max-w-[120px]">
@@ -4471,20 +4541,28 @@ export default function Dashboard({
                         </span>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         {(order.items || []).map((item, idx) => (
-                          <div key={idx} className="flex flex-col space-y-0.5">
-                            <div className="flex justify-between items-center text-sm">
-                              <span className={item.removed ? 'line-through opacity-30' : ''}>
-                                {item.quantity || 1}x {item.name}
-                              </span>
-                              <div className="flex flex-col items-end">
+                          <div key={idx} className={`flex flex-col space-y-0.5 pb-1.5 border-b border-[#141414]/5 last:border-0 ${item.removed ? 'opacity-40' : ''}`}>
+                            <div className="flex justify-between items-start text-sm gap-2">
+                              <div className="flex-1 min-w-0">
+                                <span className={item.removed ? 'line-through' : ''}>
+                                  {item.quantity || 1}× {item.name}
+                                </span>
+                                {item.waiterName && (
+                                  <span className="ml-1.5 text-[9px] bg-[#141414]/8 px-1.5 py-0.5 rounded font-semibold opacity-60">{item.waiterName}</span>
+                                )}
+                                {item.observations && (
+                                  <p className="text-[10px] text-blue-600 mt-0.5">Obs: {item.observations}</p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end shrink-0">
                                 {item.discount && (
                                   <span className="text-[10px] line-through opacity-40 font-mono">
                                     R$ {item.price.toFixed(2)}
                                   </span>
                                 )}
-                                <span className="font-mono">
+                                <span className="font-mono font-bold">
                                   R$ {(() => {
                                     let price = item.price;
                                     if (item.discount) {
@@ -4498,7 +4576,7 @@ export default function Dashboard({
                             </div>
                             {item.discount && (
                               <span className="text-[8px] text-green-600 font-bold uppercase text-right">
-                                Desconto: - {item.discountType === 'percentage' ? `${item.discount}%` : `R$ ${item.discount.toFixed(2)}`}
+                                Desconto: -{item.discountType === 'percentage' ? `${item.discount}%` : `R$ ${item.discount.toFixed(2)}`}
                               </span>
                             )}
                           </div>
@@ -4536,22 +4614,38 @@ export default function Dashboard({
                         </div>
 
                          {order.paymentLog && order.paymentLog.length > 0 && (
-                          <div className="pt-3 border-t border-dashed border-[#141414]/10 space-y-2">
+                          <div className="pt-3 border-t border-dashed border-[#141414]/10 space-y-1.5">
                             <p className="text-[9px] uppercase font-bold opacity-40">Pagamentos</p>
-                            {order.paymentLog.map((p, pIdx) => (
-                              <div key={pIdx} className="flex justify-between items-center text-xs">
-                                <div className="flex flex-col">
-                                  <span className="font-medium text-[#141414]/70">
-                                    {p.type === 'partial' ? 'Pagamento Parcial' : 'Pagamento de Itens'} ({p.method})
-                                  </span>
+                            {order.paymentLog.map((p, pIdx) => {
+                              const methodColor =
+                                p.method === 'Dinheiro' ? 'bg-green-50 border-green-200' :
+                                p.method === 'PIX'      ? 'bg-blue-50 border-blue-200' :
+                                p.method === 'Crédito'  ? 'bg-purple-50 border-purple-200' :
+                                                          'bg-orange-50 border-orange-200';
+                              const dotColor =
+                                p.method === 'Dinheiro' ? 'bg-green-500' :
+                                p.method === 'PIX'      ? 'bg-blue-500' :
+                                p.method === 'Crédito'  ? 'bg-purple-500' :
+                                                          'bg-orange-500';
+                              return (
+                              <div key={pIdx} className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border ${methodColor}`}>
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="font-bold text-xs">{p.method}</span>
+                                    {p.type === 'partial' && (
+                                      <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase">Parcial</span>
+                                    )}
+                                  </div>
                                   {p.payer && (
-                                    <span className="text-[9px] font-bold text-blue-600">Pagador: {p.payer}</span>
+                                    <p className="text-[11px] font-bold text-[#141414]/80 mt-0.5">{p.payer}</p>
                                   )}
-                                  <span className="text-[8px] opacity-40">{new Date(p.timestamp).toLocaleTimeString()}</span>
+                                  <span className="text-[9px] opacity-40">{new Date(p.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
-                                <span className="font-mono font-bold text-green-600">R$ {p.amount.toFixed(2)}</span>
+                                <span className="font-mono font-black text-sm shrink-0">R$ {p.amount.toFixed(2)}</span>
                               </div>
-                            ))}
+                              );
+                            })}
                             
                             <div className="pt-2 border-t border-[#141414]/5 space-y-1">
                               {/* Total de Pagamentos */}
@@ -5362,6 +5456,342 @@ export default function Dashboard({
             </motion.div>
           </motion.div>
         )}
+        {/* Confirmar Baixa Modal */}
+        {isBaixaModalOpen && (() => {
+          const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
+          const activeOrder = orders.find((o: any) => targetId && o.tableId && String(o.tableId) === String(targetId) && !!o.isComanda === !!isComandaSelected && o.status !== 'finalizada');
+          if (!activeOrder) return null;
+          return (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-[#141414]/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4"
+            onClick={() => setIsBaixaModalOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.92, opacity: 0 }}
+              className="bg-white w-full max-w-xl rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header fixo */}
+              <div className="bg-purple-600 px-6 py-4 flex items-center justify-between shrink-0">
+                <div>
+                  <p className="text-purple-200 text-[10px] uppercase font-bold tracking-widest">Confirmar Baixa</p>
+                  <h3 className="text-white font-serif italic text-xl leading-tight">
+                    {activeOrder.isComanda ? 'Comanda' : 'Mesa'} {activeOrder.tableId}
+                    {activeOrder.waiterName && (
+                      <span className="ml-2 text-purple-200 font-sans not-italic text-sm font-normal">— {activeOrder.waiterName}</span>
+                    )}
+                  </h3>
+                  <p className="text-purple-300 text-[10px] mt-0.5">
+                    {new Date(activeOrder.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+                <button onClick={() => setIsBaixaModalOpen(false)} className="text-purple-200 hover:text-white p-1">
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Corpo rolável */}
+              <div className="overflow-y-auto flex-1 min-h-0">
+
+                {/* Itens lançados */}
+                <div className="px-6 pt-5 pb-3">
+                  <p className="text-[10px] uppercase font-bold opacity-40 tracking-widest mb-3">Itens Lançados</p>
+                  {(() => {
+                    const activeItems = (activeOrder.items || []).filter((i: any) => !i.removed);
+                    const removedItems = (activeOrder.items || []).filter((i: any) => i.removed);
+
+                    if (activeItems.length === 0 && removedItems.length === 0) {
+                      return <p className="text-sm opacity-50 italic text-center py-3">Nenhum item registrado</p>;
+                    }
+
+                    const itemRow = (item: any, removed = false) => {
+                      let price = Number(item.price || 0);
+                      if (item.discount) {
+                        price = item.discountType === 'percentage'
+                          ? price * (1 - item.discount / 100)
+                          : Math.max(0, price - item.discount);
+                      }
+                      const qty = item.quantity || 1;
+                      return (
+                        <div key={item.id} className={`flex items-start gap-3 py-2.5 border-b border-[#141414]/5 last:border-0 ${removed ? 'opacity-40' : ''}`}>
+                          <div className="w-6 h-6 rounded-full bg-[#141414]/8 flex items-center justify-center shrink-0 mt-0.5">
+                            <span className="text-[10px] font-black">{qty}×</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-bold text-sm leading-snug ${removed ? 'line-through' : ''}`}>{item.name}</p>
+                            {item.flavors?.length > 0 && (
+                              <p className="text-[10px] opacity-50 leading-tight">{item.flavors.join(', ')}</p>
+                            )}
+                            {item.observations && (
+                              <p className="text-[10px] text-blue-600 font-semibold mt-0.5">Obs: {item.observations}</p>
+                            )}
+                            {removed && item.removalReason && (
+                              <p className="text-[10px] text-red-500 mt-0.5">Removido: {item.removalReason}</p>
+                            )}
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              {item.waiterName && (
+                                <span className="text-[9px] bg-[#141414]/8 px-1.5 py-0.5 rounded font-semibold opacity-60">{item.waiterName}</span>
+                              )}
+                              {item.timestamp && (
+                                <span className="text-[9px] opacity-40">
+                                  {new Date(item.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                              {item.discount > 0 && (
+                                <span className="text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">
+                                  -{item.discountType === 'percentage' ? `${item.discount}%` : `R$${item.discount}`}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span className={`font-black font-mono text-sm shrink-0 ${removed ? 'line-through' : ''}`}>
+                            R$ {(price * qty).toFixed(2)}
+                          </span>
+                        </div>
+                      );
+                    };
+
+                    const subtotal = activeItems.reduce((acc: number, i: any) => {
+                      let p = Number(i.price || 0);
+                      if (i.discount) p = i.discountType === 'percentage' ? p * (1 - i.discount / 100) : Math.max(0, p - i.discount);
+                      return acc + p * (i.quantity || 1);
+                    }, 0);
+
+                    return (
+                      <div>
+                        {activeItems.map((i: any) => itemRow(i, false))}
+                        {removedItems.length > 0 && (
+                          <div className="mt-2">
+                            <p className="text-[9px] uppercase font-bold text-red-400 tracking-widest mb-1">Itens Removidos</p>
+                            {removedItems.map((i: any) => itemRow(i, true))}
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center pt-3 mt-1 border-t border-[#141414]/10">
+                          <span className="text-xs font-bold uppercase opacity-50">Subtotal</span>
+                          <span className="font-black font-mono">R$ {subtotal.toFixed(2)}</span>
+                        </div>
+                        {activeOrder.discount > 0 && (
+                          <div className="flex justify-between items-center text-amber-600">
+                            <span className="text-xs font-bold uppercase opacity-70">Desconto</span>
+                            <span className="font-bold font-mono text-sm">
+                              -{activeOrder.discountType === 'percentage' ? `${activeOrder.discount}%` : `R$ ${Number(activeOrder.discount).toFixed(2)}`}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Pagamentos */}
+                <div className="px-6 pb-5 border-t border-[#141414]/8 pt-4">
+                  <p className="text-[10px] uppercase font-bold opacity-40 tracking-widest mb-3">Pagamentos Registrados</p>
+                  {(() => {
+                    const log = activeOrder.paymentLog || [];
+                    if (log.length === 0) {
+                      return <p className="text-sm opacity-50 italic text-center py-3">Nenhum pagamento registrado</p>;
+                    }
+
+                    const methodColors: Record<string, string> = {
+                      'Dinheiro': 'bg-green-50 border-green-200 text-green-800',
+                      'PIX':      'bg-blue-50 border-blue-200 text-blue-800',
+                      'Crédito':  'bg-purple-50 border-purple-200 text-purple-800',
+                      'Débito':   'bg-orange-50 border-orange-200 text-orange-800',
+                    };
+                    const methodDot: Record<string, string> = {
+                      'Dinheiro': 'bg-green-500',
+                      'PIX':      'bg-blue-500',
+                      'Crédito':  'bg-purple-500',
+                      'Débito':   'bg-orange-500',
+                    };
+
+                    const total = log.reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+
+                    return (
+                      <div className="space-y-2">
+                        {log.map((p: any, idx: number) => (
+                          <div key={idx} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${methodColors[p.method] || 'bg-gray-50 border-gray-200 text-gray-800'}`}>
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${methodDot[p.method] || 'bg-gray-400'}`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm">{p.method}</span>
+                                {p.type === 'partial' && (
+                                  <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase">Parcial</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {p.payer && (
+                                  <span className="text-[10px] font-semibold opacity-70">{p.payer}</span>
+                                )}
+                                {p.timestamp && (
+                                  <span className="text-[9px] opacity-40">
+                                    {new Date(p.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="font-black font-mono text-sm shrink-0">R$ {Number(p.amount).toFixed(2)}</span>
+                          </div>
+                        ))}
+                        <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-[#141414] text-white mt-2">
+                          <span className="font-bold text-sm uppercase tracking-wide">Total Pago</span>
+                          <span className="font-black font-mono text-lg">R$ {total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Rodapé fixo com ações */}
+              <div className="px-6 py-4 border-t border-[#141414]/10 space-y-3 shrink-0">
+                {/* Toggle imprimir */}
+                <button
+                  onClick={() => setPrintOnBaixa(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl border-2 transition-colors hover:bg-gray-50"
+                  style={{ borderColor: printOnBaixa ? '#7c3aed' : '#e5e7eb' }}
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText size={15} className={printOnBaixa ? 'text-purple-600' : 'text-gray-400'} />
+                    <span className={`font-bold text-sm ${printOnBaixa ? 'text-purple-700' : 'text-gray-400'}`}>
+                      Imprimir comprovante
+                    </span>
+                  </div>
+                  <div className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${printOnBaixa ? 'bg-purple-500' : 'bg-gray-200'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${printOnBaixa ? 'translate-x-4' : ''}`} />
+                  </div>
+                </button>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setIsBaixaModalOpen(false)}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm border-2 border-[#141414]/10 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      socket.emit('confirm_baixa', { orderId: activeOrder.id });
+                      toast.success('Baixa confirmada! Mesa liberada.');
+                      setIsBaixaModalOpen(false);
+                      if (printOnBaixa) {
+                        const tableType = activeOrder.isComanda ? 'Comanda' : 'Mesa';
+                        const tableLabel = `${tableType} ${activeOrder.tableId}`;
+                        const waiterName = activeOrder.waiterName || '—';
+                        const openedAt = new Date(activeOrder.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        const closedAt = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+                        const activeItems = (activeOrder.items || []).filter((i: any) => !i.removed);
+                        const removedItems = (activeOrder.items || []).filter((i: any) => i.removed);
+
+                        const calcPrice = (i: any) => {
+                          let p = Number(i.price || 0);
+                          if (i.discount) p = i.discountType === 'percentage' ? p * (1 - i.discount / 100) : Math.max(0, p - i.discount);
+                          return p * (i.quantity || 1);
+                        };
+                        const subtotal = activeItems.reduce((acc: number, i: any) => acc + calcPrice(i), 0);
+                        const totalPaid = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
+
+                        const itemsHtml = activeItems.map((i: any) => {
+                          const price = calcPrice(i);
+                          const obs = i.observations ? `<div style="font-size:10px;color:#666;margin-top:1px">Obs: ${i.observations}</div>` : '';
+                          const waiter = i.waiterName ? `<span style="font-size:9px;background:#f0f0f0;padding:1px 5px;border-radius:3px">${i.waiterName}</span>` : '';
+                          return `<tr>
+                            <td style="padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top">
+                              <div style="font-weight:700">${i.quantity || 1}× ${i.name}</div>
+                              ${i.flavors?.length ? `<div style="font-size:10px;color:#888">${i.flavors.join(', ')}</div>` : ''}
+                              ${obs}
+                              ${waiter}
+                            </td>
+                            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-family:monospace;font-weight:700;vertical-align:top;white-space:nowrap">R$ ${price.toFixed(2)}</td>
+                          </tr>`;
+                        }).join('');
+
+                        const removedHtml = removedItems.length > 0
+                          ? `<tr><td colspan="2" style="padding:6px 8px 2px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#dc2626;background:#fff5f5">Itens Removidos</td></tr>` +
+                            removedItems.map((i: any) => `<tr style="opacity:.5"><td style="padding:4px 8px;border-bottom:1px dashed #eee;text-decoration:line-through;font-size:11px">${i.quantity || 1}× ${i.name}${i.removalReason ? ` — ${i.removalReason}` : ''}</td><td style="padding:4px 8px;border-bottom:1px dashed #eee;text-align:right;font-family:monospace;font-size:11px;text-decoration:line-through;white-space:nowrap">R$ ${Number(i.price || 0).toFixed(2)}</td></tr>`).join('')
+                          : '';
+
+                        const discountHtml = activeOrder.discount > 0
+                          ? `<tr><td style="padding:5px 8px;color:#d97706;font-size:11px">Desconto</td><td style="padding:5px 8px;text-align:right;font-family:monospace;color:#d97706;font-size:11px;white-space:nowrap">-${activeOrder.discountType === 'percentage' ? `${activeOrder.discount}%` : `R$ ${Number(activeOrder.discount).toFixed(2)}`}</td></tr>`
+                          : '';
+
+                        const methodColors: Record<string, string> = { 'Dinheiro': '#16a34a', 'PIX': '#2563eb', 'Crédito': '#7c3aed', 'Débito': '#ea580c' };
+                        const paymentsHtml = (activeOrder.paymentLog || []).map((p: any) => {
+                          const color = methodColors[p.method] || '#555';
+                          const payer = p.payer ? ` — ${p.payer}` : '';
+                          const partial = p.type === 'partial' ? ` <span style="font-size:8px;background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:700">PARCIAL</span>` : '';
+                          return `<tr>
+                            <td style="padding:5px 8px;border-bottom:1px solid #eee">
+                              <span style="color:${color};font-weight:700">${p.method}</span>${partial}${payer ? `<span style="font-size:10px;color:#888">${payer}</span>` : ''}
+                            </td>
+                            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-family:monospace;font-weight:700;color:${color};white-space:nowrap">R$ ${Number(p.amount).toFixed(2)}</td>
+                          </tr>`;
+                        }).join('');
+
+                        const _rcptPw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
+                        const _rcptFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '13px';
+                        const _rcptHdFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '13px' : '15px';
+                        const _rcptTotalFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '13px' : '16px';
+                        const w = window.open('', '_blank');
+                        if (w) {
+                          w.document.write(`<html><head><title>Comprovante — ${tableLabel}</title><style>
+                            *{box-sizing:border-box}
+                            body{font-family:sans-serif;padding:12px;max-width:${_rcptPw};margin:0 auto;color:#141414;font-size:${_rcptFs}}
+                            .center{text-align:center}
+                            .sep{border-top:1px dashed #ccc;margin:8px 0}
+                            table{width:100%;border-collapse:collapse}
+                            @media print{body{padding:6px;max-width:100%}}
+                          </style></head><body>
+                            <div class="center" style="margin-bottom:10px">
+                              <div style="font-weight:900;font-size:${_rcptHdFs};text-transform:uppercase">${printerConfig.establishmentName || ''}</div>
+                              ${printerConfig.address ? `<div style="font-size:9px;color:#666">${printerConfig.address}</div>` : ''}
+                              ${printerConfig.phone ? `<div style="font-size:9px;color:#666">Tel: ${printerConfig.phone}</div>` : ''}
+                            </div>
+                            <div class="sep"></div>
+                            <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                              <span style="font-weight:700;font-size:${_rcptHdFs}">${tableLabel}</span>
+                              <span style="font-size:9px;color:#666">Garçom: ${waiterName}</span>
+                            </div>
+                            <div style="font-size:9px;color:#888;margin-bottom:2px">Abertura: ${openedAt}</div>
+                            <div style="font-size:9px;color:#888;margin-bottom:10px">Fechamento: ${closedAt}</div>
+                            <div class="sep"></div>
+                            <table>${itemsHtml}${removedHtml}</table>
+                            <div class="sep"></div>
+                            <table>
+                              <tr><td style="padding:3px 6px;font-size:${_rcptFs};font-weight:700">Subtotal</td><td style="padding:3px 6px;text-align:right;font-family:monospace;font-weight:700;white-space:nowrap">R$ ${subtotal.toFixed(2)}</td></tr>
+                              ${discountHtml}
+                            </table>
+                            <div style="background:#141414;color:#fff;padding:8px 10px;border-radius:4px;display:flex;justify-content:space-between;margin:6px 0 10px">
+                              <span style="font-weight:700;font-size:${_rcptFs};text-transform:uppercase">Total Pago</span>
+                              <span style="font-family:monospace;font-weight:900;font-size:${_rcptTotalFs}">R$ ${totalPaid.toFixed(2)}</span>
+                            </div>
+                            <table style="margin-bottom:10px">${paymentsHtml}</table>
+                            <div class="sep"></div>
+                            <div class="center" style="font-size:9px;color:#999;margin-top:6px">${printerConfig.receiptFooter || ''}</div>
+                            <script>window.onload=()=>{window.print();window.close()}</script>
+                          </body></html>`);
+                          w.document.close();
+                        }
+                      }
+                    }}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <CheckCircle size={16} />
+                    Confirmar Baixa
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+          );
+        })()}
+
         {/* Add Category Popup */}
         {isAddCategoryPopupOpen && (
           <motion.div 

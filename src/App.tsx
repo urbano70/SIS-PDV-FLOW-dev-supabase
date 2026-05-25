@@ -49,6 +49,7 @@ function AppContent() {
     showLogo: true,
     itemFontSize: '12px',
     boldItems: false,
+    paperWidth: '80mm',
   };
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {
@@ -60,12 +61,28 @@ function AppContent() {
   });
 
   useEffect(() => {
-    if (user && waiters.length > 0) {
-      const myRecord = waiters.find(w => w.id === user.uid || (w as any).uid === user.uid);
-      if (myRecord) {
-        setIsApproved(myRecord.status === 'approved');
+    if (waiters.length === 0) return;
+
+    // Tenta localizar pelo UID do Firebase primeiro
+    if (user) {
+      const byUid = waiters.find(w => w.id === user.uid || (w as any).uid === user.uid);
+      if (byUid) {
+        setIsApproved(byUid.status === 'approved');
+        return;
       }
     }
+
+    // Fallback: localiza pelo nome salvo (funciona sem Firebase Auth ativo)
+    try {
+      const saved = localStorage.getItem('waiter_credentials');
+      if (saved) {
+        const { name } = JSON.parse(saved);
+        if (name) {
+          const byName = waiters.find(w => w.name === name);
+          if (byName) setIsApproved(byName.status === 'approved');
+        }
+      }
+    } catch {}
   }, [user, waiters]);
 
   // Authenticate admin socket as soon as we know the user is admin
