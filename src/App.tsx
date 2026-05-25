@@ -77,6 +77,21 @@ function AppContent() {
     }
   }, [isAdmin, user]);
 
+  // Re-autentica o garçom sempre que o socket (re)conectar ao servidor
+  useEffect(() => {
+    const relogin = () => {
+      const saved = localStorage.getItem('waiter_credentials');
+      if (saved) {
+        try {
+          const { name, password } = JSON.parse(saved);
+          if (name && password) socket.emit('waiter_login', { name, password });
+        } catch {}
+      }
+    };
+    socket.on('connect', relogin);
+    return () => { socket.off('connect', relogin); };
+  }, []);
+
   useEffect(() => {
     // Escutar eventos do socket para dados específicos e notificações
     socket.on('init_data', (data) => {
