@@ -464,22 +464,24 @@ async function startServer() {
       }
     });
 
-    socket.on("kitchen_start_item", ({ orderId, itemId }) => {
+    socket.on("kitchen_start_item", async ({ orderId, itemId }) => {
       const order = orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
       io.emit("update_orders", orders);
+      await saveToFirestore('orders', order, String(order.id));
     });
 
-    socket.on("kitchen_finish_item", ({ orderId, itemId }) => {
+    socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
       const order = orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
       io.emit("update_orders", orders);
+      await saveToFirestore('orders', order, String(order.id));
     });
 
     socket.on("waiter_register", (waiterData) => {
