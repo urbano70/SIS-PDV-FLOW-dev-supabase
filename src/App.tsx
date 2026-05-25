@@ -85,13 +85,18 @@ function AppContent() {
     } catch {}
   }, [user, waiters]);
 
-  // Authenticate admin socket as soon as we know the user is admin
+  // Authenticate admin socket — runs on login and on every socket reconnect
   useEffect(() => {
-    if (isAdmin && user) {
-      (user as any).getIdToken().then((token: string) => {
-        socket.emit('admin_connect', token);
-      }).catch(() => {});
-    }
+    const sendAdminConnect = () => {
+      if (isAdmin && user) {
+        (user as any).getIdToken().then((token: string) => {
+          socket.emit('admin_connect', token);
+        }).catch(() => {});
+      }
+    };
+    sendAdminConnect();
+    socket.on('connect', sendAdminConnect);
+    return () => { socket.off('connect', sendAdminConnect); };
   }, [isAdmin, user]);
 
   // Re-autentica o garçom sempre que o socket (re)conectar ao servidor
