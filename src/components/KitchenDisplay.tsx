@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Order } from '../types';
+import { Order, MenuCategory } from '../types';
 import socket from '../lib/socket';
 import { Clock, ChefHat, Pizza, Sandwich, CheckCircle2, Flame, BellRing } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface KitchenDisplayProps {
   orders: Order[];
+  menu: MenuCategory[];
 }
 
 interface KitchenItem {
@@ -262,7 +263,7 @@ const Section = React.memo(({
 });
 
 /* ─── Root ───────────────────────────────────────────────────────────────── */
-export default function KitchenDisplay({ orders }: KitchenDisplayProps) {
+export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -278,12 +279,22 @@ export default function KitchenDisplay({ orders }: KitchenDisplayProps) {
     socket.emit('kitchen_finish_item', { orderId, itemId });
   }, []);
 
+  // Resolve the true category type from the menu (overrides stale Firestore values)
+  const resolveItemType = (item: any): string | undefined => {
+    if (item.type === 'pizzas') return 'pizzas';
+    const cat = item.menuItemId
+      ? menu.find(c => c.items.some(i => i.id === item.menuItemId))
+      : menu.find(c => c.items.some(i => i.name === item.name));
+    return cat?.type || item.type;
+  };
+
   const kitchenItems: KitchenItem[] = [];
   for (const order of orders) {
     if (order.status === 'finalizada') continue;
     for (const item of (order.items || [])) {
       if (item.removed || item.deliveredAt || item.paid) continue;
-      if (item.type !== 'pizzas' && item.type !== 'lanches') continue;
+      const effectiveType = menu.length > 0 ? resolveItemType(item) : item.type;
+      if (effectiveType !== 'pizzas' && effectiveType !== 'lanches') continue;
       kitchenItems.push({
         orderId: order.id,
         itemId: item.id,

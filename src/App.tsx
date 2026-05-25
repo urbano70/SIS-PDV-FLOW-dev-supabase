@@ -244,7 +244,7 @@ function AppContent() {
           } 
         />
         
-        <Route path="/kitchen" element={<KitchenDisplay orders={orders} />} />
+        <Route path="/kitchen" element={<KitchenDisplay orders={orders} menu={menu} />} />
         <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
         
         {/* Redirecionamentos padrão */}

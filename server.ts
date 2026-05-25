@@ -106,9 +106,21 @@ async function startServer() {
       });
     });
 
-    // Sync active orders
+    // Sync active orders — resolve item types from current menu to fix stale Firestore data
     db.collection("orders").onSnapshot((snapshot) => {
-      orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      orders = snapshot.docs.map(doc => {
+        const data: any = { id: doc.id, ...doc.data() };
+        if (data.items && menu.length > 0) {
+          data.items = data.items.map((item: any) => {
+            if (item.type === 'pizzas') return item;
+            const cat = item.menuItemId
+              ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
+              : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
+            return cat?.type ? { ...item, type: cat.type } : item;
+          });
+        }
+        return data;
+      });
       io.emit("update_orders", orders);
     });
 
