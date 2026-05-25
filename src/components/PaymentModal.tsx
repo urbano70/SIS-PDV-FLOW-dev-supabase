@@ -558,13 +558,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                       <div className="flex items-center space-x-3">
                         <div className="flex-1 flex items-center bg-white border border-[#141414]/20 rounded-xl px-3 py-2">
                           <span className="opacity-40 mr-2">R$</span>
-                          <input 
+                          <input
                             type="number"
                             value={splitCustomAmount || ''}
                             onChange={(e) => setSplitCustomAmount(parseFloat(e.target.value) || 0)}
                             placeholder="0,00"
                             className="w-full font-bold focus:outline-none"
-                            autoFocus
                           />
                         </div>
                         <button 
