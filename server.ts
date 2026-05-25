@@ -599,7 +599,7 @@ async function startServer() {
             (s as any).waiterUid  === waiter.uid  ||
             (s as any).waiterCpf  === waiter.cpf  ||
             (s as any).waiterName === waiter.name;
-          if (matches) s.emit("waiter_approved", { status: "approved" });
+          if (matches) s.emit("waiter_approved", { status: "approved", isNewApproval: true });
         });
       }
     }));

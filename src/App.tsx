@@ -111,13 +111,7 @@ function AppContent() {
       }
     };
     socket.on('connect', relogin);
-    // Re-login quando o servidor termina de carregar os garçons do Firestore
-    // (evita race condition onde connect chega antes do Firestore responder)
-    socket.on('update_waiters', relogin);
-    return () => {
-      socket.off('connect', relogin);
-      socket.off('update_waiters', relogin);
-    };
+    return () => { socket.off('connect', relogin); };
   }, []);
 
   useEffect(() => {
@@ -136,7 +130,8 @@ function AppContent() {
         toast.error('Seu acesso está inativo. Entre em contato com o gerente.');
       } else if (data?.status === 'approved') {
         setIsApproved(true);
-        toast.success('Acesso aprovado pelo gerente!');
+        // Toast só quando for aprovação real pelo gerente, não em re-logins de rotina
+        if (data?.isNewApproval) toast.success('Acesso aprovado pelo gerente!');
       } else if (data?.status === 'pending') {
         setIsApproved(false);
         toast.info('Seu cadastro ainda está pendente de aprovação.');
