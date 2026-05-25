@@ -87,6 +87,23 @@ async function startServer() {
     db.collection("waiters").onSnapshot((snapshot) => {
       waiters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       io.emit("update_waiters", waiters);
+
+      // Retry pending logins that failed during startup race condition
+      io.sockets.sockets.forEach((s: any) => {
+        if (s._pendingLogin && !s.waiterId) {
+          const { name, password } = s._pendingLogin;
+          const w = waiters.find((x: any) => x.name === name && x.password === password);
+          if (w) {
+            w.socketId = s.id;
+            s.waiterId = w.id;
+            s.waiterName = w.name;
+            s.waiterCpf = w.cpf;
+            s.waiterUid = w.uid;
+            s.emit("waiter_approved", { status: w.status });
+            delete s._pendingLogin;
+          }
+        }
+      });
     });
 
     // Sync active orders
@@ -437,7 +454,7 @@ async function startServer() {
         : null;
 
       const waiter = waiters.find((w: any) => w.id === (socket as any).waiterId);
-      const waiterName = waiter?.name || '';
+      const waiterName = waiter?.name || (socket as any).waiterName || '';
 
       item.deliveredAt = now;
       item.deliveredBy = waiterName;
@@ -519,14 +536,17 @@ async function startServer() {
       const waiter = waiters.find(w => w.name === name && w.password === password);
       if (waiter) {
         waiter.socketId = socket.id;
-        // Armazena todos os identificadores possíveis para matching robusto
         (socket as any).waiterId = waiter.id;
         (socket as any).waiterUid = waiter.uid;
         (socket as any).waiterCpf = waiter.cpf;
         (socket as any).waiterName = waiter.name;
+        delete (socket as any)._pendingLogin;
 
         socket.emit("waiter_approved", { status: waiter.status });
         io.emit("update_waiters", waiters);
+      } else if (waiters.length === 0) {
+        // Race condition: waiters not loaded from Firestore yet — save for retry
+        (socket as any)._pendingLogin = { name, password };
       } else {
         socket.emit("login_error", "Nome ou senha incorretos.");
       }

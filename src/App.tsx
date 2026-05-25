@@ -111,7 +111,13 @@ function AppContent() {
       }
     };
     socket.on('connect', relogin);
-    return () => { socket.off('connect', relogin); };
+    // Re-login quando o servidor termina de carregar os garçons do Firestore
+    // (evita race condition onde connect chega antes do Firestore responder)
+    socket.on('update_waiters', relogin);
+    return () => {
+      socket.off('connect', relogin);
+      socket.off('update_waiters', relogin);
+    };
   }, []);
 
   useEffect(() => {
