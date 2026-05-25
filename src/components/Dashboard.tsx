@@ -32,6 +32,97 @@ interface DashboardProps {
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
 }
 
+// ── ESC/POS builder ──────────────────────────────────────────────────────────
+const CP850: Record<string, number> = {
+  'á':0xA0,'é':0x82,'í':0xA1,'ó':0xA2,'ú':0xA3,
+  'â':0x83,'ê':0x88,'ô':0x93,'û':0x96,
+  'ã':0xC6,'õ':0xE4,'ç':0x87,'à':0x85,'ü':0x81,
+  'Á':0xB5,'É':0x90,'Í':0xD6,'Ó':0xE0,'Ú':0xE9,
+  'Â':0xB6,'Ê':0xD2,'Ô':0xE2,'Û':0xEA,
+  'Ã':0xC7,'Õ':0xE5,'Ç':0x80,'À':0xB7,
+};
+
+function escStr(s: string): number[] {
+  const out: number[] = [];
+  for (const ch of s) {
+    const mapped = CP850[ch];
+    if (mapped) out.push(mapped);
+    else { const c = ch.charCodeAt(0); out.push(c < 128 ? c : 0x3F); }
+  }
+  return out;
+}
+
+function buildEscPosKitchenTicket(
+  item: any,
+  tableType: string,
+  targetId: string | number,
+  printerName: string,
+  paperWidth: string
+): number[] {
+  const wide = paperWidth !== '50mm';
+  const lineLen = wide ? 42 : 24;
+  const b: number[] = [];
+
+  const push = (...bytes: number[]) => b.push(...bytes);
+  const lf = () => push(0x0A);
+  const text = (s: string) => push(...escStr(s));
+  const line = () => { text('-'.repeat(lineLen)); lf(); };
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('pt-BR');
+  const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  // Init + code page CP850
+  push(0x1B, 0x40, 0x1B, 0x74, 0x02);
+
+  // Header — centered
+  push(0x1B, 0x61, 0x01);
+  push(0x1B, 0x45, 0x01); text('VIA PRODUCAO: ' + printerName.toUpperCase()); lf();
+  push(0x1B, 0x45, 0x00);
+
+  // Mesa / Comanda — double size
+  push(0x1D, 0x21, 0x11, 0x1B, 0x45, 0x01);
+  text(tableType.toUpperCase() + ' ' + String(targetId)); lf();
+  push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+
+  // Data e hora
+  push(0x1B, 0x45, 0x01); text(dateStr + '  ' + timeStr); lf();
+  push(0x1B, 0x45, 0x00);
+
+  // Separator
+  push(0x1B, 0x61, 0x00);
+  line();
+
+  // Item — double height
+  push(0x1D, 0x21, 0x10, 0x1B, 0x45, 0x01);
+  text((item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ') + item.name.toUpperCase()); lf();
+  push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+
+  // Sabores
+  if (item.flavors && item.flavors.length > 1) {
+    push(0x1B, 0x45, 0x01); text('SABORES: ' + item.flavors.join(' / ').toUpperCase()); lf();
+    push(0x1B, 0x45, 0x00);
+  }
+
+  // Borda
+  if (item.crust) { text('BORDA: ' + item.crust.toUpperCase()); lf(); }
+
+  // Observação — fundo preto
+  if (item.observations) {
+    push(0x1D, 0x42, 0x01, 0x1B, 0x45, 0x01);
+    text('OBS: ' + item.observations.toUpperCase()); lf();
+    push(0x1D, 0x42, 0x00, 0x1B, 0x45, 0x00);
+  }
+
+  line();
+  text('Operador: ' + (item.waiterName || 'SISTEMA')); lf(); lf();
+
+  // Corte parcial
+  push(0x1D, 0x56, 0x41, 0x03);
+
+  return b;
+}
+
 // Separate component for Order Details to avoid Hook issues and improve readability
 const OrderDetails = ({ 
   isComandaSelected, 
@@ -955,65 +1046,58 @@ export default function Dashboard({
       }
 
       if (shouldPrint && targetPrinterName && targetPrinterName !== 'none') {
-        const printFrame = document.createElement('iframe');
-        printFrame.style.position = 'fixed';
-        printFrame.style.right = '0';
-        printFrame.style.bottom = '0';
-        printFrame.style.width = '0';
-        printFrame.style.height = '0';
-        printFrame.style.border = '0';
-        document.body.appendChild(printFrame);
+        const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
 
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('pt-BR');
-        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        
-        const _pw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
-        const _tblFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '24px' : '36px';
-        const _itemFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '14px' : '20px';
-        const _obsFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '16px';
-        const html = `
-          <html>
-            <head>
-              <style>
-                body { font-family: monospace; padding: 8px; width: ${_pw}; margin: 0 auto; color: #000; }
-                .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 6px; margin-bottom: 8px; }
-                .table-info { font-size: ${_tblFs}; font-weight: bold; margin: 4px 0; border: 3px solid #000; padding: 6px; text-align: center; }
-                .item-detail { font-size: ${_itemFs}; font-weight: bold; text-transform: uppercase; margin-bottom: 8px; }
-                .observation { background: #000; color: #fff; padding: 6px; font-weight: bold; font-size: ${_obsFs}; margin-top: 4px; }
-                .footer { font-size: 9px; margin-top: 16px; border-top: 1px solid #000; padding-top: 4px; line-height: 1.4; }
-                @media print { body { width: 100%; margin: 0; } }
-              </style>
-            </head>
-            <body>
-              <div class="header">
-                <div style="font-size: 11px; font-weight: bold;">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
-                <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
-                <div style="font-size: 11px; font-weight: bold; margin-top: 4px;">${dateStr} &nbsp; ${timeStr}</div>
-              </div>
-              <div class="item-detail">
-                ${item.quantity || 1}x ${item.name}
-              </div>
-              ${item.flavors && item.flavors.length > 1 ? `<div style="font-size: ${_obsFs}; font-weight: bold;">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
-              ${item.crust ? `<div style="font-size: ${_obsFs};">BORDA: ${item.crust}</div>` : ''}
-              ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-              <div class="footer">
-                <div>Operador: ${item.waiterName || 'SISTEMA'}</div>
-              </div>
-            </body>
-          </html>
-        `;
+        if (printer?.ip) {
+          // ── Impressão direta ESC/POS via TCP ────────────────────────────────
+          const data = buildEscPosKitchenTicket(
+            item, tableType, String(targetId), targetPrinterName, printerConfig.paperWidth || '80mm'
+          );
+          socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
+        } else {
+          // ── Fallback: diálogo de impressão do navegador ──────────────────────
+          const printFrame = document.createElement('iframe');
+          printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+          document.body.appendChild(printFrame);
 
-        if (printFrame.contentWindow) {
-          printFrame.contentWindow.document.open();
-          printFrame.contentWindow.document.write(html);
-          printFrame.contentWindow.document.close();
-          
-          setTimeout(() => {
-            printFrame.contentWindow?.focus();
-            printFrame.contentWindow?.print();
-            document.body.removeChild(printFrame);
-          }, 300);
+          const now = new Date();
+          const dateStr = now.toLocaleDateString('pt-BR');
+          const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          const _pw   = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
+          const _tblFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '24px' : '36px';
+          const _itemFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '14px' : '20px';
+          const _obsFs  = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '16px';
+          const html = `<html><head><style>
+            body{font-family:monospace;padding:8px;width:${_pw};margin:0 auto;color:#000}
+            .header{text-align:center;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px}
+            .table-info{font-size:${_tblFs};font-weight:bold;margin:4px 0;border:3px solid #000;padding:6px;text-align:center}
+            .item-detail{font-size:${_itemFs};font-weight:bold;text-transform:uppercase;margin-bottom:8px}
+            .observation{background:#000;color:#fff;padding:6px;font-weight:bold;font-size:${_obsFs};margin-top:4px}
+            .footer{font-size:9px;margin-top:16px;border-top:1px solid #000;padding-top:4px;line-height:1.4}
+            @media print{body{width:100%;margin:0}}
+          </style></head><body>
+            <div class="header">
+              <div style="font-size:11px;font-weight:bold">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
+              <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
+              <div style="font-size:11px;font-weight:bold;margin-top:4px">${dateStr} &nbsp; ${timeStr}</div>
+            </div>
+            <div class="item-detail">${item.quantity || 1}x ${item.name}</div>
+            ${item.flavors && item.flavors.length > 1 ? `<div style="font-size:${_obsFs};font-weight:bold">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
+            ${item.crust ? `<div style="font-size:${_obsFs}">BORDA: ${item.crust}</div>` : ''}
+            ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+            <div class="footer"><div>Operador: ${item.waiterName || 'SISTEMA'}</div></div>
+          </body></html>`;
+
+          if (printFrame.contentWindow) {
+            printFrame.contentWindow.document.open();
+            printFrame.contentWindow.document.write(html);
+            printFrame.contentWindow.document.close();
+            setTimeout(() => {
+              printFrame.contentWindow?.focus();
+              printFrame.contentWindow?.print();
+              document.body.removeChild(printFrame);
+            }, 300);
+          }
         }
       }
     });
@@ -1027,11 +1111,21 @@ export default function Dashboard({
       }
     };
 
+    const handlePrintResult = (result: { success: boolean; ip: string; error?: string }) => {
+      if (result.success) {
+        toast.success('Impresso com sucesso', { description: `Impressora ${result.ip}`, duration: 2000 });
+      } else {
+        toast.error('Falha na impressão', { description: `${result.ip} — ${result.error}` });
+      }
+    };
+
     socket.on('kitchen_new_order', handleKitchenOrder);
+    socket.on('print_result', handlePrintResult);
     return () => {
       socket.off('kitchen_new_order', handleKitchenOrder);
+      socket.off('print_result', handlePrintResult);
     };
-  }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas]);
+  }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth]);
 
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;

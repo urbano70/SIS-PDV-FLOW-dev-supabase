@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import net from "net";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
 import admin from "firebase-admin";
@@ -1641,6 +1642,30 @@ async function startServer() {
           console.error("reset_system: failed to clear Firestore", err);
         }
       }
+    });
+
+    // ── Impressão direta por IP via ESC/POS (TCP port 9100) ──────────────────
+    socket.on("print_escpos", ({ ip, port = 9100, data }: { ip: string; port?: number; data: number[] }) => {
+      if (!ip || !data?.length) return;
+      const client = new net.Socket();
+      let finished = false;
+      const done = () => { if (!finished) { finished = true; client.destroy(); } };
+
+      client.setTimeout(6000);
+      client.connect(port, ip, () => {
+        client.write(Buffer.from(data), () => {
+          socket.emit("print_result", { success: true, ip });
+          setTimeout(done, 300);
+        });
+      });
+      client.on("timeout", () => {
+        socket.emit("print_result", { success: false, ip, error: "Timeout — impressora não responde" });
+        done();
+      });
+      client.on("error", (err: Error) => {
+        socket.emit("print_result", { success: false, ip, error: err.message });
+        done();
+      });
     });
 
     // Consolidated init_data is at the beginning of connection
