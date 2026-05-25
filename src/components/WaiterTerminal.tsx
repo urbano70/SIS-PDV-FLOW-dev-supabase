@@ -239,13 +239,17 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     }
     if (selectedId === null || cart.length === 0) return;
     
-    const waiterName = auth.currentUser?.displayName || 'Garçom';
-    const waiterId = auth.currentUser?.uid || 'unknown';
-    
+    let waiterName = '';
+    try {
+      const saved = localStorage.getItem('waiter_credentials');
+      if (saved) waiterName = JSON.parse(saved).name || '';
+    } catch {}
+    if (!waiterName) waiterName = auth.currentUser?.displayName || 'Garçom';
+
     // Check if there's already an active order for this table/comanda
-    const activeOrder = orders.find(o => 
-      selectedId && o.tableId && String(o.tableId) === String(selectedId) && 
-      o.isComanda === isComandaSelected && 
+    const activeOrder = orders.find(o =>
+      selectedId && o.tableId && String(o.tableId) === String(selectedId) &&
+      o.isComanda === isComandaSelected &&
       o.status !== 'finalizada'
     );
 
@@ -266,7 +270,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         tableId: selectedId,
         isComanda: isComandaSelected,
         items: cart,
-        observations: cartObservations.trim()
+        observations: cartObservations.trim(),
+        waiterName
       });
     }
 

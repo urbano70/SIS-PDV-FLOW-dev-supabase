@@ -921,7 +921,8 @@ async function startServer() {
           socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
           return;
         }
-        const itemWithTimestamp = { ...item, timestamp: new Date().toISOString() };
+        const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
+        const itemWithTimestamp = { ...item, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
         if (!order.items) order.items = [];
         order.items.push(itemWithTimestamp);
 
