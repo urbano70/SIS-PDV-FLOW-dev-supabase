@@ -342,7 +342,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         </div>
       )}
 
-      <main className="flex-1 overflow-hidden p-4 flex flex-col min-h-0">
+      <main className="flex-1 overflow-hidden p-3 flex flex-col min-h-0">
         {selectedId === null ? (
           <div className="flex-1 overflow-y-auto min-h-0 space-y-6">
             <div className="flex bg-white p-1 rounded-2xl border border-[#141414]/10">
@@ -412,8 +412,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           </div>
         ) : !isAddingItems ? (
           /* ── TABLE OVERVIEW: shows order (if occupied) or empty state (if free) + "Adicionar Item" button ── */
-          <div className="flex flex-col flex-1 min-h-0 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="flex items-center justify-between shrink-0 mb-3">
               <button onClick={() => { setSelectedId(null); setIsComandaSelected(false); }} className="flex items-center gap-1 bg-[#141414] text-[#E4E3E0] px-4 py-2.5 rounded-xl font-bold text-sm">
                 <ChevronLeft size={18} /> Voltar
               </button>
@@ -441,9 +441,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             </div>
 
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto min-h-0">
             {tableData?.status !== 'free' && currentOrder ? (
-              <>
-                <div className="flex-1 overflow-y-auto min-h-0 bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
+              <div className="bg-white rounded-2xl border border-[#141414]/10 p-4 space-y-4">
                   <h3 className="font-bold text-base border-b pb-2">Pedidos em Aberto</h3>
                   <div className="space-y-3">
                     {currentOrder.items.map((item) => {
@@ -528,8 +529,28 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     )}
                   </div>
                 </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-16 h-16 rounded-full border-2 border-[#141414]/10 flex items-center justify-center mx-auto mb-3">
+                  <Pizza size={28} className="opacity-20" />
+                </div>
+                <p className="text-sm font-bold opacity-30 uppercase tracking-widest">Mesa Livre</p>
+                <p className="text-xs opacity-20 italic">Nenhum pedido em aberto</p>
+              </div>
+            )}
 
-                <div className="bg-[#141414] text-[#E4E3E0] p-5 rounded-2xl space-y-2 shadow-xl shrink-0">
+            {tableData?.status === 'aguardando_baixa' && (
+              <div className="mt-3 bg-purple-50 border-2 border-purple-300 rounded-2xl p-4 text-center space-y-1">
+                <p className="text-purple-700 font-black text-sm uppercase tracking-wide">Aguardando Baixa no Caixa</p>
+                <p className="text-purple-500 text-xs">Pagamento registrado. O caixa precisa dar baixa para liberar a mesa.</p>
+              </div>
+            )}
+            </div>{/* end scrollable content */}
+
+            {/* Sticky footer — always visible */}
+            <div className="shrink-0 pt-3 space-y-3">
+              {tableData?.status !== 'free' && currentOrder && (
+                <div className="bg-[#141414] text-[#E4E3E0] p-4 rounded-2xl space-y-2 shadow-xl">
                   <div className="flex justify-between items-center opacity-50 text-[10px] font-bold uppercase tracking-widest">
                     <span>Total Consumido</span>
                     <span>R$ {(currentOrder.items || []).filter(i => !i.removed).reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span>
@@ -559,62 +580,45 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     })()}</span>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center space-y-3">
-                  <div className="w-16 h-16 rounded-full border-2 border-[#141414]/10 flex items-center justify-center mx-auto">
-                    <Pizza size={28} className="opacity-20" />
-                  </div>
-                  <p className="text-sm font-bold opacity-30 uppercase tracking-widest">Mesa Livre</p>
-                  <p className="text-xs opacity-20 italic">Nenhum pedido em aberto</p>
-                </div>
-              </div>
-            )}
+              )}
 
-            {tableData?.status === 'aguardando_baixa' && (
-              <div className="shrink-0 bg-purple-50 border-2 border-purple-300 rounded-2xl p-4 text-center space-y-1">
-                <p className="text-purple-700 font-black text-sm uppercase tracking-wide">Aguardando Baixa no Caixa</p>
-                <p className="text-purple-500 text-xs">Pagamento registrado. O caixa precisa dar baixa para liberar a mesa.</p>
-              </div>
-            )}
-
-            {tableData?.status === 'free' ? (
-              <button
-                onClick={() => setIsAddingItems(true)}
-                disabled={!isCashRegisterOpen}
-                className="w-full py-5 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40 shrink-0"
-              >
-                <Plus size={20} />
-                <span>Iniciar Nova Comanda</span>
-              </button>
-            ) : tableData?.status === 'aguardando_baixa' ? null : (
-              <div className="flex space-x-3 shrink-0">
+              {tableData?.status === 'free' ? (
                 <button
                   onClick={() => setIsAddingItems(true)}
                   disabled={!isCashRegisterOpen}
-                  className="flex-1 py-5 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                  className="w-full py-5 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
                 >
                   <Plus size={20} />
-                  <span>Adicionar Item</span>
+                  <span>Iniciar Nova Comanda</span>
                 </button>
-                {(pizzariaConfig?.waiterCanPay ?? true) && (
+              ) : tableData?.status === 'aguardando_baixa' ? null : (
+                <div className="flex space-x-3">
                   <button
-                    onClick={() => setIsPaymentModalOpen(true)}
-                    disabled={!currentOrder || pendingAmount <= 0.01}
-                    className="flex-1 py-5 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                    onClick={() => setIsAddingItems(true)}
+                    disabled={!isCashRegisterOpen}
+                    className="flex-1 py-4 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
                   >
-                    <Wallet size={20} className="text-green-400" />
-                    <span className="text-green-400">Pagar</span>
+                    <Plus size={20} />
+                    <span>Adicionar Item</span>
                   </button>
-                )}
-              </div>
-            )}
+                  {(pizzariaConfig?.waiterCanPay ?? true) && (
+                    <button
+                      onClick={() => setIsPaymentModalOpen(true)}
+                      disabled={!currentOrder || pendingAmount <= 0.01}
+                      className="flex-1 py-4 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
+                    >
+                      <Wallet size={20} className="text-green-400" />
+                      <span className="text-green-400">Pagar</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>{/* end sticky footer */}
           </div>
         ) : (
           /* ── ITEM SELECTION ── */
-          <div className="flex flex-col flex-1 min-h-0 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="flex flex-col flex-1 min-h-0 gap-3">
+            <div className="flex items-center justify-between shrink-0">
               <button onClick={() => { setIsAddingItems(false); setCart([]); }} className="flex items-center gap-1 bg-[#141414] text-[#E4E3E0] px-4 py-2.5 rounded-xl font-bold text-sm">
                 <ChevronLeft size={18} /> Voltar
               </button>
@@ -667,7 +671,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               ))}
             </div>
 
-            <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
+            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
               {filteredCategories.map(cat => {
                 const displayName = cat.name;
                 return (
