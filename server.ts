@@ -620,13 +620,24 @@ async function startServer() {
 
       const waiterName = orderData.waiterName || (waiter ? waiter.name : "Desconhecido");
 
-      // Tag items with waiter name
-      const itemsWithWaiter = (orderData.items || []).map(item => ({
-        ...item,
-        id: item.id || Math.random().toString(36).substr(2, 9),
-        waiterName: item.waiterName || waiterName,
-        timestamp: new Date().toISOString()
-      }));
+      // Tag items with waiter name and resolve type from server menu
+      const itemsWithWaiter = (orderData.items || []).map((item: any) => {
+        // Pizzas always keep type 'pizzas'; for other items resolve from server menu
+        let resolvedType = item.type;
+        if (item.type !== 'pizzas') {
+          const cat = item.menuItemId
+            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
+            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
+          if (cat?.type) resolvedType = cat.type;
+        }
+        return {
+          ...item,
+          type: resolvedType,
+          id: item.id || Math.random().toString(36).substr(2, 9),
+          waiterName: item.waiterName || waiterName,
+          timestamp: new Date().toISOString()
+        };
+      });
 
       if (table && table.status === "aguardando_baixa") {
         socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
@@ -645,7 +656,10 @@ async function startServer() {
               : orderData.observations;
           }
           io.emit("update_orders", orders);
-          io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
+          const kitchenItemsExisting = itemsWithWaiter.filter((i: any) => i.type === 'pizzas' || i.type === 'lanches');
+          if (kitchenItemsExisting.length > 0) {
+            io.emit("kitchen_new_order", { items: kitchenItemsExisting, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
+          }
           await saveToFirestore('orders', existingOrder, existingOrder.id.toString());
           console.log("Existing order updated and emitted");
           return;
@@ -673,7 +687,10 @@ async function startServer() {
         io.emit("update_tables", tables);
       }
       io.emit("update_stock", stock);
-      io.emit("kitchen_new_order", newOrder);
+      const kitchenItemsNew = (newOrder.items || []).filter((i: any) => i.type === 'pizzas' || i.type === 'lanches');
+      if (kitchenItemsNew.length > 0) {
+        io.emit("kitchen_new_order", { items: kitchenItemsNew, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
+      }
       
       console.log("Emitted initial updates for new order");
       
@@ -922,13 +939,23 @@ async function startServer() {
           return;
         }
         const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
-        const itemWithTimestamp = { ...item, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
+        // Resolve type from server menu for non-pizza items
+        let resolvedType = item.type;
+        if (item.type !== 'pizzas') {
+          const cat = item.menuItemId
+            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
+            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
+          if (cat?.type) resolvedType = cat.type;
+        }
+        const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
         if (!order.items) order.items = [];
         order.items.push(itemWithTimestamp);
 
         // Emit immediately for fast UI
         io.emit("update_orders", orders);
-        io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
+        if (itemWithTimestamp.type === 'pizzas' || itemWithTimestamp.type === 'lanches') {
+          io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
+        }
 
         await saveToFirestore('orders', order, String(order.id));
         
