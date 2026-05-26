@@ -73,8 +73,8 @@ const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
             : item.kitchenStatus === 'ready'
             ? 'Pronto — Aguardando Garçom'
             : item.kitchenStatus === 'preparing'
-            ? 'Em Preparação'
-            : 'Aguardando Preparo'}
+            ? (item.type === 'pizzas' ? 'No Forno' : 'Em Preparação')
+            : (item.type === 'pizzas' ? 'Aguardando Preparação' : 'Aguardando Preparo')}
         </span>
         <div className="flex items-center gap-1 font-mono font-black text-base">
           <Clock size={12} />
@@ -110,9 +110,14 @@ const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
         {item.kitchenStatus === 'waiting' && (
           <button
             onClick={() => onStart(item.orderId, item.itemId)}
-            className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+            className={`w-full py-3 rounded-xl text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0 ${
+              item.type === 'pizzas'
+                ? 'bg-orange-500 hover:bg-orange-600'
+                : 'bg-amber-500 hover:bg-amber-600'
+            }`}
           >
-            <Flame size={15} /> Preparar
+            {item.type === 'pizzas' ? <ChefHat size={15} /> : <Flame size={15} />}
+            {item.type === 'pizzas' ? 'Preparado' : 'Preparar'}
           </button>
         )}
         {item.kitchenStatus === 'preparing' && (
@@ -146,8 +151,8 @@ const MiniCard = React.memo(({ item, now }: { item: KitchenItem; now: number }) 
 
   const statusLabel =
     item.kitchenStatus === 'ready'     ? 'Pronto'
-    : item.kitchenStatus === 'preparing' ? 'Preparo'
-    :                                    'Fila';
+    : item.kitchenStatus === 'preparing' ? (item.type === 'pizzas' ? 'No Forno' : 'Preparo')
+    :                                    (item.type === 'pizzas' ? 'Ag. Preparo' : 'Fila');
 
   const statusColor =
     item.kitchenStatus === 'ready'     ? 'bg-green-600'

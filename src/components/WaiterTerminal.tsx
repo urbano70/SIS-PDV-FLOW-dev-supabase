@@ -472,7 +472,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 </span>
                               ) : (item as any).kitchenStatus === 'preparing' ? (
                                 <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                  Em preparo...
+                                  {item.type === 'pizzas' ? 'No Forno...' : 'Em preparo...'}
                                 </span>
                               ) : (
                                 <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
