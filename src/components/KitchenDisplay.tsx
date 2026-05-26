@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Order, MenuCategory } from '../types';
 import socket from '../lib/socket';
-import { Clock, ChefHat, Pizza, Sandwich, CheckCircle2, Flame, BellRing } from 'lucide-react';
+import { Clock, ChefHat, Pizza, Sandwich, CheckCircle2, Flame, BellRing, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { usePWA } from '../hooks/usePWA';
 
 interface KitchenDisplayProps {
   orders: Order[];
@@ -288,6 +289,7 @@ const Section = React.memo(({
 
 /* ─── Root ───────────────────────────────────────────────────────────────── */
 export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
+  const { canInstall, install } = usePWA('kds');
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -357,6 +359,16 @@ export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
         <div className="flex items-center gap-3">
           <ChefHat className="text-[#E4E3E0] w-7 h-7" />
           <h1 className="font-serif italic text-2xl text-[#E4E3E0]">KDS Digital</h1>
+          {canInstall && (
+            <button
+              onClick={install}
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-bold uppercase px-2.5 py-1.5 rounded-lg transition-colors ml-2"
+              title="Instalar KDS na tela inicial"
+            >
+              <Download size={12} />
+              Instalar
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-5 text-sm">
           <div className="flex items-center gap-1.5 text-zinc-400">

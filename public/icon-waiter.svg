@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#141414"/>
+  <!-- Cabeça -->
+  <circle cx="256" cy="170" r="68" fill="#E4E3E0"/>
+  <!-- Corpo -->
+  <path d="M256 258c-88 0-152 44-152 100v20h304v-20c0-56-64-100-152-100z" fill="#E4E3E0"/>
+  <!-- Bandeja -->
+  <rect x="144" y="370" width="224" height="18" rx="9" fill="#f97316"/>
+  <ellipse cx="256" cy="370" rx="90" ry="14" fill="#f97316"/>
+  <!-- Prato na bandeja -->
+  <ellipse cx="256" cy="356" rx="56" ry="10" fill="#fff" opacity="0.3"/>
+</svg>

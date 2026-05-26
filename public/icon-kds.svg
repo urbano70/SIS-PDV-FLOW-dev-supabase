@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <!-- Touca de chef -->
+  <ellipse cx="256" cy="230" rx="110" ry="90" fill="#E4E3E0"/>
+  <rect x="168" y="290" width="176" height="70" rx="6" fill="#E4E3E0"/>
+  <!-- Aba da touca -->
+  <rect x="152" y="300" width="208" height="24" rx="6" fill="#cbd5e1"/>
+  <!-- Chama esquerda -->
+  <path d="M196 420 C190 390 208 370 200 345 C220 365 215 385 224 410 C212 400 205 415 196 420Z" fill="#f97316"/>
+  <!-- Chama central -->
+  <path d="M256 430 C248 395 270 368 260 335 C282 360 276 390 286 420 C272 408 262 425 256 430Z" fill="#ef4444"/>
+  <!-- Chama direita -->
+  <path d="M316 420 C310 390 328 370 320 345 C340 365 335 385 344 410 C332 400 325 415 316 420Z" fill="#f97316"/>
+</svg>

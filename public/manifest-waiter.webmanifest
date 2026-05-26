@@ -1,0 +1,27 @@
+{
+  "name": "Garçom — FechaConta",
+  "short_name": "Garçom",
+  "description": "Terminal do garçom para lançamento e gestão de pedidos",
+  "start_url": "/waiter",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "portrait-primary",
+  "background_color": "#141414",
+  "theme_color": "#141414",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-waiter.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-waiter.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["food", "productivity"]
+}

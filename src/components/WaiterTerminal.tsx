@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download } from 'lucide-react';
+import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { auth } from '../lib/firebase';
@@ -21,6 +22,7 @@ interface WaiterTerminalProps {
 }
 
 export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
+  const { canInstall, install } = usePWA('waiter');
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -327,9 +329,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     <div className="h-screen flex flex-col bg-gray-50">
       <header className="bg-[#141414] text-[#E4E3E0] p-3 flex justify-between items-center shrink-0">
         <h1 className="font-serif italic text-xl">Terminal Garçom</h1>
-        <div className="flex items-center space-x-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          <span className="text-[10px] uppercase tracking-widest font-bold">Online</span>
+        <div className="flex items-center space-x-3">
+          {canInstall && (
+            <button
+              onClick={install}
+              className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-bold uppercase px-2.5 py-1.5 rounded-lg transition-colors"
+              title="Instalar app na tela inicial"
+            >
+              <Download size={12} />
+              Instalar app
+            </button>
+          )}
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-[10px] uppercase tracking-widest font-bold">Online</span>
+          </div>
         </div>
       </header>
 
