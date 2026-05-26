@@ -1704,6 +1704,96 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.post("/api/seed", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Firebase não inicializado" });
+
+    const steps: string[] = [];
+    const log = (msg: string) => { steps.push(msg); console.log("[seed]", msg); };
+
+    try {
+      log("Limpando coleções antigas...");
+      const collectionsToClean = ["orders", "waiters", "stock", "pizzaFlavors", "pizzaCrusts"];
+      for (const col of collectionsToClean) {
+        const snap = await db.collection(col).get();
+        const chunks = [];
+        for (let i = 0; i < snap.docs.length; i += 500) chunks.push(snap.docs.slice(i, i + 500));
+        for (const chunk of chunks) {
+          const batch = db.batch();
+          chunk.forEach((d: any) => batch.delete(d.ref));
+          await batch.commit();
+        }
+      }
+
+      log("Configurando 40 mesas...");
+      let batch = db.batch();
+      let count = 0;
+      const commitIfNeeded = async () => {
+        count++;
+        if (count >= 490) { await batch.commit(); batch = db.batch(); count = 0; }
+      };
+
+      for (let i = 1; i <= 40; i++) {
+        batch.set(db.collection("tables").doc(i.toString()), { id: i, status: "free", currentOrder: null, linkedTo: null });
+        await commitIfNeeded();
+      }
+
+      log("Configurando 50 comandas...");
+      for (let i = 1; i <= 50; i++) {
+        batch.set(db.collection("comandas").doc(i.toString()), { id: i, status: "free", currentOrder: null, linkedTo: null });
+        await commitIfNeeded();
+      }
+
+      log("Carregando categorias do menu...");
+      for (const cat of MENU_CATEGORIES) {
+        batch.set(db.collection("menu").doc(cat.name), cat);
+        await commitIfNeeded();
+      }
+
+      log("Carregando sabores de pizza...");
+      for (const flavor of PIZZA_FLAVORS) {
+        batch.set(db.collection("pizzaFlavors").doc(flavor.name), flavor);
+        await commitIfNeeded();
+      }
+
+      log("Carregando bordas...");
+      for (const crust of PIZZA_CRUSTS) {
+        batch.set(db.collection("pizzaCrusts").doc(crust), { name: crust });
+        await commitIfNeeded();
+      }
+
+      log("Carregando estoque inicial...");
+      const stockItems = [
+        { id: "1", name: "Farinha de Trigo", quantity: 50, unit: "kg", minQuantity: 10 },
+        { id: "2", name: "Queijo Mussarela", quantity: 30, unit: "kg", minQuantity: 5 },
+        { id: "3", name: "Molho de Tomate", quantity: 20, unit: "L", minQuantity: 4 },
+        { id: "4", name: "Calabresa", quantity: 15, unit: "kg", minQuantity: 3 },
+        { id: "5", name: "Frango Desfiado", quantity: 12, unit: "kg", minQuantity: 3 },
+        { id: "6", name: "Bacon", quantity: 10, unit: "kg", minQuantity: 2 },
+        { id: "7", name: "Catupiry", quantity: 8, unit: "kg", minQuantity: 2 },
+        { id: "8", name: "Camarão", quantity: 5, unit: "kg", minQuantity: 1 },
+        { id: "9", name: "Pão de Hambúrguer", quantity: 50, unit: "un", minQuantity: 10 },
+        { id: "10", name: "Hambúrguer de Carne", quantity: 40, unit: "un", minQuantity: 8 },
+        { id: "11", name: "Presunto", quantity: 10, unit: "kg", minQuantity: 2 },
+      ];
+      for (const item of stockItems) {
+        batch.set(db.collection("stock").doc(item.id), item);
+        await commitIfNeeded();
+      }
+
+      log("Configurando sistema de caixa...");
+      batch.set(db.collection("config").doc("app"), { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: "" });
+
+      log("Salvando no Firestore...");
+      await batch.commit();
+
+      log("Concluído!");
+      res.json({ ok: true, steps });
+    } catch (err: any) {
+      console.error("[seed] Erro:", err);
+      res.status(500).json({ error: err.message, steps });
+    }
+  });
+
   app.post("/api/admin/create-waiter", express.json(), (req, res) => {
     const { name, password } = req.body;
     if (!name || !password) {

@@ -726,11 +726,13 @@ export default function Dashboard({
     setIsSeedComplete(false);
 
     try {
-      await seedDatabase((step) => {
-        setSeedSteps(prev => [...prev, step]);
-      });
+      const res = await fetch('/api/seed', { method: 'POST' });
+      const data = await res.json();
 
-      // Reset server in-memory state immediately (free all tables/comandas, clear orders)
+      if (data.steps) setSeedSteps(data.steps);
+
+      if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+
       setSeedSteps(prev => [...prev, 'Liberando mesas e zerando pedidos...']);
       socket.emit('reset_system');
 
@@ -739,6 +741,7 @@ export default function Dashboard({
       setIsSeeding(false);
     } catch (error: any) {
       console.error('Seed process failed:', error);
+      setSeedSteps(prev => [...prev, `Erro: ${error.message}`]);
       setIsSeeding(false);
       toast.error('Erro na inicialização');
     }
