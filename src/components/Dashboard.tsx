@@ -2351,8 +2351,9 @@ export default function Dashboard({
                       </thead>
                       <tbody>
                         {stock.map((item: any) => {
-                          const edit = stockEdits[item.menuItemId] ?? { quantity: String(item.quantity), minQuantity: String(item.minQuantity), unit: item.unit };
-                          const isDirty = stockEdits[item.menuItemId] !== undefined;
+                          const itemKey = item.menuItemId ?? item.id;
+                          const edit = stockEdits[itemKey] ?? { quantity: String(item.quantity), minQuantity: String(item.minQuantity), unit: item.unit };
+                          const isDirty = stockEdits[itemKey] !== undefined;
                           const isLow = item.quantity <= item.minQuantity;
                           return (
                             <tr key={item.id} className={`border-b border-[#141414]/10 transition-colors ${isLow ? 'bg-red-50/40' : 'hover:bg-gray-50'}`}>
@@ -2364,7 +2365,7 @@ export default function Dashboard({
                                   step="1"
                                   value={edit.quantity}
                                   onFocus={e => e.target.select()}
-                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, quantity: e.target.value } }))}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [itemKey]: { ...edit, quantity: e.target.value } }))}
                                   className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
                                 />
                               </td>
@@ -2375,14 +2376,14 @@ export default function Dashboard({
                                   step="1"
                                   value={edit.minQuantity}
                                   onFocus={e => e.target.select()}
-                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, minQuantity: e.target.value } }))}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [itemKey]: { ...edit, minQuantity: e.target.value } }))}
                                   className="w-20 border border-[#141414]/20 rounded-lg px-2 py-1 text-sm font-mono focus:outline-none focus:border-[#141414]"
                                 />
                               </td>
                               <td className="p-3 lg:p-4">
                                 <select
                                   value={edit.unit}
-                                  onChange={e => setStockEdits(prev => ({ ...prev, [item.menuItemId]: { ...edit, unit: e.target.value } }))}
+                                  onChange={e => setStockEdits(prev => ({ ...prev, [itemKey]: { ...edit, unit: e.target.value } }))}
                                   className="border border-[#141414]/20 rounded-lg px-2 py-1 text-sm focus:outline-none focus:border-[#141414] bg-white"
                                 >
                                   {['un', 'kg', 'g', 'L', 'ml', 'cx', 'pct'].map(u => <option key={u} value={u}>{u}</option>)}
@@ -2406,7 +2407,7 @@ export default function Dashboard({
                                       if (newQty < currentQty) {
                                         setStockAdjustReason('');
                                         setStockAdjustPending({
-                                          menuItemId: item.menuItemId,
+                                          menuItemId: itemKey,
                                           quantity: newQty,
                                           minQuantity: parseFloat(edit.minQuantity) || 0,
                                           unit: edit.unit,
@@ -2415,12 +2416,12 @@ export default function Dashboard({
                                         });
                                       } else {
                                         socket.emit('update_stock_item', {
-                                          menuItemId: item.menuItemId,
+                                          menuItemId: itemKey,
                                           quantity: newQty,
                                           minQuantity: parseFloat(edit.minQuantity) || 0,
                                           unit: edit.unit,
                                         });
-                                        setStockEdits(prev => { const n = { ...prev }; delete n[item.menuItemId]; return n; });
+                                        setStockEdits(prev => { const n = { ...prev }; delete n[itemKey]; return n; });
                                         toast.success('Estoque atualizado!');
                                       }
                                     }}

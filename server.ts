@@ -116,8 +116,10 @@ async function startServer() {
             s.waiterCpf = w.cpf;
             s.waiterUid = w.uid;
             s.emit("waiter_approved", { status: w.status });
-            delete s._pendingLogin;
+          } else if (waiters.length > 0) {
+            s.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
           }
+          delete s._pendingLogin;
         }
       });
     });
@@ -188,9 +190,29 @@ async function startServer() {
       io.emit("update_menu", menu);
     });
 
-    // Sync stock
+    // Sync stock — only keep items linked to menu items with trackStock: true
     db.collection("stock").onSnapshot((snapshot) => {
-      stock = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const allItems = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return { id: doc.id, menuItemId: data.menuItemId ?? doc.id, ...data };
+      });
+
+      if (menu.length > 0) {
+        const trackedIds = new Set(
+          menu.flatMap((c: any) => c.items)
+              .filter((i: any) => i.trackStock)
+              .map((i: any) => i.id)
+        );
+        const orphans = allItems.filter((s: any) => !trackedIds.has(s.menuItemId));
+        if (orphans.length > 0) {
+          const batchDel = db.batch();
+          orphans.forEach((s: any) => batchDel.delete(db.collection("stock").doc(s.id)));
+          batchDel.commit().catch(() => {});
+        }
+        stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
+      } else {
+        stock = allItems;
+      }
       io.emit("update_stock", stock);
     });
 
@@ -593,7 +615,7 @@ async function startServer() {
         // Race condition: waiters not loaded from Firestore yet — save for retry
         (socket as any)._pendingLogin = { name, password };
       } else {
-        socket.emit("login_error", "Nome ou senha incorretos.");
+        socket.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
       }
     });
 
@@ -906,11 +928,11 @@ async function startServer() {
     }));
 
     socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit, reason }) => {
-      const prev = stock.find((s: any) => s.menuItemId === menuItemId);
+      const prev = stock.find((s: any) => (s.menuItemId ?? s.id) === menuItemId);
       if (!prev) return;
       const prevQty = prev.quantity ?? 0;
       stock = stock.map((s: any) =>
-        s.menuItemId === menuItemId
+        (s.menuItemId ?? s.id) === menuItemId
           ? { ...s, quantity, minQuantity, unit: unit || s.unit }
           : s
       );
@@ -1745,7 +1767,7 @@ async function startServer() {
 
     try {
       log("Limpando coleções antigas...");
-      const collectionsToClean = ["orders", "waiters", "stock", "pizzaFlavors", "pizzaCrusts"];
+      const collectionsToClean = ["orders", "stock", "pizzaFlavors", "pizzaCrusts"];
       for (const col of collectionsToClean) {
         const snap = await db.collection(col).get();
         const chunks = [];
@@ -1791,25 +1813,6 @@ async function startServer() {
       log("Carregando bordas...");
       for (const crust of PIZZA_CRUSTS) {
         batch.set(db.collection("pizzaCrusts").doc(crust), { name: crust });
-        await commitIfNeeded();
-      }
-
-      log("Carregando estoque inicial...");
-      const stockItems = [
-        { id: "1", name: "Farinha de Trigo", quantity: 50, unit: "kg", minQuantity: 10 },
-        { id: "2", name: "Queijo Mussarela", quantity: 30, unit: "kg", minQuantity: 5 },
-        { id: "3", name: "Molho de Tomate", quantity: 20, unit: "L", minQuantity: 4 },
-        { id: "4", name: "Calabresa", quantity: 15, unit: "kg", minQuantity: 3 },
-        { id: "5", name: "Frango Desfiado", quantity: 12, unit: "kg", minQuantity: 3 },
-        { id: "6", name: "Bacon", quantity: 10, unit: "kg", minQuantity: 2 },
-        { id: "7", name: "Catupiry", quantity: 8, unit: "kg", minQuantity: 2 },
-        { id: "8", name: "Camarão", quantity: 5, unit: "kg", minQuantity: 1 },
-        { id: "9", name: "Pão de Hambúrguer", quantity: 50, unit: "un", minQuantity: 10 },
-        { id: "10", name: "Hambúrguer de Carne", quantity: 40, unit: "un", minQuantity: 8 },
-        { id: "11", name: "Presunto", quantity: 10, unit: "kg", minQuantity: 2 },
-      ];
-      for (const item of stockItems) {
-        batch.set(db.collection("stock").doc(item.id), item);
         await commitIfNeeded();
       }
 

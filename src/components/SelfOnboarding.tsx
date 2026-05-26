@@ -7,7 +7,7 @@ import { Waiter } from '../types';
 import { toast } from 'sonner';
 
 export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] }) {
-  const { user, signIn } = useFirebase();
+  const { user } = useFirebase();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -42,20 +42,10 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'register') {
-      if (!user) {
-        toast.info('Para segurança, identifique-se com sua conta Google antes do cadastro.');
-        try {
-          await signIn();
-        } catch (err) {
-          toast.error('Erro ao realizar identificação. Verifique sua conexão.');
-        }
-        return;
-      }
-
-      const waiterId = user.uid;
+      const waiterId = user?.uid || `waiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const waiterData: Waiter = {
         id: waiterId,
-        uid: user.uid,
+        uid: user?.uid || null,
         name: formData.name,
         phone: formData.phone,
         cpf: formData.cpf,
