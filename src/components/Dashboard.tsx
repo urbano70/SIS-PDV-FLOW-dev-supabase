@@ -3739,6 +3739,26 @@ export default function Dashboard({
                               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? true) ? 'translate-x-4' : ''}`} />
                             </button>
                           </div>
+                          {(pizzariaConfig.kdsEnabled ?? true) && (
+                            <div className="mt-1.5 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded px-2 py-1">
+                              <span className="text-[6px] uppercase font-bold text-green-700 opacity-70 shrink-0">Link KDS:</span>
+                              <a
+                                href={`${window.location.origin}/kitchen`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[7px] text-green-700 font-mono truncate hover:underline"
+                              >
+                                {`${window.location.origin}/kitchen`}
+                              </a>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kitchen`)}
+                                className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700"
+                                title="Copiar link"
+                              >
+                                Copiar
+                              </button>
+                            </div>
+                          )}
                         </div>
                         <div className="border-t border-[#141414]/10 pt-1.5 mt-0.5">
                           <div className="flex items-center justify-between">
