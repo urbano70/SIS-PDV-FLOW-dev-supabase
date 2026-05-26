@@ -1702,18 +1702,20 @@ export default function Dashboard({
             <Settings size={20} />
             <span className="text-sm font-medium">Configurações</span>
           </button>
-          <div className="border-t border-[#141414]/10 pt-2 mt-1">
-            <a
-              href="/kitchen"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => setIsSidebarOpen(false)}
-              className="flex items-center space-x-3 p-3 rounded-lg transition-colors text-orange-600 hover:bg-orange-50"
-            >
-              <Monitor size={20} />
-              <span className="text-sm font-medium">Abrir KDS</span>
-            </a>
-          </div>
+          {(pizzariaConfig.kdsEnabled ?? true) && (
+            <div className="border-t border-[#141414]/10 pt-2 mt-1">
+              <a
+                href="/kitchen"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setIsSidebarOpen(false)}
+                className="flex items-center space-x-3 p-3 rounded-lg transition-colors text-orange-600 hover:bg-orange-50"
+              >
+                <Monitor size={20} />
+                <span className="text-sm font-medium">Abrir KDS</span>
+              </a>
+            </div>
+          )}
         </nav>
       </motion.div>
 
@@ -1785,16 +1787,20 @@ export default function Dashboard({
                 >
                   <Settings size={16} />
                 </button>
-                <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
-                <a
-                  href="/kitchen"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-1.5 rounded-lg transition-all shrink-0 text-orange-500 hover:bg-orange-50"
-                  title="Abrir KDS"
-                >
-                  <Monitor size={16} />
-                </a>
+                {(pizzariaConfig.kdsEnabled ?? true) && (
+                  <>
+                    <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
+                    <a
+                      href="/kitchen"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg transition-all shrink-0 text-orange-500 hover:bg-orange-50"
+                      title="Abrir KDS"
+                    >
+                      <Monitor size={16} />
+                    </a>
+                  </>
+                )}
               </div>
             </header>
           </div>
