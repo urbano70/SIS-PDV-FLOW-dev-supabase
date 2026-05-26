@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -756,10 +756,11 @@ export default function Dashboard({
       const _testPw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
       const _bigFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '20px' : '28px';
       printWindow.document.write(`<html><head><title>Teste de Impressora</title><style>
-        body{font-family:monospace;padding:12px;width:${_testPw};margin:0 auto;color:#000}
+        @page{size:${_testPw} auto;margin:4mm}
+        *{box-sizing:border-box}
+        body{font-family:monospace;padding:8px;width:${_testPw};margin:0;color:#000}
         .center{text-align:center}.big{font-size:${_bigFs};font-weight:bold;border:3px solid #000;padding:6px;margin:8px 0}
         .sep{border-top:1px dashed #000;margin:6px 0}.small{font-size:9px;opacity:.6}
-        @media print{body{width:100%;margin:0}}
       </style></head><body>
         <div class="center">
           <div style="font-size:11px;font-weight:bold;text-transform:uppercase">${printerConfig.establishmentName}</div>
@@ -1070,13 +1071,14 @@ export default function Dashboard({
           const _itemFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '14px' : '20px';
           const _obsFs  = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '16px';
           const html = `<html><head><style>
-            body{font-family:monospace;padding:8px;width:${_pw};margin:0 auto;color:#000}
+            @page{size:${_pw} auto;margin:4mm}
+            *{box-sizing:border-box}
+            body{font-family:monospace;padding:4px;width:${_pw};margin:0;color:#000}
             .header{text-align:center;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px}
             .table-info{font-size:${_tblFs};font-weight:bold;margin:4px 0;border:3px solid #000;padding:6px;text-align:center}
             .item-detail{font-size:${_itemFs};font-weight:bold;text-transform:uppercase;margin-bottom:8px}
             .observation{background:#000;color:#fff;padding:6px;font-weight:bold;font-size:${_obsFs};margin-top:4px}
-            .footer{font-size:9px;margin-top:16px;border-top:1px solid #000;padding-top:4px;line-height:1.4}
-            @media print{body{width:100%;margin:0}}
+            .footer{font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px;line-height:1.4}
           </style></head><body>
             <div class="header">
               <div style="font-size:11px;font-weight:bold">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
@@ -1407,7 +1409,6 @@ export default function Dashboard({
         waiterName: 'ADM'
       });
     }
-    printOrderToPrinters([newItem]);
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
     toast.success('Item adicionado pelo ADM');
@@ -1460,7 +1461,6 @@ export default function Dashboard({
         waiterName: 'ADM'
       });
     }
-    printOrderToPrinters([newItem]);
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     toast.success('Item adicionado pelo ADM');
@@ -1695,13 +1695,25 @@ export default function Dashboard({
             <FileText size={20} />
             <span className="text-sm font-medium">Relatórios</span>
           </button>
-          <button 
+          <button
             onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
             className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
           >
             <Settings size={20} />
             <span className="text-sm font-medium">Configurações</span>
           </button>
+          <div className="border-t border-[#141414]/10 pt-2 mt-1">
+            <a
+              href="/kitchen"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setIsSidebarOpen(false)}
+              className="flex items-center space-x-3 p-3 rounded-lg transition-colors text-orange-600 hover:bg-orange-50"
+            >
+              <Monitor size={20} />
+              <span className="text-sm font-medium">Abrir KDS</span>
+            </a>
+          </div>
         </nav>
       </motion.div>
 
@@ -1766,13 +1778,23 @@ export default function Dashboard({
                 >
                   <FileText size={16} />
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('settings')}
                   className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Configurações"
                 >
                   <Settings size={16} />
                 </button>
+                <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
+                <a
+                  href="/kitchen"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1.5 rounded-lg transition-all shrink-0 text-orange-500 hover:bg-orange-50"
+                  title="Abrir KDS"
+                >
+                  <Monitor size={16} />
+                </a>
               </div>
             </header>
           </div>
