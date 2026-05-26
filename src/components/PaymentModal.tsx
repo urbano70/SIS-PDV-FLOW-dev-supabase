@@ -1068,10 +1068,10 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               animate={{ scale: 1, y: 0, opacity: 1 }}
               exit={{ scale: 0.95, y: 12, opacity: 0 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-xs flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-xs flex flex-col overflow-hidden max-h-[95vh]"
             >
               {/* Header */}
-              <div className="bg-[#141414] text-white px-4 py-3 flex items-center justify-between">
+              <div className="bg-[#141414] text-white px-4 py-3 flex items-center justify-between shrink-0">
                 <div className="flex items-center space-x-2">
                   <Banknote size={18} />
                   <span className="font-bold tracking-wide">Pagamento em Dinheiro</span>
@@ -1081,7 +1081,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                 </button>
               </div>
 
-              <div className="p-4 flex flex-col gap-3">
+              <div className="p-4 flex flex-col gap-3 overflow-y-auto">
                 {/* Cobrar + Troco lado a lado */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-[#f5f5f3] rounded-xl px-3 py-2.5 text-center">
@@ -1155,7 +1155,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                 </div>
 
                 {/* Ações */}
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => setIsCashModalOpen(false)}
                     className="flex-1 py-3 rounded-xl border-2 border-[#141414]/15 font-bold text-sm hover:border-[#141414]/30 transition-colors"
