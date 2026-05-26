@@ -1153,7 +1153,8 @@ export default function Dashboard({
       selectedItems,
       partialAmount,
       paymentMethod,
-      payerName
+      payerName,
+      fromAdmin: true
     });
 
     // Handle receipt printing

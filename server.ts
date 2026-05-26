@@ -1072,7 +1072,7 @@ async function startServer() {
       }
     });
 
-    socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName }) => {
+    socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin }) => {
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
@@ -1162,22 +1162,55 @@ async function startServer() {
         const IS_FULLY_PAID = roundedTotalPaid >= (roundedFinalTotal - 0.1);
 
         if (IS_FULLY_PAID) {
-          console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
-          order.status = "aguardando_baixa";
+          if (fromAdmin) {
+            // Pagamento via ADM: libera mesa imediatamente sem passar por aguardando_baixa
+            console.log(`Order ${orderId} fully paid via admin. Freeing tables directly.`);
+            order.status = "finalizada";
 
-          // Mark tables/comandas as aguardando_baixa (keep currentOrder, don't free yet)
-          tables.forEach(t => {
-            if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-              t.status = "aguardando_baixa";
-              saveToFirestore('tables', t, String(t.id)).catch(() => {});
+            const entitiesToUpdate: any[] = [];
+            tables.forEach((t: any) => {
+              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+                t.status = "free";
+                t.currentOrder = null;
+                t.linkedTo = null;
+                entitiesToUpdate.push({ entity: t, collection: 'tables' });
+              }
+            });
+            comandas.forEach((c: any) => {
+              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+                c.status = "free";
+                c.currentOrder = null;
+                c.linkedTo = null;
+                entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+              }
+            });
+
+            io.emit("update_orders", orders);
+            io.emit("update_tables", tables);
+            io.emit("update_comandas", comandas);
+            await saveToFirestore('orders', order, String(order.id));
+            for (const item of entitiesToUpdate) {
+              await saveToFirestore(item.collection, item.entity, String(item.entity.id));
             }
-          });
-          comandas.forEach(c => {
-            if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-              c.status = "aguardando_baixa";
-              saveToFirestore('comandas', c, String(c.id)).catch(() => {});
-            }
-          });
+            return;
+          } else {
+            // Pagamento via Garçom: aguarda baixa para liberar mesa
+            console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
+            order.status = "aguardando_baixa";
+
+            tables.forEach(t => {
+              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+                t.status = "aguardando_baixa";
+                saveToFirestore('tables', t, String(t.id)).catch(() => {});
+              }
+            });
+            comandas.forEach(c => {
+              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+                c.status = "aguardando_baixa";
+                saveToFirestore('comandas', c, String(c.id)).catch(() => {});
+              }
+            });
+          }
         }
 
         // Emit updates IMMEDIATELY for UI responsiveness
