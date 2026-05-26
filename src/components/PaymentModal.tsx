@@ -204,6 +204,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       if (isEnabling) {
         const amountToFill = Math.max(0, remaining);
         setCashReceivedStr(amountToFill.toFixed(2));
+        setCashNumpadActive(false);
         setIsCashModalOpen(true);
         return;
       } else {
@@ -234,17 +235,26 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const cashReceivedNum = parseFloat(cashReceivedStr) || 0;
   const cashChange = Math.max(0, cashReceivedNum - cashAmountDue);
 
+  const [cashNumpadActive, setCashNumpadActive] = useState(false);
+
   const handleCashNumpad = (key: string) => {
     setCashReceivedStr(prev => {
-      if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
-      if (key === '.' && prev.includes('.')) return prev;
-      if (key === '.' && prev === '') return '0.';
-      if (prev === '0' && key !== '.') return key;
-      const next = prev + key;
+      // Primeira tecla após abrir o modal zera o valor pré-preenchido
+      const base = cashNumpadActive ? prev : '';
+      const cur = base || '0';
+      if (key === '⌫') {
+        const r = cur.length > 1 ? cur.slice(0, -1) : '0';
+        return r;
+      }
+      if (key === '.' && cur.includes('.')) return cur;
+      if (key === '.' && cur === '0') return '0.';
+      if (cur === '0' && key !== '.') return key;
+      const next = cur + key;
       const parts = next.split('.');
-      if (parts[1] && parts[1].length > 2) return prev;
+      if (parts[1] && parts[1].length > 2) return cur;
       return next;
     });
+    setCashNumpadActive(true);
   };
 
   const handleCashConfirm = () => {
@@ -255,6 +265,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       'Dinheiro': { method: 'Dinheiro', enabled: true, amount: Number(amountDue.toFixed(2)), received: Number(received.toFixed(2)) }
     }));
     setIsCashModalOpen(false);
+    // Se o valor recebido cobre o total, avança direto para confirmação
+    setTimeout(() => {
+      const newTotalPaid = Number(amountDue.toFixed(2));
+      if (newTotalPaid >= finalSelectedTotal - existingPartialPaid - 0.01) {
+        setIsConfirming(true);
+      }
+    }, 50);
   };
 
   const handleAmountChange = (method: PaymentMethod, val: number) => {
@@ -983,6 +1000,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                     <button
                                       onClick={() => {
                                         setCashReceivedStr((state.received || cashAmountDue).toFixed(2));
+                                        setCashNumpadActive(false);
                                         setIsCashModalOpen(true);
                                       }}
                                       className="w-full text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:underline text-center py-0.5"
@@ -1042,52 +1060,63 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
             className="fixed inset-0 z-[150] flex items-center justify-center p-3 bg-black/60"
           >
             <motion.div
-              initial={{ scale: 0.95, y: 16, opacity: 0 }}
+              initial={{ scale: 0.95, y: 12, opacity: 0 }}
               animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.95, y: 16, opacity: 0 }}
+              exit={{ scale: 0.95, y: 12, opacity: 0 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm flex flex-col overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-xs flex flex-col overflow-hidden"
             >
               {/* Header */}
-              <div className="bg-[#141414] text-white px-6 py-4 flex items-center justify-between">
+              <div className="bg-[#141414] text-white px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Banknote size={20} />
-                  <span className="font-bold text-lg tracking-wide">Dinheiro</span>
+                  <Banknote size={18} />
+                  <span className="font-bold tracking-wide">Pagamento em Dinheiro</span>
                 </div>
                 <button onClick={() => setIsCashModalOpen(false)} className="p-1 hover:bg-white/10 rounded-full transition-colors">
-                  <X size={18} />
+                  <X size={16} />
                 </button>
               </div>
 
-              <div className="p-5 flex flex-col space-y-4">
-                {/* Valor a cobrar */}
-                <div className="bg-[#f5f5f3] rounded-2xl px-5 py-4 text-center">
-                  <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mb-1">Valor a Cobrar</p>
-                  <p className="text-5xl font-black tracking-tight">
-                    R$ {cashAmountDue.toFixed(2).replace('.', ',')}
-                  </p>
+              <div className="p-4 flex flex-col gap-3">
+                {/* Cobrar + Troco lado a lado */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-[#f5f5f3] rounded-xl px-3 py-2.5 text-center">
+                    <p className="text-[9px] uppercase font-bold tracking-widest opacity-40 mb-0.5">Cobrar</p>
+                    <p className="text-2xl font-black tabular-nums leading-none">
+                      R$ {cashAmountDue.toFixed(2).replace('.', ',')}
+                    </p>
+                  </div>
+                  <div className={`rounded-xl px-3 py-2.5 text-center transition-colors ${cashChange > 0 ? 'bg-green-50 border border-green-200' : 'bg-[#f5f5f3]'}`}>
+                    <p className={`text-[9px] uppercase font-bold tracking-widest mb-0.5 ${cashChange > 0 ? 'text-green-700' : 'opacity-40'}`}>Troco</p>
+                    <p className={`text-2xl font-black tabular-nums leading-none ${cashChange > 0 ? 'text-green-600' : 'opacity-25'}`}>
+                      R$ {cashChange.toFixed(2).replace('.', ',')}
+                    </p>
+                  </div>
                 </div>
 
-                {/* Valor recebido display */}
-                <div className="bg-white border-2 border-[#141414] rounded-2xl px-5 py-3 flex items-center justify-between">
-                  <p className="text-[10px] uppercase font-bold tracking-widest opacity-40">Recebido</p>
-                  <p className="text-4xl font-black tabular-nums">
-                    R$ {(parseFloat(cashReceivedStr) || 0).toFixed(2).replace('.', ',')}
-                  </p>
+                {/* Campo recebido — input editável + display */}
+                <div className="bg-white border-2 border-[#141414] rounded-xl px-4 py-2.5 flex items-center gap-2">
+                  <span className="text-sm font-bold opacity-40 shrink-0">Recebido</span>
+                  <div className="flex-1 flex items-center justify-end gap-1">
+                    <span className="text-xl font-bold opacity-50">R$</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={cashReceivedStr}
+                      onChange={e => setCashReceivedStr(e.target.value)}
+                      onFocus={e => e.target.select()}
+                      className="w-28 text-right text-3xl font-black tabular-nums focus:outline-none bg-transparent"
+                    />
+                  </div>
                 </div>
 
-                {/* Troco */}
-                <div className={`rounded-2xl px-5 py-3 flex items-center justify-between transition-colors ${cashChange > 0 ? 'bg-green-50 border-2 border-green-200' : 'bg-gray-50 border-2 border-transparent'}`}>
-                  <p className={`text-[10px] uppercase font-bold tracking-widest ${cashChange > 0 ? 'text-green-700' : 'opacity-40'}`}>Troco</p>
-                  <p className={`text-4xl font-black tabular-nums ${cashChange > 0 ? 'text-green-600' : 'opacity-25'}`}>
-                    R$ {cashChange.toFixed(2).replace('.', ',')}
-                  </p>
-                </div>
-
-                {/* Quick amounts */}
+                {/* Atalhos rápidos */}
                 <div className="grid grid-cols-4 gap-1.5">
                   {[cashAmountDue, Math.ceil(cashAmountDue / 10) * 10, Math.ceil(cashAmountDue / 50) * 50, Math.ceil(cashAmountDue / 100) * 100]
                     .filter((v, i, arr) => arr.indexOf(v) === i && v > 0)
@@ -1096,25 +1125,25 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                       <button
                         key={v}
                         onClick={() => setCashReceivedStr(v.toFixed(2))}
-                        className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                        className={`py-1.5 rounded-lg text-[11px] font-bold border-2 transition-all ${
                           parseFloat(cashReceivedStr) === v
                             ? 'bg-[#141414] text-white border-[#141414]'
                             : 'border-[#141414]/15 text-[#141414]/60 hover:border-[#141414]/40'
                         }`}
                       >
-                        {v % 1 === 0 ? `R$ ${v.toFixed(0)}` : `R$ ${v.toFixed(2)}`}
+                        {v % 1 === 0 ? `R$${v.toFixed(0)}` : `R$${v.toFixed(2)}`}
                       </button>
                     ))
                   }
                 </div>
 
                 {/* Numpad */}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-1.5">
                   {['7','8','9','4','5','6','1','2','3','⌫','0','.'].map(k => (
                     <button
                       key={k}
                       onClick={() => handleCashNumpad(k)}
-                      className={`py-3.5 rounded-xl font-bold text-xl transition-all active:scale-95 select-none ${
+                      className={`py-3 rounded-xl font-bold text-lg transition-all active:scale-95 select-none ${
                         k === '⌫'
                           ? 'bg-red-50 text-red-500 border border-red-100 hover:bg-red-100'
                           : 'bg-[#f5f5f3] text-[#141414] hover:bg-[#e8e8e6] border border-transparent'
@@ -1125,20 +1154,20 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   ))}
                 </div>
 
-                {/* Actions */}
-                <div className="flex space-x-3 pt-1">
+                {/* Ações */}
+                <div className="flex gap-2">
                   <button
                     onClick={() => setIsCashModalOpen(false)}
-                    className="flex-1 py-3.5 rounded-2xl border-2 border-[#141414]/15 font-bold text-sm hover:border-[#141414]/30 transition-colors"
+                    className="flex-1 py-3 rounded-xl border-2 border-[#141414]/15 font-bold text-sm hover:border-[#141414]/30 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleCashConfirm}
                     disabled={cashReceivedNum < cashAmountDue - 0.01}
-                    className="flex-2 flex-[2] py-3.5 rounded-2xl bg-[#141414] text-white font-bold text-sm shadow-lg disabled:opacity-30 active:scale-95 transition-all"
+                    className="flex-[2] py-3 rounded-xl bg-[#141414] text-white font-bold text-sm shadow-lg disabled:opacity-30 active:scale-95 transition-all flex items-center justify-center gap-1.5"
                   >
-                    Confirmar
+                    <Check size={16} /> Confirmar
                   </button>
                 </div>
               </div>
