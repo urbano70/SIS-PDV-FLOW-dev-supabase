@@ -405,8 +405,15 @@ async function startServer() {
   };
 
   // Socket.io logic
+  // Em dev local (sem env vars de produção), todo socket é admin automaticamente
+  const isDevMode = !process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
+
+    if (isDevMode) {
+      (socket as any).isAdmin = true;
+    }
 
     socket.on("admin_connect", (token) => {
       try {
