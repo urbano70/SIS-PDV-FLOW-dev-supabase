@@ -44,11 +44,9 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     'PIX': { method: 'PIX', enabled: false, amount: 0 },
     'Dinheiro': { method: 'Dinheiro', enabled: false, amount: 0, received: 0 },
   });
-  useEffect(() => {
-    if (payments['Dinheiro'].enabled) {
-      setTimeout(() => dinheiroCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
-    }
-  }, [payments['Dinheiro'].enabled]);
+
+  const [isCashModalOpen, setIsCashModalOpen] = useState(false);
+  const [cashReceivedStr, setCashReceivedStr] = useState('');
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [splitPeople, setSplitPeople] = useState(2);
@@ -185,27 +183,62 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   };
 
   const handlePaymentToggle = (method: PaymentMethod) => {
+    if (method === 'Dinheiro') {
+      const isEnabling = !payments['Dinheiro'].enabled;
+      if (isEnabling) {
+        const amountToFill = Math.max(0, remaining);
+        setCashReceivedStr(amountToFill.toFixed(2));
+        setIsCashModalOpen(true);
+        return;
+      } else {
+        setPayments(prev => ({
+          ...prev,
+          'Dinheiro': { ...prev['Dinheiro'], enabled: false, amount: 0, received: 0 }
+        }));
+        return;
+      }
+    }
     setPayments(prev => {
       const isEnabling = !prev[method].enabled;
-      const newState = { 
+      const newState = {
         ...prev,
         [method]: { ...prev[method], enabled: isEnabling }
       };
-      
       if (isEnabling) {
-        // Pre-fill with the REMAINING balance
         const amountToFill = Math.max(0, remaining);
-        
-        newState[method] = { 
-          ...newState[method], 
-          amount: Number(amountToFill.toFixed(2)),
-          received: method === 'Dinheiro' ? Number(amountToFill.toFixed(2)) : newState[method].received
-        };
+        newState[method] = { ...newState[method], amount: Number(amountToFill.toFixed(2)) };
       } else {
         newState[method] = { ...newState[method], amount: 0 };
       }
       return newState;
     });
+  };
+
+  const cashAmountDue = Math.max(0, remaining + (payments['Dinheiro'].enabled ? payments['Dinheiro'].amount : 0));
+  const cashReceivedNum = parseFloat(cashReceivedStr) || 0;
+  const cashChange = Math.max(0, cashReceivedNum - cashAmountDue);
+
+  const handleCashNumpad = (key: string) => {
+    setCashReceivedStr(prev => {
+      if (key === '⌫') return prev.length > 1 ? prev.slice(0, -1) : '0';
+      if (key === '.' && prev.includes('.')) return prev;
+      if (key === '.' && prev === '') return '0.';
+      if (prev === '0' && key !== '.') return key;
+      const next = prev + key;
+      const parts = next.split('.');
+      if (parts[1] && parts[1].length > 2) return prev;
+      return next;
+    });
+  };
+
+  const handleCashConfirm = () => {
+    const amountDue = cashAmountDue;
+    const received = cashReceivedNum;
+    setPayments(prev => ({
+      ...prev,
+      'Dinheiro': { method: 'Dinheiro', enabled: true, amount: Number(amountDue.toFixed(2)), received: Number(received.toFixed(2)) }
+    }));
+    setIsCashModalOpen(false);
   };
 
   const handleAmountChange = (method: PaymentMethod, val: number) => {
@@ -917,28 +950,25 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                 </div>
 
                                 {method === 'Dinheiro' && (
-                                  <>
-                                    <div className="space-y-1">
-                                      <span className="text-[10px] uppercase font-bold opacity-40">Recebido</span>
-                                      <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2.5 py-1.5 focus-within:border-[#141414] transition-colors">
-                                        <span className="text-xs mr-1.5 opacity-50 font-bold">R$</span>
-                                        <input
-                                          type="number"
-                                          step="0.01"
-                                          value={state.received || ''}
-                                          onChange={(e) => handleReceivedChange(parseFloat(e.target.value) || 0)}
-                                          onFocus={(e) => e.target.select()}
-                                          className="w-full font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
-                                        />
+                                  <div className="space-y-1.5">
+                                    {state.received !== undefined && state.received > 0 && (
+                                      <div className="flex justify-between items-center bg-green-50 px-2.5 py-2 rounded-lg border border-green-100">
+                                        <span className="text-[10px] uppercase font-bold text-green-700">Troco</span>
+                                        <span className="font-mono font-bold text-green-600 text-sm">
+                                          R$ {Math.max(0, state.received - state.amount).toFixed(2)}
+                                        </span>
                                       </div>
-                                    </div>
-                                    <div className="flex justify-between items-center bg-green-50 px-2.5 py-2 rounded-lg border border-green-100">
-                                      <span className="text-[10px] uppercase font-bold text-green-700">Troco</span>
-                                      <span className="font-mono font-bold text-green-600 text-sm">
-                                        R$ {Math.max(0, (state.received || 0) - state.amount).toFixed(2)}
-                                      </span>
-                                    </div>
-                                  </>
+                                    )}
+                                    <button
+                                      onClick={() => {
+                                        setCashReceivedStr((state.received || cashAmountDue).toFixed(2));
+                                        setIsCashModalOpen(true);
+                                      }}
+                                      className="w-full text-[10px] font-bold uppercase tracking-widest text-blue-600 hover:underline text-center py-0.5"
+                                    >
+                                      Editar
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             )}
@@ -983,6 +1013,117 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           </div>
         </motion.div>
       </motion.div>
+
+      {/* Cash Payment Modal */}
+      <AnimatePresence>
+        {isCashModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center p-3 bg-black/60 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.92, y: 24 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.92, y: 24 }}
+              className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm flex flex-col overflow-hidden"
+            >
+              {/* Header */}
+              <div className="bg-[#141414] text-white px-6 py-4 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Banknote size={20} />
+                  <span className="font-bold text-lg tracking-wide">Dinheiro</span>
+                </div>
+                <button onClick={() => setIsCashModalOpen(false)} className="p-1 hover:bg-white/10 rounded-full transition-colors">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 flex flex-col space-y-4">
+                {/* Valor a cobrar */}
+                <div className="bg-[#f5f5f3] rounded-2xl px-5 py-4 text-center">
+                  <p className="text-[10px] uppercase font-bold tracking-widest opacity-40 mb-1">Valor a Cobrar</p>
+                  <p className="text-5xl font-black tracking-tight">
+                    R$ {cashAmountDue.toFixed(2).replace('.', ',')}
+                  </p>
+                </div>
+
+                {/* Valor recebido display */}
+                <div className="bg-white border-2 border-[#141414] rounded-2xl px-5 py-3 flex items-center justify-between">
+                  <p className="text-[10px] uppercase font-bold tracking-widest opacity-40">Recebido</p>
+                  <p className="text-4xl font-black tabular-nums">
+                    R$ {(parseFloat(cashReceivedStr) || 0).toFixed(2).replace('.', ',')}
+                  </p>
+                </div>
+
+                {/* Troco */}
+                <div className={`rounded-2xl px-5 py-3 flex items-center justify-between transition-colors ${cashChange > 0 ? 'bg-green-50 border-2 border-green-200' : 'bg-gray-50 border-2 border-transparent'}`}>
+                  <p className={`text-[10px] uppercase font-bold tracking-widest ${cashChange > 0 ? 'text-green-700' : 'opacity-40'}`}>Troco</p>
+                  <p className={`text-4xl font-black tabular-nums ${cashChange > 0 ? 'text-green-600' : 'opacity-25'}`}>
+                    R$ {cashChange.toFixed(2).replace('.', ',')}
+                  </p>
+                </div>
+
+                {/* Quick amounts */}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[cashAmountDue, Math.ceil(cashAmountDue / 10) * 10, Math.ceil(cashAmountDue / 50) * 50, Math.ceil(cashAmountDue / 100) * 100]
+                    .filter((v, i, arr) => arr.indexOf(v) === i && v > 0)
+                    .slice(0, 4)
+                    .map(v => (
+                      <button
+                        key={v}
+                        onClick={() => setCashReceivedStr(v.toFixed(2))}
+                        className={`py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                          parseFloat(cashReceivedStr) === v
+                            ? 'bg-[#141414] text-white border-[#141414]'
+                            : 'border-[#141414]/15 text-[#141414]/60 hover:border-[#141414]/40'
+                        }`}
+                      >
+                        {v % 1 === 0 ? `R$ ${v.toFixed(0)}` : `R$ ${v.toFixed(2)}`}
+                      </button>
+                    ))
+                  }
+                </div>
+
+                {/* Numpad */}
+                <div className="grid grid-cols-3 gap-2">
+                  {['7','8','9','4','5','6','1','2','3','⌫','0','.'].map(k => (
+                    <button
+                      key={k}
+                      onClick={() => handleCashNumpad(k)}
+                      className={`py-3.5 rounded-xl font-bold text-xl transition-all active:scale-95 select-none ${
+                        k === '⌫'
+                          ? 'bg-red-50 text-red-500 border border-red-100 hover:bg-red-100'
+                          : 'bg-[#f5f5f3] text-[#141414] hover:bg-[#e8e8e6] border border-transparent'
+                      }`}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Actions */}
+                <div className="flex space-x-3 pt-1">
+                  <button
+                    onClick={() => setIsCashModalOpen(false)}
+                    className="flex-1 py-3.5 rounded-2xl border-2 border-[#141414]/15 font-bold text-sm hover:border-[#141414]/30 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCashConfirm}
+                    disabled={cashReceivedNum < cashAmountDue - 0.01}
+                    className="flex-2 flex-[2] py-3.5 rounded-2xl bg-[#141414] text-white font-bold text-sm shadow-lg disabled:opacity-30 active:scale-95 transition-all"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Confirmation Popup */}
       <AnimatePresence>
