@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background rounded square -->
+  <rect width="512" height="512" rx="100" ry="100" fill="#000000"/>
+
+  <!-- Calculator body -->
+  <rect x="148" y="90" width="148" height="220" rx="8" ry="8" fill="none" stroke="white" stroke-width="12"/>
+  <!-- Calculator screen -->
+  <rect x="163" y="105" width="118" height="52" rx="4" ry="4" fill="white"/>
+  <!-- Calculator keys grid - row 1 -->
+  <rect x="163" y="172" width="28" height="22" rx="3" fill="white"/>
+  <rect x="200" y="172" width="28" height="22" rx="3" fill="white"/>
+  <rect x="237" y="172" width="29" height="22" rx="3" fill="white"/>
+  <!-- row 2 -->
+  <rect x="163" y="202" width="28" height="22" rx="3" fill="white"/>
+  <rect x="200" y="202" width="28" height="22" rx="3" fill="white"/>
+  <rect x="237" y="202" width="29" height="22" rx="3" fill="white"/>
+  <!-- row 3 -->
+  <rect x="163" y="232" width="28" height="22" rx="3" fill="white"/>
+  <rect x="200" y="232" width="28" height="22" rx="3" fill="white"/>
+  <rect x="237" y="232" width="29" height="22" rx="3" fill="white"/>
+  <!-- row 4 -->
+  <rect x="163" y="262" width="28" height="22" rx="3" fill="white"/>
+  <rect x="200" y="262" width="28" height="22" rx="3" fill="white"/>
+  <rect x="237" y="262" width="29" height="22" rx="3" fill="white"/>
+
+  <!-- Pencil/Pen -->
+  <!-- Pencil body (rotated ~15deg, right of calculator) -->
+  <g transform="translate(340,155) rotate(10)">
+    <!-- Shaft -->
+    <rect x="-14" y="-110" width="28" height="160" rx="4" fill="none" stroke="white" stroke-width="11"/>
+    <!-- Top cap -->
+    <rect x="-14" y="-118" width="28" height="14" rx="3" fill="white"/>
+    <!-- Tip triangle -->
+    <polygon points="-14,50 14,50 0,82" fill="white"/>
+    <!-- Nib dot -->
+    <circle cx="0" cy="88" r="5" fill="white"/>
+  </g>
+
+  <!-- FECHACONTA text -->
+  <text
+    x="256"
+    y="390"
+    font-family="Arial, Helvetica, sans-serif"
+    font-size="54"
+    font-weight="600"
+    letter-spacing="4"
+    fill="white"
+    text-anchor="middle"
+  >FECHACONTA</text>
+</svg>

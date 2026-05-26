@@ -13,6 +13,7 @@ firebase-applet-config.json
 firebase-applet-config.dev.json
 service-account.json
 service-account.dev.json
+gen-lang-client-*.json
 
 # Backup de estado local (gerado automaticamente em runtime)
 data/

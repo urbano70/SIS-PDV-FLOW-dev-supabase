@@ -1,6 +1,6 @@
 {
-  "name": "Garçom — FechaConta",
-  "short_name": "Garçom",
+  "name": "FechaConta - Garçom",
+  "short_name": "FechaConta",
   "description": "Terminal do garçom para lançamento e gestão de pedidos",
   "start_url": "/waiter",
   "scope": "/",
@@ -11,13 +11,13 @@
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/icon-waiter.svg",
+      "src": "/icon-fechaconta.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icon-waiter.svg",
+      "src": "/icon-fechaconta.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"

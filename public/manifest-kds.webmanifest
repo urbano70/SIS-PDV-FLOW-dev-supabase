@@ -1,23 +1,23 @@
 {
-  "name": "KDS — FechaConta",
-  "short_name": "KDS",
+  "name": "FechaConta - KDS",
+  "short_name": "FechaConta",
   "description": "Kitchen Display System para acompanhamento de pedidos na cozinha",
   "start_url": "/kitchen",
   "scope": "/",
   "display": "fullscreen",
   "orientation": "landscape-primary",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#141414",
+  "theme_color": "#141414",
   "lang": "pt-BR",
   "icons": [
     {
-      "src": "/icon-kds.svg",
+      "src": "/icon-fechaconta.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icon-kds.svg",
+      "src": "/icon-fechaconta.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
