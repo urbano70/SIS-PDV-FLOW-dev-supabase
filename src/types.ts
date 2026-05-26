@@ -21,7 +21,7 @@ export interface PizzaItem {
   discountType?: 'percentage' | 'value';
   deliveredAt?: string; // ISO string when item was marked as delivered
   deliveredBy?: string; // Waiter who marked as delivered
-  kitchenStatus?: 'waiting' | 'preparing' | 'ready';
+  kitchenStatus?: 'waiting' | 'preparing' | 'oven' | 'ready';
 }
 
 export interface DeliveryRecord {

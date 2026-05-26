@@ -22,7 +22,7 @@ interface KitchenItem {
   quantity?: number;
   timestamp: string;
   type: 'pizzas' | 'lanches';
-  kitchenStatus: 'waiting' | 'preparing' | 'ready';
+  kitchenStatus: 'waiting' | 'preparing' | 'oven' | 'ready';
 }
 
 const MAX_LARGE = 6;
@@ -36,26 +36,37 @@ function getElapsed(timestamp: string, now: number) {
 }
 
 /* ─── Large card ─────────────────────────────────────────────────────────── */
-const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
+const ItemCard = React.memo(({ item, now, onStart, onOven, onFinish }: {
   item: KitchenItem;
   now: number;
-  onStart: (orderId: string | number, itemId: string) => void;
+  onStart:  (orderId: string | number, itemId: string) => void;
+  onOven:   (orderId: string | number, itemId: string) => void;
   onFinish: (orderId: string | number, itemId: string) => void;
 }) => {
   const { text: timerText, isLate } = getElapsed(item.timestamp, now);
   const late = isLate && item.kitchenStatus !== 'ready';
+  const isPizza = item.type === 'pizzas';
 
   const cardBg =
-    late                             ? 'bg-red-50 border-red-400'
-    : item.kitchenStatus === 'ready'    ? 'bg-green-50 border-green-400'
-    : item.kitchenStatus === 'preparing'? 'bg-amber-50 border-amber-300'
+    late                              ? 'bg-red-50 border-red-400'
+    : item.kitchenStatus === 'ready'  ? 'bg-green-50 border-green-400'
+    : item.kitchenStatus === 'oven'   ? 'bg-orange-50 border-orange-400'
+    : item.kitchenStatus === 'preparing' ? 'bg-amber-50 border-amber-300'
     :                                    'bg-[#E4E3E0] border-transparent';
 
   const timerBg =
-    late                             ? 'bg-red-600 text-white animate-pulse'
-    : item.kitchenStatus === 'ready'    ? 'bg-green-600 text-white animate-pulse'
-    : item.kitchenStatus === 'preparing'? 'bg-amber-500 text-white'
+    late                              ? 'bg-red-600 text-white animate-pulse'
+    : item.kitchenStatus === 'ready'  ? 'bg-green-600 text-white animate-pulse'
+    : item.kitchenStatus === 'oven'   ? 'bg-orange-600 text-white animate-pulse'
+    : item.kitchenStatus === 'preparing' ? 'bg-amber-500 text-white'
     :                                    'bg-[#141414]/15 text-[#141414]';
+
+  const statusLabel =
+    late ? '⚠ Atrasado'
+    : item.kitchenStatus === 'ready'     ? 'Pronto — Aguardando Garçom'
+    : item.kitchenStatus === 'oven'      ? 'No Forno'
+    : item.kitchenStatus === 'preparing' ? 'Em Preparação'
+    :                                     'Aguardando Preparo';
 
   return (
     <motion.div
@@ -67,15 +78,7 @@ const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
     >
       {/* Status + timer bar */}
       <div className={`flex items-center justify-between px-3 py-2 ${timerBg}`}>
-        <span className="text-[10px] font-black uppercase tracking-widest">
-          {late
-            ? '⚠ Atrasado'
-            : item.kitchenStatus === 'ready'
-            ? 'Pronto — Aguardando Garçom'
-            : item.kitchenStatus === 'preparing'
-            ? (item.type === 'pizzas' ? 'No Forno' : 'Em Preparação')
-            : (item.type === 'pizzas' ? 'Aguardando Preparação' : 'Aguardando Preparo')}
-        </span>
+        <span className="text-[10px] font-black uppercase tracking-widest">{statusLabel}</span>
         <div className="flex items-center gap-1 font-mono font-black text-base">
           <Clock size={12} />
           {timerText}
@@ -110,17 +113,28 @@ const ItemCard = React.memo(({ item, now, onStart, onFinish }: {
         {item.kitchenStatus === 'waiting' && (
           <button
             onClick={() => onStart(item.orderId, item.itemId)}
-            className={`w-full py-3 rounded-xl text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0 ${
-              item.type === 'pizzas'
-                ? 'bg-orange-500 hover:bg-orange-600'
-                : 'bg-amber-500 hover:bg-amber-600'
-            }`}
+            className="w-full py-3 rounded-xl bg-zinc-500 hover:bg-zinc-600 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
           >
-            {item.type === 'pizzas' ? <ChefHat size={15} /> : <Flame size={15} />}
-            {item.type === 'pizzas' ? 'Preparado' : 'Preparar'}
+            <ChefHat size={15} /> Preparar
           </button>
         )}
-        {item.kitchenStatus === 'preparing' && (
+        {item.kitchenStatus === 'preparing' && isPizza && (
+          <button
+            onClick={() => onOven(item.orderId, item.itemId)}
+            className="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+          >
+            <Flame size={15} /> Forno
+          </button>
+        )}
+        {item.kitchenStatus === 'preparing' && !isPizza && (
+          <button
+            onClick={() => onFinish(item.orderId, item.itemId)}
+            className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
+          >
+            <CheckCircle2 size={15} /> Pronto
+          </button>
+        )}
+        {item.kitchenStatus === 'oven' && (
           <button
             onClick={() => onFinish(item.orderId, item.itemId)}
             className="w-full py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-black text-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0"
@@ -144,18 +158,21 @@ const MiniCard = React.memo(({ item, now }: { item: KitchenItem; now: number }) 
   const late = isLate && item.kitchenStatus !== 'ready';
 
   const bg =
-    late                             ? 'bg-red-900/60 border-red-500'
-    : item.kitchenStatus === 'ready'    ? 'bg-green-900/60 border-green-500'
-    : item.kitchenStatus === 'preparing'? 'bg-amber-900/60 border-amber-500'
+    late                              ? 'bg-red-900/60 border-red-500'
+    : item.kitchenStatus === 'ready'  ? 'bg-green-900/60 border-green-500'
+    : item.kitchenStatus === 'oven'   ? 'bg-orange-900/60 border-orange-500'
+    : item.kitchenStatus === 'preparing' ? 'bg-amber-900/60 border-amber-500'
     :                                    'bg-white/10 border-white/20';
 
   const statusLabel =
-    item.kitchenStatus === 'ready'     ? 'Pronto'
-    : item.kitchenStatus === 'preparing' ? (item.type === 'pizzas' ? 'No Forno' : 'Preparo')
-    :                                    (item.type === 'pizzas' ? 'Ag. Preparo' : 'Fila');
+    item.kitchenStatus === 'ready'    ? 'Pronto'
+    : item.kitchenStatus === 'oven'   ? 'No Forno'
+    : item.kitchenStatus === 'preparing' ? 'Preparo'
+    :                                    'Fila';
 
   const statusColor =
-    item.kitchenStatus === 'ready'     ? 'bg-green-600'
+    item.kitchenStatus === 'ready'    ? 'bg-green-600'
+    : item.kitchenStatus === 'oven'   ? 'bg-orange-600'
     : item.kitchenStatus === 'preparing' ? 'bg-amber-500'
     :                                    'bg-zinc-600';
 
@@ -186,14 +203,15 @@ const MiniCard = React.memo(({ item, now }: { item: KitchenItem; now: number }) 
 
 /* ─── Section ────────────────────────────────────────────────────────────── */
 const Section = React.memo(({
-  title, Icon, items, accentClass, now, onStart, onFinish,
+  title, Icon, items, accentClass, now, onStart, onOven, onFinish,
 }: {
   title: string;
   Icon: React.ElementType;
   items: KitchenItem[];
   accentClass: string;
   now: number;
-  onStart: (orderId: string | number, itemId: string) => void;
+  onStart:  (orderId: string | number, itemId: string) => void;
+  onOven:   (orderId: string | number, itemId: string) => void;
   onFinish: (orderId: string | number, itemId: string) => void;
 }) => {
   const largeItems  = items.slice(0, MAX_LARGE);
@@ -228,6 +246,7 @@ const Section = React.memo(({
               item={item}
               now={now}
               onStart={onStart}
+              onOven={onOven}
               onFinish={onFinish}
             />
           ))}
@@ -280,6 +299,10 @@ export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
     socket.emit('kitchen_start_item', { orderId, itemId });
   }, []);
 
+  const ovenItem = useCallback((orderId: string | number, itemId: string) => {
+    socket.emit('kitchen_oven_item', { orderId, itemId });
+  }, []);
+
   const finishItem = useCallback((orderId: string | number, itemId: string) => {
     socket.emit('kitchen_finish_item', { orderId, itemId });
   }, []);
@@ -325,7 +348,7 @@ export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
   const lancheItems = kitchenItems.filter(i => i.type === 'lanches');
 
   const waitingCount   = kitchenItems.filter(i => i.kitchenStatus === 'waiting').length;
-  const preparingCount = kitchenItems.filter(i => i.kitchenStatus === 'preparing').length;
+  const preparingCount = kitchenItems.filter(i => i.kitchenStatus === 'preparing' || i.kitchenStatus === 'oven').length;
   const readyCount     = kitchenItems.filter(i => i.kitchenStatus === 'ready').length;
 
   return (
@@ -362,6 +385,7 @@ export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
           accentClass="bg-orange-950/60"
           now={now}
           onStart={startItem}
+          onOven={ovenItem}
           onFinish={finishItem}
         />
         <Section
@@ -371,6 +395,7 @@ export default function KitchenDisplay({ orders, menu }: KitchenDisplayProps) {
           accentClass="bg-yellow-950/60"
           now={now}
           onStart={startItem}
+          onOven={ovenItem}
           onFinish={finishItem}
         />
       </div>

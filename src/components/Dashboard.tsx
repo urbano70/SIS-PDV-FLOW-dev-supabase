@@ -422,8 +422,10 @@ const OrderDetails = ({
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
                         item.kitchenStatus === 'ready' ? (
                           <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
+                        ) : item.kitchenStatus === 'oven' ? (
+                          <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold shrink-0">No Forno...</span>
                         ) : item.kitchenStatus === 'preparing' ? (
-                          <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">{item.type === 'pizzas' ? 'No Forno...' : 'Em preparo...'}</span>
+                          <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">Em preparo...</span>
                         ) : (
                           <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold shrink-0">Na fila</span>
                         )

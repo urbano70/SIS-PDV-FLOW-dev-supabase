@@ -504,6 +504,16 @@ async function startServer() {
       await saveToFirestore('orders', order, String(order.id));
     });
 
+    socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
+      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order) return;
+      const item = order.items.find((i: any) => i.id === itemId);
+      if (!item || item.deliveredAt) return;
+      item.kitchenStatus = 'oven';
+      io.emit("update_orders", orders);
+      await saveToFirestore('orders', order, String(order.id));
+    });
+
     socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
       const order = orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
