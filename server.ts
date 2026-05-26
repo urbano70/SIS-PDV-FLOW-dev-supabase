@@ -30,21 +30,36 @@ async function startServer() {
   // Initialize Firebase Admin on Server
   let db: admin.firestore.Firestore | any;
   try {
+    // Prioridade: env var (produção) → arquivo .dev.json (dev local) → arquivo padrão (prod local)
+    const cwd = process.cwd();
     const rawConfig = process.env.FIREBASE_CONFIG
-      || (fs.existsSync(path.join(process.cwd(), 'firebase-applet-config.json'))
-          ? fs.readFileSync(path.join(process.cwd(), 'firebase-applet-config.json'), 'utf-8')
+      || (fs.existsSync(path.join(cwd, 'firebase-applet-config.dev.json'))
+          ? fs.readFileSync(path.join(cwd, 'firebase-applet-config.dev.json'), 'utf-8')
+          : null)
+      || (fs.existsSync(path.join(cwd, 'firebase-applet-config.json'))
+          ? fs.readFileSync(path.join(cwd, 'firebase-applet-config.json'), 'utf-8')
           : null);
     if (!rawConfig) throw new Error('Firebase config not found');
     const firebaseConfig = JSON.parse(rawConfig);
+    const isDevConfig = !process.env.FIREBASE_CONFIG && fs.existsSync(path.join(cwd, 'firebase-applet-config.dev.json'));
+    console.log('[firebase-init] config source:', process.env.FIREBASE_CONFIG ? 'env var (produção)' : isDevConfig ? 'firebase-applet-config.dev.json (DEV)' : 'firebase-applet-config.json (PROD)');
     if (!admin.apps.length) {
-      // Aceita base64 (FIREBASE_SERVICE_ACCOUNT_B64) ou JSON puro (FIREBASE_SERVICE_ACCOUNT) ou arquivo local
+      // Prioridade: env var B64 → env var JSON → service-account.dev.json → service-account.json
       const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_B64
         ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf-8')
         : process.env.FIREBASE_SERVICE_ACCOUNT
-          || (fs.existsSync(path.join(process.cwd(), 'service-account.json'))
-              ? fs.readFileSync(path.join(process.cwd(), 'service-account.json'), 'utf-8')
+          || (fs.existsSync(path.join(cwd, 'service-account.dev.json'))
+              ? fs.readFileSync(path.join(cwd, 'service-account.dev.json'), 'utf-8')
+              : null)
+          || (fs.existsSync(path.join(cwd, 'service-account.json'))
+              ? fs.readFileSync(path.join(cwd, 'service-account.json'), 'utf-8')
               : null);
-      console.log('[firebase-init] credential source:', process.env.FIREBASE_SERVICE_ACCOUNT_B64 ? 'B64 env' : process.env.FIREBASE_SERVICE_ACCOUNT ? 'JSON env' : fs.existsSync(path.join(process.cwd(), 'service-account.json')) ? 'file' : 'none');
+      const credSource = process.env.FIREBASE_SERVICE_ACCOUNT_B64 ? 'B64 env (produção)'
+        : process.env.FIREBASE_SERVICE_ACCOUNT ? 'JSON env (produção)'
+        : fs.existsSync(path.join(cwd, 'service-account.dev.json')) ? 'service-account.dev.json (DEV)'
+        : fs.existsSync(path.join(cwd, 'service-account.json')) ? 'service-account.json (PROD)'
+        : 'none';
+      console.log('[firebase-init] credential source:', credSource);
       if (rawServiceAccount) {
         const credential = admin.credential.cert(JSON.parse(rawServiceAccount));
         admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
@@ -699,9 +714,8 @@ async function startServer() {
               : orderData.observations;
           }
           io.emit("update_orders", orders);
-          const kitchenItemsExisting = itemsWithWaiter.filter((i: any) => i.type === 'pizzas' || i.type === 'lanches');
-          if (kitchenItemsExisting.length > 0) {
-            io.emit("kitchen_new_order", { items: kitchenItemsExisting, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
+          if (itemsWithWaiter.length > 0) {
+            io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           }
           await saveToFirestore('orders', existingOrder, existingOrder.id.toString());
           console.log("Existing order updated and emitted");
@@ -730,9 +744,8 @@ async function startServer() {
         io.emit("update_tables", tables);
       }
       io.emit("update_stock", stock);
-      const kitchenItemsNew = (newOrder.items || []).filter((i: any) => i.type === 'pizzas' || i.type === 'lanches');
-      if (kitchenItemsNew.length > 0) {
-        io.emit("kitchen_new_order", { items: kitchenItemsNew, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
+      if ((newOrder.items || []).length > 0) {
+        io.emit("kitchen_new_order", { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
       }
       
       console.log("Emitted initial updates for new order");
@@ -996,9 +1009,7 @@ async function startServer() {
 
         // Emit immediately for fast UI
         io.emit("update_orders", orders);
-        if (itemWithTimestamp.type === 'pizzas' || itemWithTimestamp.type === 'lanches') {
-          io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
-        }
+        io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
 
         await saveToFirestore('orders', order, String(order.id));
         

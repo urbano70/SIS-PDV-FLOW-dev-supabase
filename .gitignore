@@ -8,9 +8,11 @@ coverage/
 !.env.example
 server.js
 
-# Credenciais Firebase — nunca versionar
+# Credenciais Firebase — nunca versionar (prod e dev)
 firebase-applet-config.json
+firebase-applet-config.dev.json
 service-account.json
+service-account.dev.json
 
 # Backup de estado local (gerado automaticamente em runtime)
 data/

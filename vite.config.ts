@@ -7,8 +7,9 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  // Firebase config: env var (Docker/produção) ou arquivo local (dev)
+  // Prioridade: env var (produção) → arquivo .dev.json (dev local) → arquivo padrão
   const firebaseConfigStr = process.env.FIREBASE_CONFIG
+    || (() => { try { return fs.readFileSync(path.resolve(__dirname, 'firebase-applet-config.dev.json'), 'utf-8'); } catch { return null; } })()
     || (() => { try { return fs.readFileSync(path.resolve(__dirname, 'firebase-applet-config.json'), 'utf-8'); } catch { return '{}'; } })();
   return {
     plugins: [

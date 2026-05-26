@@ -1,0 +1,10 @@
+{
+  "_instrucoes": "Copie este arquivo para firebase-applet-config.dev.json e preencha com as credenciais do seu projeto Firebase de DESENVOLVIMENTO",
+  "apiKey": "AIzaSy...",
+  "authDomain": "meu-projeto-dev.firebaseapp.com",
+  "projectId": "meu-projeto-dev",
+  "storageBucket": "meu-projeto-dev.appspot.com",
+  "messagingSenderId": "000000000000",
+  "appId": "1:000000000000:web:xxxxxxxxxxxxxxxx",
+  "firestoreDatabaseId": "(default)"
+}
