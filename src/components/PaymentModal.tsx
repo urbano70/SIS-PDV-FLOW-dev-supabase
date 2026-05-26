@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PizzaItem, Order } from '../types';
 import { X, Check, CreditCard, Banknote, QrCode, Wallet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -65,12 +65,17 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   // Only 'partial' payments need deduction — 'items' payments already mark items as paid: true,
   // removing them from activeItems, so subtracting their amount again would double-count.
-  const existingPartialPaid = (order.paymentLog || [])
-    .filter(p => p.type === 'partial')
-    .reduce((acc, p) => acc + p.amount, 0);
-  const activeItems = order.items.filter(i => !i.removed && !i.paid);
-  
-  const calculateItemPrice = (item: PizzaItem) => {
+  const existingPartialPaid = useMemo(() =>
+    (order.paymentLog || []).filter(p => p.type === 'partial').reduce((acc, p) => acc + p.amount, 0),
+    [order.paymentLog]
+  );
+
+  const activeItems = useMemo(() =>
+    order.items.filter(i => !i.removed && !i.paid),
+    [order.items]
+  );
+
+  const calculateItemPrice = useCallback((item: PizzaItem) => {
     let price = item.price;
     if (item.discount) {
       if (item.discountType === 'percentage') {
@@ -80,11 +85,9 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       }
     }
     return price;
-  };
+  }, []);
 
-  const orderTotal = activeItems.reduce((acc, i) => acc + calculateItemPrice(i), 0);
-  
-  const applyOrderDiscount = (total: number) => {
+  const applyOrderDiscount = useCallback((total: number) => {
     if (order.discount) {
       if (order.discountType === 'percentage') {
         return total * (1 - order.discount / 100);
@@ -93,28 +96,41 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       }
     }
     return total;
-  };
+  }, [order.discount, order.discountType]);
 
-  const finalOrderTotal = applyOrderDiscount(orderTotal);
-  const remainingOrderTotal = Math.max(0, finalOrderTotal - existingPartialPaid);
+  const orderTotal = useMemo(() =>
+    activeItems.reduce((acc, i) => acc + calculateItemPrice(i), 0),
+    [activeItems, calculateItemPrice]
+  );
 
-  const selectedTotal = isSplitPayment 
-    ? splitAmount 
-    : order.items
-        .filter(i => selectedItems[i.id] !== undefined)
-        .reduce((acc, i) => {
-          const qty = selectedItems[i.id] || 0;
-          const unitPrice = calculateItemPrice(i) / (i.quantity || 1);
-          return acc + (unitPrice * qty);
-        }, 0);
+  const finalOrderTotal = useMemo(() => applyOrderDiscount(orderTotal), [applyOrderDiscount, orderTotal]);
+  const remainingOrderTotal = useMemo(() => Math.max(0, finalOrderTotal - existingPartialPaid), [finalOrderTotal, existingPartialPaid]);
 
-  const finalSelectedTotal = isSplitPayment ? splitAmount : applyOrderDiscount(selectedTotal);
+  const selectedTotal = useMemo(() => {
+    if (isSplitPayment) return splitAmount;
+    return order.items
+      .filter(i => selectedItems[i.id] !== undefined)
+      .reduce((acc, i) => {
+        const qty = selectedItems[i.id] || 0;
+        const unitPrice = calculateItemPrice(i) / (i.quantity || 1);
+        return acc + (unitPrice * qty);
+      }, 0);
+  }, [isSplitPayment, splitAmount, order.items, selectedItems, calculateItemPrice]);
 
-  const totalPaid = (Object.values(payments) as PaymentState[])
-    .filter(p => p.enabled)
-    .reduce((acc, p) => acc + p.amount, 0);
+  const finalSelectedTotal = useMemo(() =>
+    isSplitPayment ? splitAmount : applyOrderDiscount(selectedTotal),
+    [isSplitPayment, splitAmount, applyOrderDiscount, selectedTotal]
+  );
 
-  const remaining = Math.max(0, finalSelectedTotal - (isSplitPayment ? 0 : existingPartialPaid) - totalPaid);
+  const totalPaid = useMemo(() =>
+    (Object.values(payments) as PaymentState[]).filter(p => p.enabled).reduce((acc, p) => acc + p.amount, 0),
+    [payments]
+  );
+
+  const remaining = useMemo(() =>
+    Math.max(0, finalSelectedTotal - (isSplitPayment ? 0 : existingPartialPaid) - totalPaid),
+    [finalSelectedTotal, isSplitPayment, existingPartialPaid, totalPaid]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -368,16 +384,18 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   return (
     <AnimatePresence>
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/60 backdrop-blur-md"
+        transition={{ duration: 0.15, ease: 'easeOut' }}
+        className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/60"
       >
-        <motion.div 
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.9, y: 20 }}
+        <motion.div
+          initial={{ scale: 0.95, y: 16, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.95, y: 16, opacity: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
           className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95vh]"
         >
           <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
@@ -393,11 +411,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           {/* Quantity Selection Modal for Payment */}
           <AnimatePresence>
             {isQuantitySelectOpen && (
-              <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                <motion.div 
-                  initial={{ scale: 0.9, opacity: 0 }}
+              <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/40">
+                <motion.div
+                  initial={{ scale: 0.93, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.9, opacity: 0 }}
+                  exit={{ scale: 0.93, opacity: 0 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
                   className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl border-2 border-[#141414] space-y-6"
                 >
                   <div className="text-center">
@@ -459,11 +478,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               const finalValue = Math.max(0, baseValue - discountAmount);
 
               return (
-                <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                  <motion.div 
-                    initial={{ scale: 0.9, opacity: 0 }}
+                <div className="fixed inset-0 z-[140] flex items-center justify-center p-4 bg-black/40">
+                  <motion.div
+                    initial={{ scale: 0.93, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    exit={{ scale: 0.9, opacity: 0 }}
+                    exit={{ scale: 0.93, opacity: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
                     className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl border-2 border-[#141414] space-y-6"
                   >
                     <div className="text-center">
@@ -538,11 +558,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
           <AnimatePresence>
             {isSplitModalOpen && (
-              <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-                <motion.div 
-                  initial={{ scale: 0.9, opacity: 0 }}
+              <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/40">
+                <motion.div
+                  initial={{ scale: 0.93, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.9, opacity: 0 }}
+                  exit={{ scale: 0.93, opacity: 0 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
                   className="bg-white rounded-3xl p-8 w-full max-w-md shadow-2xl border-2 border-[#141414] space-y-6"
                 >
                   <div className="text-center">
@@ -1021,12 +1042,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[150] flex items-center justify-center p-3 bg-black/60 backdrop-blur-md"
+            className="fixed inset-0 z-[150] flex items-center justify-center p-3 bg-black/60"
           >
             <motion.div
-              initial={{ scale: 0.92, y: 24 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.92, y: 24 }}
+              initial={{ scale: 0.95, y: 16, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 16, opacity: 0 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
               className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm flex flex-col overflow-hidden"
             >
               {/* Header */}
@@ -1132,12 +1154,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40"
           >
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0 }}
+            <motion.div
+              initial={{ scale: 0.93, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
+              exit={{ scale: 0.93, opacity: 0 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
               className="bg-white p-8 rounded-3xl shadow-2xl max-w-xs w-full text-center space-y-6"
             >
               <h3 className="font-serif italic text-2xl">Finalizar?</h3>
