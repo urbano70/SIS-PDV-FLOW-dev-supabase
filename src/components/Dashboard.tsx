@@ -753,34 +753,39 @@ export default function Dashboard({
       return;
     }
     const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === printerName);
-    const now = new Date();
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      const _testPw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
-      const _bigFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '20px' : '28px';
-      printWindow.document.write(`<html><head><title>Teste de Impressora</title><style>
-        @page{size:${_testPw} auto;margin:4mm}
-        *{box-sizing:border-box}
-        body{font-family:monospace;padding:8px;width:${_testPw};margin:0;color:#000}
-        .center{text-align:center}.big{font-size:${_bigFs};font-weight:bold;border:3px solid #000;padding:6px;margin:8px 0}
-        .sep{border-top:1px dashed #000;margin:6px 0}.small{font-size:9px;opacity:.6}
-      </style></head><body>
-        <div class="center">
-          <div style="font-size:11px;font-weight:bold;text-transform:uppercase">${printerConfig.establishmentName}</div>
-          <div class="sep"></div>
-          <div class="big">TESTE OK</div>
-          <div style="font-size:13px;font-weight:bold">${printerName}</div>
-          ${printer ? `<div class="small">IP: ${printer.ip}</div>` : ''}
-          <div class="sep"></div>
-          <div class="small">${now.toLocaleDateString('pt-BR')} ${now.toLocaleTimeString('pt-BR')}</div>
-          <div class="small">FechaConta PDV</div>
-        </div>
-      </body></html>`);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
+
+    if (printer?.ip) {
+      // Impressão direta ESC/POS via TCP
+      const wide = (printerConfig.paperWidth || '80mm') !== '50mm';
+      const lineLen = wide ? 42 : 24;
+      const b: number[] = [];
+      const push = (...bytes: number[]) => b.push(...bytes);
+      const lf = () => push(0x0A);
+      const text = (s: string) => push(...escStr(s));
+      const line = () => { text('-'.repeat(lineLen)); lf(); };
+      const now = new Date();
+
+      push(0x1B, 0x40, 0x1B, 0x74, 0x02); // init + CP850
+      push(0x1B, 0x61, 0x01); // center
+      push(0x1B, 0x45, 0x01); text(printerConfig.establishmentName || 'FECHACONTA PDV'); lf();
+      push(0x1B, 0x45, 0x00);
+      line();
+      push(0x1D, 0x21, 0x11, 0x1B, 0x45, 0x01);
+      text('TESTE OK'); lf();
+      push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+      line();
+      text(printerName.toUpperCase()); lf();
+      text('IP: ' + printer.ip + ':' + (printer.port || 9100)); lf();
+      text(now.toLocaleDateString('pt-BR') + '  ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })); lf();
+      push(0x1B, 0x61, 0x00);
+      line();
+      push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
+
+      socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+      toast.success(`Teste enviado para ${printerName}`, { description: `${printer.ip}:${printer.port || 9100}` });
+    } else {
+      toast.error('IP não configurado para esta impressora.');
     }
-    toast.success(`Página de teste aberta para ${printerName}`);
   };
 
   const openPrint = (title: string, body: string) => {
