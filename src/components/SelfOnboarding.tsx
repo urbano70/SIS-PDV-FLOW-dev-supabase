@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import socket from '../lib/socket';
-import { useFirebase } from './FirebaseProvider';
 import { User, ShieldCheck, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Waiter } from '../types';
 import { toast } from 'sonner';
 
 export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] }) {
-  const { user } = useFirebase();
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -20,14 +18,13 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
   const [mode, setMode] = useState<'register' | 'login'>('register');
 
   useEffect(() => {
-    // Check if we already have a pending record in the database for this user
-    if (user && waiters.length > 0) {
-      const myRecord = waiters.find(w => w.id === user.uid || (w as any).uid === user.uid);
-      if (myRecord && myRecord.status === 'pending') {
-        setIsWaiting(true);
-      }
+    const saved = localStorage.getItem('waiter_credentials');
+    if (saved && waiters.length > 0) {
+      const { name } = JSON.parse(saved);
+      const myRecord = waiters.find(w => w.name === name);
+      if (myRecord?.status === 'pending') setIsWaiting(true);
     }
-  }, [waiters, user]);
+  }, [waiters]);
 
   useEffect(() => {
     const savedData = localStorage.getItem('waiter_credentials');
@@ -42,10 +39,10 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'register') {
-      const waiterId = user?.uid || `waiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const waiterId = `waiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const waiterData: Waiter = {
         id: waiterId,
-        uid: user?.uid || null,
+        uid: null,
         name: formData.name,
         phone: formData.phone,
         cpf: formData.cpf,
@@ -61,11 +58,6 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
       setIsWaiting(true);
       toast.success('Solicitação de acesso enviada com sucesso!');
-
-      // Persistência no Firestore em segundo plano
-      import('../lib/firebaseService').then(({ createDocument }) =>
-        createDocument('waiters', waiterData, waiterId)
-      ).catch(() => {});
     } else {
       socket.emit('waiter_login', { name: formData.name, password: formData.password });
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));

@@ -21,6 +21,10 @@ services:
     environment:
       NODE_ENV: production
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
       # Deve ser o endereço HTTPS do seu domínio.
       # Exemplo: https://fechaconta.seudominio.com
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}

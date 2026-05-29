@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from 'firebase/auth';
-import { auth } from '../lib/firebase';
 import socket from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
+import { getSession } from '../lib/auth';
 
 interface FirebaseContextType {
-  user: User | null;
+  user: null;
   loading: boolean;
   isAdmin: boolean;
+  tenantId: string | undefined;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
   toggleCashRegister: (open: boolean) => void;
@@ -29,20 +29,55 @@ interface FirebaseContextType {
 
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
-export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(true);
-  const [tables, setTables] = useState<Table[]>([]);
-  const [comandas, setComandas] = useState<Table[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [waiters, setWaiters] = useState<Waiter[]>([]);
-  const [stock, setStock] = useState<StockItem[]>([]);
-  const [stockLog, setStockLog] = useState<any[]>([]);
-  const [menu, setMenu] = useState<MenuCategory[]>([]);
-  const [isCashRegisterOpen, setIsCashRegisterOpen] = useState(false);
-  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>({ enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30 });
-  const [firebaseActive, setFirebaseActive] = useState(true);
+interface FirebaseProviderProps {
+  children: React.ReactNode;
+  tenantId?: string;
+  isWaiterMode?: boolean;
+}
+
+const CACHE_KEY_PREFIX = 'pdv_init_cache_';
+
+function loadCache(tenantId?: string) {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY_PREFIX + (tenantId || 'default'));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveCache(tenantId: string | undefined, data: any) {
+  try {
+    localStorage.setItem(CACHE_KEY_PREFIX + (tenantId || 'default'), JSON.stringify(data));
+  } catch {}
+}
+
+export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
+  children,
+  tenantId,
+  isWaiterMode = false,
+}) => {
+  const user = null;
+  const isAdmin = !isWaiterMode;
+
+  const cached = loadCache(tenantId);
+
+  const defaultPizzeriaConfig: PizzeriaConfig = {
+    enabled: false,
+    yellowMinutes: 15,
+    orangeMinutes: 20,
+    redMinutes: 25,
+    inactivityMinutes: 30,
+  };
+
+  const [loading, setLoading] = useState(!cached);
+  const [tables, setTables] = useState<Table[]>(cached?.tables ?? []);
+  const [comandas, setComandas] = useState<Table[]>(cached?.comandas ?? []);
+  const [orders, setOrders] = useState<Order[]>(cached?.orders ?? []);
+  const [waiters, setWaiters] = useState<Waiter[]>(cached?.waiters ?? []);
+  const [stock, setStock] = useState<StockItem[]>(cached?.stock ?? []);
+  const [stockLog, setStockLog] = useState<any[]>(cached?.stockLog ?? []);
+  const [menu, setMenu] = useState<MenuCategory[]>(cached?.menu ?? []);
+  const [isCashRegisterOpen, setIsCashRegisterOpen] = useState<boolean>(cached?.isCashRegisterOpen ?? false);
+  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(cached?.pizzariaConfig ?? defaultPizzeriaConfig);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -54,14 +89,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   useEffect(() => {
     let socketUnsubscribes: (() => void)[] = [];
-    let firestoreUnsubscribes: (() => void)[] = [];
 
-    const cleanupFirestore = () => {
-      firestoreUnsubscribes.forEach(unsub => unsub());
-      firestoreUnsubscribes = [];
-    };
-
-    // 1. Inicializar Socket.io imediatamente para carregamento rápido
     const handleUpdateOrders = (data: Order[]) => setOrders(data);
     const handleUpdateTables = (data: Table[]) => setTables(data);
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
@@ -73,17 +101,18 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
       }));
       setMenu(transformed);
+      saveCache(tenantId, { ...loadCache(tenantId), menu: transformed });
     };
     const handleUpdateStock = (data: StockItem[]) => setStock(data);
     const handleUpdateStockLog = (data: any[]) => setStockLog(data);
     const handleUpdateWaiters = (data: Waiter[]) => setWaiters(data);
 
     const handleInitData = (data: any) => {
-      console.log("Received init_data from socket, populating states immediately");
-      if (data.firebaseActive !== undefined) {
-        setFirebaseActive(data.firebaseActive);
-        console.log("Firebase status from server is:", data.firebaseActive);
-      }
+      const transformMenu = (cats: any[]) => cats.map((cat: any) => ({
+        ...cat,
+        name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
+      }));
+
       if (data.tables) setTables(data.tables);
       if (data.comandas) setComandas(data.comandas);
       if (data.orders) setOrders(data.orders);
@@ -92,14 +121,13 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (data.waiters) setWaiters(data.waiters);
       if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
       if (data.pizzariaConfig) setPizzeriaConfig(data.pizzariaConfig);
-      if (data.menu) {
-        const transformedData = data.menu.map((cat: any) => ({
-          ...cat,
-          name: (cat.name === 'Éxodo' && cat.type === 'bebidas') ? 'Bebidas' : cat.name
-        }));
-        setMenu(transformedData);
-      }
-      setLoading(false); // Finaliza o loading assim que os dados do socket chegam!
+      if (data.menu) setMenu(transformMenu(data.menu));
+
+      saveCache(tenantId, {
+        ...data,
+        menu: data.menu ? transformMenu(data.menu) : undefined,
+      });
+      setLoading(false);
     };
 
     socket.on('init_data', handleInitData);
@@ -113,8 +141,33 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     socket.on('update_stock_log', handleUpdateStockLog);
     socket.on('update_waiters', handleUpdateWaiters);
 
-    // Solicitar os dados iniciais ativamente
+    // Request init data immediately — no need to wait for auth
     socket.emit('request_init_data');
+
+    // Auth in background: grants admin privileges on the socket
+    const identifyConnection = async () => {
+      if (isWaiterMode && tenantId) {
+        socket.emit('waiter_identify_tenant', { tenantId });
+        return;
+      }
+      try {
+        const session = await getSession();
+        const token = session?.access_token;
+        if (token) {
+          socket.emit('admin_connect', token);
+          if (tenantId) socket.emit('tenant_connect', { tenantId, supabaseToken: token });
+        }
+      } catch {}
+    };
+
+    identifyConnection();
+
+    // Re-identify and re-request data on reconnect
+    const handleReconnect = () => {
+      socket.emit('request_init_data');
+      identifyConnection();
+    };
+    socket.on('connect', handleReconnect);
 
     socketUnsubscribes.push(() => {
       socket.off('init_data', handleInitData);
@@ -127,76 +180,16 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       socket.off('update_stock', handleUpdateStock);
       socket.off('update_stock_log', handleUpdateStockLog);
       socket.off('update_waiters', handleUpdateWaiters);
+      socket.off('connect', handleReconnect);
     });
 
-    // 2. Inicializar Firebase Auth e Firestore em segundo plano (apenas se firebase estiver ativo no backend)
-    let unsubscribeAuth = () => {};
-
-    if (firebaseActive) {
-      unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
-        cleanupFirestore();
-        console.log("Auth state changed:", currentUser?.uid, currentUser?.email, currentUser?.isAnonymous);
-        setUser(currentUser);
-        setIsAdmin(true);
-        
-        if (!currentUser) {
-          // Se não houver usuário, faz login anônimo automático em segundo plano
-          try {
-            await signInAnonymously(auth);
-          } catch (e) {
-            console.error("Error signing in anonymously:", e);
-          }
-          return;
-        }
-        
-        if (currentUser) {
-          console.log("Syncing Firestore collections in background...");
-          
-          // Waiters, tables, comandas, orders, menu, stock e config são sincronizados
-          // APENAS via Socket.io (init_data / update_waiters / update_tables / etc).
-          // O servidor já faz onSnapshot do Firestore e emite os eventos com dados completos.
-          // Escutar o Firestore aqui diretamente sobrescreveria o estado do socket com dados
-          // possivelmente desatualizados ou incompletos, causando desaparecimento de registros.
-        }
-      });
-    } else {
-      console.log("Firebase Admin is disabled on server. Skipping Firestore sync, relying solely on Socket.io.");
-      setUser(null);
-      setIsAdmin(true);
-    }
-
-    // Fallback de emergência (reduzido para 4 segundos se nada responder)
-    const loadingTimeout = setTimeout(() => {
-      setLoading(false);
-    }, 4000);
-
     return () => {
-      unsubscribeAuth();
-      cleanupFirestore();
       socketUnsubscribes.forEach(unsub => unsub());
-      clearTimeout(loadingTimeout);
     };
-  }, [firebaseActive]);
+  }, [tenantId, isWaiterMode]);
 
-  const signIn = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-      toast.success('Login realizado com sucesso!');
-    } catch (error) {
-      toast.error('Erro ao realizar login.');
-      console.error(error);
-    }
-  };
-
-  const logout = async () => {
-    try {
-      await signOut(auth);
-      toast.success('Sessão encerrada.');
-    } catch (error) {
-      toast.error('Erro ao sair.');
-    }
-  };
+  const signIn = async () => { toast.info('Autenticação não disponível neste modo.'); };
+  const logout = async () => { toast.info('Sessão encerrada.'); };
 
   const updatePizzeriaConfig = (config: PizzeriaConfig) => {
     setPizzeriaConfig(config);
@@ -213,6 +206,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       user,
       loading,
       isAdmin,
+      tenantId,
       signIn,
       logout,
       toggleCashRegister,

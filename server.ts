@@ -1,3 +1,4 @@
+﻿import 'dotenv/config';
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -7,74 +8,47 @@ import os from "os";
 import net from "net";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
-import admin from "firebase-admin";
-import { getFirestore } from "firebase-admin/firestore";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
   
-  const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
-    ? process.env.ALLOWED_ORIGINS.split(',') 
-    : ["http://localhost:3000", "http://0.0.0.0:3000"];
+  const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ["http://localhost:3000", "http://0.0.0.0:3000", "http://localhost:3001", "http://0.0.0.0:3001"];
 
   const io = new Server(httpServer, {
     cors: {
-      origin: ALLOWED_ORIGINS,
+      origin: (origin, callback) => {
+        // Agente local (Node.js) não envia origin — sempre permitir
+        if (!origin) return callback(null, true);
+        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        callback(null, true); // em dev, permitir tudo; em prod usar: callback(new Error('Not allowed'))
+      },
     },
   });
 
-  const PORT = 3000;
+  const PORT = 3001;
 
-  // Initialize Firebase Admin on Server
-  let db: admin.firestore.Firestore | any;
+  // â"€â"€ Inicializa Supabase Admin (service_role â€" bypassa RLS) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  let db: SupabaseClient;
   try {
-    // Prioridade: env var (produção) → arquivo .dev.json (dev local) → arquivo padrão (prod local)
-    const cwd = process.cwd();
-    const rawConfig = process.env.FIREBASE_CONFIG
-      || (fs.existsSync(path.join(cwd, 'firebase-applet-config.dev.json'))
-          ? fs.readFileSync(path.join(cwd, 'firebase-applet-config.dev.json'), 'utf-8')
-          : null)
-      || (fs.existsSync(path.join(cwd, 'firebase-applet-config.json'))
-          ? fs.readFileSync(path.join(cwd, 'firebase-applet-config.json'), 'utf-8')
-          : null);
-    if (!rawConfig) throw new Error('Firebase config not found');
-    const firebaseConfig = JSON.parse(rawConfig);
-    const isDevConfig = !process.env.FIREBASE_CONFIG && fs.existsSync(path.join(cwd, 'firebase-applet-config.dev.json'));
-    console.log('[firebase-init] config source:', process.env.FIREBASE_CONFIG ? 'env var (produção)' : isDevConfig ? 'firebase-applet-config.dev.json (DEV)' : 'firebase-applet-config.json (PROD)');
-    if (!admin.apps.length) {
-      // Prioridade: env var B64 → env var JSON → service-account.dev.json → service-account.json
-      const rawServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_B64
-        ? Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, 'base64').toString('utf-8')
-        : process.env.FIREBASE_SERVICE_ACCOUNT
-          || (fs.existsSync(path.join(cwd, 'service-account.dev.json'))
-              ? fs.readFileSync(path.join(cwd, 'service-account.dev.json'), 'utf-8')
-              : null)
-          || (fs.existsSync(path.join(cwd, 'service-account.json'))
-              ? fs.readFileSync(path.join(cwd, 'service-account.json'), 'utf-8')
-              : null);
-      const credSource = process.env.FIREBASE_SERVICE_ACCOUNT_B64 ? 'B64 env (produção)'
-        : process.env.FIREBASE_SERVICE_ACCOUNT ? 'JSON env (produção)'
-        : fs.existsSync(path.join(cwd, 'service-account.dev.json')) ? 'service-account.dev.json (DEV)'
-        : fs.existsSync(path.join(cwd, 'service-account.json')) ? 'service-account.json (PROD)'
-        : 'none';
-      console.log('[firebase-init] credential source:', credSource);
-      if (rawServiceAccount) {
-        const credential = admin.credential.cert(JSON.parse(rawServiceAccount));
-        admin.initializeApp({ credential, projectId: firebaseConfig.projectId });
-      } else {
-        admin.initializeApp({ projectId: firebaseConfig.projectId });
-      }
+    const supabaseUrl     = process.env.SUPABASE_URL;
+    const supabaseKey     = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY sÃ£o obrigatÃ³rios');
     }
-    // Usa o banco nomeado se configurado (firestoreDatabaseId no firebase-applet-config.json),
-    // garantindo que servidor e cliente React leiam/gravem no mesmo banco.
-    db = firebaseConfig.firestoreDatabaseId
-      ? getFirestore(admin.app(), firebaseConfig.firestoreDatabaseId)
-      : getFirestore();
-    console.log("Firebase Admin initialized on server");
+    db = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+      realtime: { transport: ws as any },
+    });
+    console.log('[supabase] Admin client inicializado');
   } catch (error) {
-    console.error("Failed to initialize Firebase Admin on server:", error);
+    console.error('[supabase] Falha ao inicializar:', error);
+    process.exit(1);
   }
 
   app.use(express.json());
@@ -97,167 +71,158 @@ async function startServer() {
     linkedTo: null,
   }));
 
-  // Initial Data Load and Real-time Sync from Firestore to Socket
-  if (db) {
-    // Sync waiters
-    db.collection("waiters").onSnapshot((snapshot) => {
-      waiters = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      io.emit("update_waiters", waiters);
+  // â"€â"€ Mappers: Supabase row â†" app object â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  const rowToTable  = (r: any) => ({ id: r.id, status: r.status, currentOrder: r.current_order ?? null, linkedTo: r.linked_to ?? null });
+  const tableToRow  = (t: any) => ({ id: t.id, status: t.status, current_order: t.currentOrder ?? null, linked_to: t.linkedTo ?? null });
+  const rowToOrder  = (r: any) => ({ id: r.id, tableId: r.table_id, waiterId: r.waiter_id, waiterName: r.waiter_name, status: r.status, isComanda: r.is_comanda, timestamp: r.timestamp, items: r.items || [], paymentLog: r.payment_log || [], deliveryLog: r.delivery_log || [] });
+  const orderToRow  = (o: any) => ({ id: String(o.id), table_id: o.tableId ? String(o.tableId) : null, waiter_id: o.waiterId ? String(o.waiterId) : null, waiter_name: o.waiterName || null, status: o.status || 'open', is_comanda: o.isComanda || false, timestamp: o.timestamp || new Date().toISOString(), items: o.items || [], payment_log: o.paymentLog || [], delivery_log: o.deliveryLog || [] });
+  const rowToStock  = (r: any) => ({ id: r.id, menuItemId: r.menu_item_id, name: r.name, quantity: r.quantity, minQuantity: r.min_quantity, unit: r.unit, history: r.history || [] });
+  const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
-      // Retry pending logins that failed during startup race condition
-      io.sockets.sockets.forEach((s: any) => {
-        if (s._pendingLogin && !s.waiterId) {
-          const { name, password } = s._pendingLogin;
-          const w = waiters.find((x: any) => x.name === name && x.password === password);
-          if (w) {
-            w.socketId = s.id;
-            s.waiterId = w.id;
-            s.waiterName = w.name;
-            s.waiterCpf = w.cpf;
-            s.waiterUid = w.uid;
-            s.emit("waiter_approved", { status: w.status });
-          } else if (waiters.length > 0) {
-            s.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
-          }
-          delete s._pendingLogin;
-        }
-      });
-    });
-
-    // Sync active orders — resolve item types from current menu to fix stale Firestore data
-    db.collection("orders").onSnapshot((snapshot) => {
-      orders = snapshot.docs.map(doc => {
-        const data: any = { id: doc.id, ...doc.data() };
-        if (data.items && menu.length > 0) {
-          data.items = data.items.map((item: any) => {
-            if (item.type === 'pizzas') return item;
-            const cat = item.menuItemId
-              ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
-              : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
-            return cat?.type ? { ...item, type: cat.type } : item;
-          });
-        }
-        return data;
-      });
-      io.emit("update_orders", orders);
-    });
-
-    // Sync tables
-    db.collection("tables").onSnapshot((snapshot) => {
-      const dbTables = snapshot.docs.map(doc => ({ id: parseInt(doc.id), ...doc.data() }));
-      dbTables.forEach(dbTable => {
-        const index = tables.findIndex(t => t.id === dbTable.id);
-        if (index !== -1) {
-          tables[index] = { ...tables[index], ...dbTable };
-        } else {
-          tables.push(dbTable);
-        }
-      });
-      tables.sort((a, b) => a.id - b.id);
-      io.emit("update_tables", tables);
-    });
-
-    // Sync comandas
-    db.collection("comandas").onSnapshot((snapshot) => {
-      const dbComandas = snapshot.docs.map(doc => ({ id: parseInt(doc.id), ...doc.data() }));
-      dbComandas.forEach(dbComanda => {
-        const index = comandas.findIndex(c => c.id === dbComanda.id);
-        if (index !== -1) {
-          comandas[index] = { ...comandas[index], ...dbComanda };
-        } else {
-          comandas.push(dbComanda);
-        }
-      });
-      comandas.sort((a, b) => a.id - b.id);
-      io.emit("update_comandas", comandas);
-    });
-
-    // Sync config
-    db.collection("config").doc("app").onSnapshot((snapshot) => {
-      if (snapshot.exists) {
-        const data = snapshot.data();
-        isCashRegisterOpen = data.isCashRegisterOpen;
-        io.emit("update_cash_register", isCashRegisterOpen);
-        
-        if (data.dailyCounter !== undefined) dailyCounter = data.dailyCounter;
-        if (data.lastOrderDate !== undefined) lastOrderDate = data.lastOrderDate;
-      }
-    });
-
-    // Sync menu
-    db.collection("menu").onSnapshot((snapshot) => {
-      menu = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      io.emit("update_menu", menu);
-    });
-
-    // Sync stock — only keep items linked to menu items with trackStock: true
-    db.collection("stock").onSnapshot((snapshot) => {
-      const allItems = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return { id: doc.id, menuItemId: data.menuItemId ?? doc.id, ...data };
-      });
-
-      if (menu.length > 0) {
-        const trackedIds = new Set(
-          menu.flatMap((c: any) => c.items)
-              .filter((i: any) => i.trackStock)
-              .map((i: any) => i.id)
-        );
-        const orphans = allItems.filter((s: any) => !trackedIds.has(s.menuItemId));
-        if (orphans.length > 0) {
-          const batchDel = db.batch();
-          orphans.forEach((s: any) => batchDel.delete(db.collection("stock").doc(s.id)));
-          batchDel.commit().catch(() => {});
-        }
-        stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
-      } else {
-        stock = allItems;
-      }
-      io.emit("update_stock", stock);
-    });
-
-    // Sync pizza flavors
-    db.collection("pizzaFlavors").onSnapshot((snapshot) => {
-      pizzaFlavors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      io.emit("update_pizza_flavors", pizzaFlavors);
-    });
-
-    // Sync pizza crusts
-    db.collection("pizzaCrusts").onSnapshot((snapshot) => {
-      pizzaCrusts = snapshot.docs.map(doc => doc.data().name || doc.id);
-      io.emit("update_pizza_crusts", pizzaCrusts);
-    });
-
-    // Sync pizzaria config
-    db.collection("config").doc("pizzaria").onSnapshot((snapshot) => {
-      if (snapshot.exists) {
-        pizzariaConfig = { ...pizzariaConfig, ...snapshot.data() };
-        io.emit("update_pizzaria_config", pizzariaConfig);
-      }
-    });
-  }
-
-  // Helper to save to Firestore
-  const saveToFirestore = async (path: string, data: any, docId?: string) => {
+  // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  const saveToSupabase = async (collection: string, data: any, docId?: string) => {
     if (!db) return;
     try {
-      const sanitized = JSON.parse(JSON.stringify(data));
-      if (docId) {
-        await db.collection(path).doc(docId.toString()).set({
-          ...sanitized,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      } else {
-        await db.collection(path).add({
-          ...sanitized,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        });
+      const d = JSON.parse(JSON.stringify(data));
+      switch (collection) {
+        case 'orders':   await db.from('orders').upsert(orderToRow(d)); break;
+        case 'tables':   await db.from('tables').upsert(tableToRow(d)); break;
+        case 'comandas': await db.from('comandas').upsert(tableToRow(d)); break;
+        case 'waiters':  await db.from('waiters').upsert(d); break;
+        case 'menu':     await db.from('menu').upsert({ id: docId || d.id, name: d.name, position: d.position || 0, items: d.items || [] }); break;
+        case 'stock':    await db.from('stock').upsert(stockToRow(d)); break;
+        case 'config':   await db.from('config').upsert({ id: docId, data: d }); break;
+        case 'pizzaFlavors': await db.from('pizza_flavors').upsert({ id: d.name, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false }); break;
+        case 'pizzaCrusts':  await db.from('pizza_crusts').upsert({ id: d.name || docId, name: d.name || docId }); break;
+        default: console.warn(`[supabase] coleÃ§Ã£o desconhecida: "${collection}"`);
       }
     } catch (e) {
-      console.error(`Error saving to Firestore (${path}):`, e);
+      console.error(`[supabase] erro ao salvar em ${collection}:`, e);
     }
   };
+
+  const saveMenuToSupabase = () => {
+    menu.forEach((cat: any, idx: number) => {
+      saveToSupabase('menu', { ...cat, position: idx }, cat.name).catch(() => {});
+    });
+  };
+
+  // â"€â"€ Carga inicial do Supabase â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  const loadFromSupabase = async () => {
+    try {
+      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
+        db.from('waiters').select('*'),
+        db.from('orders').select('*'),
+        db.from('tables').select('*').order('id'),
+        db.from('comandas').select('*').order('id'),
+        db.from('config').select('data').eq('id', 'app').maybeSingle(),
+        db.from('menu').select('*').order('position'),
+        db.from('stock').select('*'),
+        db.from('pizza_flavors').select('*'),
+        db.from('pizza_crusts').select('*'),
+        db.from('config').select('data').eq('id', 'pizzaria').maybeSingle(),
+      ]);
+
+      if (wRes.data) {
+        waiters = wRes.data;
+        io.emit('update_waiters', waiters);
+        // Retry pending logins
+        io.sockets.sockets.forEach((s: any) => {
+          if (s._pendingLogin && !s.waiterId) {
+            const { name, password } = s._pendingLogin;
+            const w = waiters.find((x: any) => x.name === name && x.password === password);
+            if (w) { w.socketId = s.id; s.waiterId = w.id; s.waiterName = w.name; s.waiterCpf = w.cpf; s.waiterUid = w.uid; s.emit('waiter_approved', { status: w.status }); }
+            else if (waiters.length > 0) s.emit('error_message', 'Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.');
+            delete s._pendingLogin;
+          }
+        });
+      }
+
+      if (mRes.data?.length) {
+        // Re-hidrata o campo `type` (não persistido no schema Supabase) a partir
+        // das constantes ou do nome da categoria
+        const typeMap: Record<string, string> = {};
+        MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
+        menu = mRes.data.map((row: any) => ({
+          ...row,
+          type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
+        }));
+        io.emit('update_menu', menu);
+      } else {
+        // Supabase menu vazio — semeia a partir das constantes
+        await db.from('menu').upsert(
+          menu.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, items: cat.items || [] }))
+        );
+        console.log('[supabase] Menu inicial semeado ao Supabase');
+        io.emit('update_menu', menu);
+      }
+
+      if (oRes.data) {
+        orders = oRes.data.map((r: any) => {
+          const o = rowToOrder(r);
+          if (o.items && menu.length > 0) {
+            o.items = o.items.map((item: any) => {
+              if (item.type === 'pizzas') return item;
+              const cat = item.menuItemId
+                ? menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId))
+                : menu.find((c: any) => c.items?.some((i: any) => i.name === item.name));
+              return cat?.type ? { ...item, type: cat.type } : item;
+            });
+          }
+          return o;
+        });
+        io.emit('update_orders', orders);
+      }
+
+      if (tRes.data) {
+        tRes.data.map(rowToTable).forEach((dbTable: any) => {
+          const idx = tables.findIndex(t => t.id === dbTable.id);
+          if (idx !== -1) tables[idx] = { ...tables[idx], ...dbTable }; else tables.push(dbTable);
+        });
+        tables.sort((a, b) => a.id - b.id);
+        io.emit('update_tables', tables);
+      }
+
+      if (cRes.data) {
+        const dbComandas = cRes.data.map(rowToTable);
+        dbComandas.forEach((dbC: any) => {
+          const idx = comandas.findIndex(c => c.id === dbC.id);
+          if (idx !== -1) comandas[idx] = { ...comandas[idx], ...dbC }; else comandas.push(dbC);
+        });
+        comandas.sort((a, b) => a.id - b.id);
+        io.emit('update_comandas', comandas);
+      }
+
+      if (cfgRes.data?.data) {
+        const cfg = cfgRes.data.data as any;
+        isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
+        if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
+        io.emit('update_cash_register', isCashRegisterOpen);
+      }
+
+      if (sRes.data) {
+        const allItems = sRes.data.map(rowToStock);
+        if (menu.length > 0) {
+          const trackedIds = new Set(menu.flatMap((c: any) => c.items || []).filter((i: any) => i.trackStock).map((i: any) => i.id));
+          const orphanIds = allItems.filter((s: any) => !trackedIds.has(s.menuItemId)).map((s: any) => s.id);
+          if (orphanIds.length > 0) (db.from('stock').delete().in('id', orphanIds) as any).catch(() => {});
+          stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
+        } else { stock = allItems; }
+        io.emit('update_stock', stock);
+      }
+
+      if (pfRes.data) { pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.emit('update_pizza_flavors', pizzaFlavors); }
+      if (pcRes.data) { pizzaCrusts = pcRes.data.map((r: any) => r.name); io.emit('update_pizza_crusts', pizzaCrusts); }
+      if (cfgPizRes.data?.data) { pizzariaConfig = { ...pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
+
+      console.log('[supabase] Carga inicial concluÃ­da');
+    } catch (e) {
+      console.error('[supabase] Erro na carga inicial:', e);
+    }
+  };
+
+  loadFromSupabase();
 
   // Daily order counter state
   const COUNTER_FILE = path.join(os.tmpdir(), 'sistema-pdv-flow-order-counter.json');
@@ -298,14 +263,7 @@ async function startServer() {
     
     saveCounter();
     
-    // Persist to Firestore config for global sync
-    if (db) {
-      db.collection("config").doc("app").set({ 
-        dailyCounter, 
-        lastOrderDate,
-        updatedAt: new Date().toISOString()
-      }, { merge: true }).catch(err => console.error("Error syncing counter to Firestore:", err));
-    }
+    saveToSupabase('config', { dailyCounter, lastOrderDate }, 'app').catch(() => {});
 
     // Format: DDMMYYYY0001
     return `${dateStr}${dailyCounter.toString().padStart(4, '0')}`;
@@ -321,7 +279,7 @@ async function startServer() {
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
   let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: true, waiterCanPay: true };
 
-  // ── Local state backup ───────────────────────────────────────────────────
+  // â"€â"€ Local state backup â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const LOCAL_BACKUP_FILE = path.join(process.cwd(), 'data', 'local-state.json');
   let _backupTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -362,7 +320,7 @@ async function startServer() {
       if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
       if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
-      console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `há ${age} min` : 'anteriormente'})`);
+      console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
       return true;
     } catch (e) {
       console.error('[backup] Erro ao carregar estado local:', e);
@@ -426,9 +384,15 @@ async function startServer() {
     return result;
   };
 
-  // Socket.io logic
+  // ── Agente de impressão local ─────────────────────────────────────────────
+  // Armazena o socket do agente conectado (um por instância de servidor)
+  let printerAgentSocket: any = null;
+
+  const AGENT_SECRET = process.env.AGENT_SECRET || '';
+
+  // ── Socket.io logic ───────────────────────────────────────────────────────
   // Em dev local (sem env vars de produção), todo socket é admin automaticamente
-  const isDevMode = !process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIREBASE_SERVICE_ACCOUNT_B64;
+  const isDevMode = !process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NODE_ENV !== 'production';
 
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
@@ -447,6 +411,38 @@ async function startServer() {
       } catch (e) {
         console.error("Error decoding token", e);
       }
+    });
+
+    // ── Registro do agente de impressão local ────────────────────────────────
+    socket.on("printer_agent_register", ({ secret }: { secret?: string }) => {
+      if (AGENT_SECRET && secret !== AGENT_SECRET) {
+        socket.emit("printer_agent_rejected", "Segredo inválido.");
+        console.warn(`[agent] Tentativa de registro rejeitada (socket ${socket.id})`);
+        return;
+      }
+      printerAgentSocket = socket;
+      (socket as any).isPrinterAgent = true;
+      socket.emit("printer_agent_accepted");
+      io.emit("printer_agent_status", { online: true });
+      console.log(`[agent] Agente de impressão conectado: ${socket.id}`);
+    });
+
+    socket.on("disconnect", () => {
+      if ((socket as any).isPrinterAgent) {
+        printerAgentSocket = null;
+        io.emit("printer_agent_status", { online: false });
+        console.log("[agent] Agente de impressão desconectado.");
+      }
+    });
+
+    // Resultado de impressão enviado pelo agente → repassa a todos
+    socket.on("printer_agent_result", (result: { success: boolean; ip: string; error?: string }) => {
+      io.emit("print_result", result);
+    });
+
+    // Resultado do scan de rede enviado pelo agente → repassa ao dashboard
+    socket.on("scan_printers_result", (data: { printers: { ip: string; port: number }[] }) => {
+      io.emit("scan_printers_result", data);
     });
 
     const requireAdmin = (handler: (...args: any[]) => void) => {
@@ -471,7 +467,8 @@ async function startServer() {
       pizzaCrusts,
       isCashRegisterOpen,
       pizzariaConfig,
-      firebaseActive: !!db
+      firebaseActive: !!db,
+      printerAgentOnline: !!(printerAgentSocket?.connected),
     });
 
     socket.on("request_init_data", () => {
@@ -486,17 +483,16 @@ async function startServer() {
         pizzaFlavors,
         pizzaCrusts,
         isCashRegisterOpen,
-        firebaseActive: !!db
+        pizzariaConfig,
+        firebaseActive: !!db,
+        printerAgentOnline: !!(printerAgentSocket?.connected),
       });
     });
 
     socket.on("update_pizzaria_config", requireAdmin((config) => {
       pizzariaConfig = { ...pizzariaConfig, ...config };
       io.emit("update_pizzaria_config", pizzariaConfig);
-      if (db) {
-        db.collection("config").doc("pizzaria").set(pizzariaConfig, { merge: true })
-          .catch((err: any) => console.error("Error saving pizzaria config:", err));
-      }
+      saveToSupabase('config', pizzariaConfig, 'pizzaria').catch(() => {});
     }));
 
     socket.on("deliver_item", ({ orderId, itemId }) => {
@@ -530,12 +526,7 @@ async function startServer() {
 
       io.emit("update_orders", orders);
 
-      if (db) {
-        db.collection("orders").doc(String(orderId)).set(
-          { items: order.items, deliveryLog: order.deliveryLog },
-          { merge: true }
-        ).catch((err: any) => console.error("Error saving delivery:", err));
-      }
+      saveToSupabase('orders', order, String(orderId)).catch(() => {});
     });
 
     socket.on("kitchen_start_item", async ({ orderId, itemId }) => {
@@ -545,7 +536,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
       io.emit("update_orders", orders);
-      await saveToFirestore('orders', order, String(order.id));
+      await saveToSupabase('orders', order, String(order.id));
     });
 
     socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
@@ -555,7 +546,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'oven';
       io.emit("update_orders", orders);
-      await saveToFirestore('orders', order, String(order.id));
+      await saveToSupabase('orders', order, String(order.id));
     });
 
     socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
@@ -565,7 +556,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
       io.emit("update_orders", orders);
-      await saveToFirestore('orders', order, String(order.id));
+      await saveToSupabase('orders', order, String(order.id));
     });
 
     socket.on("waiter_register", (waiterData) => {
@@ -612,7 +603,7 @@ async function startServer() {
         socket.emit("waiter_approved", { status: waiter.status });
         io.emit("update_waiters", waiters);
       } else if (waiters.length === 0) {
-        // Race condition: waiters not loaded from Firestore yet — save for retry
+        // Race condition: waiters not loaded from Firestore yet â€" save for retry
         (socket as any)._pendingLogin = { name, password };
       } else {
         socket.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
@@ -625,13 +616,13 @@ async function startServer() {
         const activeTables = tables.find(t => t.status !== "free");
         const activeComandas = comandas.find(c => c.status !== "free");
         if (activeTables || activeComandas) {
-          socket.emit("error_message", "Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+          socket.emit("error_message", "NÃ£o Ã© possÃ­vel fechar o caixa com mesas ou comandas ocupadas.");
           return;
         }
       }
       isCashRegisterOpen = isOpen;
       io.emit("update_cash_register", isCashRegisterOpen);
-      await saveToFirestore('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString() }, 'app');
+      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString() }, 'app');
     }));
 
     socket.on("toggle_waiter_status", requireAdmin(({ waiterId, status }) => {
@@ -656,7 +647,7 @@ async function startServer() {
         waiter.status = "approved";
         io.emit("update_waiters", waiters);
         
-        // Notifica o garçom por todos os identificadores possíveis
+        // Notifica o garÃ§om por todos os identificadores possÃ­veis
         const connectedSockets = io.sockets.sockets;
         connectedSockets.forEach((s) => {
           const matches =
@@ -676,7 +667,7 @@ async function startServer() {
       
       if (!isCashRegisterOpen) {
         console.warn("Attempted order while register is closed");
-        socket.emit("error_message", "O caixa está fechado. Abra o caixa para realizar pedidos.");
+        socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para realizar pedidos.");
         return;
       }
       
@@ -684,7 +675,7 @@ async function startServer() {
       const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
       
       if (waiter && waiter.status === "inactive") {
-        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
         return;
       }
 
@@ -727,7 +718,7 @@ async function startServer() {
       });
 
       if (table && table.status === "aguardando_baixa") {
-        socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
+        socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
         return;
       }
 
@@ -746,7 +737,7 @@ async function startServer() {
           if (itemsWithWaiter.length > 0) {
             io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           }
-          await saveToFirestore('orders', existingOrder, existingOrder.id.toString());
+          await saveToSupabase('orders', existingOrder, existingOrder.id.toString());
           console.log("Existing order updated and emitted");
           return;
         }
@@ -779,8 +770,8 @@ async function startServer() {
       
       console.log("Emitted initial updates for new order");
       
-      saveToFirestore('orders', newOrder, newOrder.id);
-      saveToFirestore('config', { dailyCounter, lastOrderDate }, 'app');
+      saveToSupabase('orders', newOrder, newOrder.id);
+      saveToSupabase('config', { dailyCounter, lastOrderDate }, 'app');
       
       if (table) {
         const orderId = newOrder.id;
@@ -794,7 +785,7 @@ async function startServer() {
             if (c.id === targetId || c.linkedTo === targetId) {
               c.status = c.id === targetId ? "occupied" : "linked";
               c.currentOrder = orderId;
-              saveToFirestore(collName, c, c.id.toString());
+              saveToSupabase(collName, c, c.id.toString());
             }
           });
           io.emit("update_comandas", comandas);
@@ -803,7 +794,7 @@ async function startServer() {
             if (t.id === targetId || t.linkedTo === targetId) {
               t.status = t.id === targetId ? "occupied" : "linked";
               t.currentOrder = orderId;
-              saveToFirestore(collName, t, t.id.toString());
+              saveToSupabase(collName, t, t.id.toString());
             }
           });
           io.emit("update_tables", tables);
@@ -832,6 +823,19 @@ async function startServer() {
         return cat;
       });
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
+
+      // Sincroniza o nome no estoque se o produto for renomeado
+      if (updatedData.name) {
+        const stockEntry = stock.find((s: any) => s.menuItemId === productId);
+        if (stockEntry) {
+          stock = stock.map((s: any) =>
+            s.menuItemId === productId ? { ...s, name: updatedData.name } : s
+          );
+          io.emit("update_stock", stock);
+          saveToSupabase('stock', stock.find((s: any) => s.menuItemId === productId), productId).catch(() => {});
+        }
+      }
     }));
 
     socket.on("add_product", requireAdmin(({ categoryName, productData }) => {
@@ -849,6 +853,7 @@ async function startServer() {
         return cat;
       });
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
@@ -859,6 +864,7 @@ async function startServer() {
       };
       menu.push(newCategory);
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
     }));
 
     socket.on("update_category", requireAdmin(({ oldName, updatedData }) => {
@@ -869,11 +875,13 @@ async function startServer() {
         return cat;
       });
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
     }));
 
     socket.on("delete_category", requireAdmin((categoryName) => {
       menu = menu.filter(cat => cat.name !== categoryName);
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
     }));
 
     socket.on("delete_product", requireAdmin(({ categoryName, productId }) => {
@@ -887,6 +895,7 @@ async function startServer() {
         return cat;
       });
       io.emit("update_menu", menu);
+      saveMenuToSupabase();
     }));
 
     socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, enabled }) => {
@@ -925,6 +934,7 @@ async function startServer() {
       io.emit("update_menu", menu);
       io.emit("update_stock", stock);
       io.emit("update_stock_log", stockLog);
+      saveMenuToSupabase();
     }));
 
     socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit, reason }) => {
@@ -986,10 +996,16 @@ async function startServer() {
       io.emit("update_pizza_crusts", pizzaCrusts);
     }));
 
-    socket.on("bulk_import", requireAdmin(({ menu: importedMenu, stock: importedStock }) => {
+    socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock }) => {
       if (importedMenu && Array.isArray(importedMenu)) {
         menu = importedMenu;
         io.emit("update_menu", menu);
+        if (db) {
+          try {
+            await db.from('menu').delete().neq('id', '');
+          } catch {}
+          saveMenuToSupabase();
+        }
       }
       if (importedStock && Array.isArray(importedStock)) {
         stock = importedStock;
@@ -1005,7 +1021,7 @@ async function startServer() {
 
     socket.on("add_item_to_order", async ({ orderId, item }) => {
       if (!isCashRegisterOpen) {
-        socket.emit("error_message", "O caixa está fechado. Abra o caixa para adicionar itens.");
+        socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
         return;
       }
 
@@ -1013,14 +1029,14 @@ async function startServer() {
       const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
 
       if (waiter && waiter.status === "inactive") {
-        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
         return;
       }
 
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         if (order.status === "aguardando_baixa") {
-          socket.emit("error_message", "Pedido aguardando baixa no caixa. Não é possível adicionar itens.");
+          socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
           return;
         }
         const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
@@ -1040,7 +1056,7 @@ async function startServer() {
         io.emit("update_orders", orders);
         io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
 
-        await saveToFirestore('orders', order, String(order.id));
+        await saveToSupabase('orders', order, String(order.id));
         
         // Update stock for the added item
         applyStockReduction([itemWithTimestamp]);
@@ -1052,7 +1068,7 @@ async function startServer() {
       const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
       
       if (waiter && waiter.status === "inactive") {
-        socket.emit("error_message", "Seu acesso está inativo. Entre em contato com o gerente.");
+        socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
         return;
       }
 
@@ -1060,7 +1076,7 @@ async function startServer() {
       if (order) {
         const hasPartialPayment = (order.paymentLog || []).some((p: any) => p.type === 'partial');
         if (hasPartialPayment) {
-          socket.emit("error_message", "Não é possível remover itens de uma comanda com pagamento parcial registrado.");
+          socket.emit("error_message", "NÃ£o Ã© possÃ­vel remover itens de uma comanda com pagamento parcial registrado.");
           return;
         }
         const itemIndex = order.items.findIndex(i => String(i.id) === String(itemId));
@@ -1088,7 +1104,7 @@ async function startServer() {
             item.removedBy = removedBy || (waiter ? waiter.name : "Desconhecido"),
             item.removalReason = reason || "";
           }
-          await saveToFirestore('orders', order, String(order.id));
+          await saveToSupabase('orders', order, String(order.id));
           io.emit("update_orders", orders);
         }
       }
@@ -1107,7 +1123,7 @@ async function startServer() {
         if (isPartialOnly && numericPartialAmount > 0) {
           const payment: any = {
             amount: numericPartialAmount,
-            method: paymentMethod || "Não informado",
+            method: paymentMethod || "NÃ£o informado",
             timestamp: new Date().toISOString(),
             type: 'partial' as const
           };
@@ -1128,7 +1144,7 @@ async function startServer() {
 
           const itemPayment: any = {
             amount: actualAmountPaid,
-            method: paymentMethod || "Não informado",
+            method: paymentMethod || "NÃ£o informado",
             timestamp: new Date().toISOString(),
             type: 'items'
           };
@@ -1210,26 +1226,26 @@ async function startServer() {
             io.emit("update_orders", orders);
             io.emit("update_tables", tables);
             io.emit("update_comandas", comandas);
-            await saveToFirestore('orders', order, String(order.id));
+            await saveToSupabase('orders', order, String(order.id));
             for (const item of entitiesToUpdate) {
-              await saveToFirestore(item.collection, item.entity, String(item.entity.id));
+              await saveToSupabase(item.collection, item.entity, String(item.entity.id));
             }
             return;
           } else {
-            // Pagamento via Garçom: aguarda baixa para liberar mesa
+            // Pagamento via GarÃ§om: aguarda baixa para liberar mesa
             console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
             order.status = "aguardando_baixa";
 
             tables.forEach(t => {
               if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
                 t.status = "aguardando_baixa";
-                saveToFirestore('tables', t, String(t.id)).catch(() => {});
+                saveToSupabase('tables', t, String(t.id)).catch(() => {});
               }
             });
             comandas.forEach(c => {
               if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
                 c.status = "aguardando_baixa";
-                saveToFirestore('comandas', c, String(c.id)).catch(() => {});
+                saveToSupabase('comandas', c, String(c.id)).catch(() => {});
               }
             });
           }
@@ -1240,7 +1256,7 @@ async function startServer() {
         io.emit("update_comandas", comandas);
         io.emit("update_tables", tables);
         
-        await saveToFirestore('orders', order, String(order.id));
+        await saveToSupabase('orders', order, String(order.id));
       }
     });
 
@@ -1312,12 +1328,12 @@ async function startServer() {
 
         // Persist changes to Firestore
         const tableCol = isComanda ? 'comandas' : 'tables';
-        await saveToFirestore(tableCol, sourceTable, sourceTable.id.toString());
-        await saveToFirestore(tableCol, targetTable, targetTable.id.toString());
+        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString());
+        await saveToSupabase(tableCol, targetTable, targetTable.id.toString());
         
         if (targetTable.currentOrder) {
           const tOrder = orders.find(o => o.id.toString() === targetTable.currentOrder.toString());
-          if (tOrder) await saveToFirestore('orders', tOrder, tOrder.id.toString());
+          if (tOrder) await saveToSupabase('orders', tOrder, tOrder.id.toString());
         }
 
         io.emit("update_comandas", comandas);
@@ -1379,10 +1395,10 @@ async function startServer() {
           sourceTable.linkedTo = null;
 
           // Persist changes
-          await saveToFirestore(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString());
-          await saveToFirestore(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString());
-          if (sourceOrder) await saveToFirestore('orders', sourceOrder, sourceOrder.id);
-          if (targetOrder) await saveToFirestore('orders', targetOrder, targetOrder.id);
+          await saveToSupabase(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString());
+          await saveToSupabase(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString());
+          if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id);
+          if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id);
         }
 
         io.emit("update_comandas", comandas);
@@ -1415,7 +1431,7 @@ async function startServer() {
 
       const hasPartialPayment = (sourceOrder.paymentLog || []).some((p: any) => p.type === 'partial');
       if (hasPartialPayment) {
-        socket.emit("error_message", "Não é possível transferir itens: a mesa possui pagamento parcial registrado.");
+        socket.emit("error_message", "NÃ£o Ã© possÃ­vel transferir itens: a mesa possui pagamento parcial registrado.");
         return;
       }
 
@@ -1428,7 +1444,7 @@ async function startServer() {
         (i: any) => itemIdSet.has(String(i.id)) && i.paid
       );
       if (paidRequested.length > 0) {
-        socket.emit("error_message", "Não é possível transferir item(s) já pagos.");
+        socket.emit("error_message", "NÃ£o Ã© possÃ­vel transferir item(s) jÃ¡ pagos.");
         return;
       }
 
@@ -1437,12 +1453,12 @@ async function startServer() {
         (i: any) => itemIdSet.has(String(i.id)) && !i.removed && !i.paid
       );
       if (itemsToTransfer.length === 0) {
-        console.warn(`[transfer_items] itemsToTransfer is empty — no matching active items found`);
+        console.warn(`[transfer_items] itemsToTransfer is empty â€" no matching active items found`);
         return;
       }
       console.log(`[transfer_items] itemsToTransfer.length=${itemsToTransfer.length}`);
 
-      // Find or create target order — ignore finalized orders (items would be invisible)
+      // Find or create target order â€" ignore finalized orders (items would be invisible)
       let targetOrder: any = targetTable.currentOrder
         ? orders.find(o => String(o.id) === String(targetTable.currentOrder) && o.status !== 'finalizada')
         : null;
@@ -1456,7 +1472,7 @@ async function startServer() {
           items: [],
           timestamp: new Date().toISOString(),
           paymentLog: [],
-          waiterName: sourceOrder.waiterName || 'Transferência'
+          waiterName: sourceOrder.waiterName || 'TransferÃªncia'
         };
         orders.push(targetOrder);
         targetTable.currentOrder = targetOrder.id;
@@ -1505,21 +1521,21 @@ async function startServer() {
       }
 
       // Emit immediately with the correct in-memory state BEFORE async Firestore saves.
-      // This prevents the Firestore onSnapshot (triggered by saveToFirestore) from racing
+      // This prevents the Firestore onSnapshot (triggered by saveToSupabase) from racing
       // and emitting stale data that overwrites the correct state on clients.
       io.emit("update_orders", orders);
       io.emit("update_tables", tables);
       io.emit("update_comandas", comandas);
-      console.log(`[transfer_items] emitted updates — persisting to Firestore`);
+      console.log(`[transfer_items] emitted updates â€" persisting to Firestore`);
 
       // Persist to Firestore (onSnapshot will re-emit after each save with the same correct data)
-      await saveToFirestore('orders', sourceOrder, String(sourceOrder.id));
-      await saveToFirestore('orders', targetOrder, String(targetOrder.id));
-      await saveToFirestore(tableCol, targetTable, targetTable.id.toString());
+      await saveToSupabase('orders', sourceOrder, String(sourceOrder.id));
+      await saveToSupabase('orders', targetOrder, String(targetOrder.id));
+      await saveToSupabase(tableCol, targetTable, targetTable.id.toString());
       if (remainingActive.length === 0) {
-        await saveToFirestore(tableCol, sourceTable, sourceTable.id.toString());
+        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString());
         for (const lt of linkedTablesToFree) {
-          await saveToFirestore(tableCol, lt, lt.id.toString());
+          await saveToSupabase(tableCol, lt, lt.id.toString());
         }
       }
       console.log(`[transfer_items] Firestore persistence complete`);
@@ -1538,7 +1554,7 @@ async function startServer() {
           order.discount = Number(discount);
           order.discountType = discountType;
         }
-        await saveToFirestore('orders', order, order.id);
+        await saveToSupabase('orders', order, order.id);
         io.emit("update_orders", orders);
       }
     }));
@@ -1571,9 +1587,9 @@ async function startServer() {
       io.emit("update_tables", tables);
       io.emit("update_comandas", comandas);
 
-      await saveToFirestore('orders', order, String(order.id));
+      await saveToSupabase('orders', order, String(order.id));
       for (const item of entitiesToUpdate) {
-        await saveToFirestore(item.collection, item.entity, String(item.entity.id));
+        await saveToSupabase(item.collection, item.entity, String(item.entity.id));
       }
       console.log(`Baixa confirmada para pedido ${orderId}`);
     });
@@ -1582,7 +1598,7 @@ async function startServer() {
       const order = orders.find(o => String(o.id) === String(orderId));
       if (order) {
         order.status = status;
-        await saveToFirestore('orders', order, order.id);
+        await saveToSupabase('orders', order, order.id);
         io.emit("update_orders", orders);
       }
     });
@@ -1592,7 +1608,7 @@ async function startServer() {
       const table = targetList.find(t => t.id === tableId);
       if (table) {
         table.status = "bill_requested";
-        await saveToFirestore(isComanda ? 'comandas' : 'tables', table, table.id.toString());
+        await saveToSupabase(isComanda ? 'comandas' : 'tables', table, table.id.toString());
         if (isComanda) {
           io.emit("update_comandas", comandas);
         } else {
@@ -1656,21 +1672,21 @@ async function startServer() {
         io.emit("update_orders", orders);
 
         for (const entity of entitiesToFree) {
-          await saveToFirestore(isComanda ? 'comandas' : 'tables', entity, entity.id.toString());
+          await saveToSupabase(isComanda ? 'comandas' : 'tables', entity, entity.id.toString());
         }
 
         if (orderId) {
           const order = orders.find(o => o.id === orderId);
           if (order) {
             order.status = "finalizada";
-            await saveToFirestore('orders', order, order.id);
+            await saveToSupabase('orders', order, order.id);
           }
         }
       }
     });
 
     // Reset all in-memory state: free all tables/comandas and wipe orders.
-    // No requireAdmin wrapper — auth may be unavailable when Firebase is disabled,
+    // No requireAdmin wrapper â€" auth may be unavailable when Firebase is disabled,
     // and the button is already protected by the admin-only dashboard UI.
     socket.on("reset_system", async () => {
       console.log("reset_system: clearing all in-memory orders, tables, comandas and stockLog");
@@ -1698,38 +1714,38 @@ async function startServer() {
       io.emit("update_comandas", comandas);
       io.emit("update_cash_register", false);
 
-      // Persist reset to Firestore so server restarts don't reload stale state
-      if (db) {
-        try {
-          const batch = db.batch();
-
-          // Delete all orders from Firestore
-          const ordersSnap = await db.collection("orders").get();
-          ordersSnap.docs.forEach(doc => batch.delete(doc.ref));
-
-          // Free all tables in Firestore
-          const tablesSnap = await db.collection("tables").get();
-          tablesSnap.docs.forEach(doc =>
-            batch.set(doc.ref, { status: "free", currentOrder: null, linkedTo: null }, { merge: true })
-          );
-
-          // Free all comandas in Firestore
-          const comandasSnap = await db.collection("comandas").get();
-          comandasSnap.docs.forEach(doc =>
-            batch.set(doc.ref, { status: "free", currentOrder: null, linkedTo: null }, { merge: true })
-          );
-
-          await batch.commit();
-          console.log("reset_system: Firestore cleared successfully");
-        } catch (err) {
-          console.error("reset_system: failed to clear Firestore", err);
-        }
+      // Persist reset to Supabase
+      try {
+        await db.from('orders').delete().neq('id', '');
+        await db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        await db.from('comandas').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        console.log('reset_system: Supabase cleared successfully');
+      } catch (err) {
+        console.error('reset_system: failed to clear Supabase', err);
       }
     });
 
-    // ── Impressão direta por IP via ESC/POS (TCP port 9100) ──────────────────
+    // Scan de impressoras — Dashboard pede, servidor repassa ao agente
+    socket.on("scan_printers_request", requireAdmin(() => {
+      if (printerAgentSocket?.connected) {
+        printerAgentSocket.emit("scan_printers_request");
+      } else {
+        socket.emit("scan_printers_result", { printers: [], error: "Agente offline" });
+      }
+    }));
+
+    // ── Impressão ESC/POS ─────────────────────────────────────────────────────
+    // Se o agente local estiver conectado, delega para ele (cenário VPS).
+    // Caso contrário, o servidor tenta conexão TCP direta (cenário local/dev).
     socket.on("print_escpos", ({ ip, port = 9100, data }: { ip: string; port?: number; data: number[] }) => {
       if (!ip || !data?.length) return;
+
+      if (printerAgentSocket && printerAgentSocket.connected) {
+        printerAgentSocket.emit("do_print", { ip, port, data });
+        return;
+      }
+
+      // Fallback: conexão TCP direta (funciona apenas quando servidor e impressora estão na mesma rede)
       const client = new net.Socket();
       let finished = false;
       const done = () => { if (!finished) { finished = true; client.destroy(); } };
@@ -1759,70 +1775,67 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Serve o executável do agente de impressão para download
+  app.get("/download/fechaconta-agente.exe", (req, res) => {
+    const agentPath = path.join(process.cwd(), "print-agent", "fechaconta-agente.exe");
+    if (!fs.existsSync(agentPath)) {
+      return res.status(404).json({ error: "Executável não encontrado. Execute 'npm run build' na pasta print-agent/." });
+    }
+    res.download(agentPath, "fechaconta-agente.exe");
+  });
+
+  // Serve o instalador PowerShell
+  app.get("/download/install.ps1", (req, res) => {
+    const scriptPath = path.join(process.cwd(), "print-agent", "install.ps1");
+    if (!fs.existsSync(scriptPath)) {
+      return res.status(404).send("Not found");
+    }
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.download(scriptPath, "install.ps1");
+  });
+
   app.post("/api/seed", async (req, res) => {
-    if (!db) return res.status(503).json({ error: "Firebase não inicializado" });
+    if (!db) return res.status(503).json({ error: "Supabase nÃ£o inicializado" });
 
     const steps: string[] = [];
     const log = (msg: string) => { steps.push(msg); console.log("[seed]", msg); };
 
     try {
-      log("Limpando coleções antigas...");
-      const collectionsToClean = ["orders", "stock", "pizzaFlavors", "pizzaCrusts"];
-      for (const col of collectionsToClean) {
-        const snap = await db.collection(col).get();
-        const chunks = [];
-        for (let i = 0; i < snap.docs.length; i += 500) chunks.push(snap.docs.slice(i, i + 500));
-        for (const chunk of chunks) {
-          const batch = db.batch();
-          chunk.forEach((d: any) => batch.delete(d.ref));
-          await batch.commit();
-        }
-      }
+      log("Limpando tabelas antigas...");
+      await db.from('orders').delete().neq('id', '');
+      await db.from('stock').delete().neq('id', '');
+      await db.from('pizza_flavors').delete().neq('id', '');
+      await db.from('pizza_crusts').delete().neq('id', '');
 
       log("Configurando 40 mesas...");
-      let batch = db.batch();
-      let count = 0;
-      const commitIfNeeded = async () => {
-        count++;
-        if (count >= 490) { await batch.commit(); batch = db.batch(); count = 0; }
-      };
-
-      for (let i = 1; i <= 40; i++) {
-        batch.set(db.collection("tables").doc(i.toString()), { id: i, status: "free", currentOrder: null, linkedTo: null });
-        await commitIfNeeded();
-      }
+      await db.from('tables').upsert(
+        Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
+      );
 
       log("Configurando 50 comandas...");
-      for (let i = 1; i <= 50; i++) {
-        batch.set(db.collection("comandas").doc(i.toString()), { id: i, status: "free", currentOrder: null, linkedTo: null });
-        await commitIfNeeded();
-      }
+      await db.from('comandas').upsert(
+        Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
+      );
 
       log("Carregando categorias do menu...");
-      for (const cat of MENU_CATEGORIES) {
-        batch.set(db.collection("menu").doc(cat.name), cat);
-        await commitIfNeeded();
-      }
+      await db.from('menu').upsert(
+        MENU_CATEGORIES.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, items: cat.items || [] }))
+      );
 
       log("Carregando sabores de pizza...");
-      for (const flavor of PIZZA_FLAVORS) {
-        batch.set(db.collection("pizzaFlavors").doc(flavor.name), flavor);
-        await commitIfNeeded();
-      }
+      await db.from('pizza_flavors').upsert(
+        PIZZA_FLAVORS.map((f: any) => ({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false }))
+      );
 
       log("Carregando bordas...");
-      for (const crust of PIZZA_CRUSTS) {
-        batch.set(db.collection("pizzaCrusts").doc(crust), { name: crust });
-        await commitIfNeeded();
-      }
+      await db.from('pizza_crusts').upsert(
+        PIZZA_CRUSTS.map((c: any) => ({ id: c, name: c }))
+      );
 
       log("Configurando sistema de caixa...");
-      batch.set(db.collection("config").doc("app"), { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: "" });
+      await db.from('config').upsert({ id: 'app', data: { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' } });
 
-      log("Salvando no Firestore...");
-      await batch.commit();
-
-      log("Concluído!");
+      log("ConcluÃ­do!");
       res.json({ ok: true, steps });
     } catch (err: any) {
       console.error("[seed] Erro:", err);
@@ -1833,11 +1846,11 @@ async function startServer() {
   app.post("/api/admin/create-waiter", express.json(), (req, res) => {
     const { name, password } = req.body;
     if (!name || !password) {
-      return res.status(400).json({ error: "name e password são obrigatórios" });
+      return res.status(400).json({ error: "name e password sÃ£o obrigatÃ³rios" });
     }
     const existing = waiters.find((w: any) => w.name === name);
     if (existing) {
-      return res.status(409).json({ error: "Garçom com esse nome já existe" });
+      return res.status(409).json({ error: "GarÃ§om com esse nome jÃ¡ existe" });
     }
     const newWaiter = {
       id: `waiter_${Date.now()}`,
@@ -1849,7 +1862,7 @@ async function startServer() {
     };
     waiters.push(newWaiter);
     io.emit("update_waiters", waiters);
-    console.log(`[admin] Garçom criado: ${name}`);
+    console.log(`[admin] GarÃ§om criado: ${name}`);
     return res.json({ success: true, waiter: { id: newWaiter.id, name: newWaiter.name, status: newWaiter.status } });
   });
 

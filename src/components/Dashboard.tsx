@@ -1,16 +1,103 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Video, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
 import { QRCodeSVG } from 'qrcode.react';
-import { GoogleGenAI } from "@google/genai";
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
 import { useFirebase } from './FirebaseProvider';
+
+const PLAN_DEFAULT_MENU: MenuCategory[] = [
+  {
+    name: 'Pratos/Porção',
+    type: 'lanches',
+    items: [
+      { id: 'fp1', name: 'Porção grande de Batata Frita', price: 25.00, ingredients: '' },
+      { id: 'fp2', name: 'Porção de Tilápia', price: 32.00, ingredients: '' },
+    ],
+  },
+  {
+    name: 'Lanches',
+    type: 'lanches',
+    items: [
+      { id: 'fl1', name: 'X Salada', price: 20.00, ingredients: '' },
+      { id: 'fl2', name: 'Cachorro Quente', price: 15.00, ingredients: '' },
+    ],
+  },
+  {
+    name: 'Bebidas',
+    type: 'bebidas',
+    items: [
+      { id: 'fb1', name: 'Coca-cola Lata', price: 6.00, ingredients: '' },
+      { id: 'fb2', name: 'Água sem gás', price: 6.00, ingredients: '' },
+    ],
+  },
+];
+
+const PIZZA_DEFAULT_MENU: MenuCategory[] = [
+  {
+    name: 'Pizzas',
+    type: 'pizzas',
+    items: [
+      { id: 'pz1', name: 'Pizza Margherita', price: 45.00, ingredients: 'Molho de tomate, mussarela, manjericão' },
+      { id: 'pz2', name: 'Pizza Calabresa', price: 48.00, ingredients: 'Molho de tomate, calabresa, cebola' },
+      { id: 'pz3', name: 'Pizza Frango com Catupiry', price: 52.00, ingredients: 'Molho de tomate, frango, catupiry' },
+    ],
+  },
+  {
+    name: 'Bebidas',
+    type: 'bebidas',
+    items: [
+      { id: 'pb1', name: 'Coca-cola Lata', price: 6.00, ingredients: '' },
+      { id: 'pb2', name: 'Água sem gás', price: 6.00, ingredients: '' },
+      { id: 'pb3', name: 'Suco de Laranja', price: 10.00, ingredients: '' },
+    ],
+  },
+];
+
+const PLAN_CONFIG = {
+  free: {
+    maxTables: 5,
+    tablesLocked: true,
+    comandasEnabled: false,
+    comandasLocked: true,
+    pizzaEnabled: false,
+    pizzaLocked: true,
+    kdsEnabled: false,
+    kdsLocked: true,
+    maxWaiters: 1,
+    trialDays: 14,
+  },
+  essencial: {
+    maxTables: 10,
+    tablesLocked: true,
+    comandasEnabled: false,
+    comandasLocked: true,
+    pizzaEnabled: false,
+    pizzaLocked: true,
+    kdsEnabled: false,
+    kdsLocked: true,
+    maxWaiters: 3,
+    trialDays: 0,
+  },
+  premium: {
+    maxTables: 40,
+    tablesLocked: false,
+    comandasEnabled: true,
+    comandasLocked: false,
+    pizzaEnabled: true,
+    pizzaLocked: false,
+    kdsEnabled: true,
+    kdsLocked: false,
+    maxWaiters: 10,
+    trialDays: 0,
+  },
+} as const;
 
 interface DashboardProps {
   tables: Table[];
@@ -22,14 +109,17 @@ interface DashboardProps {
   menu: MenuCategory[];
   pizzaFlavors: any[];
   pizzaCrusts: string[];
-  activeTab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products';
-  setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products') => void;
+  activeTab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products';
+  setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products') => void;
   isCashRegisterOpen: boolean;
   toggleCashRegister: (open: boolean) => Promise<void>;
   printerConfig: any;
   setPrinterConfig: (config: any) => void;
   pizzariaConfig: PizzeriaConfig;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
+  onLogout?: () => void;
+  plan?: string;
+  ownerCreatedAt?: string;
 }
 
 // ── ESC/POS builder ──────────────────────────────────────────────────────────
@@ -224,12 +314,7 @@ const OrderDetails = ({
 
   return (
     <div className="flex flex-col h-full">
-      <h3 className="font-serif italic text-xl mb-3 flex items-center justify-between shrink-0">
-        <span className="truncate mr-4">
-          {isComandaSelected 
-            ? `Detalhes C${selectedComandaId ?? ''}` 
-            : `Detalhes M${selectedTableId ?? ''}`}
-        </span>
+      <div className="flex items-center justify-end mb-3 shrink-0">
         <div className="flex items-center space-x-2 shrink-0">
           <button 
             onClick={() => hasItems && setIsLinkModalOpen(true)}
@@ -242,69 +327,89 @@ const OrderDetails = ({
           >
             Agrupar
           </button>
-          <button 
+          <button
             onClick={() => {
-              if (activeOrder) {
+              if (!activeOrder) return;
+              const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
+              const tableId = targetId;
+              const waiterName = waiters.find((w: any) => w.id === activeOrder.waiterId)?.name || 'N/A';
+              const activeItems = (activeOrder.items || []).filter((i: any) => !i.removed);
+              const total = activeItems.reduce((acc: number, i: any) => acc + i.price, 0);
+
+              const receiptPrinterName = printerConfig.receipts;
+              const printer = receiptPrinterName
+                ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
+                : null;
+
+              const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
+
+              if (printer?.ip) {
+                const lineLen = is50mm ? 32 : 48;
+                const b: number[] = [];
+                const push = (...bytes: number[]) => b.push(...bytes);
+                const lf = () => push(0x0A);
+                const text = (s: string) => push(...escStr(s));
+                const line = () => { text('-'.repeat(lineLen)); lf(); };
+                const center = () => push(0x1B, 0x61, 0x01);
+                const left = () => push(0x1B, 0x61, 0x00);
+                const bold = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
+
+                push(0x1B, 0x40); // init
+                center();
+                bold(true);
+                text((printerConfig.establishmentName || 'ESTABELECIMENTO').toUpperCase()); lf();
+                bold(false);
+                if (printerConfig.address) { text(printerConfig.address); lf(); }
+                if (printerConfig.phone) { text(`Tel: ${printerConfig.phone}`); lf(); }
+                lf();
+                bold(true); text('*** CONFERENCIA DE MESA ***'); lf(); bold(false);
+                line();
+                left();
+                text(`${tableType}: ${tableId}`); lf();
+                text(`Garcom: ${waiterName}`); lf();
+                text(`Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`); lf();
+                line();
+                activeItems.forEach((item: any) => {
+                  const label = `${item.quantity || 1}x ${item.name}`;
+                  const price = `R$ ${item.price.toFixed(2)}`;
+                  const spaces = Math.max(1, lineLen - label.length - price.length);
+                  if (printerConfig.boldItems) bold(true);
+                  text(label + ' '.repeat(spaces) + price); lf();
+                  if (printerConfig.boldItems) bold(false);
+                });
+                line();
+                bold(true);
+                const totalLabel = 'TOTAL:';
+                const totalVal = `R$ ${total.toFixed(2)}`;
+                const totalSpaces = Math.max(1, lineLen - totalLabel.length - totalVal.length);
+                text(totalLabel + ' '.repeat(totalSpaces) + totalVal); lf();
+                bold(false);
+                if (printerConfig.receiptFooter) {
+                  lf(); center(); text(printerConfig.receiptFooter); lf();
+                }
+                push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
+
+                socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                toast.success(`Resumo enviado para ${receiptPrinterName}`, { description: `${tableType} ${tableId} · R$ ${total.toFixed(2)}` });
+              } else {
                 const printWindow = window.open('', '_blank');
                 if (printWindow) {
-                  const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
-                  const tableId = targetId;
-                  const waiterName = waiters.find((w: any) => w.id === activeOrder.waiterId)?.name || 'N/A';
-                  const total = (activeOrder.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => acc + i.price, 0);
-                  
-                  const _pw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
-                  const _fs = (printerConfig.paperWidth || '80mm') === '50mm' ? '10px' : printerConfig.itemFontSize;
-                  const html = `
-                    <html>
-                      <head>
-                        <title>Resumo ${tableType} ${tableId}</title>
-                        <style>
-                          body { font-family: monospace; padding: 12px; width: ${_pw}; margin: 0 auto; color: #141414; font-size: ${_fs}; }
-                          .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 8px; margin-bottom: 8px; }
-                          .items { margin-bottom: 8px; }
-                          .item {
-                            display: flex;
-                            justify-content: space-between;
-                            margin-bottom: 4px;
-                            font-size: ${_fs};
-                            font-weight: ${printerConfig.boldItems ? 'bold' : 'normal'};
-                          }
-                          .footer { border-top: 1px dashed #000; padding-top: 8px; text-align: right; }
-                          .establishment { font-weight: bold; font-size: ${(printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '14px'}; text-transform: uppercase; }
-                          @media print { body { width: 100%; margin: 0; } }
-                        </style>
-                      </head>
-                      <body>
-                        <div class="header">
-                          <div class="establishment">${printerConfig.establishmentName}</div>
-                          <div>${printerConfig.address}</div>
-                          <div>Tel: ${printerConfig.phone}</div>
-                          <div style="margin-top: 8px; font-weight: bold;">*** CONFERÊNCIA DE MESA ***</div>
-                        </div>
-                        <div class="info">
-                          <div>${tableType}: ${tableId}</div>
-                          <div>Garçom: ${waiterName}</div>
-                          <div>Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
-                        </div>
-                        <div style="border-bottom: 1px dashed #000; margin: 8px 0;"></div>
-                        <div class="items">
-                          ${(activeOrder.items || []).filter((i: any) => !i.removed).map((item: any) => `
-                            <div class="item">
-                              <span>${item.quantity}x ${item.name}</span>
-                              <span>R$ ${item.price.toFixed(2)}</span>
-                            </div>
-                          `).join('')}
-                        </div>
-                        <div class="footer">
-                          <div style="font-weight: bold;">TOTAL: R$ ${total.toFixed(2)}</div>
-                        </div>
-                        <div style="text-align: center; margin-top: 16px; font-size: 9px; opacity: 0.7;">
-                          ${printerConfig.receiptFooter}
-                        </div>
-                        <script>window.onload = () => { window.print(); window.close(); }</script>
-                      </body>
-                    </html>
-                  `;
+                  const _pw = is50mm ? '192px' : '304px';
+                  const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
+                  const html = `<html><head><title>Resumo ${tableType} ${tableId}</title>
+                    <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
+                    .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
+                    @media print{body{width:100%;margin:0}}</style></head><body>
+                    <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>${printerConfig.address || ''}<br/>
+                    <b>*** CONFERENCIA DE MESA ***</b></div>
+                    <div class="sep"></div>
+                    <div>${tableType}: ${tableId}<br/>Garcom: ${waiterName}<br/>${new Date().toLocaleString('pt-BR')}</div>
+                    <div class="sep"></div>
+                    ${activeItems.map((i: any) => `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${i.price.toFixed(2)}</span></div>`).join('')}
+                    <div class="sep"></div>
+                    <div style="text-align:right"><b>TOTAL: R$ ${total.toFixed(2)}</b></div>
+                    <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
+                    <script>window.onload=()=>{window.print();window.close()}</script></body></html>`;
                   printWindow.document.write(html);
                   printWindow.document.close();
                 }
@@ -354,7 +459,7 @@ const OrderDetails = ({
             </button>
           )}
         </div>
-      </h3>
+      </div>
       <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
       <div className="p-6 pb-2 shrink-0">
         <div className="flex justify-between items-center mb-4">
@@ -402,8 +507,8 @@ const OrderDetails = ({
         {activeOrder ? (
           <div className="space-y-4">
             <div className="border-b pb-2 space-y-1 pr-1">
-              {(activeOrder.items || []).map((item: any) => (
-                <div key={item.id} className={`flex justify-between items-start text-sm gap-3 ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 px-2 py-1 rounded-md border border-green-100/50 mb-1' : ''}`}>
+              {(activeOrder.items || []).map((item: any, idx: number) => (
+                <div key={item.id} className={`flex justify-between items-start text-sm gap-3 px-2 py-1 rounded-md ${item.removed ? 'opacity-30 line-through' : ''} ${item.paid ? 'bg-green-50/50 border border-green-100/50 mb-1' : idx % 2 === 0 ? 'bg-transparent' : 'bg-[#141414]/[0.04]'}`}>
                   <div className="flex flex-col flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
@@ -588,10 +693,14 @@ export default function Dashboard({
   setPrinterConfig,
   pizzariaConfig,
   updatePizzeriaConfig,
+  onLogout,
+  plan = 'free',
+  ownerCreatedAt,
 }: DashboardProps) {
-  const { updateTableStatusLocal } = useFirebase();
-  const [videoAnalysis, setVideoAnalysis] = useState<string | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { updateTableStatusLocal, logout } = useFirebase();
+
+  useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
+
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [selectedComandaId, setSelectedComandaId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -642,6 +751,45 @@ export default function Dashboard({
   const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
   const [, forceInactivityUpdate] = useState(0);
   const prevActivityRef = useRef<Record<string, number>>({});
+  const [printerAgentOnline, setPrinterAgentOnline] = useState(false);
+  const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanRunning, setScanRunning] = useState(false);
+  const [scanPrinters, setScanPrinters] = useState<{ip: string; port: number}[]>([]);
+  const { canInstall, install, isInstalled } = usePWA('dashboard');
+
+  // Estado local do card "Estrutura do Salão" (salvo só ao clicar em Salvar)
+  const [localNumTables, setLocalNumTables] = useState<number>(pizzariaConfig.numTables ?? 10);
+  const [localNumComandas, setLocalNumComandas] = useState<number>(pizzariaConfig.numComandas ?? 50);
+  const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
+  const [savingConfig, setSavingConfig] = useState(false);
+
+  // Sincroniza estado local quando dados do servidor chegam
+  useEffect(() => {
+    setLocalNumTables(pizzariaConfig.numTables ?? 10);
+    setLocalNumComandas(pizzariaConfig.numComandas ?? 50);
+  }, [pizzariaConfig.numTables, pizzariaConfig.numComandas]);
+
+  useEffect(() => {
+    setLocalLogoUrl(printerConfig.logoUrl || '');
+  }, [printerConfig.logoUrl]);
+
+  const salonDirty =
+    localNumTables !== (pizzariaConfig.numTables ?? 10) ||
+    localNumComandas !== (pizzariaConfig.numComandas ?? 50) ||
+    localLogoUrl !== (printerConfig.logoUrl || '');
+
+  const saveSalonConfig = async () => {
+    setSavingConfig(true);
+    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas) });
+    (setPrinterConfig as any)((prev: any) => {
+      const updated = { ...prev, logoUrl: localLogoUrl };
+      localStorage.setItem('printerConfig', JSON.stringify(updated));
+      return updated;
+    });
+    await new Promise(r => setTimeout(r, 600));
+    setSavingConfig(false);
+    toast.success('Configurações do salão salvas!');
+  };
 
   // Pizzaria mode: local state for config editing
   const [localYellow, setLocalYellow] = useState(pizzariaConfig.yellowMinutes);
@@ -736,6 +884,12 @@ export default function Dashboard({
       setSeedSteps(prev => [...prev, 'Liberando mesas e zerando pedidos...']);
       socket.emit('reset_system');
 
+      setSeedSteps(prev => [...prev, 'Aplicando cardápio padrão do plano...']);
+      const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
+      socket.emit('bulk_import', { menu: seedMenu });
+      localStorage.removeItem('plan_menu_seeded');
+      localStorage.setItem('plan_menu_seeded', '1');
+
       setSeedSteps(prev => [...prev, 'Concluído!']);
       setIsSeedComplete(true);
       setIsSeeding(false);
@@ -746,6 +900,59 @@ export default function Dashboard({
       toast.error('Erro na inicialização');
     }
   };
+
+  // Derive plan config — falls back to free
+  const planKey = (plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG;
+  const planCfg = PLAN_CONFIG[planKey];
+
+  // Map internal type values to display labels
+  const typeLabel = (type: string) => {
+    if (type === 'pizzas') return 'Pratos/Porções';
+    if (type === 'lanches') return 'Lanches';
+    if (type === 'bebidas') return 'Bebidas';
+    return type;
+  };
+
+  // Filter "Outros" + pizza categories when pizza mode is disabled
+  const displayMenu = menu.filter(cat => {
+    if (cat.name === 'Outros') return false;
+    if (cat.type === 'pizzas' && !pizzariaConfig.enabled) return false;
+    return true;
+  });
+
+  // Enforce plan-based restrictions on pizzariaConfig
+  useEffect(() => {
+    const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG];
+    const needsUpdate =
+      pizzariaConfig.numTables !== cfg.maxTables ||
+      pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
+      pizzariaConfig.enabled !== cfg.pizzaEnabled ||
+      (pizzariaConfig.kdsEnabled ?? true) !== cfg.kdsEnabled;
+    if (needsUpdate) {
+      updatePizzeriaConfig({
+        ...pizzariaConfig,
+        numTables: cfg.maxTables,
+        comandasEnabled: cfg.comandasEnabled,
+        enabled: cfg.pizzaEnabled,
+        kdsEnabled: cfg.kdsEnabled,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
+
+  // Seed default menu once when menu is empty
+  useEffect(() => {
+    const seedKey = 'plan_menu_seeded';
+    if (localStorage.getItem(seedKey)) return;
+    if (menu.length > 0) {
+      localStorage.setItem(seedKey, '1');
+      return;
+    }
+    const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
+    socket.emit('bulk_import', { menu: seedMenu });
+    localStorage.setItem(seedKey, '1');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, menu.length, pizzariaConfig.enabled]);
 
   const handleTestPrinter = (printerName: string) => {
     if (!printerName || printerName === 'none') {
@@ -1139,6 +1346,27 @@ export default function Dashboard({
     };
   }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth]);
 
+  // Status do agente de impressão local
+  useEffect(() => {
+    const handleAgentStatus = (data: { online: boolean }) => setPrinterAgentOnline(data.online);
+    const handleInitData = (data: any) => {
+      if (typeof data?.printerAgentOnline === 'boolean') setPrinterAgentOnline(data.printerAgentOnline);
+    };
+    const handleScanResult = (data: { printers: {ip: string; port: number}[]; error?: string }) => {
+      setScanRunning(false);
+      if (data.error) { toast.error(data.error); return; }
+      setScanPrinters(data.printers);
+    };
+    socket.on('printer_agent_status', handleAgentStatus);
+    socket.on('init_data', handleInitData);
+    socket.on('scan_printers_result', handleScanResult);
+    return () => {
+      socket.off('printer_agent_status', handleAgentStatus);
+      socket.off('init_data', handleInitData);
+      socket.off('scan_printers_result', handleScanResult);
+    };
+  }, []);
+
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
     if (targetPrinterName) {
@@ -1512,9 +1740,17 @@ export default function Dashboard({
   const waiterUrl = `${window.location.origin}/waiter`;
 
   const approveWaiter = (id: string) => {
+    const target = waiters.find(w => w.id === id || (w as any).cpf === id);
+    const alreadyApproved = target?.status === 'approved';
+    if (!alreadyApproved) {
+      const approvedCount = waiters.filter(w => w.status === 'approved').length;
+      if (approvedCount >= planCfg.maxWaiters) {
+        toast.error(`Limite do plano atingido: máximo de ${planCfg.maxWaiters} garçom${planCfg.maxWaiters !== 1 ? 's' : ''} no Plano ${planKey.charAt(0).toUpperCase() + planKey.slice(1)}.`);
+        return;
+      }
+    }
     socket.emit('admin_approve_waiter', id);
     toast.success('Garçom aprovado!');
-    // Persistência no Firestore em segundo plano (não bloqueia a operação)
     import('../lib/firebaseService').then(({ updateDocument }) =>
       updateDocument('waiters', id, { status: 'approved' })
     ).catch(() => {});
@@ -1528,26 +1764,6 @@ export default function Dashboard({
     ).catch(() => {});
   };
 
-  const analyzeKitchenVideo = async () => {
-    setIsAnalyzing(true);
-    try {
-      const genAI = new GoogleGenAI({ apiKey: "AIzaSyBNfSi4znBYkDd3reBTLq-XQwZzb-plzv4" });
-      
-      // Mocking video analysis for the demo as we don't have a real video stream here
-      // In a real app, we'd capture a frame or send a video file
-      const prompt = "Analise o fluxo da cozinha de uma pizzaria. O que pode ser otimizado?";
-      const result = await genAI.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: prompt
-      });
-      setVideoAnalysis(result.text || "Sem resposta da IA.");
-    } catch (error) {
-      console.error("AI Analysis failed:", error);
-      setVideoAnalysis("Erro ao conectar com a IA. Verifique sua chave de API.");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
 
   return (
     <div className="flex h-screen overflow-hidden relative">
@@ -1690,14 +1906,7 @@ export default function Dashboard({
             <ShoppingCart size={20} />
             <span className="text-sm font-medium">Produtos</span>
           </button>
-          <button 
-            onClick={() => { setActiveTab('ai'); setIsSidebarOpen(false); }}
-            className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'ai' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
-          >
-            <Video size={20} />
-            <span className="text-sm font-medium">IA Vision</span>
-          </button>
-          <button 
+          <button
             onClick={() => { setActiveTab('reports'); setCurrentReportView(null); setIsSidebarOpen(false); }}
             className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
           >
@@ -1714,7 +1923,7 @@ export default function Dashboard({
           {(pizzariaConfig.kdsEnabled ?? true) && (
             <div className="border-t border-[#141414]/10 pt-2 mt-1">
               <a
-                href="/kitchen"
+                href="/app/kitchen"
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => setIsSidebarOpen(false)}
@@ -1730,17 +1939,16 @@ export default function Dashboard({
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden p-4 lg:p-6 bg-[#F5F5F3] flex flex-col">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-4 gap-3 shrink-0">
-          <div className="flex items-center space-x-3">
-            <button 
-              onClick={() => setIsSidebarOpen(true)}
-              className="p-2 bg-white rounded-lg shadow-sm border border-[#141414]/10 lg:hidden"
-            >
-              <Menu size={20} />
-            </button>
-            <header className="flex items-center space-x-2 overflow-hidden">
-              <h2 className="font-serif italic text-2xl lg:text-3xl shrink-0">Painel</h2>
-              <div className="flex items-center bg-white/50 border border-[#141414]/10 p-0.5 rounded-xl shadow-sm overflow-x-auto scrollbar-hide">
+        <div className="flex items-center gap-2 mb-4 shrink-0 min-w-0">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="p-2 bg-white rounded-lg shadow-sm border border-[#141414]/10 lg:hidden shrink-0"
+          >
+            <Menu size={20} />
+          </button>
+          <header className="flex items-center gap-2 min-w-0 flex-1">
+            <h2 className="font-serif italic text-2xl lg:text-3xl shrink-0">Painel</h2>
+            <div className="flex items-center bg-white/50 border border-[#141414]/10 p-0.5 rounded-xl shadow-sm overflow-x-auto scrollbar-hide shrink-0">
                 <button 
                   onClick={() => setActiveTab('overview')}
                   className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'overview' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
@@ -1775,14 +1983,7 @@ export default function Dashboard({
                 >
                   <ShoppingCart size={16} />
                 </button>
-                <button 
-                  onClick={() => setActiveTab('ai')}
-                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'ai' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
-                  title="IA Vision"
-                >
-                  <Video size={16} />
-                </button>
-                <button 
+                <button
                   onClick={() => { setActiveTab('reports'); setCurrentReportView(null); }}
                   className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'reports' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
                   title="Relatórios"
@@ -1800,7 +2001,7 @@ export default function Dashboard({
                   <>
                     <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
                     <a
-                      href="/kitchen"
+                      href="/app/kitchen"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-1.5 rounded-lg transition-all shrink-0 text-orange-500 hover:bg-orange-50"
@@ -1811,42 +2012,80 @@ export default function Dashboard({
                   </>
                 )}
               </div>
-            </header>
-          </div>
-
-          {activeTab === 'overview' && (
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
-              <button 
-                onClick={() => {
-                  if (!isCashRegisterOpen) {
-                    toggleCashRegister(true);
-                    socket.emit('toggle_cash_register', true);
-                  } else {
-                    const activeTables = tables.find(t => t.status !== "free");
-                    const activeComandas = comandas.find(c => c.status !== "free");
-                    
-                    if (activeTables || activeComandas) {
-                      toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
-                    } else {
-                      toggleCashRegister(false);
-                      socket.emit('toggle_cash_register', false);
-                    }
-                  }
-                }}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-sm shrink-0 ${
-                  isCashRegisterOpen 
-                    ? 'bg-red-500 text-white hover:bg-red-600' 
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
+            {/* Establishment name — fills space between tabs and exit button */}
+            {(printerConfig.establishmentName || printerConfig.logoUrl) && (
+              <div className="flex-1 min-w-0 flex items-center justify-center gap-3 px-3 hidden sm:flex">
+                {printerConfig.logoUrl && (
+                  <img
+                    src={printerConfig.logoUrl}
+                    alt="Logo"
+                    className="h-16 w-auto max-w-[120px] object-contain shrink-0 select-none pointer-events-none"
+                  />
+                )}
+                {printerConfig.establishmentName && (
+                  <p className="text-2xl font-serif italic font-bold opacity-80 truncate">
+                    {printerConfig.establishmentName}
+                  </p>
+                )}
+              </div>
+            )}
+            {canInstall && !isInstalled && (
+              <button
+                onClick={install}
+                title="Instalar app na tela inicial"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-[10px] font-bold uppercase transition-colors shrink-0"
               >
-                <Wallet size={14} />
-                <span>{isCashRegisterOpen ? 'Fechar' : 'Abrir'}</span>
+                <Download size={11} />
+                Instalar app
               </button>
-              <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
-              <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => {
+                if (isCashRegisterOpen) {
+                  toast.warning('O caixa está aberto. Feche o caixa antes de sair.');
+                  return;
+                }
+                (onLogout ?? logout)();
+              }}
+              title="Sair"
+              className="p-1.5 rounded-lg text-[#141414]/30 hover:text-red-500 hover:bg-red-50 transition-all shrink-0"
+            >
+              <LogOut size={16} />
+            </button>
+          </header>
         </div>
+
+        {activeTab === 'overview' && (
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5 mb-1 shrink-0">
+            <button
+              onClick={() => {
+                if (!isCashRegisterOpen) {
+                  toggleCashRegister(true);
+                  socket.emit('toggle_cash_register', true);
+                } else {
+                  const activeTables = tables.find(t => t.status !== "free");
+                  const activeComandas = comandas.find(c => c.status !== "free");
+                  if (activeTables || activeComandas) {
+                    toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+                  } else {
+                    toggleCashRegister(false);
+                    socket.emit('toggle_cash_register', false);
+                  }
+                }
+              }}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-sm shrink-0 ${
+                isCashRegisterOpen
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              <Wallet size={14} />
+              <span>{isCashRegisterOpen ? 'Fechar' : 'Abrir'}</span>
+            </button>
+            <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
+            <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
+          </div>
+        )}
 
         <AnimatePresence mode="wait">
           {activeTab === 'overview' && (
@@ -1868,12 +2107,14 @@ export default function Dashboard({
                       >
                         Mesas
                       </button>
-                      <button
-                        onClick={() => setOverviewTab('comandas')}
-                        className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'comandas' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
-                      >
-                        Comandas
-                      </button>
+                      {pizzariaConfig.comandasEnabled !== false && (
+                        <button
+                          onClick={() => setOverviewTab('comandas')}
+                          className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all ${overviewTab === 'comandas' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/50 hover:bg-[#141414]/5'}`}
+                        >
+                          Comandas
+                        </button>
+                      )}
                     </div>
                     <button
                       onClick={() => {
@@ -1891,16 +2132,17 @@ export default function Dashboard({
                   <div className="flex-1 min-h-0">
                     <AnimatePresence mode="wait">
                       {overviewTab === 'tables' ? (
-                        <motion.div 
+                        <motion.div
                           key="tables-grid"
                           initial={{ opacity: 0, x: -10 }}
                           animate={{ opacity: 1, x: 0 }}
                           exit={{ opacity: 0, x: 10 }}
                           transition={{ duration: 0.2 }}
-                          className="h-full overflow-y-auto scrollbar-hide pr-1"
+                          className="h-full flex flex-col min-h-0"
                         >
+                          <div className="flex-1 overflow-y-auto scrollbar-hide pr-1">
                           <div className="grid grid-cols-5 gap-1.5 pb-2">
-                            {[...tables].sort((a, b) => a.id - b.id).map(table => (
+                            {[...tables].sort((a, b) => a.id - b.id).filter(t => !pizzariaConfig.numTables || t.id <= pizzariaConfig.numTables).map(table => (
                               <button
                                 key={table.id}
                                 onClick={() => {
@@ -1937,9 +2179,31 @@ export default function Dashboard({
                               </button>
                             ))}
                           </div>
+                          {/* Time-limit plan countdown — Free plan only */}
+                          {planKey === 'free' && ownerCreatedAt && (() => {
+                            const trialDays = planCfg.trialDays;
+                            const start = new Date(ownerCreatedAt).getTime();
+                            const expiry = start + trialDays * 24 * 60 * 60 * 1000;
+                            const remaining = Math.max(0, Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000)));
+                            const urgent = remaining <= 3;
+                            return (
+                              <div className={`mt-2 mx-0.5 rounded-lg border px-3 py-2 flex items-center justify-between ${urgent ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                                <div>
+                                  <p className={`text-[7px] font-bold uppercase tracking-widest leading-none ${urgent ? 'text-red-600' : 'text-amber-700'}`}>Time-limit plan</p>
+                                  <p className={`text-[9px] mt-0.5 font-semibold ${urgent ? 'text-red-700' : 'text-amber-800'}`}>
+                                    {remaining > 0 ? `${remaining} dia${remaining !== 1 ? 's' : ''} restante${remaining !== 1 ? 's' : ''}` : 'Período de teste encerrado'}
+                                  </p>
+                                </div>
+                                <div className={`text-2xl font-black font-mono ${urgent ? 'text-red-500' : 'text-amber-500'}`}>
+                                  {remaining}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          </div>
                         </motion.div>
-                      ) : (
-                        <motion.div 
+                      ) : (pizzariaConfig.comandasEnabled === false ? null : (
+                        <motion.div
                           key="comandas-grid"
                           initial={{ opacity: 0, x: 10 }}
                           animate={{ opacity: 1, x: 0 }}
@@ -1948,7 +2212,7 @@ export default function Dashboard({
                           className="h-full overflow-y-auto scrollbar-hide pr-1"
                         >
                           <div className="grid grid-cols-5 gap-1.5 pb-2">
-                            {[...comandas].sort((a, b) => a.id - b.id).map(comanda => (
+                            {[...comandas].sort((a, b) => a.id - b.id).filter(c => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas).map(comanda => (
                               <button
                                 key={comanda.id}
                                 onClick={() => {
@@ -1986,7 +2250,7 @@ export default function Dashboard({
                             ))}
                           </div>
                         </motion.div>
-                      )}
+                      ))}
                     </AnimatePresence>
                   </div>
 
@@ -2174,6 +2438,20 @@ export default function Dashboard({
                 {/* Column 2: Pending and Inactive Waiters */}
                 <div className="lg:col-span-4 space-y-6">
                   <section className="bg-white border-2 border-[#141414] rounded-2xl p-4 lg:p-6 shadow-sm">
+                    {/* Waiter plan limit badge */}
+                    {(() => {
+                      const approvedCount = waiters.filter(w => w.status === 'approved').length;
+                      const atLimit = approvedCount >= planCfg.maxWaiters;
+                      return (
+                        <div className={`flex items-center justify-between mb-3 px-3 py-1.5 rounded-lg border text-[10px] font-bold ${atLimit ? 'bg-red-50 border-red-200 text-red-700' : 'bg-[#F5F5F3] border-[#141414]/10 text-[#141414]/60'}`}>
+                          <span className="flex items-center gap-1.5">
+                            <Users size={11} />
+                            Garçons ativos: {approvedCount} / {planCfg.maxWaiters}
+                          </span>
+                          {atLimit && <Lock size={10} className="text-red-500" />}
+                        </div>
+                      );
+                    })()}
                     <h3 className="font-serif italic text-base lg:text-lg mb-4 flex items-center justify-between">
                       <span className="flex items-center"><Users className="mr-2" size={18} /> Solicitações Pendentes</span>
                       <span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-bold">{pendingWaiters.length}</span>
@@ -2448,54 +2726,6 @@ export default function Dashboard({
             </motion.div>
           )}
 
-          {activeTab === 'ai' && (
-            <motion.div 
-              key="ai"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="space-y-6 lg:space-y-10 pt-6"
-            >
-              <header>
-                <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">IA Vision Analysis</h2>
-                <p className="text-xs lg:text-sm opacity-60">Análise inteligente do fluxo com Gemini 3.1 Pro.</p>
-              </header>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10">
-                <div className="bg-[#141414] rounded-2xl aspect-video flex flex-col items-center justify-center text-[#E4E3E0] p-6 lg:p-10 text-center space-y-4 lg:space-y-6">
-                  <Video size={48} className="opacity-20 lg:size-16" />
-                  <div>
-                    <h4 className="text-lg lg:text-xl font-bold mb-1 lg:mb-2">Monitoramento da Cozinha</h4>
-                    <p className="text-xs lg:text-sm opacity-50">Conecte uma câmera para análise de produtividade.</p>
-                  </div>
-                  <button 
-                    onClick={analyzeKitchenVideo}
-                    disabled={isAnalyzing}
-                    className="bg-[#E4E3E0] text-[#141414] px-6 py-2.5 lg:px-8 lg:py-3 rounded-full font-bold hover:scale-105 transition-transform disabled:opacity-50 text-sm"
-                  >
-                    {isAnalyzing ? "Analisando..." : "Iniciar Análise"}
-                  </button>
-                </div>
-
-                <div className="bg-white border-2 border-[#141414] rounded-2xl p-4 lg:p-8 overflow-y-auto max-h-[400px] lg:max-h-[500px] scrollbar-hide">
-                  <h3 className="font-serif italic text-lg lg:text-xl mb-4 lg:mb-6">Insights de Otimização</h3>
-                  {videoAnalysis ? (
-                    <div className="prose prose-sm font-mono text-[10px] lg:text-xs leading-relaxed">
-                      {videoAnalysis.split('\n').map((line, i) => (
-                        <p key={i} className="mb-2">{line}</p>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center h-full opacity-30 text-center py-10">
-                      <ChefHat size={40} className="mb-3 lg:size-12" />
-                      <p className="text-xs lg:text-sm uppercase font-bold tracking-widest">Aguardando dados...</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-
           {activeTab === 'products' && (
             <motion.div 
               key="products"
@@ -2511,7 +2741,7 @@ export default function Dashboard({
                     <p className="text-[10px] uppercase tracking-widest opacity-50">Cardápio Digital</p>
                   </div>
                   <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide flex-1">
-                    {menu.map(category => (
+                    {displayMenu.map(category => (
                       <button
                         key={category.name}
                         onClick={() => {
@@ -2523,24 +2753,28 @@ export default function Dashboard({
                         {category.name}
                       </button>
                     ))}
-                    <button
-                      onClick={() => {
-                        const element = document.getElementById(`category-sabores-pizzas`);
-                        element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                      className="px-4 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-all whitespace-nowrap"
-                    >
-                      Sabores Pizzas
-                    </button>
-                    <button
-                      onClick={() => {
-                        const element = document.getElementById(`category-bordas`);
-                        element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                      className="px-4 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-all whitespace-nowrap"
-                    >
-                      Bordas
-                    </button>
+                    {pizzariaConfig.enabled && (
+                      <>
+                        <button
+                          onClick={() => {
+                            const element = document.getElementById(`category-sabores-pizzas`);
+                            element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className="px-4 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-all whitespace-nowrap"
+                        >
+                          Sabores Pizzas
+                        </button>
+                        <button
+                          onClick={() => {
+                            const element = document.getElementById(`category-bordas`);
+                            element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className="px-4 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-all whitespace-nowrap"
+                        >
+                          Bordas
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
                 <button 
@@ -2553,7 +2787,7 @@ export default function Dashboard({
               </header>
 
               <div className="space-y-12 pb-20">
-                {menu.map(category => (
+                {displayMenu.map(category => (
                   <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                     <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center">
                       <div className="flex items-center space-x-4">
@@ -2635,7 +2869,7 @@ export default function Dashboard({
                   </div>
                 ))}
 
-                {/* Pizza Flavors Section */}
+                {pizzariaConfig.enabled && (<>
                 <div id="category-sabores-pizzas" className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                   <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center">
                     <div className="flex items-center space-x-4">
@@ -2747,6 +2981,7 @@ export default function Dashboard({
                     ))}
                   </div>
                 </div>
+                </>)}
               </div>
             </motion.div>
           )}
@@ -3017,7 +3252,7 @@ export default function Dashboard({
                               className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-2 focus:ring-[#141414] outline-none appearance-none"
                             >
                               <option value="todos">Todas</option>
-                              {menu.map(cat => (
+                              {displayMenu.map(cat => (
                                 <option key={cat.name} value={cat.name}>{cat.name}</option>
                               ))}
                             </select>
@@ -3551,108 +3786,192 @@ export default function Dashboard({
             )}
 
           {activeTab === 'settings' && (
-            <motion.div 
+            <motion.div
               key="settings"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="h-full flex flex-col space-y-2"
+              className="flex-1 min-h-0 overflow-y-auto scrollbar-hide"
             >
-              <header className="flex items-center justify-between shrink-0">
+              <div className="pt-2 pb-6">
+              <header className="flex items-center justify-between mb-3">
                 <div>
                   <h2 className="font-serif italic text-xl mb-0.5">Configurações</h2>
                   <p className="text-[9px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
                 </div>
               </header>
 
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 pb-4">
-                {/* Column 1: Printers and Tests */}
-                <div className="space-y-2.5">
-                  {/* Card: Impressoras Cadastradas */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
-                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
-                      <Printer className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Impressoras</h3>
+              {/* Card: Estrutura do Salão */}
+              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5">
+                <div className="flex items-center space-x-2 mb-2 shrink-0">
+                  <LayoutDashboard className="text-[#141414]" size={12} />
+                  <h3 className="font-serif italic text-sm leading-none flex-1">Estrutura do Salão</h3>
+                  {salonDirty && (
+                    <span className="text-[8px] text-amber-600 font-bold uppercase">alterações não salvas</span>
+                  )}
+                  <button
+                    onClick={saveSalonConfig}
+                    disabled={savingConfig || (!salonDirty && !planCfg.tablesLocked)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all ${
+                      salonDirty
+                        ? 'bg-[#141414] text-white hover:opacity-80'
+                        : 'bg-[#141414]/10 text-[#141414]/40 cursor-not-allowed'
+                    }`}
+                  >
+                    <Save size={9} />
+                    {savingConfig ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+                {(planCfg.tablesLocked || planCfg.comandasLocked) && (
+                  <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mb-2">
+                    <Lock size={9} className="text-amber-600 shrink-0" />
+                    <span className="text-[8px] text-amber-700 font-bold uppercase">
+                      Plano {planKey.charAt(0).toUpperCase() + planKey.slice(1)} — algumas configurações estão bloqueadas
+                    </span>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
+                      Nº de Mesas {planCfg.tablesLocked && <Lock size={7} className="text-amber-500" />}
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="500"
+                      value={planCfg.tablesLocked ? planCfg.maxTables : localNumTables}
+                      readOnly={planCfg.tablesLocked}
+                      disabled={planCfg.tablesLocked}
+                      onChange={(e) => !planCfg.tablesLocked && setLocalNumTables(Math.max(1, parseInt(e.target.value) || 1))}
+                      className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${planCfg.tablesLocked ? 'bg-amber-50 text-amber-700 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
+                    />
+                  </div>
+                  <div className="flex flex-col justify-center">
+                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
+                      Comandas {planCfg.comandasLocked && <Lock size={7} className="text-amber-500" />}
+                    </label>
+                    <button
+                      disabled={planCfg.comandasLocked}
+                      onClick={() => !planCfg.comandasLocked && updatePizzeriaConfig({ ...pizzariaConfig, comandasEnabled: !(pizzariaConfig.comandasEnabled ?? true) })}
+                      className={`px-3 py-1.5 rounded-lg font-bold text-[8px] uppercase transition-all ${
+                        planCfg.comandasLocked
+                          ? 'bg-[#141414]/10 text-[#141414]/30 cursor-not-allowed'
+                          : (pizzariaConfig.comandasEnabled ?? true) ? 'bg-[#141414] text-white' : 'bg-[#141414]/10 text-[#141414]/50'
+                      }`}
+                    >
+                      {planCfg.comandasLocked
+                        ? (planCfg.comandasEnabled ? 'Ativo' : 'Inativo')
+                        : (pizzariaConfig.comandasEnabled ?? true) ? 'Ativo' : 'Inativo'}
+                    </button>
+                  </div>
+                  {(pizzariaConfig.comandasEnabled ?? true) && (
+                    <div>
+                      <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">Nº de Comandas <span className="normal-case font-normal">(máx. 50)</span></label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={localNumComandas}
+                        onChange={(e) => setLocalNumComandas(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                        className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-1 focus:ring-[#141414] outline-none"
+                      />
                     </div>
-                    <div className="space-y-1 mb-1.5 max-h-[140px] overflow-y-auto pr-0.5 scrollbar-hide">
+                  )}
+                  <div>
+                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">URL da Logo</label>
+                    <input
+                      type="url"
+                      value={localLogoUrl}
+                      onChange={(e) => setLocalLogoUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+
+                {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
+
+                  {/* Agente */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Printer className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none flex-1">Impressoras</h3>
+                      <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${printerAgentOnline ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${printerAgentOnline ? 'bg-green-500' : 'bg-gray-300'}`} />
+                        {printerAgentOnline ? 'Agente online' : 'Agente offline'}
+                      </span>
+                      {printerAgentOnline && (
+                        <button
+                          onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
+                          className="flex items-center gap-1 text-[8px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                        >
+                          <Search size={8} /> Buscar na rede
+                        </button>
+                      )}
+                    </div>
+                    {!printerAgentOnline && (
+                      <div className="space-y-1 mb-2">
+                        <p className="text-[8px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-tight">
+                          Instale o agente local para impressão dos pedidos e comprovantes.
+                        </p>
+                        <div className="flex gap-1">
+                          <a href="/download/fechaconta-agente.exe" download className="flex-1 flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity">
+                            <Download size={9} /> Baixar Agente (.exe)
+                          </a>
+                          <a href="/download/install.ps1" download title="Script PowerShell para instalação automática" className="flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg border border-[#141414]/20 text-[#141414]/60 hover:bg-[#141414]/5 transition-colors">
+                            <Download size={9} /> PS1
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Lista de impressoras */}
+                  <div>
+                    <p className="text-[7px] uppercase font-bold opacity-40 mb-1">Impressoras cadastradas</p>
+                    <div className="space-y-1 mb-1.5 max-h-[120px] overflow-y-auto scrollbar-hide">
                       {(printerConfig.registeredPrinters || []).map((p: any, idx: number) => (
                         <div key={idx} className="flex items-center gap-1">
                           <input
                             type="text"
                             value={p.name}
-                            onChange={(e) => {
-                              const name = e.target.value;
-                              (setPrinterConfig as any)((prev: any) => {
-                                const updated = [...prev.registeredPrinters];
-                                updated[idx] = { ...updated[idx], name };
-                                return { ...prev, registeredPrinters: updated };
-                              });
-                            }}
+                            onChange={(e) => { const name = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], name }; return { ...prev, registeredPrinters: u }; }); }}
                             placeholder="Nome"
-                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                            className="w-20 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
                           />
                           <input
                             type="text"
                             value={p.ip}
-                            onChange={(e) => {
-                              const ip = e.target.value;
-                              (setPrinterConfig as any)((prev: any) => {
-                                const updated = [...prev.registeredPrinters];
-                                updated[idx] = { ...updated[idx], ip };
-                                return { ...prev, registeredPrinters: updated };
-                              });
-                            }}
-                            placeholder="IP"
-                            className="w-24 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none font-mono"
+                            onChange={(e) => { const ip = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], ip }; return { ...prev, registeredPrinters: u }; }); }}
+                            placeholder="IP (ex: 192.168.1.10)"
+                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none font-mono"
                           />
-                          <button
-                            onClick={() => handleTestPrinter(p.name)}
-                            className="text-[6px] bg-[#141414] text-white px-1.5 py-1 rounded-lg font-bold uppercase shrink-0"
-                          >
-                            Testar
-                          </button>
-                          <button
-                            onClick={() => (setPrinterConfig as any)((prev: any) => ({
-                              ...prev,
-                              registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx)
-                            }))}
-                            className="text-red-400 hover:text-red-600 shrink-0"
-                          >
-                            <Trash2 size={10} />
-                          </button>
+                          <button onClick={() => handleTestPrinter(p.name)} className="text-[6px] bg-[#141414] text-white px-1.5 py-1 rounded-lg font-bold uppercase shrink-0">Testar</button>
+                          <button onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx) }))} className="text-red-400 hover:text-red-600 shrink-0"><Trash2 size={10} /></button>
                         </div>
                       ))}
                     </div>
                     <button
-                      onClick={() => (setPrinterConfig as any)((prev: any) => ({
-                        ...prev,
-                        registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '' }]
-                      }))}
-                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/50 py-1 rounded-lg text-[7px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors mb-1.5"
+                      onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '' }] }))}
+                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/50 py-1 rounded-lg text-[7px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors"
                     >
                       + Adicionar Impressora
                     </button>
-                    <button
-                      onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
-                    >
-                      Salvar Impressoras
-                    </button>
                   </div>
 
-                  {/* Card: Direcionamento */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
-                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
-                      <Printer className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Direcionamento</h3>
-                    </div>
+                  {/* Direcionamento */}
+                  <div>
+                    <p className="text-[7px] uppercase font-bold opacity-40 mb-1">Direcionamento por canal</p>
                     <div className="space-y-1.5 mb-2">
                       {([
-                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: 'Pizzas',   icon: <Pizza size={9} /> },
-                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas',  icon: <Beer size={9} /> },
+                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: pizzariaConfig.enabled ? 'Pizzas' : 'Pratos',  icon: <Pizza size={9} /> },
+                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas', icon: <Beer size={9} /> },
                         { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: 'Lanches', icon: <ChefHat size={9} /> },
-                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos',  icon: <FileText size={9} /> },
+                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos', icon: <FileText size={9} /> },
                       ] as const).map(({ key, autoKey, label, icon }) => (
                         <div key={key} className="flex items-center gap-1.5">
                           <span className="opacity-40 shrink-0">{icon}</span>
@@ -3671,443 +3990,232 @@ export default function Dashboard({
                             onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [autoKey]: !prev[autoKey] }))}
                             title="Impressão automática ao enviar"
                             className={`shrink-0 px-1.5 py-1 rounded-lg text-[6.5px] font-bold uppercase border transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white border-green-500' : 'border-[#141414]/20 text-[#141414]/40'}`}
-                          >
-                            Auto
-                          </button>
+                          >Auto</button>
                         </div>
                       ))}
                     </div>
-                    <button
-                      onClick={handleSavePrinters}
-                      className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0"
-                    >
-                      Salvar Direcionamento
-                    </button>
                   </div>
-                  {/* Modo Pizzaria */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
-                    <div className="flex items-center justify-between mb-2 shrink-0">
-                      <div className="flex items-center space-x-2">
-                        <Pizza className="text-[#141414]" size={12} />
-                        <h3 className="font-serif italic text-sm leading-none">Modo Pizzaria</h3>
+
+                  <button onClick={handleSavePrinters} className="mt-auto w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0">
+                    Salvar Impressoras
+                  </button>
+                </div>
+
+                {/* ── Coluna 2: Comprovante ───────────────────────────────────── */}
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-2">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <FileText className="text-[#141414]" size={12} />
+                    <h3 className="font-serif italic text-sm leading-none">Comprovante</h3>
+                  </div>
+
+                  <div>
+                    <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Nome do Estabelecimento</label>
+                    <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Endereço</label>
+                      <input type="text" value={printerConfig.address} onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Telefone</label>
+                      <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
+                    <input type="text" value={printerConfig.receiptFooter} onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Papel</span>
+                      <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                        {['50mm', '80mm'].map((pw) => (
+                          <button key={pw} onClick={() => setPrinterConfig({...printerConfig, paperWidth: pw})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.paperWidth || '80mm') === pw ? 'bg-white shadow-sm' : 'opacity-40'}`}>{pw}</button>
+                        ))}
                       </div>
-                      <button
-                        onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, enabled: !pizzariaConfig.enabled })}
-                        className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${pizzariaConfig.enabled ? 'bg-green-500' : 'bg-[#141414]/20'}`}
-                      >
-                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${pizzariaConfig.enabled ? 'translate-x-4' : ''}`} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Fonte</span>
+                      <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                        {['10px', '12px', '14px', '16px'].map((size) => (
+                          <button key={size} onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}>
+                            {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <span className="text-[7px] font-bold uppercase leading-none">B</span>
+                        <span className="text-[5.5px] opacity-60 leading-none">Negrito</span>
+                      </button>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Users size={9} />
+                        <span className="text-[5.5px] opacity-60 leading-none">Garçom</span>
                       </button>
                     </div>
-                    {pizzariaConfig.enabled ? (
-                      <div className="space-y-1.5">
-                        <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo de entrega</p>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          <div>
-                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🟡 Amarelo (min)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={localYellow}
-                              onChange={(e) => setLocalYellow(Math.max(1, Number(e.target.value)))}
-                              className="w-full bg-yellow-50 border border-yellow-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-yellow-400 outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🟠 Laranja (min)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={localOrange}
-                              onChange={(e) => setLocalOrange(Math.max(1, Number(e.target.value)))}
-                              className="w-full bg-orange-50 border border-orange-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-orange-400 outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">🔴 Vermelho (min)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={localRed}
-                              onChange={(e) => setLocalRed(Math.max(1, Number(e.target.value)))}
-                              className="w-full bg-red-50 border border-red-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-red-400 outline-none"
-                            />
-                          </div>
+                  </div>
+
+                  {/* Preview cupom */}
+                  <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center mt-1">
+                    <div className="bg-white w-full max-w-[155px] shadow-sm p-2.5 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
+                      <div className="text-center space-y-0.5">
+                        <p className="font-bold text-[8.5px] uppercase truncate">{printerConfig.establishmentName}</p>
+                        <p className="opacity-70 text-[5.5px] truncate">{printerConfig.address}</p>
+                      </div>
+                      <div className="border-t border-dashed border-[#141414]/20 pt-1 space-y-0.5">
+                        <div className="flex justify-between"><span>Mesa: 12</span><span>#1024</span></div>
+                        {printerConfig.showWaiter && <div>Garçom: Ricardo</div>}
+                      </div>
+                      <div className="border-t border-b border-dashed border-[#141414]/20 py-1 space-y-1">
+                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
+                          <span className="flex-1 leading-tight text-left">1x Porção de Tilápia</span>
+                          <span className="shrink-0">R$ 32</span>
                         </div>
-                        <div className="border-t border-[#141414]/5 pt-1.5">
-                          <p className="text-[7px] uppercase font-bold opacity-40 leading-none mb-1">Alerta de inatividade da mesa</p>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1">
-                              <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">⏰ Inatividade (min)</label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={localInactivity}
-                                onChange={(e) => setLocalInactivity(Math.max(1, Number(e.target.value)))}
-                                className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-amber-400 outline-none"
-                              />
-                            </div>
-                            <p className="text-[6px] opacity-40 leading-tight flex-1">
-                              Avisa quando a mesa está sem novos pedidos por este tempo.
-                            </p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed, inactivityMinutes: localInactivity }); toast.success('Configurações do Modo Pizzaria salvas!'); }}
-                          className="w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase"
-                        >
-                          Salvar Configurações
-                        </button>
-                        <p className="text-[6px] opacity-40 leading-tight text-center">
-                          Verde • Amarelo {pizzariaConfig.yellowMinutes}min • Laranja {pizzariaConfig.orangeMinutes}min • Vermelho {pizzariaConfig.redMinutes}min • Inativo {pizzariaConfig.inactivityMinutes ?? 30}min
-                        </p>
-                        <div className="border-t border-[#141414]/10 pt-1.5 mt-0.5">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-[7px] uppercase font-bold opacity-70 leading-none">Interagir com KDS</p>
-                              <p className="text-[6px] opacity-40 leading-tight mt-0.5">
-                                {(pizzariaConfig.kdsEnabled ?? true)
-                                  ? 'Garçom entrega após cozinha marcar "Pronto" no KDS.'
-                                  : 'Botão de entrega aparece direto no app, sem depender do KDS.'}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? true) })}
-                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.kdsEnabled ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}
-                            >
-                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? true) ? 'translate-x-4' : ''}`} />
-                            </button>
-                          </div>
-                          {(pizzariaConfig.kdsEnabled ?? true) && (
-                            <div className="mt-1.5 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded px-2 py-1">
-                              <span className="text-[6px] uppercase font-bold text-green-700 opacity-70 shrink-0">Link KDS:</span>
-                              <a
-                                href={`${window.location.origin}/kitchen`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[7px] text-green-700 font-mono truncate hover:underline"
-                              >
-                                {`${window.location.origin}/kitchen`}
-                              </a>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kitchen`)}
-                                className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700"
-                                title="Copiar link"
-                              >
-                                Copiar
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <div className="border-t border-[#141414]/10 pt-1.5 mt-0.5">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-[7px] uppercase font-bold opacity-70 leading-none">Garçom pode pagar?</p>
-                              <p className="text-[6px] opacity-40 leading-tight mt-0.5">
-                                {(pizzariaConfig.waiterCanPay ?? true)
-                                  ? 'Botão "Pagar" visível no app do garçom.'
-                                  : 'Pagamento somente pelo caixa (ADM).'}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanPay: !(pizzariaConfig.waiterCanPay ?? true) })}
-                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanPay ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}
-                            >
-                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
-                            </button>
-                          </div>
+                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
+                          <span className="flex-1 leading-tight text-left">2x Coca-cola Lata</span>
+                          <span className="shrink-0">R$ 12</span>
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-[7px] opacity-40 leading-tight">
-                        Mesas mudam de cor conforme o tempo de espera de pizzas e lanches. Garçom marca como entregue para voltar ao normal.
-                      </p>
-                    )}
+                      <div className="flex justify-between font-bold pt-1"><span>TOTAL:</span><span>R$ 44,00</span></div>
+                      <div className="pt-1 text-center opacity-70 italic text-[5.5px] truncate">{printerConfig.receiptFooter}</div>
+                    </div>
                   </div>
                 </div>
 
-                {/* Column 2: Receipt Layout and Data */}
+                {/* ── Coluna 3: Sistema & Dados ───────────────────────────────── */}
                 <div className="space-y-2.5">
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
-                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
-                      <FileText className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Detalhes do Cupom</h3>
+
+                  {/* Funcionamento */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Settings className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Funcionamento</h3>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-1.5 pr-1 shrink-0">
-                      <div>
-                        <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Nome do Estabelecimento</label>
-                        <input 
-                          type="text"
-                          value={printerConfig.establishmentName}
-                          onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})}
-                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
-                        />
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-2">
+                    {/* Modo Pizzaria */}
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <Pizza size={10} className="opacity-50" />
                         <div>
-                          <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Endereço Completo</label>
-                          <input 
-                            type="text"
-                            value={printerConfig.address}
-                            onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Telefone para Contato</label>
-                          <input 
-                            type="text"
-                            value={printerConfig.phone}
-                            onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})}
-                            className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
-                          />
+                          <p className="text-[8px] font-bold leading-none flex items-center gap-1">Modo Pizzaria {planCfg.pizzaLocked && <Lock size={7} className="text-amber-500" />}</p>
+                          <p className="text-[6px] opacity-40 leading-tight mt-0.5">{pizzariaConfig.enabled ? 'Cardápio pizza + alertas de tempo.' : 'Desativado — modo restaurante/lanchonete.'}</p>
                         </div>
                       </div>
-                      
-                      <div>
-                        <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
-                        <input 
-                          type="text"
-                          value={printerConfig.receiptFooter}
-                          onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})}
-                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
-                        />
-                      </div>
+                      <button disabled={planCfg.pizzaLocked} onClick={() => !planCfg.pizzaLocked && updatePizzeriaConfig({ ...pizzariaConfig, enabled: !pizzariaConfig.enabled })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.pizzaLocked ? 'bg-[#141414]/10 cursor-not-allowed' : pizzariaConfig.enabled ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${!planCfg.pizzaLocked && pizzariaConfig.enabled ? 'translate-x-4' : ''}`} />
+                      </button>
+                    </div>
 
-                      <div className="grid grid-cols-3 gap-1.5 pt-1">
-                        <div className="col-span-3 flex items-center justify-between gap-2 mb-0.5">
-                          <span className="text-[7px] uppercase font-bold opacity-45 shrink-0 leading-none">Papel</span>
-                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg flex-1 max-w-[120px]">
-                            {['50mm', '80mm'].map((pw) => (
-                              <button
-                                key={pw}
-                                onClick={() => setPrinterConfig({...printerConfig, paperWidth: pw})}
-                                className={`flex-1 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.paperWidth || '80mm') === pw ? 'bg-white shadow-sm' : 'opacity-40'}`}
-                              >
-                                {pw}
-                              </button>
-                            ))}
+                    {/* Timers — só quando pizza ligado */}
+                    {pizzariaConfig.enabled && (
+                      <div className="bg-[#141414]/3 rounded-lg p-2 mb-1.5 space-y-1.5">
+                        <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {([
+                            { label: '🟡 Amarelo', val: localYellow, set: setLocalYellow, cls: 'bg-yellow-50 border-yellow-200 focus:ring-yellow-400' },
+                            { label: '🟠 Laranja', val: localOrange, set: setLocalOrange, cls: 'bg-orange-50 border-orange-200 focus:ring-orange-400' },
+                            { label: '🔴 Vermelho', val: localRed, set: setLocalRed, cls: 'bg-red-50 border-red-200 focus:ring-red-400' },
+                          ]).map(({ label, val, set, cls }) => (
+                            <div key={label}>
+                              <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">{label}</label>
+                              <input type="number" min={1} value={val} onChange={(e) => set(Math.max(1, Number(e.target.value)))} className={`w-full border rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 outline-none ${cls}`} />
+                            </div>
+                          ))}
+                        </div>
+                        <div>
+                          <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">⏰ Inatividade (min)</label>
+                          <input type="number" min={1} value={localInactivity} onChange={(e) => setLocalInactivity(Math.max(1, Number(e.target.value)))} className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-amber-400 outline-none" />
+                        </div>
+                        <button onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed, inactivityMinutes: localInactivity }); toast.success('Alertas salvos!'); }} className="w-full bg-[#141414] text-[#E4E3E0] py-1 rounded-lg font-bold hover:opacity-90 transition-opacity text-[7px] uppercase">
+                          Salvar Alertas
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="border-t border-[#141414]/5 pt-1.5 space-y-1.5">
+                      {/* KDS */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Monitor size={10} className="opacity-50" />
+                          <div>
+                            <p className="text-[8px] font-bold leading-none flex items-center gap-1">KDS {planCfg.kdsLocked && <Lock size={7} className="text-amber-500" />}</p>
+                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? true) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
                           </div>
                         </div>
-                        <div className="col-span-3 flex items-center justify-between gap-2 mb-0.5">
-                          <span className="text-[7px] uppercase font-bold opacity-45 shrink-0 leading-none">Fonte (Itens)</span>
-                          <div className="flex bg-[#141414]/5 p-0.5 rounded-lg flex-1 max-w-[120px]">
-                            {['10px', '12px', '14px', '16px'].map((size) => (
-                              <button
-                                key={size}
-                                onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})}
-                                className={`flex-1 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}
-                              >
-                                {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
-                              </button>
-                            ))}
+                        <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? true) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? true) ? 'translate-x-4' : ''}`} />
+                        </button>
+                      </div>
+                      {(pizzariaConfig.kdsEnabled ?? true) && (
+                        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                          <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
+                          <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
+                          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/app/kitchen`)} className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700">Copiar</button>
+                        </div>
+                      )}
+
+                      {/* Garçom pode pagar */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <Wallet size={10} className="opacity-50" />
+                          <div>
+                            <p className="text-[8px] font-bold leading-none">Garçom pode pagar</p>
+                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanPay ?? true) ? 'Botão "Pagar" visível no app.' : 'Pagamento somente pelo caixa.'}</p>
                           </div>
                         </div>
-
-                        <button 
-                          onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})}
-                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
-                        >
-                          <span className="text-[7px] font-bold uppercase truncate leading-none">Negrito</span>
-                          <span className="text-[6px] opacity-60 leading-none">Itens</span>
-                        </button>
-
-                        <button 
-                          onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})}
-                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
-                        >
-                          <span className="text-[7px] font-bold uppercase truncate leading-none">Garçom</span>
-                          <span className="text-[6px] opacity-60 leading-none">Mostrar</span>
-                        </button>
-
-                        <button 
-                          onClick={() => setPrinterConfig({...printerConfig, autoPrintKitchen: !printerConfig.autoPrintKitchen})}
-                          className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all gap-0.5 ${printerConfig.autoPrintKitchen ? 'border-[#141414] bg-[#141414]/5 text-[#141414]' : 'border-[#141414]/10 opacity-40 text-[#141414]'}`}
-                        >
-                          <span className="text-[7px] font-bold uppercase truncate leading-none">Auto</span>
-                          <span className="text-[6px] opacity-60 leading-none">Imprimir</span>
+                        <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanPay: !(pizzariaConfig.waiterCanPay ?? true) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanPay ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
                         </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col">
-                    <div className="flex items-center space-x-2 mb-1.5 shrink-0">
-                      <Lock className="text-[#141414]" size={12} />
+                  {/* Dados */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Database className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Dados</h3>
                     </div>
 
-                    {/* Painel de confirmação de import */}
                     <AnimatePresence>
                       {pendingImport && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="overflow-hidden mb-2"
-                        >
+                        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-2">
                           <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 space-y-1.5">
                             <p className="text-[8px] font-bold uppercase text-orange-700 leading-none">Confirmar importação</p>
                             <p className="text-[7px] text-orange-600 leading-tight truncate">{pendingImport.fileName}</p>
                             <div className="flex gap-1.5 text-[6px]">
                               <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.menu.length} categorias</span>
                               <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.stock.length} insumos</span>
-                              {pendingImport.printerConfig && (
-                                <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">config impressora</span>
-                              )}
+                              {pendingImport.printerConfig && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">config impressora</span>}
                             </div>
                             <p className="text-[6.5px] text-orange-500 leading-tight">O cardápio e estoque atuais serão substituídos.</p>
                             <div className="flex gap-1">
-                              <button
-                                onClick={() => {
-                                  socket.emit('bulk_import', { menu: pendingImport.menu, stock: pendingImport.stock });
-                                  if (pendingImport.printerConfig) {
-                                    try { localStorage.setItem('printerConfig', JSON.stringify(pendingImport.printerConfig)); } catch {}
-                                  }
-                                  socket.once('import_complete', (result: any) => {
-                                    toast.success('Importação concluída!', {
-                                      description: `${result.menuCategories} categorias e ${result.stockItems} insumos restaurados.`
-                                    });
-                                  });
-                                  setPendingImport(null);
-                                }}
-                                className="flex-1 py-1 bg-orange-600 text-white rounded text-[7px] font-bold uppercase hover:bg-orange-700 transition-colors"
-                              >
-                                Confirmar
-                              </button>
-                              <button
-                                onClick={() => setPendingImport(null)}
-                                className="flex-1 py-1 bg-white border border-orange-200 text-orange-600 rounded text-[7px] font-bold uppercase hover:bg-orange-50 transition-colors"
-                              >
-                                Cancelar
-                              </button>
+                              <button onClick={() => { socket.emit('bulk_import', { menu: pendingImport.menu, stock: pendingImport.stock }); if (pendingImport.printerConfig) { try { localStorage.setItem('printerConfig', JSON.stringify(pendingImport.printerConfig)); } catch {} } socket.once('import_complete', (result: any) => { toast.success('Importação concluída!', { description: `${result.menuCategories} categorias e ${result.stockItems} insumos restaurados.` }); }); setPendingImport(null); }} className="flex-1 py-1 bg-orange-600 text-white rounded text-[7px] font-bold uppercase hover:bg-orange-700 transition-colors">Confirmar</button>
+                              <button onClick={() => setPendingImport(null)} className="flex-1 py-1 bg-white border border-orange-200 text-orange-600 rounded text-[7px] font-bold uppercase hover:bg-orange-50 transition-colors">Cancelar</button>
                             </div>
                           </div>
                         </motion.div>
                       )}
                     </AnimatePresence>
 
-                    {/* Input oculto para seleção de arquivo */}
-                    <input
-                      ref={importFileRef}
-                      type="file"
-                      accept=".json"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                          try {
-                            const parsed = JSON.parse(ev.target?.result as string);
-                            if (!parsed.menu && !parsed.stock) {
-                              toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' });
-                              return;
-                            }
-                            setPendingImport({
-                              menu: parsed.menu ?? [],
-                              stock: parsed.stock ?? [],
-                              printerConfig: parsed.printerConfig ?? null,
-                              fileName: file.name,
-                            });
-                          } catch {
-                            toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' });
-                          }
-                        };
-                        reader.readAsText(file);
-                        e.target.value = '';
-                      }}
-                    />
+                    <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const parsed = JSON.parse(ev.target?.result as string); if (!parsed.menu && !parsed.stock) { toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' }); return; } setPendingImport({ menu: parsed.menu ?? [], stock: parsed.stock ?? [], printerConfig: parsed.printerConfig ?? null, fileName: file.name }); } catch { toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' }); } }; reader.readAsText(file); e.target.value = ''; }} />
 
-                    <div className="grid grid-cols-3 gap-1.5 shrink-0">
-                      <button
-                        onClick={() => {
-                          try {
-                            const data = {
-                              menu,
-                              stock,
-                              printerConfig,
-                              exportedAt: new Date().toISOString(),
-                              version: '1.0',
-                            };
-                            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`;
-                            a.click();
-                            URL.revokeObjectURL(url);
-                            const totalItems = menu.reduce((acc, cat) => acc + (cat.items?.length ?? 0), 0);
-                            toast.success('Backup exportado!', {
-                              description: `${menu.length} categorias · ${totalItems} produtos · ${stock.length} insumos`
-                            });
-                          } catch { toast.error('Erro ao exportar dados.'); }
-                        }}
-                        className="flex items-center justify-center space-x-1 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
-                        <Download size={10} />
-                        <span className="text-[7px] font-bold uppercase">Exportar</span>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button onClick={() => { try { const data = { menu, stock, printerConfig, exportedAt: new Date().toISOString(), version: '1.0' }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url); const totalItems = menu.reduce((acc, cat) => acc + (cat.items?.length ?? 0), 0); toast.success('Backup exportado!', { description: `${menu.length} categorias · ${totalItems} produtos · ${stock.length} insumos` }); } catch { toast.error('Erro ao exportar dados.'); } }} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                        <Download size={10} /><span className="text-[7px] font-bold uppercase">Exportar</span>
                       </button>
-                      <button
-                        onClick={() => importFileRef.current?.click()}
-                        className="flex items-center justify-center space-x-1 py-1 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
-                        <RefreshCcw size={10} />
-                        <span className="text-[7px] font-bold uppercase">Importar</span>
+                      <button onClick={() => importFileRef.current?.click()} className="flex items-center justify-center space-x-1 py-1.5 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
+                        <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Importar</span>
                       </button>
-                      <button
-                        onClick={handleSeedDatabase}
-                        className="flex items-center justify-center space-x-1 py-1 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95"
-                      >
-                        <Database size={10} />
-                        <span className="text-[7px] font-bold uppercase">Seed DB</span>
+                      <button onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
+                        <Database size={10} /><span className="text-[7px] font-bold uppercase">Seed DB</span>
                       </button>
                     </div>
                   </div>
-                </div>
 
-                {/* Column 3: Preview */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col md:col-span-2 xl:col-span-1">
-                  <div className="flex items-center space-x-2 mb-2 shrink-0">
-                    <FileText className="text-[#141414]" size={12} />
-                    <h3 className="font-serif italic text-sm leading-none">Preview Cupom</h3>
-                  </div>
-
-                  <div className="bg-gray-50 p-2 rounded-lg border border-dashed border-[#141414]/10 flex justify-center">
-                    <div className="bg-white w-full max-w-[155px] shadow-sm p-2.5 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
-                      <div className="text-center space-y-0.5">
-                        <p className="font-bold text-[8.5px] uppercase truncate">{printerConfig.establishmentName}</p>
-                        <p className="opacity-70 text-[5.5px] truncate">{printerConfig.address}</p>
-                      </div>
-                      
-                      <div className="border-t border-dashed border-[#141414]/20 pt-1 space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>Mesa: 12</span>
-                          <span>#1024</span>
-                        </div>
-                        {printerConfig.showWaiter && <div>Garçom: Ricardo</div>}
-                      </div>
-
-                      <div className="border-t border-b border-dashed border-[#141414]/20 py-1 space-y-1">
-                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
-                          <span className="flex-1 leading-tight text-left">1x Pizza G Calabresa Especial com Bordas</span>
-                          <span className="shrink-0">R$ 85</span>
-                        </div>
-                        <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
-                          <span className="flex-1 leading-tight text-left">2x Soda Italiana Sabor Morango</span>
-                          <span className="shrink-0">R$ 24</span>
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between font-bold pt-1">
-                        <span>TOTAL:</span>
-                        <span>R$ 109,00</span>
-                      </div>
-
-                      <div className="pt-1 text-center opacity-70 italic text-[5.5px] truncate">
-                        {printerConfig.receiptFooter}
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </div>
               </div>
@@ -4115,6 +4223,77 @@ export default function Dashboard({
             )}
         </AnimatePresence>
       </main>
+
+      {/* Modal Scan de Impressoras */}
+      <AnimatePresence>
+        {scanModalOpen && (
+          <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setScanModalOpen(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-serif italic text-xl">Buscar Impressoras</h3>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Escaneando rede local — porta 9100</p>
+                </div>
+                <button onClick={() => setScanModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><X size={16} /></button>
+              </div>
+
+              {scanRunning ? (
+                <div className="flex flex-col items-center py-8 gap-3">
+                  <div className="w-8 h-8 border-2 border-[#141414] border-t-transparent rounded-full animate-spin" />
+                  <p className="text-sm font-semibold">Escaneando a rede...</p>
+                  <p className="text-[11px] opacity-40 text-center">Testando todos os IPs da rede local na porta 9100. Aguarde.</p>
+                </div>
+              ) : scanPrinters.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm font-semibold mb-1">Nenhuma impressora encontrada</p>
+                  <p className="text-[11px] opacity-40">Verifique se as impressoras estão ligadas e na mesma rede.</p>
+                  <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
+                    className="mt-4 px-4 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
+                    Tentar novamente
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-bold uppercase opacity-40 mb-3">{scanPrinters.length} impressora(s) encontrada(s)</p>
+                  {scanPrinters.map((p) => (
+                    <div key={p.ip} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3">
+                      <div>
+                        <p className="font-mono font-bold text-sm">{p.ip}</p>
+                        <p className="text-[10px] opacity-50">Porta {p.port} · ESC/POS</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          (setPrinterConfig as any)((prev: any) => {
+                            const exists = prev.registeredPrinters?.some((r: any) => r.ip === p.ip);
+                            if (exists) { toast.info(`IP ${p.ip} já está cadastrado.`); return prev; }
+                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: p.ip }] };
+                            localStorage.setItem('printerConfig', JSON.stringify(updated));
+                            toast.success(`${p.ip} adicionado! Defina um nome e salve.`);
+                            return updated;
+                          });
+                          setScanModalOpen(false);
+                          setActiveTab('settings');
+                        }}
+                        className="text-[11px] font-bold bg-[#141414] text-white px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
+                    className="w-full mt-2 py-2 border border-[#141414]/20 rounded-xl text-xs font-bold text-[#141414]/50 hover:bg-gray-50 transition-colors">
+                    Buscar novamente
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modal Motivo do Ajuste de Estoque */}
       <AnimatePresence>
@@ -4941,12 +5120,12 @@ export default function Dashboard({
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-6">
-                  <button 
+                  <button
                     onClick={() => setSelectedCategory('pizzas')}
                     className={`flex flex-col sm:flex-row items-center justify-center space-y-1 sm:space-y-0 sm:space-x-2 px-2 sm:px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedCategory === 'pizzas' && !searchTerm ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]' : 'bg-gray-100 hover:bg-gray-200 opacity-60'}`}
                   >
-                    <Pizza size={18} />
-                    <span className="text-[10px] sm:text-sm">Pizzas</span>
+                    {pizzariaConfig.enabled ? <Pizza size={18} /> : <Sandwich size={18} />}
+                    <span className="text-[10px] sm:text-sm">{pizzariaConfig.enabled ? 'Pizzas' : 'Pratos/Porções'}</span>
                   </button>
                   <button 
                     onClick={() => setSelectedCategory('lanches')}
@@ -4967,7 +5146,13 @@ export default function Dashboard({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 flex-1">
                 {menu
-                  .filter(cat => searchTerm.length > 0 || cat.type === selectedCategory)
+                  .filter(cat => {
+                    if (searchTerm.length > 0) return true;
+                    if (selectedCategory === 'pizzas' && !pizzariaConfig.enabled) {
+                      return cat.name === 'Pratos/Porção';
+                    }
+                    return cat.type === selectedCategory;
+                  })
                   .flatMap(cat => cat.items)
                   .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
                   .map((item, idx) => (
@@ -5567,7 +5752,7 @@ export default function Dashboard({
                             onChange={(e) => setEditingCategory({ ...editingCategory, type: e.target.value as any })}
                             className="bg-gray-50 border border-[#141414]/10 rounded-lg px-3 py-1 font-bold outline-none"
                           >
-                            <option value="pizzas">Pizzas</option>
+                            <option value="pizzas">Pratos/Porções</option>
                             <option value="lanches">Lanches</option>
                             <option value="bebidas">Bebidas</option>
                           </select>
@@ -5589,7 +5774,7 @@ export default function Dashboard({
                         <>
                           <div>
                             <p className="font-bold">{cat.name}</p>
-                            <p className="text-[10px] uppercase opacity-50">{cat.type}</p>
+                            <p className="text-[10px] uppercase opacity-50">{typeLabel(cat.type)}</p>
                           </div>
                           <div className="flex space-x-2">
                             <button 

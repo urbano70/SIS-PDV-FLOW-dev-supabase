@@ -1,0 +1,4 @@
+{
+  "serverUrl": "https://SEU_DOMINIO_OU_IP_VPS",
+  "agentSecret": "SENHA_DO_AGENTE"
+}

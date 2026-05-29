@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 
-export type PWAApp = 'waiter' | 'kds' | null;
+export type PWAApp = 'waiter' | 'kds' | 'dashboard' | null;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -18,8 +18,8 @@ export function usePWA(app: PWAApp) {
   // Injeta o manifest correto no <head>
   useEffect(() => {
     if (!app) return;
-    const href = app === 'waiter' ? '/manifest-waiter.webmanifest' : '/manifest-kds.webmanifest';
-    const themeColor = app === 'waiter' ? '#141414' : '#0f172a';
+    const href = app === 'waiter' ? '/manifest-waiter.webmanifest' : app === 'dashboard' ? '/manifest-dashboard.webmanifest' : '/manifest-kds.webmanifest';
+    const themeColor = app === 'kds' ? '#0f172a' : '#141414';
 
     let link = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
     if (!link) {

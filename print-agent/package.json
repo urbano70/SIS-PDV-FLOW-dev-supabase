@@ -1,0 +1,21 @@
+{
+  "name": "fechaconta-print-agent",
+  "version": "1.0.0",
+  "description": "Agente de impressão local do FechaConta",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "build": "pkg agent.js --target node18-win-x64 --output fechaconta-agente.exe --compress GZip",
+    "build:all": "pkg agent.js --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --compress GZip"
+  },
+  "pkg": {
+    "assets": [],
+    "scripts": []
+  },
+  "dependencies": {
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

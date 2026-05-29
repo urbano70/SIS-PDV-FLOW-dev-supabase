@@ -5,7 +5,6 @@ import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwi
 import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
-import { auth } from '../lib/firebase';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
 
@@ -246,7 +245,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       const saved = localStorage.getItem('waiter_credentials');
       if (saved) waiterName = JSON.parse(saved).name || '';
     } catch {}
-    if (!waiterName) waiterName = auth.currentUser?.displayName || 'Garçom';
+    if (!waiterName) waiterName = 'Garçom';
 
     // Check if there's already an active order for this table/comanda
     const activeOrder = orders.find(o =>
@@ -413,7 +412,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       <div className={`flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-full ${
                         mins >= (pizzariaConfig?.inactivityMinutes ?? 30)
                           ? 'bg-amber-500 text-white animate-pulse'
-                          : 'text-[#141414]/40'
+                          : 'opacity-40'
                       }`}>
                         <Clock size={mins >= (pizzariaConfig?.inactivityMinutes ?? 30) ? 11 : 9} />
                         <span className={`font-bold ${mins >= (pizzariaConfig?.inactivityMinutes ?? 30) ? 'text-[11px]' : 'text-[9px]'}`}>{formatInactivity(mins)}</span>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import socket from './lib/socket';
 import Dashboard from './components/Dashboard';
@@ -15,15 +15,21 @@ import { Table, Order, Waiter, StockItem, MenuCategory } from './types';
 import { Toaster, toast } from 'sonner';
 import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
 import { LogIn } from 'lucide-react';
+import { onAuthStateChange, getSession } from './lib/auth';
+import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import UserPanel from './pages/UserPanel';
+import FinanceiroDashboard from './pages/FinanceiroDashboard';
 
-function AppContent() {
+function AppContent({ ownerUser }: { ownerUser: any }) {
+  const navigate = useNavigate();
   const { user, loading, signIn, data, isAdmin, toggleCashRegister, updatePizzeriaConfig } = useFirebase();
   const { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig } = data;
   const [isApproved, setIsApproved] = useState(false);
-  const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'ai' | 'reports' | 'settings' | 'products'>('overview');
+  const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products'>('overview');
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
-  
+
   const defaultPrinterConfig = {
     pizzas: 'none',
     drinks: 'none',
@@ -45,6 +51,7 @@ function AppContent() {
     itemFontSize: '12px',
     boldItems: false,
     paperWidth: '80mm',
+    logoUrl: '',
   };
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {
@@ -54,6 +61,18 @@ function AppContent() {
       return defaultPrinterConfig;
     }
   });
+
+  // Sync establishment name from Supabase user_metadata → printerConfig
+  useEffect(() => {
+    const name = ownerUser?.user_metadata?.establishment_name;
+    if (!name) return;
+    setPrinterConfig((prev: any) => {
+      if (prev.establishmentName === name) return prev;
+      const updated = { ...prev, establishmentName: name };
+      localStorage.setItem('printerConfig', JSON.stringify(updated));
+      return updated;
+    });
+  }, [ownerUser]);
 
   useEffect(() => {
     if (waiters.length === 0) return;
@@ -177,7 +196,7 @@ function AppContent() {
         </div>
         <h1 className="font-serif italic text-3xl mb-2">Bem-vindo ao FechaConta</h1>
         <p className="text-gray-500 mb-8">Faça login para acessar o sistema de gestão.</p>
-        <button 
+        <button
           onClick={signIn}
           className="w-full bg-[#141414] text-white py-4 rounded-xl font-bold flex items-center justify-center space-x-3 hover:opacity-90 transition-opacity"
         >
@@ -191,31 +210,9 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
       <Routes>
-        {/* Rota do Garçom - Sempre acessível para permitir auto-onboarding (via login anônimo ou salvo) */}
-        <Route 
-          path="/waiter" 
-          element={
-            isApproved ? (
-              <WaiterTerminal 
-                tables={tables} 
-                comandas={comandas} 
-                orders={orders} 
-                menu={menu} 
-                pizzaFlavors={pizzaFlavors} 
-                pizzaCrusts={pizzaCrusts} 
-                isCashRegisterOpen={isCashRegisterOpen}
-                printerConfig={printerConfig}
-                pizzariaConfig={pizzariaConfig}
-              />
-            ) : (
-              <SelfOnboarding waiters={waiters} />
-            )
-          } 
-        />
-
-        {/* Dashboard e outras rotas administrativas - Requerem Admin */}
-        <Route 
-          path="/dashboard" 
+        {/* Dashboard e outras rotas administrativas */}
+        <Route
+          path="/dashboard"
           element={
             <Dashboard
               tables={tables}
@@ -235,28 +232,155 @@ function AppContent() {
               setPrinterConfig={setPrinterConfig}
               pizzariaConfig={pizzariaConfig}
               updatePizzeriaConfig={updatePizzeriaConfig}
+              onLogout={() => navigate('/portal')}
+              plan={ownerUser?.user_metadata?.plan || 'free'}
+              ownerCreatedAt={ownerUser?.created_at}
             />
-          } 
+          }
         />
-        
+
         <Route path="/kitchen" element={<KitchenDisplay orders={orders} menu={menu} />} />
         <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
-        
-        {/* Redirecionamentos padrão */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+
+        {/* Redirecionamentos padrão dentro de /app */}
+        <Route path="/" element={<Navigate to="/app/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/app/dashboard" replace />} />
       </Routes>
       <Toaster position="top-right" richColors />
     </div>
   );
 }
 
+// Rota do garçom: lê ?tenant= da URL
+function WaiterRoute() {
+  const [searchParams] = useSearchParams();
+  const tenantId = searchParams.get('tenant') || undefined;
+
+  return (
+    <FirebaseProvider tenantId={tenantId} isWaiterMode={true}>
+      <WaiterRouteInner tenantId={tenantId} />
+    </FirebaseProvider>
+  );
+}
+
+function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
+  const { data } = useFirebase();
+  const { tables, comandas, orders, menu, waiters, isCashRegisterOpen, pizzariaConfig } = data;
+  const [isApproved, setIsApproved] = useState(false);
+  const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
+  const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
+
+  const defaultPrinterConfig = {
+    pizzas: 'none', drinks: 'none', kitchen: 'none', kitchenLabel: 'Cozinha Geral',
+    receipts: 'none', registeredPrinters: [] as { name: string; ip: string; port?: number }[],
+    autoPrintPizzas: true, autoPrintDrinks: false, autoPrintKitchen: true, autoPrintReceipts: false,
+    establishmentName: 'Pizzaria & Restaurante', address: 'Rua Principal, 123 - Centro',
+    phone: '(11) 99999-9999', receiptFooter: 'Obrigado pela preferência! Volte sempre.',
+    showWaiter: true, showTimestamp: true, showLogo: true,
+    itemFontSize: '12px', boldItems: false, paperWidth: '80mm',
+  };
+  const [printerConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('printerConfig');
+      return saved ? { ...defaultPrinterConfig, ...JSON.parse(saved) } : defaultPrinterConfig;
+    } catch { return defaultPrinterConfig; }
+  });
+
+  useEffect(() => {
+    socket.on('init_data', (d: any) => {
+      if (d.pizzaFlavors) setPizzaFlavors(d.pizzaFlavors);
+      if (d.pizzaCrusts) setPizzaCrusts(d.pizzaCrusts);
+    });
+    socket.on('update_pizza_flavors', setPizzaFlavors);
+    socket.on('update_pizza_crusts', setPizzaCrusts);
+    socket.on('waiter_approved', (d: any) => {
+      if (d?.status === 'approved') setIsApproved(true);
+      else setIsApproved(false);
+    });
+    return () => {
+      socket.off('init_data');
+      socket.off('update_pizza_flavors');
+      socket.off('update_pizza_crusts');
+      socket.off('waiter_approved');
+    };
+  }, []);
+
+  return isApproved ? (
+    <WaiterTerminal
+      tables={tables}
+      comandas={comandas}
+      orders={orders}
+      menu={menu}
+      pizzaFlavors={pizzaFlavors}
+      pizzaCrusts={pizzaCrusts}
+      isCashRegisterOpen={isCashRegisterOpen}
+      printerConfig={printerConfig}
+      pizzariaConfig={pizzariaConfig}
+    />
+  ) : (
+    <SelfOnboarding waiters={waiters} />
+  );
+}
+
 export default function App() {
+  const [ownerUser, setOwnerUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Load initial session
+    getSession().then(session => {
+      setOwnerUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    // Subscribe to auth changes
+    const { data: { subscription } } = onAuthStateChange(user => {
+      setOwnerUser(user);
+    });
+    return () => { subscription.unsubscribe(); };
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#E4E3E0]">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="w-12 h-12 bg-[#141414] rounded-full mb-4"></div>
+          <p className="font-serif italic text-lg">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <BrowserRouter>
-      <FirebaseProvider>
-        <AppContent />
-      </FirebaseProvider>
+      <Routes>
+        <Route path="/" element={<LandingPage ownerUser={ownerUser} />} />
+        <Route
+          path="/login"
+          element={ownerUser ? <Navigate to="/portal" replace /> : <LoginPage />}
+        />
+        <Route
+          path="/portal"
+          element={ownerUser ? <UserPanel ownerUser={ownerUser} /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/app/*"
+          element={
+            ownerUser ? (
+              <FirebaseProvider tenantId={ownerUser.id} isWaiterMode={false}>
+                <AppContent ownerUser={ownerUser} />
+              </FirebaseProvider>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/financeiro"
+          element={ownerUser ? <FinanceiroDashboard ownerUser={ownerUser} /> : <Navigate to="/login" replace />}
+        />
+        <Route path="/waiter" element={<WaiterRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </BrowserRouter>
   );
 }

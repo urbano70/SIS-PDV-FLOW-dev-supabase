@@ -4,16 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:firebase-admin --external:firebase-admin/firestore --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react && node server.js",
+    "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws && node server.js",
     "start": "node server.js",
     "build": "npm run build:server && vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:firebase-admin --external:firebase-admin/firestore --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@supabase/supabase-js": "^2.106.2",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
@@ -31,7 +32,8 @@
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

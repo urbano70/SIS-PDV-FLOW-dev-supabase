@@ -41,8 +41,11 @@ export interface PizzeriaConfig {
   orangeMinutes: number;
   redMinutes: number;
   inactivityMinutes: number;
-  kdsEnabled: boolean;
-  waiterCanPay: boolean;
+  kdsEnabled?: boolean;
+  waiterCanPay?: boolean;
+  numTables?: number;
+  comandasEnabled?: boolean;
+  numComandas?: number;
 }
 
 export interface Order {

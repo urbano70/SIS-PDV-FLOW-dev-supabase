@@ -1,0 +1,27 @@
+{
+  "name": "FechaConta - Dashboard",
+  "short_name": "FechaConta ADM",
+  "description": "Painel de gestão do restaurante",
+  "start_url": "/app/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#E4E3E0",
+  "theme_color": "#141414",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon-fechaconta.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-fechaconta.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["food", "productivity"]
+}
