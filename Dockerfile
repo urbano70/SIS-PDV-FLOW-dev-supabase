@@ -9,13 +9,17 @@ RUN npm ci
 
 COPY . .
 
-# GEMINI_API_KEY é embutida pelo Vite no bundle do frontend durante o build.
-# Passe via: docker build --build-arg GEMINI_API_KEY=xxx
-# ou defina no .env e use docker-compose (que lê .env automaticamente).
+# Variáveis embutidas pelo Vite no bundle durante o build.
+# Passe como build-args no EasyPanel ou via --build-arg no docker build.
 ARG GEMINI_API_KEY=""
 ARG FIREBASE_CONFIG=""
+ARG VITE_SUPABASE_URL=""
+ARG VITE_SUPABASE_ANON_KEY=""
+
 ENV GEMINI_API_KEY=$GEMINI_API_KEY
 ENV FIREBASE_CONFIG=$FIREBASE_CONFIG
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 RUN npm run build
 
@@ -35,6 +39,6 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/server.js ./
 COPY --from=builder /app/dist     ./dist
 
-EXPOSE 3000
+EXPOSE 3001
 
 CMD ["node", "server.js"]
