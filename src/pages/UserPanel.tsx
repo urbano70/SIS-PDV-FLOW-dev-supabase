@@ -29,8 +29,10 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   const ownerEmail = ownerUser?.email || '';
   const waiterLink = `${window.location.origin}/waiter?tenant=${tenantId}`;
 
-  // ── Logo ──────────────────────────────────────────────────────────────────
+  // ── Logo — persiste no user_metadata (sobrevive a login em outros devices) ─
   const [logoUrl, setLogoUrl] = useState<string>(() => {
+    const metaLogo = ownerUser?.user_metadata?.logo_url;
+    if (metaLogo) return metaLogo;
     try { const pc = localStorage.getItem('printerConfig'); return pc ? (JSON.parse(pc).logoUrl || '') : ''; }
     catch { return ''; }
   });
@@ -113,6 +115,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
       if (formData.logo !== logoUrl) {
         setLogoUrl(formData.logo);
         saveLogo(formData.logo);
+        await updateUserMetadata({ logo_url: formData.logo }).catch(() => {});
       }
       toast.success('Dados salvos com sucesso!');
       setEditOpen(false);

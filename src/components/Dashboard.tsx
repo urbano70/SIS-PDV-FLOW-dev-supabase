@@ -922,23 +922,24 @@ export default function Dashboard({
 
   // Enforce plan-based restrictions on pizzariaConfig
   useEffect(() => {
+    if (!pizzariaConfig) return;
     const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG];
     const needsUpdate =
-      pizzariaConfig.numTables !== cfg.maxTables ||
+      (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
       pizzariaConfig.enabled !== cfg.pizzaEnabled ||
       (pizzariaConfig.kdsEnabled ?? true) !== cfg.kdsEnabled;
     if (needsUpdate) {
       updatePizzeriaConfig({
         ...pizzariaConfig,
-        numTables: cfg.maxTables,
+        numTables: cfg.tablesLocked ? cfg.maxTables : (pizzariaConfig.numTables ?? cfg.maxTables),
         comandasEnabled: cfg.comandasEnabled,
         enabled: cfg.pizzaEnabled,
         kdsEnabled: cfg.kdsEnabled,
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan]);
+  }, [plan, pizzariaConfig.numTables]);
 
   // Seed default menu once when menu is empty
   useEffect(() => {
@@ -2142,7 +2143,7 @@ export default function Dashboard({
                         >
                           <div className="flex-1 overflow-y-auto scrollbar-hide pr-1">
                           <div className="grid grid-cols-5 gap-1.5 pb-2">
-                            {[...tables].sort((a, b) => a.id - b.id).filter(t => !pizzariaConfig.numTables || t.id <= pizzariaConfig.numTables).map(table => (
+                            {[...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))).map(table => (
                               <button
                                 key={table.id}
                                 onClick={() => {
