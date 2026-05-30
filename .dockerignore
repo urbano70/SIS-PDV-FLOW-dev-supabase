@@ -4,6 +4,7 @@ dist
 .gitignore
 .env*
 !.env.example
+!.env.production
 server.js
 .order-counter.json
 coverage
