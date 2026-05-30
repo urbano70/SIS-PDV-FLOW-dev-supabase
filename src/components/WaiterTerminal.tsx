@@ -36,7 +36,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [isCartExpanded, setIsCartExpanded] = useState(false);
   const [isCartPopupOpen, setIsCartPopupOpen] = useState(false);
 
-  const currentList = selectionType === 'tables' ? tables : comandas;
+  const maxTables = pizzariaConfig?.numTables ?? 40;
+  const comandasEnabled = pizzariaConfig?.comandasEnabled ?? false;
+  const visibleTables = [...tables].filter(t => t.id <= maxTables).sort((a, b) => a.id - b.id);
+  const visibleComandas = [...comandas].sort((a, b) => a.id - b.id);
+
+  const currentList = selectionType === 'tables' ? visibleTables : visibleComandas;
   const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
   const currentOrder = orders.find(o => tableData?.currentOrder && o.id && String(o.id) === String(tableData.currentOrder));
 
@@ -363,18 +368,20 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 onClick={() => setSelectionType('tables')}
                 className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'tables' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
               >
-                Mesas
+                Mesas ({visibleTables.length})
               </button>
-              <button
-                onClick={() => setSelectionType('comandas')}
-                className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'comandas' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
-              >
-                Comandas
-              </button>
+              {comandasEnabled && (
+                <button
+                  onClick={() => setSelectionType('comandas')}
+                  className={`flex-1 py-3 rounded-xl text-xs font-bold uppercase transition-all ${selectionType === 'comandas' ? 'bg-[#141414] text-white shadow-lg' : 'text-[#141414]/50'}`}
+                >
+                  Comandas
+                </button>
+              )}
             </div>
 
             <div className="grid grid-cols-5 gap-4">
-              {[...currentList].sort((a, b) => a.id - b.id).map(item => (
+              {currentList.map(item => (
                 <button
                   key={item.id}
                   onClick={() => {
