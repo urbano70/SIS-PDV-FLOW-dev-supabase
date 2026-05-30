@@ -35,8 +35,9 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Artefatos do build
-COPY --from=builder /app/server.js ./
-COPY --from=builder /app/dist     ./dist
+COPY --from=builder /app/server.js   ./
+COPY --from=builder /app/dist        ./dist
+COPY --from=builder /app/print-agent ./print-agent
 
 EXPOSE 3001
 
