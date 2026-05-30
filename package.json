@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws && node server.js",
