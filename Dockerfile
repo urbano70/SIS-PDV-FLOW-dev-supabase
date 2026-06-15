@@ -7,6 +7,10 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+# Cache bust: altere este valor para forçar o Docker a re-copiar os arquivos
+ARG CACHEBUST=2026-06-15
+RUN echo "Build cache bust: $CACHEBUST"
+
 COPY . .
 
 # Variáveis embutidas pelo Vite no bundle durante o build.
