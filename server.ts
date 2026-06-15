@@ -387,6 +387,7 @@ async function startServer() {
   // ── Agente de impressão local ─────────────────────────────────────────────
   // Armazena o socket do agente conectado (um por instância de servidor)
   let printerAgentSocket: any = null;
+  let printerAgentPairingCode: string | null = null;
 
   const AGENT_SECRET = process.env.AGENT_SECRET || '';
 
@@ -414,22 +415,42 @@ async function startServer() {
     });
 
     // ── Registro do agente de impressão local ────────────────────────────────
-    socket.on("printer_agent_register", ({ secret }: { secret?: string }) => {
+    socket.on("printer_agent_register", ({ secret, pairingCode }: { secret?: string; pairingCode?: string }) => {
       if (AGENT_SECRET && secret !== AGENT_SECRET) {
         socket.emit("printer_agent_rejected", "Segredo inválido.");
         console.warn(`[agent] Tentativa de registro rejeitada (socket ${socket.id})`);
         return;
       }
       printerAgentSocket = socket;
+      printerAgentPairingCode = pairingCode || null;
       (socket as any).isPrinterAgent = true;
       socket.emit("printer_agent_accepted");
       io.emit("printer_agent_status", { online: true });
-      console.log(`[agent] Agente de impressão conectado: ${socket.id}`);
+      console.log(`[agent] Agente de impressão conectado: ${socket.id} (código: ${pairingCode || 'não informado'})`);
+    });
+
+    // Dashboard valida código de emparelhamento → dispara scan automático
+    socket.on("validate_agent_code", ({ code }: { code: string }) => {
+      if (!printerAgentSocket) {
+        socket.emit("agent_code_result", { success: false, error: "Agente não conectado." });
+        return;
+      }
+      if (printerAgentPairingCode && code !== printerAgentPairingCode) {
+        socket.emit("agent_code_result", { success: false, error: "Código inválido." });
+        console.warn(`[agent] Código de emparelhamento inválido: ${code}`);
+        return;
+      }
+      socket.emit("agent_code_result", { success: true });
+      printerAgentSocket.emit("printer_agent_paired");
+      // Dispara scan automático de impressoras
+      printerAgentSocket.emit("scan_printers_request");
+      console.log(`[agent] Emparelhamento confirmado para socket ${socket.id}`);
     });
 
     socket.on("disconnect", () => {
       if ((socket as any).isPrinterAgent) {
         printerAgentSocket = null;
+        printerAgentPairingCode = null;
         io.emit("printer_agent_status", { online: false });
         console.log("[agent] Agente de impressão desconectado.");
       }

@@ -28,6 +28,10 @@ let serverSocket = null;
 let scanResults  = [];
 let isScanRunning = false;
 
+// Código de emparelhamento gerado uma vez por sessão
+const PAIRING_CODE = String(Math.floor(100000 + Math.random() * 900000));
+let isPaired = false;
+
 // ── Argumentos ────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 if (args.includes('--uninstall')) { uninstallStartup(); process.exit(0); }
@@ -78,6 +82,11 @@ input:focus{box-shadow:0 0 0 2px #14141440}
 .spin{display:inline-block;animation:spin .8s linear infinite;margin-right:6px}
 @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 .alert{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:12px;color:#92400e;margin-bottom:16px;line-height:1.5}
+.pairing-box{background:#141414;border-radius:16px;padding:18px;margin-bottom:20px;text-align:center}
+.pairing-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#E4E3E0;opacity:.5;margin-bottom:8px}
+.pairing-code{font-family:monospace;font-size:42px;font-weight:900;letter-spacing:.2em;color:#E4E3E0;line-height:1}
+.pairing-hint{font-size:10px;color:#E4E3E0;opacity:.4;margin-top:8px;line-height:1.4}
+.paired-badge{background:#22c55e20;border:1px solid #22c55e40;border-radius:10px;padding:8px 14px;font-size:12px;color:#15803d;font-weight:600;margin-bottom:16px;text-align:center}
 </style>
 </head>
 <body>
@@ -106,6 +115,12 @@ input:focus{box-shadow:0 0 0 2px #14141440}
   </div>
   <button class="btn btn-primary" onclick="saveConfig()">Salvar e Conectar</button>
   ` : `
+  <div class="pairing-box">
+    <div class="pairing-label">Código de Conexão</div>
+    <div class="pairing-code" id="pairingCode">${PAIRING_CODE}</div>
+    <div class="pairing-hint">Insira este código no Dashboard → Configurações → Impressoras</div>
+  </div>
+  <div id="pairedBadge" class="paired-badge" style="display:none">✓ Emparelhado com o sistema</div>
   <p class="section-title">Servidor</p>
   <div style="background:#f5f5f3;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;font-weight:600;font-family:monospace">${config.serverUrl}</div>
   <button class="btn btn-secondary" onclick="resetConfig()">Alterar configuração</button>
@@ -136,6 +151,8 @@ async function loadStatus() {
     const txt = document.getElementById('statusText');
     dot.className = 'status-dot ' + d.status;
     txt.textContent = d.message;
+    const badge = document.getElementById('pairedBadge');
+    if (badge) badge.style.display = d.paired ? 'block' : 'none';
   } catch {}
 }
 
@@ -233,7 +250,7 @@ function startGui(getConfig) {
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: agentStatus, message: statusMsg }));
+      res.end(JSON.stringify({ status: agentStatus, message: statusMsg, paired: isPaired }));
       return;
     }
 
@@ -401,13 +418,19 @@ function startAgent({ serverUrl, agentSecret = '' }) {
     serverSocket.on('connect', () => {
       console.log(`[agente] Conectado (id=${serverSocket.id})`);
       reconnectDelay = 3000;
-      serverSocket.emit('printer_agent_register', { secret: agentSecret });
+      serverSocket.emit('printer_agent_register', { secret: agentSecret, pairingCode: PAIRING_CODE });
     });
 
     serverSocket.on('printer_agent_accepted', () => {
       agentStatus = 'online';
-      statusMsg = 'Conectado ao servidor. Pronto para imprimir.';
-      console.log('[agente] Online.');
+      statusMsg = 'Conectado ao servidor. Aguardando emparelhamento no Dashboard.';
+      console.log('[agente] Online. Código de conexão: ' + PAIRING_CODE);
+    });
+
+    serverSocket.on('printer_agent_paired', () => {
+      isPaired = true;
+      statusMsg = 'Emparelhado! Escaneando impressoras...';
+      console.log('[agente] Emparelhado com o Dashboard.');
     });
 
     serverSocket.on('printer_agent_rejected', (reason) => {
@@ -438,6 +461,7 @@ function startAgent({ serverUrl, agentSecret = '' }) {
     serverSocket.on('scan_printers_request', () => runLocalScan());
 
     serverSocket.on('disconnect', (reason) => {
+      isPaired = false;
       agentStatus = 'offline';
       statusMsg = `Desconectado (${reason}). Reconectando em ${reconnectDelay / 1000}s...`;
       console.warn(`[agente] ${statusMsg}`);
