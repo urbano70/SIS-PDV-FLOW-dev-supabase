@@ -22,6 +22,9 @@ ENV FIREBASE_CONFIG=$FIREBASE_CONFIG
 
 RUN npm run build
 
+# Compila o agente de impressão Windows durante o build Docker
+RUN cd print-agent && npm ci && npx pkg agent.js --target node18-win-x64 --output fechaconta-agente.exe --compress GZip
+
 # ──────────────────────────────────────────────────────────────────
 # Stage 2: Runner — imagem mínima de produção
 # ──────────────────────────────────────────────────────────────────
