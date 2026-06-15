@@ -755,6 +755,8 @@ export default function Dashboard({
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [scanRunning, setScanRunning] = useState(false);
   const [scanPrinters, setScanPrinters] = useState<{ip: string; port: number}[]>([]);
+  const [agentPairingCode, setAgentPairingCode] = useState('');
+  const [isPairing, setIsPairing] = useState(false);
   const { canInstall, install, isInstalled } = usePWA('dashboard');
 
   // Estado local do card "Estrutura do Salão" (salvo só ao clicar em Salvar)
@@ -1358,13 +1360,27 @@ export default function Dashboard({
       if (data.error) { toast.error(data.error); return; }
       setScanPrinters(data.printers);
     };
+    const handleAgentCodeResult = (data: { success: boolean; error?: string }) => {
+      setIsPairing(false);
+      if (data.success) {
+        toast.success('Agente emparelhado! Escaneando impressoras...');
+        setAgentPairingCode('');
+        setScanPrinters([]);
+        setScanRunning(true);
+        setScanModalOpen(true);
+      } else {
+        toast.error(data.error || 'Código inválido. Verifique o código exibido no agente.');
+      }
+    };
     socket.on('printer_agent_status', handleAgentStatus);
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
+    socket.on('agent_code_result', handleAgentCodeResult);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
       socket.off('scan_printers_result', handleScanResult);
+      socket.off('agent_code_result', handleAgentCodeResult);
     };
   }, []);
 
@@ -3914,6 +3930,28 @@ export default function Dashboard({
                         </button>
                       )}
                     </div>
+
+                    {/* Emparelhamento via código */}
+                    {printerAgentOnline && (
+                      <div className="flex gap-1 mb-2">
+                        <input
+                          type="text"
+                          value={agentPairingCode}
+                          onChange={(e) => setAgentPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          placeholder="Código do agente (6 dígitos)"
+                          maxLength={6}
+                          className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-mono font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none tracking-widest"
+                        />
+                        <button
+                          disabled={agentPairingCode.length !== 6 || isPairing}
+                          onClick={() => { setIsPairing(true); socket.emit('validate_agent_code', { code: agentPairingCode }); }}
+                          className="shrink-0 flex items-center gap-1 text-[8px] font-bold px-2 py-1 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {isPairing ? '...' : 'Conectar'}
+                        </button>
+                      </div>
+                    )}
+
                     {!printerAgentOnline && (
                       <div className="space-y-1 mb-2">
                         <p className="text-[8px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-tight">
