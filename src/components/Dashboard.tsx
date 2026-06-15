@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -4042,9 +4042,20 @@ export default function Dashboard({
                     <h3 className="font-serif italic text-sm leading-none">Comprovante</h3>
                   </div>
 
+                  {/* Identificação */}
                   <div>
                     <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Nome do Estabelecimento</label>
                     <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">CNPJ / CPF</label>
+                      <input type="text" value={printerConfig.cnpj || ''} onChange={(e) => setPrinterConfig({...printerConfig, cnpj: e.target.value})} placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Título do Cupom</label>
+                      <input type="text" value={printerConfig.receiptTitle || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptTitle: e.target.value})} placeholder="COMPROVANTE" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -4056,11 +4067,18 @@ export default function Dashboard({
                       <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
                     </div>
                   </div>
-                  <div>
-                    <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
-                    <input type="text" value={printerConfig.receiptFooter} onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Cabeçalho (2ª linha)</label>
+                      <input type="text" value={printerConfig.receiptHeader || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptHeader: e.target.value})} placeholder="Slogan ou info extra" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
+                      <input type="text" value={printerConfig.receiptFooter} onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
                   </div>
 
+                  {/* Layout */}
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex flex-col gap-1">
                       <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Papel</span>
@@ -4080,7 +4098,20 @@ export default function Dashboard({
                         ))}
                       </div>
                     </div>
-                    <div className="flex gap-1.5">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Vias</span>
+                      <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                        {[1, 2].map((n) => (
+                          <button key={n} onClick={() => setPrinterConfig({...printerConfig, printCopies: n})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.printCopies || 1) === n ? 'bg-white shadow-sm' : 'opacity-40'}`}>{n}x</button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Opções de exibição */}
+                  <div>
+                    <span className="text-[7px] uppercase font-bold opacity-45 leading-none block mb-1">Exibir no Cupom</span>
+                    <div className="flex flex-wrap gap-1.5">
                       <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
                         <span className="text-[7px] font-bold uppercase leading-none">B</span>
                         <span className="text-[5.5px] opacity-60 leading-none">Negrito</span>
@@ -4088,6 +4119,22 @@ export default function Dashboard({
                       <button onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
                         <Users size={9} />
                         <span className="text-[5.5px] opacity-60 leading-none">Garçom</span>
+                      </button>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showDateTime: printerConfig.showDateTime === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showDateTime !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Clock size={9} />
+                        <span className="text-[5.5px] opacity-60 leading-none">Data/Hora</span>
+                      </button>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showPaymentMethods: printerConfig.showPaymentMethods === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showPaymentMethods !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <CreditCard size={9} />
+                        <span className="text-[5.5px] opacity-60 leading-none">Pagamento</span>
+                      </button>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showItemObs: printerConfig.showItemObs === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showItemObs !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <MessageSquare size={9} />
+                        <span className="text-[5.5px] opacity-60 leading-none">Obs. Item</span>
+                      </button>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showRemovedItems: printerConfig.showRemovedItems === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showRemovedItems !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Trash2 size={9} />
+                        <span className="text-[5.5px] opacity-60 leading-none">Removidos</span>
                       </button>
                     </div>
                   </div>
@@ -4097,23 +4144,30 @@ export default function Dashboard({
                     <div className="bg-white w-full max-w-[155px] shadow-sm p-2.5 text-[#141414] font-mono text-[7px] space-y-2 leading-tight overflow-hidden select-none">
                       <div className="text-center space-y-0.5">
                         <p className="font-bold text-[8.5px] uppercase truncate">{printerConfig.establishmentName}</p>
+                        {printerConfig.receiptHeader && <p className="opacity-60 text-[5.5px] truncate italic">{printerConfig.receiptHeader}</p>}
                         <p className="opacity-70 text-[5.5px] truncate">{printerConfig.address}</p>
+                        {printerConfig.cnpj && <p className="opacity-50 text-[5px]">CNPJ: {printerConfig.cnpj}</p>}
+                        <p className="font-bold text-[6.5px] uppercase tracking-wider border-t border-dashed border-[#141414]/20 pt-1 mt-1">{printerConfig.receiptTitle || 'COMPROVANTE'}</p>
                       </div>
                       <div className="border-t border-dashed border-[#141414]/20 pt-1 space-y-0.5">
                         <div className="flex justify-between"><span>Mesa: 12</span><span>#1024</span></div>
                         {printerConfig.showWaiter && <div>Garçom: Ricardo</div>}
+                        {printerConfig.showDateTime !== false && <div className="opacity-60">14/06/2026 20:30</div>}
                       </div>
                       <div className="border-t border-b border-dashed border-[#141414]/20 py-1 space-y-1">
                         <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
                           <span className="flex-1 leading-tight text-left">1x Porção de Tilápia</span>
                           <span className="shrink-0">R$ 32</span>
                         </div>
+                        {printerConfig.showItemObs !== false && <div className="opacity-50 text-[5px] pl-2">Obs: sem pimenta</div>}
                         <div className="flex justify-between items-start gap-2" style={{ fontSize: printerConfig.itemFontSize, fontWeight: printerConfig.boldItems ? 'bold' : 'normal' }}>
                           <span className="flex-1 leading-tight text-left">2x Coca-cola Lata</span>
                           <span className="shrink-0">R$ 12</span>
                         </div>
+                        {printerConfig.showRemovedItems !== false && <div className="opacity-40 text-[5px] line-through pl-2">1x Fritas</div>}
                       </div>
                       <div className="flex justify-between font-bold pt-1"><span>TOTAL:</span><span>R$ 44,00</span></div>
+                      {printerConfig.showPaymentMethods !== false && <div className="flex justify-between text-[5.5px] opacity-70"><span>PIX</span><span>R$ 44,00</span></div>}
                       <div className="pt-1 text-center opacity-70 italic text-[5.5px] truncate">{printerConfig.receiptFooter}</div>
                     </div>
                   </div>
@@ -6079,13 +6133,20 @@ export default function Dashboard({
                         const subtotal = activeItems.reduce((acc: number, i: any) => acc + calcPrice(i), 0);
                         const totalPaid = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
 
+                        const _showObs = printerConfig.showItemObs !== false;
+                        const _showRemoved = printerConfig.showRemovedItems !== false;
+                        const _showWaiterItem = printerConfig.showWaiter;
+                        const _showDateTime = printerConfig.showDateTime !== false;
+                        const _showPayments = printerConfig.showPaymentMethods !== false;
+                        const _boldW = printerConfig.boldItems ? '700' : '400';
+
                         const itemsHtml = activeItems.map((i: any) => {
                           const price = calcPrice(i);
-                          const obs = i.observations ? `<div style="font-size:10px;color:#666;margin-top:1px">Obs: ${i.observations}</div>` : '';
-                          const waiter = i.waiterName ? `<span style="font-size:9px;background:#f0f0f0;padding:1px 5px;border-radius:3px">${i.waiterName}</span>` : '';
+                          const obs = (_showObs && i.observations) ? `<div style="font-size:10px;color:#666;margin-top:1px">Obs: ${i.observations}</div>` : '';
+                          const waiter = (_showWaiterItem && i.waiterName) ? `<span style="font-size:9px;background:#f0f0f0;padding:1px 5px;border-radius:3px">${i.waiterName}</span>` : '';
                           return `<tr>
                             <td style="padding:5px 8px;border-bottom:1px solid #eee;vertical-align:top">
-                              <div style="font-weight:700">${i.quantity || 1}× ${i.name}</div>
+                              <div style="font-weight:${_boldW}">${i.quantity || 1}× ${i.name}</div>
                               ${i.flavors?.length ? `<div style="font-size:10px;color:#888">${i.flavors.join(', ')}</div>` : ''}
                               ${obs}
                               ${waiter}
@@ -6094,7 +6155,7 @@ export default function Dashboard({
                           </tr>`;
                         }).join('');
 
-                        const removedHtml = removedItems.length > 0
+                        const removedHtml = (_showRemoved && removedItems.length > 0)
                           ? `<tr><td colspan="2" style="padding:6px 8px 2px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#dc2626;background:#fff5f5">Itens Removidos</td></tr>` +
                             removedItems.map((i: any) => `<tr style="opacity:.5"><td style="padding:4px 8px;border-bottom:1px dashed #eee;text-decoration:line-through;font-size:11px">${i.quantity || 1}× ${i.name}${i.removalReason ? ` — ${i.removalReason}` : ''}</td><td style="padding:4px 8px;border-bottom:1px dashed #eee;text-align:right;font-family:monospace;font-size:11px;text-decoration:line-through;white-space:nowrap">R$ ${Number(i.price || 0).toFixed(2)}</td></tr>`).join('')
                           : '';
@@ -6104,7 +6165,7 @@ export default function Dashboard({
                           : '';
 
                         const methodColors: Record<string, string> = { 'Dinheiro': '#16a34a', 'PIX': '#2563eb', 'Crédito': '#7c3aed', 'Débito': '#ea580c' };
-                        const paymentsHtml = (activeOrder.paymentLog || []).map((p: any) => {
+                        const paymentsHtml = _showPayments ? (activeOrder.paymentLog || []).map((p: any) => {
                           const color = methodColors[p.method] || '#555';
                           const payer = p.payer ? ` — ${p.payer}` : '';
                           const partial = p.type === 'partial' ? ` <span style="font-size:8px;background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:700">PARCIAL</span>` : '';
@@ -6114,51 +6175,61 @@ export default function Dashboard({
                             </td>
                             <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right;font-family:monospace;font-weight:700;color:${color};white-space:nowrap">R$ ${Number(p.amount).toFixed(2)}</td>
                           </tr>`;
-                        }).join('');
+                        }).join('') : '';
 
                         const _rcptPw = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
                         const _rcptFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '13px';
                         const _rcptHdFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '13px' : '15px';
                         const _rcptTotalFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '13px' : '16px';
-                        const w = window.open('', '_blank');
-                        if (w) {
-                          w.document.write(`<html><head><title>Comprovante — ${tableLabel}</title><style>
-                            *{box-sizing:border-box}
-                            body{font-family:sans-serif;padding:12px;max-width:${_rcptPw};margin:0 auto;color:#141414;font-size:${_rcptFs}}
-                            .center{text-align:center}
-                            .sep{border-top:1px dashed #ccc;margin:8px 0}
-                            table{width:100%;border-collapse:collapse}
-                            @media print{body{padding:6px;max-width:100%}}
-                          </style></head><body>
-                            <div class="center" style="margin-bottom:10px">
-                              <div style="font-weight:900;font-size:${_rcptHdFs};text-transform:uppercase">${printerConfig.establishmentName || ''}</div>
-                              ${printerConfig.address ? `<div style="font-size:9px;color:#666">${printerConfig.address}</div>` : ''}
-                              ${printerConfig.phone ? `<div style="font-size:9px;color:#666">Tel: ${printerConfig.phone}</div>` : ''}
-                            </div>
-                            <div class="sep"></div>
-                            <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-                              <span style="font-weight:700;font-size:${_rcptHdFs}">${tableLabel}</span>
-                              <span style="font-size:9px;color:#666">Garçom: ${waiterName}</span>
-                            </div>
-                            <div style="font-size:9px;color:#888;margin-bottom:2px">Abertura: ${openedAt}</div>
-                            <div style="font-size:9px;color:#888;margin-bottom:10px">Fechamento: ${closedAt}</div>
-                            <div class="sep"></div>
-                            <table>${itemsHtml}${removedHtml}</table>
-                            <div class="sep"></div>
-                            <table>
-                              <tr><td style="padding:3px 6px;font-size:${_rcptFs};font-weight:700">Subtotal</td><td style="padding:3px 6px;text-align:right;font-family:monospace;font-weight:700;white-space:nowrap">R$ ${subtotal.toFixed(2)}</td></tr>
-                              ${discountHtml}
-                            </table>
-                            <div style="background:#141414;color:#fff;padding:8px 10px;border-radius:4px;display:flex;justify-content:space-between;margin:6px 0 10px">
-                              <span style="font-weight:700;font-size:${_rcptFs};text-transform:uppercase">Total Pago</span>
-                              <span style="font-family:monospace;font-weight:900;font-size:${_rcptTotalFs}">R$ ${totalPaid.toFixed(2)}</span>
-                            </div>
-                            <table style="margin-bottom:10px">${paymentsHtml}</table>
-                            <div class="sep"></div>
-                            <div class="center" style="font-size:9px;color:#999;margin-top:6px">${printerConfig.receiptFooter || ''}</div>
-                            <script>window.onload=()=>{window.print();window.close()}</script>
-                          </body></html>`);
-                          w.document.close();
+                        const _copies = printerConfig.printCopies || 1;
+                        const _title = printerConfig.receiptTitle || 'COMPROVANTE';
+
+                        const printOnePage = () => {
+                          const w = window.open('', '_blank');
+                          if (w) {
+                            w.document.write(`<html><head><title>${_title} — ${tableLabel}</title><style>
+                              *{box-sizing:border-box}
+                              body{font-family:sans-serif;padding:12px;max-width:${_rcptPw};margin:0 auto;color:#141414;font-size:${_rcptFs}}
+                              .center{text-align:center}
+                              .sep{border-top:1px dashed #ccc;margin:8px 0}
+                              table{width:100%;border-collapse:collapse}
+                              @media print{body{padding:6px;max-width:100%}}
+                            </style></head><body>
+                              <div class="center" style="margin-bottom:10px">
+                                <div style="font-weight:900;font-size:${_rcptHdFs};text-transform:uppercase">${printerConfig.establishmentName || ''}</div>
+                                ${printerConfig.receiptHeader ? `<div style="font-size:10px;color:#555;font-style:italic">${printerConfig.receiptHeader}</div>` : ''}
+                                ${printerConfig.address ? `<div style="font-size:9px;color:#666">${printerConfig.address}</div>` : ''}
+                                ${printerConfig.phone ? `<div style="font-size:9px;color:#666">Tel: ${printerConfig.phone}</div>` : ''}
+                                ${printerConfig.cnpj ? `<div style="font-size:9px;color:#666">CNPJ: ${printerConfig.cnpj}</div>` : ''}
+                                <div style="margin-top:6px;font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;border:1px solid #ccc;display:inline-block;padding:2px 10px;border-radius:3px">${_title}</div>
+                              </div>
+                              <div class="sep"></div>
+                              <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+                                <span style="font-weight:700;font-size:${_rcptHdFs}">${tableLabel}</span>
+                                ${printerConfig.showWaiter ? `<span style="font-size:9px;color:#666">Garçom: ${waiterName}</span>` : ''}
+                              </div>
+                              ${_showDateTime ? `<div style="font-size:9px;color:#888;margin-bottom:2px">Abertura: ${openedAt}</div><div style="font-size:9px;color:#888;margin-bottom:10px">Fechamento: ${closedAt}</div>` : ''}
+                              <div class="sep"></div>
+                              <table>${itemsHtml}${removedHtml}</table>
+                              <div class="sep"></div>
+                              <table>
+                                <tr><td style="padding:3px 6px;font-size:${_rcptFs};font-weight:700">Subtotal</td><td style="padding:3px 6px;text-align:right;font-family:monospace;font-weight:700;white-space:nowrap">R$ ${subtotal.toFixed(2)}</td></tr>
+                                ${discountHtml}
+                              </table>
+                              <div style="background:#141414;color:#fff;padding:8px 10px;border-radius:4px;display:flex;justify-content:space-between;margin:6px 0 10px">
+                                <span style="font-weight:700;font-size:${_rcptFs};text-transform:uppercase">Total Pago</span>
+                                <span style="font-family:monospace;font-weight:900;font-size:${_rcptTotalFs}">R$ ${totalPaid.toFixed(2)}</span>
+                              </div>
+                              ${_showPayments ? `<table style="margin-bottom:10px">${paymentsHtml}</table>` : ''}
+                              <div class="sep"></div>
+                              <div class="center" style="font-size:9px;color:#999;margin-top:6px">${printerConfig.receiptFooter || ''}</div>
+                              <script>window.onload=()=>{window.print();window.close()}</script>
+                            </body></html>`);
+                            w.document.close();
+                          }
+                        };
+                        for (let _c = 0; _c < _copies; _c++) {
+                          setTimeout(() => printOnePage(), _c * 600);
                         }
                       }
                     }}
