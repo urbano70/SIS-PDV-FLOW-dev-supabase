@@ -31,14 +31,27 @@ const args = process.argv.slice(2);
 if (process.platform === 'win32' && !args.includes('--hidden') && !args.includes('--uninstall')) {
   try {
     const exePath = process.execPath;
-    const vbsContent = `CreateObject("WScript.Shell").Run Chr(34) & "${exePath}" & Chr(34) & " --hidden", 0, False`;
+    // Escapa aspas e barras para VBScript
+    const safePath = exePath.replace(/"/g, '""');
+    const vbsContent = `CreateObject("WScript.Shell").Run Chr(34) & "${safePath}" & Chr(34) & " --hidden", 0, False`;
     const tmpVbs = path.join(os.tmpdir(), 'fc_launch.vbs');
     fs.writeFileSync(tmpVbs, vbsContent, 'utf8');
     exec(`wscript.exe "${tmpVbs}"`);
-    setTimeout(() => process.exit(0), 300);
+    setTimeout(() => process.exit(0), 500);
   } catch {
     // Se falhar, continua normalmente com a janela visível
   }
+}
+
+// No modo oculto, captura erros não tratados e grava em log
+if (args.includes('--hidden')) {
+  const logFile = path.join(BASE_DIR, 'agente.log');
+  process.on('uncaughtException', (err) => {
+    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ERRO: ${err.stack}\n`); } catch {}
+  });
+  process.on('unhandledRejection', (err) => {
+    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] REJEIÇÃO: ${err}\n`); } catch {}
+  });
 }
 
 let agentStatus  = 'offline';
@@ -420,7 +433,13 @@ $n.add_DoubleClick({ Start-Process "http://127.0.0.1:${guiPort}" })
   const tmpPs = path.join(os.tmpdir(), `fechaconta_tray_${nodePid}.ps1`);
   try {
     fs.writeFileSync(tmpPs, script, 'utf8');
-    exec(`powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "${tmpPs}"`, { windowsHide: true });
+    // -STA é obrigatório: Windows Forms exige Single-Threaded Apartment
+    exec(`powershell -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File "${tmpPs}"`, { windowsHide: true }, (err) => {
+      if (err) {
+        try { fs.appendFileSync(path.join(BASE_DIR, 'agente.log'), `[tray] ${err.message}\n`); } catch {}
+        openBrowser(`http://127.0.0.1:${guiPort}`);
+      }
+    });
     console.log('[agente] Ícone na bandeja iniciado.');
   } catch (e) {
     console.warn('[agente] Bandeja não disponível, abrindo browser.', e.message);
