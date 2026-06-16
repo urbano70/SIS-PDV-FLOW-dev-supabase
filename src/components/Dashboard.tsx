@@ -3957,14 +3957,9 @@ export default function Dashboard({
                         <p className="text-[8px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-tight">
                           Instale o agente local para impressão dos pedidos e comprovantes.
                         </p>
-                        <div className="flex gap-1">
-                          <a href="/download/fechaconta-agente.exe" download className="flex-1 flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity">
-                            <Download size={9} /> Baixar Agente (.exe)
-                          </a>
-                          <a href="/download/install.ps1" download title="Script PowerShell para instalação automática" className="flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg border border-[#141414]/20 text-[#141414]/60 hover:bg-[#141414]/5 transition-colors">
-                            <Download size={9} /> PS1
-                          </a>
-                        </div>
+                        <a href="/download/fechaconta-agente.exe" download className="flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity">
+                          <Download size={9} /> Baixar Agente (.exe)
+                        </a>
                       </div>
                     )}
                   </div>
