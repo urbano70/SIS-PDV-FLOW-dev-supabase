@@ -21,7 +21,8 @@ const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
 const APP_NAME    = 'FechaContaAgente';
 const GUI_PORT    = 3456;
 
-// ── Estado global ─────────────────────────────────────────────────────────────
+// ── Configuração padrão (embutida no exe) ────────────────────────────────────
+const DEFAULT_SERVER_URL = 'https://fechaconta.app';
 let agentStatus  = 'offline';   // 'offline' | 'connecting' | 'online' | 'error'
 let statusMsg    = 'Aguardando configuração.';
 let serverSocket = null;
@@ -103,27 +104,26 @@ input:focus{box-shadow:0 0 0 2px #14141440}
   </div>
 
   ${!configured ? `
-  <div class="alert">Configure a URL do servidor e a senha para conectar o agente.</div>
-  <p class="section-title">Configuração</p>
+  <div class="alert" style="background:#fef9ec;border-color:#fde68a;color:#78350f">
+    Conectando ao servidor... Aguarde ou insira uma URL personalizada abaixo.
+  </div>
+  <p class="section-title">Servidor</p>
   <div class="field">
     <label>URL do Servidor</label>
-    <input id="serverUrl" type="text" placeholder="https://seusite.com ou http://localhost:3001" />
+    <input id="serverUrl" type="text" value="${DEFAULT_SERVER_URL}" placeholder="https://fechaconta.app" />
   </div>
-  <div class="field">
-    <label>Senha do Agente <span style="font-weight:400;opacity:.6">(deixe em branco se não configurada)</span></label>
-    <input id="agentSecret" type="password" placeholder="••••••••" />
-  </div>
-  <button class="btn btn-primary" onclick="saveConfig()">Salvar e Conectar</button>
+  <button class="btn btn-primary" onclick="saveConfig()">Conectar</button>
   ` : `
   <div class="pairing-box">
     <div class="pairing-label">Código de Conexão</div>
     <div class="pairing-code" id="pairingCode">${PAIRING_CODE}</div>
-    <div class="pairing-hint">Insira este código no Dashboard → Configurações → Impressoras</div>
+    <div class="pairing-hint">Insira este código no Dashboard → Configurações → Impressoras → Emparelhar</div>
   </div>
   <div id="pairedBadge" class="paired-badge" style="display:none">✓ Emparelhado com o sistema</div>
-  <p class="section-title">Servidor</p>
-  <div style="background:#f5f5f3;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;font-weight:600;font-family:monospace">${config.serverUrl}</div>
-  <button class="btn btn-secondary" onclick="resetConfig()">Alterar configuração</button>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <div style="flex:1;background:#f5f5f3;border-radius:10px;padding:8px 14px;font-size:11px;font-weight:600;font-family:monospace;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${config.serverUrl}</div>
+    <button class="btn btn-secondary" style="width:auto;padding:8px 14px;margin:0;font-size:11px" onclick="resetConfig()">Alterar</button>
+  </div>
   `}
 
   <div class="divider"></div>
@@ -247,9 +247,8 @@ async function startScan() {
 
 async function saveConfig() {
   const serverUrl = document.getElementById('serverUrl').value.trim().replace(/\\/$/, '');
-  const agentSecret = document.getElementById('agentSecret').value.trim();
   if (!serverUrl) { alert('Informe a URL do servidor.'); return; }
-  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ serverUrl, agentSecret }) });
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ serverUrl, agentSecret: '' }) });
   location.reload();
 }
 
@@ -609,21 +608,21 @@ if (fs.existsSync(CONFIG_PATH)) {
   try { loadedConfig = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch {}
 }
 
-// Instala startup e atalhos na primeira execução
-if (loadedConfig && process.platform === 'win32') {
+// Primeira execução: auto-salva config com URL padrão (sem senha)
+if (!loadedConfig) {
+  loadedConfig = { serverUrl: DEFAULT_SERVER_URL, agentSecret: '' };
+  try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(loadedConfig, null, 2)); } catch {}
+  console.log(`[agente] Primeira execução — usando URL padrão: ${DEFAULT_SERVER_URL}`);
+}
+
+// Instala startup e atalhos
+if (process.platform === 'win32') {
   installStartup();
   createDesktopShortcut(loadedConfig.serverUrl);
 }
 
-// Inicia GUI (sempre)
+// Inicia GUI e conecta
 startGui(() => loadedConfig);
-
-// Conecta ao servidor se já configurado
-if (loadedConfig) {
-  startAgent(loadedConfig);
-} else {
-  agentStatus = 'offline';
-  statusMsg = 'Aguardando configuração.';
-}
+startAgent(loadedConfig);
 
 console.log(`[agente] Interface em http://127.0.0.1:${GUI_PORT} — abrindo browser...`);
