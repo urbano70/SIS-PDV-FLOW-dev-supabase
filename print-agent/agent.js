@@ -544,35 +544,42 @@ function startAgent({ serverUrl, agentSecret = '' }) {
     serverSocket.on('do_print', ({ ip, port = 9100, localName, data }) => {
       if (!data?.length) return;
 
-      // Impressão via nome Windows (USB/local) — escreve bytes raw via "copy /b"
-      if (localName && !ip) {
-        console.log(`[agente] Imprimindo via Windows -> "${localName}"`);
+      // Impressora com nome Windows (USB ou rede via spooler) — sempre usa copy /b
+      // Isso é mais confiável do que TCP direto pois o Windows já sabe como alcançá-la
+      if (localName) {
+        console.log(`[agente] Imprimindo via spooler Windows -> "${localName}"`);
         const tmpFile = path.join(os.tmpdir(), `fc_print_${Date.now()}.bin`);
         try {
           fs.writeFileSync(tmpFile, Buffer.from(data));
-          // copy /b envia bytes raw para o spooler do Windows
           execSync(`copy /b "${tmpFile}" "\\\\.\\${localName}"`, { windowsHide: true, stdio: 'pipe' });
-          console.log(`[agente] OK Windows "${localName}"`);
+          console.log(`[agente] OK spooler "${localName}"`);
           serverSocket.emit('printer_agent_result', { success: true, localName });
         } catch (e) {
-          console.error(`[agente] Erro Windows "${localName}":`, e.message);
-          serverSocket.emit('printer_agent_result', { success: false, localName, error: e.message });
+          // Fallback: tenta via nome UNC \\.\PrinterName
+          try {
+            execSync(`copy /b "${tmpFile}" "\\\\localhost\\${localName}"`, { windowsHide: true, stdio: 'pipe' });
+            console.log(`[agente] OK UNC "${localName}"`);
+            serverSocket.emit('printer_agent_result', { success: true, localName });
+          } catch (e2) {
+            console.error(`[agente] Erro spooler "${localName}":`, e2.message);
+            serverSocket.emit('printer_agent_result', { success: false, localName, error: e2.message });
+          }
         } finally {
           try { fs.unlinkSync(tmpFile); } catch {}
         }
         return;
       }
 
-      // Impressão via TCP/IP (impressoras de rede)
+      // Impressão via TCP/IP (impressoras de rede sem nome Windows)
       if (!ip) return;
-      console.log(`[agente] Imprimindo -> ${ip}:${port}`);
+      console.log(`[agente] Imprimindo via TCP -> ${ip}:${port}`);
       const client = new net.Socket();
       let finished = false;
       const done = () => { if (!finished) { finished = true; client.destroy(); } };
       client.setTimeout(6000);
       client.connect(port, ip, () => {
         client.write(Buffer.from(data), () => {
-          console.log(`[agente] OK ${ip}`);
+          console.log(`[agente] OK TCP ${ip}`);
           serverSocket.emit('printer_agent_result', { success: true, ip });
           setTimeout(done, 300);
         });
