@@ -13,7 +13,7 @@ const { io }     = require('socket.io-client');
 const fs         = require('fs');
 const path       = require('path');
 const os         = require('os');
-const { execSync, exec } = require('child_process');
+const { execSync, exec, spawn } = require('child_process');
 
 const IS_PKG   = typeof process.pkg !== 'undefined';
 const BASE_DIR = IS_PKG ? path.dirname(process.execPath) : __dirname;
@@ -25,29 +25,31 @@ const GUI_PORT     = 3456;
 // ── Configuração padrão (embutida no exe) ────────────────────────────────────
 const DEFAULT_SERVER_URL = 'https://fechaconta.app';
 
-// ── Ocultar janela do console: relança via VBScript na primeira execução ──────
-// Pkg compila como app de console; o VBScript lança o exe oculto (janela 0).
+// ── Ocultar janela do console: relança via VBScript desvinculado ──────────────
+// spawn + detached garante que o processo filho sobrevive mesmo após o pai sair.
 const args = process.argv.slice(2);
 if (process.platform === 'win32' && !args.includes('--hidden') && !args.includes('--uninstall')) {
   try {
     const exePath = process.execPath;
-    // Escapa aspas e barras para VBScript
     const safePath = exePath.replace(/"/g, '""');
     const vbsContent = `CreateObject("WScript.Shell").Run Chr(34) & "${safePath}" & Chr(34) & " --hidden", 0, False`;
     const tmpVbs = path.join(os.tmpdir(), 'fc_launch.vbs');
     fs.writeFileSync(tmpVbs, vbsContent, 'utf8');
-    exec(`wscript.exe "${tmpVbs}"`);
-    setTimeout(() => process.exit(0), 500);
+    // detached:true + unref() → filho sobrevive após pai encerrar
+    const child = spawn('wscript.exe', [tmpVbs], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+    setTimeout(() => process.exit(0), 800);
   } catch {
-    // Se falhar, continua normalmente com a janela visível
+    // fallback: continua com janela visível
   }
 }
 
-// No modo oculto, captura erros não tratados e grava em log
+// Captura erros não tratados no modo oculto e grava em log ao lado do exe
+const logFile = path.join(BASE_DIR, 'agente.log');
 if (args.includes('--hidden')) {
-  const logFile = path.join(BASE_DIR, 'agente.log');
   process.on('uncaughtException', (err) => {
     try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ERRO: ${err.stack}\n`); } catch {}
+    process.exit(1);
   });
   process.on('unhandledRejection', (err) => {
     try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] REJEIÇÃO: ${err}\n`); } catch {}
@@ -356,9 +358,16 @@ function startGui(getConfig) {
     res.writeHead(404); res.end('Not found');
   });
 
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      // Já existe uma instância rodando — só abre o browser
+      try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] Porta ${GUI_PORT} ocupada, abrindo instância existente.\n`); } catch {}
+      openBrowser(`http://127.0.0.1:${GUI_PORT}`);
+    }
+  });
+
   server.listen(GUI_PORT, '127.0.0.1', () => {
     console.log(`[agente] Interface disponível em http://127.0.0.1:${GUI_PORT}`);
-    // Não abre o browser automaticamente — o ícone na bandeja é o ponto de acesso
     startTray();
   });
 }
