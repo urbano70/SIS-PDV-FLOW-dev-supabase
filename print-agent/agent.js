@@ -329,7 +329,8 @@ function startGui(getConfig) {
 
   server.listen(GUI_PORT, '127.0.0.1', () => {
     console.log(`[agente] Interface disponível em http://127.0.0.1:${GUI_PORT}`);
-    openBrowser(`http://127.0.0.1:${GUI_PORT}`);
+    // Não abre o browser automaticamente — o ícone na bandeja é o ponto de acesso
+    startTray();
   });
 }
 
@@ -338,6 +339,95 @@ function openBrowser(url) {
     if (process.platform === 'win32') exec(`start "" "${url}"`);
     else if (process.platform === 'darwin') exec(`open "${url}"`);
     else exec(`xdg-open "${url}"`);
+  } catch {}
+}
+
+// ── Bandeja do sistema (Windows) ──────────────────────────────────────────────
+function startTray() {
+  if (process.platform !== 'win32') {
+    // Em outros sistemas, abre o browser normalmente
+    openBrowser(`http://127.0.0.1:${GUI_PORT}`);
+    return;
+  }
+
+  const nodePid = process.pid;
+  const guiPort = GUI_PORT;
+
+  // Script PowerShell que cria o ícone na bandeja
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# Icone: circulo preto (logo FechaConta)
+$bmp = New-Object System.Drawing.Bitmap(16,16)
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$g.FillEllipse([System.Drawing.Brushes]::Black, 0, 0, 15, 15)
+$g.FillEllipse([System.Drawing.Brushes]::White, 4, 4, 7, 7)
+$g.Dispose()
+$icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+
+$n = New-Object System.Windows.Forms.NotifyIcon
+$n.Icon = $icon
+$n.Text = "FechaConta — Agente de Impressao"
+$n.Visible = $true
+
+# Notificacao inicial
+$n.ShowBalloonTip(3000, "FechaConta", "Agente iniciado. Conectando...", [System.Windows.Forms.ToolTipIcon]::Info)
+
+$m = New-Object System.Windows.Forms.ContextMenuStrip
+
+$itemAbrir = New-Object System.Windows.Forms.ToolStripMenuItem
+$itemAbrir.Text = "Abrir interface"
+$itemAbrir.Font = New-Object System.Drawing.Font($itemAbrir.Font, [System.Drawing.FontStyle]::Bold)
+$m.Items.Add($itemAbrir) | Out-Null
+$itemAbrir.add_Click({ Start-Process "http://127.0.0.1:${guiPort}" })
+
+$m.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+
+$itemSair = New-Object System.Windows.Forms.ToolStripMenuItem
+$itemSair.Text = "Encerrar agente"
+$m.Items.Add($itemSair) | Out-Null
+$itemSair.add_Click({
+  $n.Visible = $false
+  $n.Dispose()
+  Stop-Process -Id ${nodePid} -Force -ErrorAction SilentlyContinue
+  [System.Windows.Forms.Application]::Exit()
+})
+
+$n.ContextMenuStrip = $m
+$n.add_DoubleClick({ Start-Process "http://127.0.0.1:${guiPort}" })
+
+[System.Windows.Forms.Application]::Run()
+`;
+
+  const tmpPs = path.join(os.tmpdir(), `fechaconta_tray_${nodePid}.ps1`);
+  try {
+    fs.writeFileSync(tmpPs, script, 'utf8');
+    exec(`powershell -WindowStyle Hidden -ExecutionPolicy Bypass -File "${tmpPs}"`, { windowsHide: true });
+    console.log('[agente] Ícone na bandeja iniciado.');
+  } catch (e) {
+    console.warn('[agente] Bandeja não disponível, abrindo browser.', e.message);
+    openBrowser(`http://127.0.0.1:${guiPort}`);
+  }
+
+  process.on('exit', () => {
+    try { fs.unlinkSync(tmpPs); } catch {}
+  });
+}
+
+// Notifica a bandeja via balloon tip (usado em eventos importantes)
+function trayNotify(title, message) {
+  if (process.platform !== 'win32') return;
+  try {
+    exec(`powershell -WindowStyle Hidden -Command "
+Add-Type -AssemblyName System.Windows.Forms
+$n = New-Object System.Windows.Forms.NotifyIcon
+$n.Icon = [System.Drawing.SystemIcons]::Information
+$n.Visible = $true
+$n.ShowBalloonTip(4000, '${title.replace(/'/g, "''")}', '${message.replace(/'/g, "''")}', 1)
+Start-Sleep -Milliseconds 4500
+$n.Visible = $false; $n.Dispose()"`, { windowsHide: true });
   } catch {}
 }
 
@@ -526,12 +616,14 @@ function startAgent({ serverUrl, agentSecret = '' }) {
       agentStatus = 'online';
       statusMsg = 'Conectado ao servidor. Aguardando emparelhamento no Dashboard.';
       console.log('[agente] Online. Código de conexão: ' + PAIRING_CODE);
+      trayNotify('FechaConta Conectado', 'Código: ' + PAIRING_CODE + '\nInsira no Dashboard → Impressoras');
     });
 
     serverSocket.on('printer_agent_paired', () => {
       isPaired = true;
       statusMsg = 'Emparelhado! Escaneando impressoras...';
       console.log('[agente] Emparelhado com o Dashboard.');
+      trayNotify('FechaConta Emparelhado', 'Agente pronto para impressão!');
     });
 
     serverSocket.on('printer_agent_rejected', (reason) => {
