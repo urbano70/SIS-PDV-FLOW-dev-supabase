@@ -564,7 +564,7 @@ async function runLocalScan(background = false) {
   if (isScanRunning) return;
   isScanRunning = true;
 
-  // Se for varredura em background (cache hit), não limpa resultados imediatamente
+  // Scan explícito (solicitado pelo Dashboard) sempre parte do zero
   if (!background) scanResults = [];
 
   // 1. Impressoras Windows (USB + rede + todas instaladas)
@@ -605,7 +605,8 @@ async function runLocalScan(background = false) {
   console.log(`[scan] Concluído. ${scanResults.length} impressora(s) no total.`);
   saveScanCache(scanResults);
 
-  if (serverSocket?.connected) {
+  // Só envia resultado ao servidor se foi solicitado pelo Dashboard (não background)
+  if (!background && serverSocket?.connected) {
     serverSocket.emit('scan_printers_result', { printers: scanResults });
   }
 }
@@ -728,7 +729,8 @@ function startAgent({ serverUrl, agentSecret = '' }) {
       client.on('error', (e) => { serverSocket.emit('printer_agent_result', { success: false, ip, error: e.message }); done(); });
     });
 
-    serverSocket.on('scan_printers_request', () => runLocalScan());
+    // background=false → ignora cache, faz scan fresco, envia resultado ao servidor
+    serverSocket.on('scan_printers_request', () => runLocalScan(false));
 
     serverSocket.on('disconnect', (reason) => {
       isPaired = false;
