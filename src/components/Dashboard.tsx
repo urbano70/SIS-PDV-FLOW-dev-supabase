@@ -757,6 +757,7 @@ export default function Dashboard({
   const [scanPrinters, setScanPrinters] = useState<{ip?: string; port?: number; localName?: string; portName?: string; status?: string}[]>([]);
   const [agentPairingCode, setAgentPairingCode] = useState('');
   const [isPairing, setIsPairing] = useState(false);
+  const [scanAssigning, setScanAssigning] = useState<{name: string; ip: string; port: number; localName?: string; portName?: string} | null>(null);
   const { canInstall, install, isInstalled } = usePWA('dashboard');
 
   // Estado local do card "Estrutura do Salão" (salvo só ao clicar em Salvar)
@@ -4362,99 +4363,137 @@ export default function Dashboard({
         {scanModalOpen && (
           <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setScanModalOpen(false)} />
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setScanModalOpen(false); setScanAssigning(null); }} />
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 z-10">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-serif italic text-xl">Buscar Impressoras</h3>
-                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Windows (USB/local) + Rede local</p>
-                </div>
-                <button onClick={() => setScanModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><X size={16} /></button>
-              </div>
 
-              {scanRunning ? (
-                <div className="flex flex-col items-center py-8 gap-3">
-                  <div className="w-8 h-8 border-2 border-[#141414] border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm font-semibold">Buscando impressoras...</p>
-                  <p className="text-[11px] opacity-40 text-center">Consultando Windows + escaneando rede local. Aguarde.</p>
-                </div>
-              ) : scanPrinters.length === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-sm font-semibold mb-1">Nenhuma impressora encontrada</p>
-                  <p className="text-[11px] opacity-40">Verifique se as impressoras estão instaladas e ligadas.</p>
-                  <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
-                    className="mt-4 px-4 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
-                    Tentar novamente
+              {/* ── Passo 2: Vincular a um canal ── */}
+              {scanAssigning ? (
+                <>
+                  <div className="flex items-center gap-3 mb-5">
+                    <button onClick={() => setScanAssigning(null)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><ArrowLeft size={15} /></button>
+                    <div>
+                      <h3 className="font-serif italic text-xl">Vincular impressora</h3>
+                      <p className="text-[10px] opacity-40 mt-0.5 font-bold truncate">{scanAssigning.name}</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] opacity-50 mb-4">Escolha para qual canal de impressão esta impressora será usada:</p>
+                  <div className="space-y-2">
+                    {([
+                      { key: 'pizzas',   label: pizzariaConfig?.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={14} />, desc: 'Via de produção da cozinha' },
+                      { key: 'drinks',   label: 'Bebidas',  icon: <Beer size={14} />, desc: 'Via do bar / copa' },
+                      { key: 'kitchen',  label: 'Lanches',  icon: <ChefHat size={14} />, desc: 'Via da lanchonete' },
+                      { key: 'receipts', label: 'Recibos / Caixa', icon: <FileText size={14} />, desc: 'Comprovante de pagamento' },
+                    ] as const).map(({ key, label, icon, desc }) => {
+                      const current = (printerConfig as any)[key];
+                      const isSet = current === scanAssigning.name;
+                      return (
+                        <button key={key}
+                          onClick={() => {
+                            (setPrinterConfig as any)((prev: any) => {
+                              const updated = { ...prev, [key]: scanAssigning.name };
+                              localStorage.setItem('printerConfig', JSON.stringify(updated));
+                              return updated;
+                            });
+                            toast.success(`${scanAssigning.name} → ${label}`, { description: 'Salve as configurações para persistir.' });
+                            setScanAssigning(null);
+                            setScanModalOpen(false);
+                            setActiveTab('settings');
+                          }}
+                          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all hover:border-[#141414] ${isSet ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10'}`}
+                        >
+                          <span className="opacity-60">{icon}</span>
+                          <div className="flex-1">
+                            <p className="font-bold text-sm">{label}</p>
+                            <p className="text-[10px] opacity-40">{desc}{isSet ? ' · já configurado' : ''}</p>
+                          </div>
+                          {isSet && <CheckCircle size={14} className="text-green-500 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button onClick={() => { setScanAssigning(null); setScanModalOpen(false); setActiveTab('settings'); }}
+                    className="w-full mt-3 py-2 border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/40 hover:bg-gray-50 transition-colors">
+                    Pular — configurar depois
                   </button>
-                </div>
+                </>
               ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  <p className="text-[11px] font-bold uppercase opacity-40 mb-3">{scanPrinters.length} impressora(s) encontrada(s)</p>
-                  {/* Separador: Windows */}
-                  {scanPrinters.some(p => p.localName) && (
-                    <p className="text-[9px] font-bold uppercase opacity-30 tracking-widest">Windows (USB / Local)</p>
-                  )}
-                  {scanPrinters.filter(p => p.localName).map((p, i) => (
-                    <div key={`local-${i}`} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3 gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-xs leading-tight truncate">{p.localName}</p>
-                        <p className="text-[10px] opacity-50">{p.portName || '—'} · {p.status || 'Instalada'}</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          (setPrinterConfig as any)((prev: any) => {
-                            const exists = prev.registeredPrinters?.some((r: any) => r.name === p.localName);
-                            if (exists) { toast.info(`"${p.localName}" já está cadastrada.`); return prev; }
-                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: p.localName, ip: '', port: 9100, localName: p.localName, portName: p.portName }] };
-                            localStorage.setItem('printerConfig', JSON.stringify(updated));
-                            toast.success(`"${p.localName}" adicionada!`);
-                            return updated;
-                          });
-                          setScanModalOpen(false);
-                          setActiveTab('settings');
-                        }}
-                        className="shrink-0 text-[11px] font-bold bg-[#141414] text-white px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity"
-                      >
-                        Adicionar
+                /* ── Passo 1: Lista de impressoras encontradas ── */
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-serif italic text-xl">Buscar Impressoras</h3>
+                      <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Windows + Rede local</p>
+                    </div>
+                    <button onClick={() => setScanModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><X size={16} /></button>
+                  </div>
+
+                  {scanRunning ? (
+                    <div className="flex flex-col items-center py-8 gap-3">
+                      <div className="w-8 h-8 border-2 border-[#141414] border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm font-semibold">Buscando impressoras...</p>
+                      <p className="text-[11px] opacity-40 text-center">Consultando Windows + escaneando rede local. Aguarde.</p>
+                    </div>
+                  ) : scanPrinters.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <p className="text-sm font-semibold mb-1">Nenhuma impressora encontrada</p>
+                      <p className="text-[11px] opacity-40">Verifique se as impressoras estão instaladas e ligadas.</p>
+                      <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
+                        className="mt-4 px-4 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
+                        Tentar novamente
                       </button>
                     </div>
-                  ))}
-                  {/* Separador: Rede */}
-                  {scanPrinters.some(p => p.ip) && (
-                    <p className="text-[9px] font-bold uppercase opacity-30 tracking-widest mt-2">Rede (IP/TCP)</p>
-                  )}
-                  {scanPrinters.filter(p => p.ip).map((p, i) => (
-                    <div key={`net-${i}`} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3">
-                      <div>
-                        <p className="font-mono font-bold text-sm">{p.ip}</p>
-                        <p className="text-[10px] opacity-50">Porta {p.port} · TCP/IP</p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          (setPrinterConfig as any)((prev: any) => {
-                            const exists = prev.registeredPrinters?.some((r: any) => r.ip === p.ip);
-                            if (exists) { toast.info(`IP ${p.ip} já está cadastrado.`); return prev; }
-                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: p.ip, port: p.port || 9100 }] };
-                            localStorage.setItem('printerConfig', JSON.stringify(updated));
-                            toast.success(`${p.ip} adicionado! Defina um nome e salve.`);
-                            return updated;
-                          });
-                          setScanModalOpen(false);
-                          setActiveTab('settings');
-                        }}
-                        className="text-[11px] font-bold bg-[#141414] text-white px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity"
-                      >
-                        Adicionar
+                  ) : (
+                    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                      <p className="text-[11px] font-bold uppercase opacity-40 mb-1">{scanPrinters.length} impressora(s) encontrada(s) — clique para adicionar e vincular</p>
+                      {scanPrinters.map((p, i) => {
+                        // Extrai IP do portName Bematech (ex: "Bematech_IP_192.168.10.137")
+                        const extractedIp = p.portName?.match(/(\d{1,3}(?:\.\d{1,3}){3})/)?.[1] || '';
+                        const displayName = p.localName || p.ip || '';
+                        const displaySub = p.localName
+                          ? (extractedIp ? `${extractedIp} · ${p.status || 'Pronta'}` : `${p.portName || '—'} · ${p.status || 'Pronta'}`)
+                          : `${p.ip} · Porta ${p.port}`;
+                        const alreadyAdded = (printerConfig.registeredPrinters || []).some((r: any) =>
+                          r.name === displayName || (p.ip && r.ip === p.ip)
+                        );
+                        return (
+                          <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 gap-2 border transition-all ${alreadyAdded ? 'bg-green-50 border-green-200' : 'bg-[#F5F5F3] border-transparent hover:border-[#141414]/10'}`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm leading-tight truncate">{displayName}</p>
+                              <p className="text-[10px] opacity-50">{displaySub}</p>
+                            </div>
+                            {alreadyAdded ? (
+                              <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-green-600">
+                                <CheckCircle size={12} /> Adicionada
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  const ip = p.ip || extractedIp;
+                                  const entry = { name: displayName, ip, port: p.port || 9100, localName: p.localName, portName: p.portName };
+                                  (setPrinterConfig as any)((prev: any) => {
+                                    const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), entry] };
+                                    localStorage.setItem('printerConfig', JSON.stringify(updated));
+                                    return updated;
+                                  });
+                                  setScanAssigning(entry);
+                                }}
+                                className="shrink-0 text-[11px] font-bold bg-[#141414] text-white px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity"
+                              >
+                                Adicionar
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
+                        className="w-full mt-2 py-2 border border-[#141414]/20 rounded-xl text-xs font-bold text-[#141414]/50 hover:bg-gray-50 transition-colors">
+                        Buscar novamente
                       </button>
                     </div>
-                  ))}
-                  <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
-                    className="w-full mt-2 py-2 border border-[#141414]/20 rounded-xl text-xs font-bold text-[#141414]/50 hover:bg-gray-50 transition-colors">
-                    Buscar novamente
-                  </button>
-                </div>
+                  )}
+                </>
               )}
             </motion.div>
           </div>
