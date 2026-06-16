@@ -3946,30 +3946,28 @@ export default function Dashboard({
                   </div>
 
                   {/* ── Passo 1: Agente ── */}
-                  <div className="rounded-xl border border-[#141414]/8 p-2.5 bg-[#fafafa] space-y-2">
+                  <div className="rounded-xl border border-[#141414]/8 p-2.5 bg-[#fafafa] space-y-1.5">
                     <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">① Agente de impressão</p>
                     {!printerAgentOnline ? (
-                      <div className="space-y-1.5">
-                        <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                          Instale e execute o agente no PC com as impressoras. Ele conecta automaticamente.
-                        </p>
-                        <a href="/download/fechaconta-agente.exe" download
-                          className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
-                          <Download size={9} /> Baixar Agente (.exe) para Windows
-                        </a>
-                      </div>
+                      <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                        Instale e execute o agente no PC com as impressoras. Ele conecta automaticamente.
+                      </p>
                     ) : (
-                      <div className="space-y-1.5">
-                        <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                          Agente conectado! Clique em "Buscar impressoras" para listar as disponíveis.
-                        </p>
-                        <button
-                          onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
-                          className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
-                        >
-                          <Search size={9} /> Buscar impressoras disponíveis
-                        </button>
-                      </div>
+                      <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                        Agente conectado! Clique em "Buscar impressoras" para listar as disponíveis.
+                      </p>
+                    )}
+                    <a href="/download/fechaconta-agente.exe" download
+                      className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
+                      <Download size={9} /> Baixar Agente (.exe) para Windows
+                    </a>
+                    {printerAgentOnline && (
+                      <button
+                        onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
+                        className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        <Search size={9} /> Buscar impressoras disponíveis
+                      </button>
                     )}
                   </div>
 
