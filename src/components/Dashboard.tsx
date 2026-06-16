@@ -3951,7 +3951,7 @@ export default function Dashboard({
                     {!printerAgentOnline ? (
                       <div className="space-y-1.5">
                         <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                          Instale o agente no PC que tem as impressoras conectadas. Depois abra-o e insira o código aqui.
+                          Instale e execute o agente no PC com as impressoras. Ele conecta automaticamente.
                         </p>
                         <a href="/download/fechaconta-agente.exe" download
                           className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
@@ -3960,32 +3960,11 @@ export default function Dashboard({
                       </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <p className="text-[8px] opacity-50 leading-relaxed">O agente está rodando. Insira o código de 6 dígitos exibido na tela do agente:</p>
-                        <div className="flex gap-1.5">
-                          <input
-                            type="text"
-                            value={agentPairingCode}
-                            onChange={(e) => setAgentPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                            placeholder="_ _ _ _ _ _"
-                            maxLength={6}
-                            className="flex-1 min-w-0 bg-white border border-[#141414]/15 rounded-lg py-1.5 px-2 font-mono font-black text-sm text-center focus:ring-1 focus:ring-[#141414] outline-none tracking-[.4em]"
-                          />
-                          <button
-                            disabled={agentPairingCode.length !== 6 || isPairing}
-                            onClick={() => { setIsPairing(true); socket.emit('validate_agent_code', { code: agentPairingCode }); }}
-                            className="shrink-0 flex items-center gap-1 text-[9px] font-bold px-3 py-1.5 rounded-lg bg-[#141414] text-white hover:opacity-80 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
-                          >
-                            {isPairing ? '...' : 'Emparelhar'}
-                          </button>
-                        </div>
+                        <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                          Agente conectado! Clique em "Buscar impressoras" para listar as disponíveis.
+                        </p>
                         <button
-                          onClick={() => {
-                            if (!printerAgentOnline) {
-                              toast.error('Agente offline. Instale e conecte o agente antes de buscar impressoras.');
-                              return;
-                            }
-                            setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request');
-                          }}
+                          onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
                           className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                         >
                           <Search size={9} /> Buscar impressoras disponíveis
