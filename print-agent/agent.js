@@ -326,7 +326,7 @@ function getLocalNetworkBase() {
   return '192.168.1';
 }
 
-async function probeTcp(ip, port = 9100, timeout = 800) {
+async function probeTcp(ip, port = 9100, timeout = 600) {
   return new Promise(resolve => {
     const sock = new net.Socket();
     let done = false;
@@ -339,19 +339,38 @@ async function probeTcp(ip, port = 9100, timeout = 800) {
   });
 }
 
+// Portas comuns de impressoras de rede
+// 9100 = RAW/JetDirect (ESC/POS, HP, Epson, Bematech...)
+// 9101/9102 = portas RAW alternativas
+// 515  = LPD/LPR (impressoras de rede legadas)
+// 631  = IPP (CUPS / impressoras modernas)
+// 6101 = Zebra ZPL
+// 4000 = Epson TM série via rede
+const PRINTER_PORTS = [9100, 9101, 9102, 515, 631, 6101, 4000];
+
 async function runLocalScan() {
   if (isScanRunning) return;
   isScanRunning = true;
   scanResults = [];
   const base = getLocalNetworkBase();
-  console.log(`[scan] Escaneando ${base}.1 — ${base}.254 na porta 9100...`);
+  console.log(`[scan] Escaneando ${base}.1 — ${base}.254 nas portas ${PRINTER_PORTS.join(', ')}...`);
 
-  const BATCH = 30;
+  const BATCH = 20;
   for (let start = 1; start <= 254; start += BATCH) {
     const batch = [];
     for (let i = start; i < start + BATCH && i <= 254; i++) {
       const ip = `${base}.${i}`;
-      batch.push(probeTcp(ip, 9100).then(ok => ok ? { ip, port: 9100 } : null));
+      // Testa todas as portas em paralelo para cada IP
+      const portProbes = PRINTER_PORTS.map(port =>
+        probeTcp(ip, port).then(ok => ok ? { ip, port } : null)
+      );
+      // Retorna a primeira porta que respondeu (ou null se nenhuma)
+      batch.push(
+        Promise.all(portProbes).then(results => {
+          const found = results.filter(Boolean);
+          return found.length > 0 ? found[0] : null; // porta de menor índice = mais comum
+        })
+      );
     }
     const results = await Promise.all(batch);
     results.filter(Boolean).forEach(r => {
