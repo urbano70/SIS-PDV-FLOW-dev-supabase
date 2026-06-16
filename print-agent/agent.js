@@ -42,11 +42,22 @@ let serverSocket = null;
 let scanResults  = [];
 let isScanRunning = false;
 
-// Código de emparelhamento gerado uma vez por sessão
-const PAIRING_CODE = String(Math.floor(100000 + Math.random() * 900000));
-let isPaired = false;
-
 if (args.includes('--uninstall')) { uninstallStartup(); process.exit(0); }
+
+// Oculta a janela do console via Win32 API após 1.5s (tempo para a janela inicializar)
+if (process.platform === 'win32') {
+  const pid = process.pid;
+  setTimeout(() => {
+    exec(
+      `powershell -NoProfile -WindowStyle Hidden -Command ` +
+      `"$p=Get-Process -Id ${pid} -EA SilentlyContinue;` +
+      `if($p -and $p.MainWindowHandle -ne 0){` +
+      `Add-Type -Name W -Namespace W -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindow(IntPtr h,int n);';` +
+      `[W.W]::ShowWindow($p.MainWindowHandle,0)}"`,
+      { windowsHide: true }
+    );
+  }, 1500);
+}
 
 // ── HTML da interface ─────────────────────────────────────────────────────────
 function buildHtml(config) {
@@ -606,8 +617,13 @@ async function runLocalScan(background = false) {
 function installStartup() {
   if (process.platform !== 'win32') return;
   try {
-    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "\\"${process.execPath}\\"" /f`, { stdio: 'pipe' });
-    console.log('[ok] Registrado no startup do Windows.');
+    // Cria um launcher .vbs ao lado do exe que o inicia sem janela de console
+    const vbsPath = path.join(BASE_DIR, 'FechaContaAgente.vbs');
+    const exeSafe = process.execPath.replace(/"/g, '""');
+    fs.writeFileSync(vbsPath, `CreateObject("WScript.Shell").Run Chr(34) & "${exeSafe}" & Chr(34), 0, False\n`, 'utf8');
+    // Registra o VBS (via wscript.exe) no startup — assim abre sem janela preta
+    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "wscript.exe \\"${vbsPath.replace(/"/g, '\\"')}\\"" /f`, { stdio: 'pipe' });
+    console.log('[ok] Registrado no startup via VBS: ' + vbsPath);
   } catch (e) { console.error('[erro] Startup:', e.message); }
 }
 
@@ -651,25 +667,14 @@ function startAgent({ serverUrl, agentSecret = '' }) {
     serverSocket.on('connect', () => {
       console.log(`[agente] Conectado (id=${serverSocket.id})`);
       reconnectDelay = 3000;
-      serverSocket.emit('printer_agent_register', { secret: agentSecret, pairingCode: PAIRING_CODE });
+      serverSocket.emit('printer_agent_register', { secret: agentSecret });
     });
 
     serverSocket.on('printer_agent_accepted', () => {
       agentStatus = 'online';
-      statusMsg = 'Conectado ao servidor. Aguardando emparelhamento no Dashboard.';
-      console.log('\n========================================');
-      console.log('  CODIGO DE EMPARELHAMENTO: ' + PAIRING_CODE);
-      console.log('  Insira este codigo no Dashboard');
-      console.log('  -> Configuracoes -> Impressoras -> Agente');
-      console.log('========================================\n');
-      trayNotify('FechaConta Conectado', 'Código: ' + PAIRING_CODE + '\nInsira no Dashboard → Impressoras');
-    });
-
-    serverSocket.on('printer_agent_paired', () => {
-      isPaired = true;
-      statusMsg = 'Emparelhado! Escaneando impressoras...';
-      console.log('[agente] Emparelhado com o Dashboard.');
-      trayNotify('FechaConta Emparelhado', 'Agente pronto para impressão!');
+      statusMsg = 'Agente conectado e pronto. Acesse o Dashboard → Impressoras para buscar impressoras.';
+      console.log('[agente] Conectado e pronto para uso.');
+      trayNotify('FechaConta', 'Agente conectado! Acesse o Dashboard para buscar impressoras.');
     });
 
     serverSocket.on('printer_agent_rejected', (reason) => {
