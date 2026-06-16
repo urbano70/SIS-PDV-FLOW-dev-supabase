@@ -1393,6 +1393,20 @@ export default function Dashboard({
     };
   }, []);
 
+  // Timeout de segurança: se scan ficar rodando >90s sem resposta, encerra
+  const scanRunningRef = useRef(false);
+  useEffect(() => {
+    scanRunningRef.current = scanRunning;
+    if (!scanRunning) return;
+    const t = setTimeout(() => {
+      if (scanRunningRef.current) {
+        setScanRunning(false);
+        toast.error('Tempo limite do scan atingido. Verifique se o agente está conectado.');
+      }
+    }, 90000);
+    return () => clearTimeout(t);
+  }, [scanRunning]);
+
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
     if (targetPrinterName) {
@@ -3965,7 +3979,13 @@ export default function Dashboard({
                           </button>
                         </div>
                         <button
-                          onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
+                          onClick={() => {
+                            if (!printerAgentOnline) {
+                              toast.error('Agente offline. Instale e conecte o agente antes de buscar impressoras.');
+                              return;
+                            }
+                            setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request');
+                          }}
                           className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                         >
                           <Search size={9} /> Buscar impressoras disponíveis
