@@ -136,12 +136,9 @@ input:focus{box-shadow:0 0 0 2px #14141440}
   </div>
   <button class="btn btn-primary" onclick="saveConfig()">Conectar</button>
   ` : `
-  <div class="pairing-box">
-    <div class="pairing-label">Código de Conexão</div>
-    <div class="pairing-code" id="pairingCode">${PAIRING_CODE}</div>
-    <div class="pairing-hint">Insira este código no Dashboard → Configurações → Impressoras → Emparelhar</div>
+  <div id="agentStatusBox" class="paired-badge" style="display:block;background:#f0fdf4;border-color:#bbf7d0;color:#15803d">
+    ✓ Agente conectado ao servidor
   </div>
-  <div id="pairedBadge" class="paired-badge" style="display:none">✓ Emparelhado com o sistema</div>
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
     <div style="flex:1;background:#f5f5f3;border-radius:10px;padding:8px 14px;font-size:11px;font-weight:600;font-family:monospace;color:#888;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${config.serverUrl}</div>
     <button class="btn btn-secondary" style="width:auto;padding:8px 14px;margin:0;font-size:11px" onclick="resetConfig()">Alterar</button>
@@ -173,8 +170,8 @@ async function loadStatus() {
     const txt = document.getElementById('statusText');
     dot.className = 'status-dot ' + d.status;
     txt.textContent = d.message;
-    const badge = document.getElementById('pairedBadge');
-    if (badge) badge.style.display = d.paired ? 'block' : 'none';
+    const box = document.getElementById('agentStatusBox');
+    if (box) box.style.background = d.status === 'online' ? '#f0fdf4' : '#fef9ec';
   } catch {}
 }
 
