@@ -542,8 +542,30 @@ function startAgent({ serverUrl, agentSecret = '' }) {
       serverSocket.disconnect();
     });
 
-    serverSocket.on('do_print', ({ ip, port = 9100, data }) => {
-      if (!ip || !data?.length) return;
+    serverSocket.on('do_print', ({ ip, port = 9100, localName, data }) => {
+      if (!data?.length) return;
+
+      // Impressão via nome Windows (USB/local) — escreve bytes raw via "copy /b"
+      if (localName && !ip) {
+        console.log(`[agente] Imprimindo via Windows -> "${localName}"`);
+        const tmpFile = path.join(os.tmpdir(), `fc_print_${Date.now()}.bin`);
+        try {
+          fs.writeFileSync(tmpFile, Buffer.from(data));
+          // copy /b envia bytes raw para o spooler do Windows
+          execSync(`copy /b "${tmpFile}" "\\\\.\\${localName}"`, { windowsHide: true, stdio: 'pipe' });
+          console.log(`[agente] OK Windows "${localName}"`);
+          serverSocket.emit('printer_agent_result', { success: true, localName });
+        } catch (e) {
+          console.error(`[agente] Erro Windows "${localName}":`, e.message);
+          serverSocket.emit('printer_agent_result', { success: false, localName, error: e.message });
+        } finally {
+          try { fs.unlinkSync(tmpFile); } catch {}
+        }
+        return;
+      }
+
+      // Impressão via TCP/IP (impressoras de rede)
+      if (!ip) return;
       console.log(`[agente] Imprimindo -> ${ip}:${port}`);
       const client = new net.Socket();
       let finished = false;

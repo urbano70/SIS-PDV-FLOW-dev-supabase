@@ -1758,11 +1758,17 @@ async function startServer() {
     // ── Impressão ESC/POS ─────────────────────────────────────────────────────
     // Se o agente local estiver conectado, delega para ele (cenário VPS).
     // Caso contrário, o servidor tenta conexão TCP direta (cenário local/dev).
-    socket.on("print_escpos", ({ ip, port = 9100, data }: { ip: string; port?: number; data: number[] }) => {
-      if (!ip || !data?.length) return;
+    socket.on("print_escpos", ({ ip, port = 9100, localName, data }: { ip?: string; port?: number; localName?: string; data: number[] }) => {
+      if (!data?.length) return;
 
       if (printerAgentSocket && printerAgentSocket.connected) {
-        printerAgentSocket.emit("do_print", { ip, port, data });
+        printerAgentSocket.emit("do_print", { ip, port, localName, data });
+        return;
+      }
+
+      // Sem agente e sem IP → não há como imprimir no servidor (USB é local)
+      if (!ip) {
+        socket.emit("print_result", { success: false, error: "Impressora USB requer o agente local conectado." });
         return;
       }
 

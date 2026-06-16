@@ -963,38 +963,47 @@ export default function Dashboard({
       return;
     }
     const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === printerName);
+    if (!printer) { toast.error('Impressora não encontrada.'); return; }
 
-    if (printer?.ip) {
-      // Impressão direta ESC/POS via TCP
-      const wide = (printerConfig.paperWidth || '80mm') !== '50mm';
-      const lineLen = wide ? 42 : 24;
-      const b: number[] = [];
-      const push = (...bytes: number[]) => b.push(...bytes);
-      const lf = () => push(0x0A);
-      const text = (s: string) => push(...escStr(s));
-      const line = () => { text('-'.repeat(lineLen)); lf(); };
-      const now = new Date();
+    // Monta página de teste ESC/POS
+    const wide = (printerConfig.paperWidth || '80mm') !== '50mm';
+    const lineLen = wide ? 42 : 24;
+    const b: number[] = [];
+    const push = (...bytes: number[]) => b.push(...bytes);
+    const lf = () => push(0x0A);
+    const text = (s: string) => push(...escStr(s));
+    const line = () => { text('-'.repeat(lineLen)); lf(); };
+    const now = new Date();
 
-      push(0x1B, 0x40, 0x1B, 0x74, 0x02); // init + CP850
-      push(0x1B, 0x61, 0x01); // center
-      push(0x1B, 0x45, 0x01); text(printerConfig.establishmentName || 'FECHACONTA PDV'); lf();
-      push(0x1B, 0x45, 0x00);
-      line();
-      push(0x1D, 0x21, 0x11, 0x1B, 0x45, 0x01);
-      text('TESTE OK'); lf();
-      push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
-      line();
-      text(printerName.toUpperCase()); lf();
-      text('IP: ' + printer.ip + ':' + (printer.port || 9100)); lf();
-      text(now.toLocaleDateString('pt-BR') + '  ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })); lf();
-      push(0x1B, 0x61, 0x00);
-      line();
-      push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
+    push(0x1B, 0x40, 0x1B, 0x74, 0x02); // init + CP850
+    push(0x1B, 0x61, 0x01); // center
+    push(0x1B, 0x45, 0x01); text(printerConfig.establishmentName || 'FECHACONTA PDV'); lf();
+    push(0x1B, 0x45, 0x00);
+    line();
+    push(0x1D, 0x21, 0x11, 0x1B, 0x45, 0x01);
+    text('TESTE OK'); lf();
+    push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+    line();
+    text(printerName.toUpperCase()); lf();
+    if (printer.ip) text('IP: ' + printer.ip + ':' + (printer.port || 9100));
+    else text('USB: ' + (printer.localName || printer.name));
+    lf();
+    text(now.toLocaleDateString('pt-BR') + '  ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })); lf();
+    push(0x1B, 0x61, 0x00);
+    line();
+    push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
 
+    if (printer.ip) {
+      // Impressora de rede — direto por TCP
       socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
       toast.success(`Teste enviado para ${printerName}`, { description: `${printer.ip}:${printer.port || 9100}` });
+    } else if (printer.localName || printer.name) {
+      // Impressora USB/Windows — via agente
+      const winName = printer.localName || printer.name;
+      socket.emit('print_escpos', { localName: winName, data: b });
+      toast.success(`Teste enviado para ${printerName}`, { description: `Windows: ${winName}` });
     } else {
-      toast.error('IP não configurado para esta impressora.');
+      toast.error('Impressora sem IP nem nome Windows configurado. Preencha o campo IP ou recadastre via busca.');
     }
   };
 
