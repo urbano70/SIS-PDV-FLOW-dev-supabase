@@ -754,7 +754,7 @@ export default function Dashboard({
   const [printerAgentOnline, setPrinterAgentOnline] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
   const [scanRunning, setScanRunning] = useState(false);
-  const [scanPrinters, setScanPrinters] = useState<{ip: string; port: number}[]>([]);
+  const [scanPrinters, setScanPrinters] = useState<{ip?: string; port?: number; localName?: string; portName?: string; status?: string}[]>([]);
   const [agentPairingCode, setAgentPairingCode] = useState('');
   const [isPairing, setIsPairing] = useState(false);
   const { canInstall, install, isInstalled } = usePWA('dashboard');
@@ -4324,7 +4324,7 @@ export default function Dashboard({
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-serif italic text-xl">Buscar Impressoras</h3>
-                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Escaneando rede local — porta 9100</p>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40 mt-0.5">Windows (USB/local) + Rede local</p>
                 </div>
                 <button onClick={() => setScanModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><X size={16} /></button>
               </div>
@@ -4332,33 +4332,66 @@ export default function Dashboard({
               {scanRunning ? (
                 <div className="flex flex-col items-center py-8 gap-3">
                   <div className="w-8 h-8 border-2 border-[#141414] border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm font-semibold">Escaneando a rede...</p>
-                  <p className="text-[11px] opacity-40 text-center">Testando todos os IPs da rede local na porta 9100. Aguarde.</p>
+                  <p className="text-sm font-semibold">Buscando impressoras...</p>
+                  <p className="text-[11px] opacity-40 text-center">Consultando Windows + escaneando rede local. Aguarde.</p>
                 </div>
               ) : scanPrinters.length === 0 ? (
                 <div className="py-8 text-center">
                   <p className="text-sm font-semibold mb-1">Nenhuma impressora encontrada</p>
-                  <p className="text-[11px] opacity-40">Verifique se as impressoras estão ligadas e na mesma rede.</p>
+                  <p className="text-[11px] opacity-40">Verifique se as impressoras estão instaladas e ligadas.</p>
                   <button onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
                     className="mt-4 px-4 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
                     Tentar novamente
                   </button>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-96 overflow-y-auto">
                   <p className="text-[11px] font-bold uppercase opacity-40 mb-3">{scanPrinters.length} impressora(s) encontrada(s)</p>
-                  {scanPrinters.map((p) => (
-                    <div key={p.ip} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3">
+                  {/* Separador: Windows */}
+                  {scanPrinters.some(p => p.localName) && (
+                    <p className="text-[9px] font-bold uppercase opacity-30 tracking-widest">Windows (USB / Local)</p>
+                  )}
+                  {scanPrinters.filter(p => p.localName).map((p, i) => (
+                    <div key={`local-${i}`} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3 gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-xs leading-tight truncate">{p.localName}</p>
+                        <p className="text-[10px] opacity-50">{p.portName || '—'} · {p.status || 'Instalada'}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          (setPrinterConfig as any)((prev: any) => {
+                            const exists = prev.registeredPrinters?.some((r: any) => r.name === p.localName);
+                            if (exists) { toast.info(`"${p.localName}" já está cadastrada.`); return prev; }
+                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: p.localName, ip: '', port: 9100, localName: p.localName, portName: p.portName }] };
+                            localStorage.setItem('printerConfig', JSON.stringify(updated));
+                            toast.success(`"${p.localName}" adicionada!`);
+                            return updated;
+                          });
+                          setScanModalOpen(false);
+                          setActiveTab('settings');
+                        }}
+                        className="shrink-0 text-[11px] font-bold bg-[#141414] text-white px-3 py-1.5 rounded-lg hover:opacity-80 transition-opacity"
+                      >
+                        Adicionar
+                      </button>
+                    </div>
+                  ))}
+                  {/* Separador: Rede */}
+                  {scanPrinters.some(p => p.ip) && (
+                    <p className="text-[9px] font-bold uppercase opacity-30 tracking-widest mt-2">Rede (IP/TCP)</p>
+                  )}
+                  {scanPrinters.filter(p => p.ip).map((p, i) => (
+                    <div key={`net-${i}`} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-4 py-3">
                       <div>
                         <p className="font-mono font-bold text-sm">{p.ip}</p>
-                        <p className="text-[10px] opacity-50">Porta {p.port} · ESC/POS</p>
+                        <p className="text-[10px] opacity-50">Porta {p.port} · TCP/IP</p>
                       </div>
                       <button
                         onClick={() => {
                           (setPrinterConfig as any)((prev: any) => {
                             const exists = prev.registeredPrinters?.some((r: any) => r.ip === p.ip);
                             if (exists) { toast.info(`IP ${p.ip} já está cadastrado.`); return prev; }
-                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: p.ip }] };
+                            const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: p.ip, port: p.port || 9100 }] };
                             localStorage.setItem('printerConfig', JSON.stringify(updated));
                             toast.success(`${p.ip} adicionado! Defina um nome e salve.`);
                             return updated;
