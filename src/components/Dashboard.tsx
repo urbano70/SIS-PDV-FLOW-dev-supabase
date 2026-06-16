@@ -3910,128 +3910,164 @@ export default function Dashboard({
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
+                <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
 
-                  {/* Agente */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Printer className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none flex-1">Impressoras</h3>
-                      <span className={`flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${printerAgentOnline ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${printerAgentOnline ? 'bg-green-500' : 'bg-gray-300'}`} />
-                        {printerAgentOnline ? 'Agente online' : 'Agente offline'}
-                      </span>
-                      {printerAgentOnline && (
+                  {/* ── Cabeçalho ── */}
+                  <div className="flex items-center gap-2">
+                    <Printer className="text-[#141414]" size={13} />
+                    <h3 className="font-serif italic text-sm leading-none flex-1">Impressoras</h3>
+                    <span className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${printerAgentOnline ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-400'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${printerAgentOnline ? 'bg-green-500 animate-pulse' : 'bg-red-300'}`} />
+                      {printerAgentOnline ? 'Agente conectado' : 'Agente offline'}
+                    </span>
+                  </div>
+
+                  {/* ── Passo 1: Agente ── */}
+                  <div className="rounded-xl border border-[#141414]/8 p-2.5 bg-[#fafafa] space-y-2">
+                    <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">① Agente de impressão</p>
+                    {!printerAgentOnline ? (
+                      <div className="space-y-1.5">
+                        <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                          Instale o agente no PC que tem as impressoras conectadas. Depois abra-o e insira o código aqui.
+                        </p>
+                        <a href="/download/fechaconta-agente.exe" download
+                          className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
+                          <Download size={9} /> Baixar Agente (.exe) para Windows
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        <p className="text-[8px] opacity-50 leading-relaxed">O agente está rodando. Insira o código de 6 dígitos exibido na tela do agente:</p>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            value={agentPairingCode}
+                            onChange={(e) => setAgentPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="_ _ _ _ _ _"
+                            maxLength={6}
+                            className="flex-1 min-w-0 bg-white border border-[#141414]/15 rounded-lg py-1.5 px-2 font-mono font-black text-sm text-center focus:ring-1 focus:ring-[#141414] outline-none tracking-[.4em]"
+                          />
+                          <button
+                            disabled={agentPairingCode.length !== 6 || isPairing}
+                            onClick={() => { setIsPairing(true); socket.emit('validate_agent_code', { code: agentPairingCode }); }}
+                            className="shrink-0 flex items-center gap-1 text-[9px] font-bold px-3 py-1.5 rounded-lg bg-[#141414] text-white hover:opacity-80 transition-opacity disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            {isPairing ? '...' : 'Emparelhar'}
+                          </button>
+                        </div>
                         <button
                           onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
-                          className="flex items-center gap-1 text-[8px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                          className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                         >
-                          <Search size={8} /> Buscar na rede
+                          <Search size={9} /> Buscar impressoras disponíveis
                         </button>
-                      )}
-                    </div>
-
-                    {/* Emparelhamento via código */}
-                    {printerAgentOnline && (
-                      <div className="flex gap-1 mb-2">
-                        <input
-                          type="text"
-                          value={agentPairingCode}
-                          onChange={(e) => setAgentPairingCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                          placeholder="Código do agente (6 dígitos)"
-                          maxLength={6}
-                          className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-mono font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none tracking-widest"
-                        />
-                        <button
-                          disabled={agentPairingCode.length !== 6 || isPairing}
-                          onClick={() => { setIsPairing(true); socket.emit('validate_agent_code', { code: agentPairingCode }); }}
-                          className="shrink-0 flex items-center gap-1 text-[8px] font-bold px-2 py-1 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          {isPairing ? '...' : 'Conectar'}
-                        </button>
-                      </div>
-                    )}
-
-                    {!printerAgentOnline && (
-                      <div className="space-y-1 mb-2">
-                        <p className="text-[8px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-tight">
-                          Instale o agente local para impressão dos pedidos e comprovantes.
-                        </p>
-                        <a href="/download/fechaconta-agente.exe" download className="flex items-center justify-center gap-1 text-[8px] font-bold py-1 px-2 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity">
-                          <Download size={9} /> Baixar Agente (.exe)
-                        </a>
                       </div>
                     )}
                   </div>
 
-                  {/* Lista de impressoras */}
-                  <div>
-                    <p className="text-[7px] uppercase font-bold opacity-40 mb-1">Impressoras cadastradas</p>
-                    <div className="space-y-1 mb-1.5 max-h-[120px] overflow-y-auto scrollbar-hide">
-                      {(printerConfig.registeredPrinters || []).map((p: any, idx: number) => (
-                        <div key={idx} className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            value={p.name}
-                            onChange={(e) => { const name = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], name }; return { ...prev, registeredPrinters: u }; }); }}
-                            placeholder="Nome"
-                            className="w-20 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
-                          />
-                          <input
-                            type="text"
-                            value={p.ip}
-                            onChange={(e) => { const ip = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], ip }; return { ...prev, registeredPrinters: u }; }); }}
-                            placeholder="IP (ex: 192.168.1.10)"
-                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none font-mono"
-                          />
-                          <button onClick={() => handleTestPrinter(p.name)} className="text-[6px] bg-[#141414] text-white px-1.5 py-1 rounded-lg font-bold uppercase shrink-0">Testar</button>
-                          <button onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx) }))} className="text-red-400 hover:text-red-600 shrink-0"><Trash2 size={10} /></button>
-                        </div>
-                      ))}
-                    </div>
+                  {/* ── Passo 2: Impressoras cadastradas ── */}
+                  <div className="space-y-2">
+                    <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">② Impressoras cadastradas</p>
+                    {(printerConfig.registeredPrinters || []).length === 0 ? (
+                      <p className="text-[8px] opacity-40 text-center py-2">Nenhuma impressora cadastrada. Use "Buscar" ou adicione manualmente.</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                        {(printerConfig.registeredPrinters || []).map((p: any, idx: number) => (
+                          <div key={idx} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] p-2 space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex-1 min-w-0">
+                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">Nome / Apelido</label>
+                                <input
+                                  type="text"
+                                  value={p.name}
+                                  onChange={(e) => { const name = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], name }; return { ...prev, registeredPrinters: u }; }); }}
+                                  placeholder="ex: Cozinha, Bar, Caixa..."
+                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                />
+                              </div>
+                              <button onClick={() => handleTestPrinter(p.name)}
+                                className="shrink-0 text-[7px] bg-[#141414] text-white px-2 py-1 rounded-md font-bold uppercase hover:opacity-80">Testar</button>
+                              <button onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx) }))}
+                                className="shrink-0 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={11} /></button>
+                            </div>
+                            <div className="flex gap-1.5">
+                              <div className="flex-1 min-w-0">
+                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">IP da Impressora</label>
+                                <input
+                                  type="text"
+                                  value={p.ip || ''}
+                                  onChange={(e) => { const ip = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], ip }; return { ...prev, registeredPrinters: u }; }); }}
+                                  placeholder="192.168.1.10  (deixe vazio se USB)"
+                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-mono font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                />
+                              </div>
+                              <div className="w-14 shrink-0">
+                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">Porta</label>
+                                <input
+                                  type="text"
+                                  value={p.port || '9100'}
+                                  onChange={(e) => { const port = Number(e.target.value) || 9100; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], port }; return { ...prev, registeredPrinters: u }; }); }}
+                                  placeholder="9100"
+                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-mono font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <button
-                      onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '' }] }))}
-                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/50 py-1 rounded-lg text-[7px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors"
+                      onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '', port: 9100 }] }))}
+                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/40 py-1.5 rounded-lg text-[7.5px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/60 transition-colors"
                     >
-                      + Adicionar Impressora
+                      + Adicionar manualmente
                     </button>
                   </div>
 
-                  {/* Direcionamento */}
-                  <div>
-                    <p className="text-[7px] uppercase font-bold opacity-40 mb-1">Direcionamento por canal</p>
-                    <div className="space-y-1.5 mb-2">
+                  {/* ── Passo 3: Roteamento ── */}
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">③ Para onde imprimir?</p>
+                      <p className="text-[7px] opacity-35 mt-0.5">Defina qual impressora recebe cada tipo de pedido. "Auto" envia automaticamente ao lançar o item.</p>
+                    </div>
+                    <div className="space-y-1.5">
                       {([
-                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: pizzariaConfig.enabled ? 'Pizzas' : 'Pratos',  icon: <Pizza size={9} /> },
-                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas', icon: <Beer size={9} /> },
-                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: 'Lanches', icon: <ChefHat size={9} /> },
-                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos', icon: <FileText size={9} /> },
+                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: pizzariaConfig.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={10} /> },
+                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas',  icon: <Beer size={10} /> },
+                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: 'Lanches',  icon: <ChefHat size={10} /> },
+                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos',  icon: <FileText size={10} /> },
                       ] as const).map(({ key, autoKey, label, icon }) => (
-                        <div key={key} className="flex items-center gap-1.5">
-                          <span className="opacity-40 shrink-0">{icon}</span>
-                          <span className="text-[8px] font-bold uppercase opacity-60 w-12 shrink-0 leading-none">{label}</span>
+                        <div key={key} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="opacity-50">{icon}</span>
+                            <span className="text-[8.5px] font-black opacity-70 flex-1">{label}</span>
+                            <button
+                              onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [autoKey]: !(prev as any)[autoKey] }))}
+                              title="Impressão automática ao lançar"
+                              className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[7px] font-bold transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white' : 'bg-[#141414]/8 text-[#141414]/40'}`}
+                            >
+                              <span className={`w-1.5 h-1.5 rounded-full ${(printerConfig as any)[autoKey] ? 'bg-white' : 'bg-[#141414]/30'}`} />
+                              Auto
+                            </button>
+                          </div>
                           <select
                             value={(printerConfig as any)[key] || 'none'}
                             onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, [key]: v })); }}
-                            className="flex-1 min-w-0 bg-[#141414]/5 border-none rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                            className="w-full bg-white border border-[#141414]/10 rounded-md py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
                           >
-                            <option value="none">Sem impressora</option>
+                            <option value="none">— Sem impressora —</option>
                             {(printerConfig.registeredPrinters || []).filter((p: any) => p.name).map((p: any, i: number) => (
                               <option key={i} value={p.name}>{p.name}</option>
                             ))}
                           </select>
-                          <button
-                            onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [autoKey]: !prev[autoKey] }))}
-                            title="Impressão automática ao enviar"
-                            className={`shrink-0 px-1.5 py-1 rounded-lg text-[6.5px] font-bold uppercase border transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white border-green-500' : 'border-[#141414]/20 text-[#141414]/40'}`}
-                          >Auto</button>
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  <button onClick={handleSavePrinters} className="mt-auto w-full bg-[#141414] text-[#E4E3E0] py-1.5 rounded-lg font-bold hover:opacity-90 transition-opacity text-[8px] uppercase shrink-0">
-                    Salvar Impressoras
+                  <button onClick={handleSavePrinters}
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-2 rounded-xl font-bold hover:opacity-90 transition-opacity text-[9px] uppercase tracking-wide">
+                    Salvar configurações
                   </button>
                 </div>
 
