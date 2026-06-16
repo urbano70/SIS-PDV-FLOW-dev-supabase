@@ -13,7 +13,7 @@ const { io }     = require('socket.io-client');
 const fs         = require('fs');
 const path       = require('path');
 const os         = require('os');
-const { execSync, exec, spawn } = require('child_process');
+const { execSync, exec } = require('child_process');
 
 const IS_PKG   = typeof process.pkg !== 'undefined';
 const BASE_DIR = IS_PKG ? path.dirname(process.execPath) : __dirname;
@@ -25,36 +25,16 @@ const GUI_PORT     = 3456;
 // ── Configuração padrão (embutida no exe) ────────────────────────────────────
 const DEFAULT_SERVER_URL = 'https://fechaconta.app';
 
-// ── Ocultar janela do console: relança via VBScript desvinculado ──────────────
-// spawn + detached garante que o processo filho sobrevive mesmo após o pai sair.
 const args = process.argv.slice(2);
-if (process.platform === 'win32' && !args.includes('--hidden') && !args.includes('--uninstall')) {
-  try {
-    const exePath = process.execPath;
-    const safePath = exePath.replace(/"/g, '""');
-    const vbsContent = `CreateObject("WScript.Shell").Run Chr(34) & "${safePath}" & Chr(34) & " --hidden", 0, False`;
-    const tmpVbs = path.join(os.tmpdir(), 'fc_launch.vbs');
-    fs.writeFileSync(tmpVbs, vbsContent, 'utf8');
-    // detached:true + unref() → filho sobrevive após pai encerrar
-    const child = spawn('wscript.exe', [tmpVbs], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
-    setTimeout(() => process.exit(0), 800);
-  } catch {
-    // fallback: continua com janela visível
-  }
-}
-
-// Captura erros não tratados no modo oculto e grava em log ao lado do exe
 const logFile = path.join(BASE_DIR, 'agente.log');
-if (args.includes('--hidden')) {
-  process.on('uncaughtException', (err) => {
-    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ERRO: ${err.stack}\n`); } catch {}
-    process.exit(1);
-  });
-  process.on('unhandledRejection', (err) => {
-    try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] REJEIÇÃO: ${err}\n`); } catch {}
-  });
-}
+
+// Captura erros não tratados e grava em log ao lado do exe
+process.on('uncaughtException', (err) => {
+  try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ERRO: ${err.stack}\n`); } catch {}
+});
+process.on('unhandledRejection', (err) => {
+  try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] REJEIÇÃO: ${err}\n`); } catch {}
+});
 
 let agentStatus  = 'offline';
 let statusMsg    = 'Aguardando configuração.';
@@ -626,7 +606,7 @@ async function runLocalScan(background = false) {
 function installStartup() {
   if (process.platform !== 'win32') return;
   try {
-    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "\\"${process.execPath}\\" --hidden" /f`, { stdio: 'pipe' });
+    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "\\"${process.execPath}\\"" /f`, { stdio: 'pipe' });
     console.log('[ok] Registrado no startup do Windows.');
   } catch (e) { console.error('[erro] Startup:', e.message); }
 }
@@ -677,7 +657,11 @@ function startAgent({ serverUrl, agentSecret = '' }) {
     serverSocket.on('printer_agent_accepted', () => {
       agentStatus = 'online';
       statusMsg = 'Conectado ao servidor. Aguardando emparelhamento no Dashboard.';
-      console.log('[agente] Online. Código de conexão: ' + PAIRING_CODE);
+      console.log('\n========================================');
+      console.log('  CODIGO DE EMPARELHAMENTO: ' + PAIRING_CODE);
+      console.log('  Insira este codigo no Dashboard');
+      console.log('  -> Configuracoes -> Impressoras -> Agente');
+      console.log('========================================\n');
       trayNotify('FechaConta Conectado', 'Código: ' + PAIRING_CODE + '\nInsira no Dashboard → Impressoras');
     });
 
