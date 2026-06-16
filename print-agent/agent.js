@@ -17,13 +17,31 @@ const { execSync, exec } = require('child_process');
 
 const IS_PKG   = typeof process.pkg !== 'undefined';
 const BASE_DIR = IS_PKG ? path.dirname(process.execPath) : __dirname;
-const CONFIG_PATH = path.join(BASE_DIR, 'config.json');
-const APP_NAME    = 'FechaContaAgente';
-const GUI_PORT    = 3456;
+const CONFIG_PATH  = path.join(BASE_DIR, 'config.json');
+const CACHE_PATH   = path.join(BASE_DIR, 'printers_cache.json');
+const APP_NAME     = 'FechaContaAgente';
+const GUI_PORT     = 3456;
 
 // ── Configuração padrão (embutida no exe) ────────────────────────────────────
 const DEFAULT_SERVER_URL = 'https://fechaconta.app';
-let agentStatus  = 'offline';   // 'offline' | 'connecting' | 'online' | 'error'
+
+// ── Ocultar janela do console: relança via VBScript na primeira execução ──────
+// Pkg compila como app de console; o VBScript lança o exe oculto (janela 0).
+const args = process.argv.slice(2);
+if (process.platform === 'win32' && !args.includes('--hidden') && !args.includes('--uninstall')) {
+  try {
+    const exePath = process.execPath;
+    const vbsContent = `CreateObject("WScript.Shell").Run Chr(34) & "${exePath}" & Chr(34) & " --hidden", 0, False`;
+    const tmpVbs = path.join(os.tmpdir(), 'fc_launch.vbs');
+    fs.writeFileSync(tmpVbs, vbsContent, 'utf8');
+    exec(`wscript.exe "${tmpVbs}"`);
+    setTimeout(() => process.exit(0), 300);
+  } catch {
+    // Se falhar, continua normalmente com a janela visível
+  }
+}
+
+let agentStatus  = 'offline';
 let statusMsg    = 'Aguardando configuração.';
 let serverSocket = null;
 let scanResults  = [];
@@ -33,8 +51,6 @@ let isScanRunning = false;
 const PAIRING_CODE = String(Math.floor(100000 + Math.random() * 900000));
 let isPaired = false;
 
-// ── Argumentos ────────────────────────────────────────────────────────────────
-const args = process.argv.slice(2);
 if (args.includes('--uninstall')) { uninstallStartup(); process.exit(0); }
 
 // ── HTML da interface ─────────────────────────────────────────────────────────
@@ -512,18 +528,34 @@ function getWindowsPrinters() {
   }
 }
 
-async function runLocalScan() {
+function loadScanCache() {
+  try {
+    if (fs.existsSync(CACHE_PATH)) {
+      const data = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+      if (Array.isArray(data.results)) return data.results;
+    }
+  } catch {}
+  return null;
+}
+
+function saveScanCache(results) {
+  try {
+    fs.writeFileSync(CACHE_PATH, JSON.stringify({ results, ts: Date.now() }, null, 2), 'utf8');
+  } catch {}
+}
+
+async function runLocalScan(background = false) {
   if (isScanRunning) return;
   isScanRunning = true;
-  scanResults = [];
+
+  // Se for varredura em background (cache hit), não limpa resultados imediatamente
+  if (!background) scanResults = [];
 
   // 1. Impressoras Windows (USB + rede + todas instaladas)
   console.log('[scan] Listando impressoras instaladas no Windows...');
   const winPrinters = getWindowsPrinters();
-  winPrinters.forEach(p => {
-    scanResults.push(p);
-    console.log(`[scan] Windows: ${p.localName} (${p.portName})`);
-  });
+  const freshResults = [...winPrinters];
+  winPrinters.forEach(p => console.log(`[scan] Windows: ${p.localName} (${p.portName})`));
   console.log(`[scan] ${winPrinters.length} impressora(s) Windows encontrada(s).`);
 
   // 2. Scan TCP na rede local
@@ -547,13 +579,15 @@ async function runLocalScan() {
     }
     const results = await Promise.all(batch);
     results.filter(Boolean).forEach(r => {
-      scanResults.push(r);
+      freshResults.push(r);
       console.log(`[scan] Rede: ${r.ip}:${r.port}`);
     });
   }
 
+  scanResults = freshResults;
   isScanRunning = false;
   console.log(`[scan] Concluído. ${scanResults.length} impressora(s) no total.`);
+  saveScanCache(scanResults);
 
   if (serverSocket?.connected) {
     serverSocket.emit('scan_printers_result', { printers: scanResults });
@@ -564,7 +598,7 @@ async function runLocalScan() {
 function installStartup() {
   if (process.platform !== 'win32') return;
   try {
-    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "${process.execPath}" /f`, { stdio: 'pipe' });
+    execSync(`reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /t REG_SZ /d "\\"${process.execPath}\\" --hidden" /f`, { stdio: 'pipe' });
     console.log('[ok] Registrado no startup do Windows.');
   } catch (e) { console.error('[erro] Startup:', e.message); }
 }
@@ -714,6 +748,13 @@ if (!loadedConfig) {
   console.log(`[agente] Primeira execução — usando URL padrão: ${DEFAULT_SERVER_URL}`);
 }
 
+// Carrega cache de impressoras (scan anterior)
+const cachedPrinters = loadScanCache();
+if (cachedPrinters && cachedPrinters.length > 0) {
+  scanResults = cachedPrinters;
+  console.log(`[agente] ${cachedPrinters.length} impressora(s) carregada(s) do cache.`);
+}
+
 // Instala startup e atalhos
 if (process.platform === 'win32') {
   installStartup();
@@ -723,5 +764,8 @@ if (process.platform === 'win32') {
 // Inicia GUI e conecta
 startGui(() => loadedConfig);
 startAgent(loadedConfig);
+
+// Varredura em background (atualiza cache; não bloqueia startup)
+setTimeout(() => runLocalScan(cachedPrinters && cachedPrinters.length > 0), 3000);
 
 console.log(`[agente] Interface em http://127.0.0.1:${GUI_PORT} — abrindo browser...`);
