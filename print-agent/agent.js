@@ -173,7 +173,7 @@ function renderPrinters(results, running) {
     btn.disabled = true;
     btn.innerHTML = '<span class="spin">⟳</span> Buscando...';
     status.style.display = 'block';
-    status.textContent = 'Escaneando a rede... aguarde.';
+    status.textContent = 'Buscando impressoras (rede + Windows)...';
   } else {
     btn.disabled = false;
     btn.innerHTML = '🔍 Buscar';
@@ -182,25 +182,55 @@ function renderPrinters(results, running) {
 
   if (!results.length) {
     el.innerHTML = running
-      ? '<div class="empty">Escaneando...</div>'
+      ? '<div class="empty">Buscando...</div>'
       : '<div class="empty">Nenhuma impressora encontrada.</div>';
     return;
   }
 
-  el.innerHTML = results.map(p => \`
-    <div class="printer-item">
-      <div>
-        <div class="printer-ip">\${p.ip}</div>
-        <div class="printer-label">Porta \${p.port} • Responde ESC/POS</div>
+  const net = results.filter(p => p.ip);
+  const local = results.filter(p => p.localName);
+
+  let html = '';
+
+  if (local.length) {
+    html += '<div style="font-size:10px;font-weight:700;opacity:.4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Impressoras Windows (USB/Local)</div>';
+    html += local.map(p => \`
+      <div class="printer-item">
+        <div style="flex:1;min-width:0">
+          <div class="printer-ip" style="font-size:11px;word-break:break-all">\${p.localName}</div>
+          <div class="printer-label">Porta: \${p.portName || '—'} • \${p.status || 'Instalada'}</div>
+        </div>
+        <button class="copy-btn" onclick="copyName('\${p.localName.replace(/'/g,\\"\\\\\\\\'\\")}')">Copiar</button>
       </div>
-      <button class="copy-btn" onclick="copyIp('\${p.ip}')">Copiar IP</button>
-    </div>
-  \`).join('');
+    \`).join('');
+  }
+
+  if (net.length) {
+    if (local.length) html += '<div style="height:8px"></div>';
+    html += '<div style="font-size:10px;font-weight:700;opacity:.4;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Impressoras de Rede (IP)</div>';
+    html += net.map(p => \`
+      <div class="printer-item">
+        <div>
+          <div class="printer-ip">\${p.ip}</div>
+          <div class="printer-label">Porta \${p.port} • TCP/IP</div>
+        </div>
+        <button class="copy-btn" onclick="copyIp('\${p.ip}')">Copiar IP</button>
+      </div>
+    \`).join('');
+  }
+
+  el.innerHTML = html;
 }
 
 function copyIp(ip) {
   navigator.clipboard.writeText(ip).then(() => {
     alert('IP copiado: ' + ip + '\\nCole no campo IP da impressora no Dashboard.');
+  });
+}
+
+function copyName(name) {
+  navigator.clipboard.writeText(name).then(() => {
+    alert('Nome copiado: ' + name + '\\nUse-o para configurar a impressora no Dashboard.');
   });
 }
 
@@ -348,10 +378,66 @@ async function probeTcp(ip, port = 9100, timeout = 600) {
 // 4000 = Epson TM série via rede
 const PRINTER_PORTS = [9100, 9101, 9102, 515, 631, 6101, 4000];
 
+// Lista impressoras instaladas no Windows via wmic/PowerShell (cobre USB, rede, virtuais)
+function getWindowsPrinters() {
+  if (process.platform !== 'win32') return [];
+  try {
+    // Tenta wmic primeiro (disponível em todas versões do Windows)
+    const raw = execSync(
+      'wmic printer get Name,PortName,PrinterStatus /format:csv 2>nul',
+      { encoding: 'utf8', timeout: 8000, windowsHide: true }
+    );
+    const lines = raw.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('Node,'));
+    const printers = lines.map(line => {
+      const parts = line.split(',');
+      // csv: Node, Name, PortName, PrinterStatus
+      if (parts.length < 3) return null;
+      const name = (parts[1] || '').trim();
+      const portName = (parts[2] || '').trim();
+      const statusCode = (parts[3] || '').trim();
+      if (!name) return null;
+      const statusMap = { '3': 'Pronta', '4': 'Imprimindo', '5': 'Atenção', '6': 'Erro', '7': 'Offline' };
+      return { localName: name, portName, status: statusMap[statusCode] || 'Instalada' };
+    }).filter(Boolean);
+    // Filtra impressoras virtuais/de sistema comuns
+    const skip = /pdf|xps|fax|onenote|microsoft|send to|adobe|bullzip|foxit|doPDF|cutepdf|novapdf/i;
+    return printers.filter(p => !skip.test(p.localName));
+  } catch (e1) {
+    // Fallback: PowerShell
+    try {
+      const raw = execSync(
+        'powershell -NoProfile -Command "Get-Printer | Where-Object {$_.Type -ne \'Local\' -or $_.PortName -notmatch \'PORTPROMPT|NUL|FILE|XPS|PDF\'} | Select-Object Name,PortName,PrinterStatus | ConvertTo-Csv -NoTypeInformation" 2>nul',
+        { encoding: 'utf8', timeout: 10000, windowsHide: true }
+      );
+      const lines = raw.split(/\r?\n/).filter(l => l.trim() && !l.startsWith('"Name"'));
+      return lines.map(line => {
+        const parts = line.replace(/"/g, '').split(',');
+        const name = (parts[0] || '').trim();
+        const portName = (parts[1] || '').trim();
+        const status = (parts[2] || 'Instalada').trim();
+        return name ? { localName: name, portName, status } : null;
+      }).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+}
+
 async function runLocalScan() {
   if (isScanRunning) return;
   isScanRunning = true;
   scanResults = [];
+
+  // 1. Impressoras Windows (USB + rede + todas instaladas)
+  console.log('[scan] Listando impressoras instaladas no Windows...');
+  const winPrinters = getWindowsPrinters();
+  winPrinters.forEach(p => {
+    scanResults.push(p);
+    console.log(`[scan] Windows: ${p.localName} (${p.portName})`);
+  });
+  console.log(`[scan] ${winPrinters.length} impressora(s) Windows encontrada(s).`);
+
+  // 2. Scan TCP na rede local
   const base = getLocalNetworkBase();
   console.log(`[scan] Escaneando ${base}.1 — ${base}.254 nas portas ${PRINTER_PORTS.join(', ')}...`);
 
@@ -360,29 +446,26 @@ async function runLocalScan() {
     const batch = [];
     for (let i = start; i < start + BATCH && i <= 254; i++) {
       const ip = `${base}.${i}`;
-      // Testa todas as portas em paralelo para cada IP
       const portProbes = PRINTER_PORTS.map(port =>
         probeTcp(ip, port).then(ok => ok ? { ip, port } : null)
       );
-      // Retorna a primeira porta que respondeu (ou null se nenhuma)
       batch.push(
         Promise.all(portProbes).then(results => {
           const found = results.filter(Boolean);
-          return found.length > 0 ? found[0] : null; // porta de menor índice = mais comum
+          return found.length > 0 ? found[0] : null;
         })
       );
     }
     const results = await Promise.all(batch);
     results.filter(Boolean).forEach(r => {
       scanResults.push(r);
-      console.log(`[scan] Impressora encontrada: ${r.ip}:${r.port}`);
+      console.log(`[scan] Rede: ${r.ip}:${r.port}`);
     });
   }
 
   isScanRunning = false;
-  console.log(`[scan] Concluído. ${scanResults.length} impressora(s) encontrada(s).`);
+  console.log(`[scan] Concluído. ${scanResults.length} impressora(s) no total.`);
 
-  // Reporta para o Dashboard via socket se conectado
   if (serverSocket?.connected) {
     serverSocket.emit('scan_printers_result', { printers: scanResults });
   }
