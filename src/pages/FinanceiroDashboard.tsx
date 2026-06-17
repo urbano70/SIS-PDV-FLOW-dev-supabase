@@ -820,7 +820,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
         </button>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-[#141414] rounded-full" />
-          <span className="font-serif italic text-lg font-bold">Controle Financeiro</span>
+          <span className="font-serif italic text-lg font-bold">Gestão Empresarial</span>
         </div>
         <nav className="ml-6 flex gap-1">
           {([

@@ -1913,7 +1913,7 @@ async function startServer() {
     const today = todayDateStr();
     if ((tokenData as any).date !== today) return res.status(410).json({ error: "QR Code expirado. Solicite um novo ao gestor." });
 
-    const { data: employees } = await db.from('fin_employees').select('id, name').eq('tenant_id', (tokenData as any).tenant_id).eq('status', 'ativo').order('name');
+    const { data: employees } = await db.from('fin_employees').select('id, name').eq('tenant_id', (tokenData as any).tenant_id).neq('status', 'inativo').order('name');
     const { data: records } = await db.from('fin_attendance_records').select('employee_id').eq('tenant_id', (tokenData as any).tenant_id).eq('date', today);
     const confirmedIds = new Set(((records || []) as any[]).map(r => r.employee_id));
 
