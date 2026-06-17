@@ -250,7 +250,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
             <div className="grid grid-cols-2 border-b border-[#141414]/10">
               {([
                 { id: 'pdv',        label: 'Acesso à Aplicação', icon: Store },
-                { id: 'financeiro', label: 'Controle Financeiro', icon: DollarSign },
+                { id: 'financeiro', label: 'Gestão Empresarial', icon: DollarSign },
               ] as const).map(({ id, label, icon: Icon }) => (
                 <button key={id} onClick={() => setModuleTab(id)}
                   className={`flex items-center justify-center gap-2 py-4 text-sm font-bold transition-all border-b-2 -mb-px ${moduleTab === id ? 'border-[#141414] text-[#141414]' : 'border-transparent text-[#141414]/40 hover:text-[#141414]/70'}`}>
@@ -344,7 +344,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                 <button onClick={() => window.open('/financeiro', '_blank')}
                   className="w-full bg-[#141414] text-[#E4E3E0] hover:opacity-90 transition-opacity py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-3 shadow-md group">
                   <DollarSign size={20} className="group-hover:scale-110 transition-transform" />
-                  <span>Abrir Controle Financeiro</span>
+                  <span>Abrir Gestão Empresarial</span>
                   <ExternalLink size={16} className="opacity-60" />
                 </button>
               </div>
