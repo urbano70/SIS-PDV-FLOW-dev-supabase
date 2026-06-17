@@ -43,6 +43,21 @@ let isScanRunning = false;
 
 if (args.includes('--uninstall')) { uninstallStartup(); process.exit(0); }
 
+// Oculta a janela do console via Win32 API (necessário pois pkg compila como subsistema console)
+if (process.platform === 'win32') {
+  const pid = process.pid;
+  setTimeout(() => {
+    exec(
+      `powershell -NoProfile -WindowStyle Hidden -Command ` +
+      `"$p=Get-Process -Id ${pid} -EA SilentlyContinue;` +
+      `if($p -and $p.MainWindowHandle -ne 0){` +
+      `Add-Type -Name W -Namespace W -MemberDefinition '[DllImport(\\"user32.dll\\")] public static extern bool ShowWindow(IntPtr h,int n);';` +
+      `[W.W]::ShowWindow($p.MainWindowHandle,0)}"`,
+      { windowsHide: true }
+    );
+  }, 800);
+}
+
 // ── Scan de rede ─────────────────────────────────────────────────────────────
 function getLocalNetworkBase() {
   const ifaces = os.networkInterfaces();
