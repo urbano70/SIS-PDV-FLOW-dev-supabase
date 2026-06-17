@@ -390,6 +390,43 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const [discSelectedIds, setDiscSelectedIds] = useState<string[]>([]);
   const [discDate, setDiscDate] = useState(todayISO());
   const [discSaving, setDiscSaving] = useState(false);
+  // Sub-abas da aba Colaboradores
+  const [empSubTab, setEmpSubTab] = useState<'equipe' | 'presenca'>('equipe');
+
+  // Matriz de presença
+  const [attMatrixOffset, setAttMatrixOffset] = useState(0); // 0=ciclo atual, -1=anterior, etc.
+  const [attMatrixRecords, setAttMatrixRecords] = useState<any[]>([]);
+  const [attMatrixLoading, setAttMatrixLoading] = useState(false);
+
+  function getCycleDaysAtOffset(startDow: number, offset: number): Date[] {
+    const today = new Date();
+    const daysBack = (today.getDay() - startDow + 7) % 7;
+    const start = new Date(today);
+    start.setDate(today.getDate() - daysBack + offset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return d;
+    });
+  }
+
+  const loadAttMatrix = async (offset: number) => {
+    setAttMatrixLoading(true);
+    const days = getCycleDaysAtOffset(discCycleStartDay, offset);
+    const from = days[0].toISOString().slice(0, 10);
+    const to = days[6].toISOString().slice(0, 10);
+    try {
+      const r = await fetch(`/api/attendance/records/${tenantId}?from=${from}&to=${to}`);
+      const d = await r.json();
+      setAttMatrixRecords(d.records || []);
+    } catch {}
+    setAttMatrixLoading(false);
+  };
+
+  useEffect(() => {
+    if (empSubTab === 'presenca') loadAttMatrix(attMatrixOffset);
+  }, [empSubTab, attMatrixOffset, discCycleStartDay]);
+
   // Ciclo semanal de descontos
   const [discCycleStartDay, setDiscCycleStartDay] = useState<number>(() => {
     const saved = localStorage.getItem(`disc_cycle_start_${tenantId}`);
@@ -1051,7 +1088,21 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               </button>
             </div>
 
-            {/* Table */}
+            {/* Sub-abas */}
+            <div className="flex gap-1 mb-4 bg-[#F5F5F3] p-1 rounded-xl w-fit">
+              {([
+                { id: 'equipe', label: 'Equipe' },
+                { id: 'presenca', label: 'Presença' },
+              ] as const).map(({ id, label }) => (
+                <button key={id} onClick={() => setEmpSubTab(id)}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${empSubTab === id ? 'bg-white text-[#141414] shadow-sm' : 'text-[#141414]/40 hover:text-[#141414]/70'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Sub-aba: EQUIPE ─────────────────────────────── */}
+            {empSubTab === 'equipe' && (
             <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden">
               {filteredEmps.length === 0 ? (
                 <div className="p-12 text-center opacity-40">
@@ -1113,6 +1164,147 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 </table>
               )}
             </div>
+            )}
+
+            {/* ── Sub-aba: PRESENÇA ───────────────────────────── */}
+            {empSubTab === 'presenca' && (() => {
+              const cycleDays = getCycleDaysAtOffset(discCycleStartDay, attMatrixOffset);
+              const from = cycleDays[0].toISOString().slice(0, 10);
+              const to = cycleDays[6].toISOString().slice(0, 10);
+              const activeEmpsForMatrix = employees.filter(e => e.status !== 'inativo');
+
+              // Map: date -> Set of employee_ids confirmed
+              const confirmedMap: Record<string, Set<string>> = {};
+              attMatrixRecords.forEach(r => {
+                if (!confirmedMap[r.date]) confirmedMap[r.date] = new Set();
+                confirmedMap[r.date].add(r.employee_id);
+              });
+
+              const totalDays = cycleDays.length;
+              const cycleLabel = `${cycleDays[0].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} – ${cycleDays[6].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+              return (
+                <div>
+                  {/* Navegação de ciclos */}
+                  <div className="flex items-center justify-between mb-4">
+                    <button onClick={() => setAttMatrixOffset(o => o - 1)}
+                      className="px-3 py-1.5 bg-white border border-[#141414]/15 rounded-xl text-xs font-bold hover:bg-gray-50 transition-colors flex items-center gap-1">
+                      ← Anterior
+                    </button>
+                    <div className="text-center">
+                      <p className="text-sm font-bold">{cycleLabel}</p>
+                      {attMatrixOffset === 0 && <p className="text-[10px] text-green-600 font-bold">Ciclo atual</p>}
+                      {attMatrixOffset < 0 && <p className="text-[10px] opacity-40">{Math.abs(attMatrixOffset)} ciclo{Math.abs(attMatrixOffset) > 1 ? 's' : ''} atrás</p>}
+                    </div>
+                    <button onClick={() => setAttMatrixOffset(o => Math.min(o + 1, 0))}
+                      disabled={attMatrixOffset >= 0}
+                      className="px-3 py-1.5 bg-white border border-[#141414]/15 rounded-xl text-xs font-bold hover:bg-gray-50 transition-colors disabled:opacity-30 flex items-center gap-1">
+                      Próximo →
+                    </button>
+                  </div>
+
+                  {/* Resumo do ciclo */}
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    <div className="bg-white rounded-xl border border-[#141414]/10 p-3 text-center">
+                      <p className="text-[10px] uppercase font-bold opacity-40 mb-1">Colaboradores</p>
+                      <p className="text-xl font-bold">{activeEmpsForMatrix.length}</p>
+                    </div>
+                    <div className="bg-green-50 rounded-xl border border-green-100 p-3 text-center">
+                      <p className="text-[10px] uppercase font-bold text-green-600 mb-1">Total Presenças</p>
+                      <p className="text-xl font-bold text-green-700">{attMatrixRecords.length}</p>
+                    </div>
+                    <div className="bg-red-50 rounded-xl border border-red-100 p-3 text-center">
+                      <p className="text-[10px] uppercase font-bold text-red-500 mb-1">Total Faltas</p>
+                      <p className="text-xl font-bold text-red-600">
+                        {activeEmpsForMatrix.length * totalDays - attMatrixRecords.length}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabela / Matriz */}
+                  {attMatrixLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={24} className="animate-spin opacity-40" />
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-x-auto">
+                      <table className="w-full text-sm border-collapse">
+                        <thead className="bg-[#F5F5F3]">
+                          <tr>
+                            <th className="text-left px-4 py-3 text-[11px] font-bold uppercase opacity-40 sticky left-0 bg-[#F5F5F3] min-w-36 border-r border-[#141414]/10">
+                              Colaborador
+                            </th>
+                            {cycleDays.map(d => {
+                              const isToday = d.toISOString().slice(0, 10) === todayISO();
+                              return (
+                                <th key={d.toISOString()} className={`text-center px-2 py-3 min-w-12 ${isToday ? 'bg-[#141414]/5' : ''}`}>
+                                  <p className="text-[10px] font-bold opacity-40">{DAY_ABBR[d.getDay()]}</p>
+                                  <p className={`text-sm font-bold ${isToday ? 'text-[#141414]' : 'opacity-60'}`}>{d.getDate()}</p>
+                                </th>
+                              );
+                            })}
+                            <th className="text-center px-3 py-3 text-[11px] font-bold uppercase opacity-40 min-w-20">
+                              Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activeEmpsForMatrix.length === 0 ? (
+                            <tr>
+                              <td colSpan={totalDays + 2} className="text-center py-10 opacity-40 text-sm">
+                                Nenhum colaborador ativo.
+                              </td>
+                            </tr>
+                          ) : (
+                            activeEmpsForMatrix.map(emp => {
+                              const presences = cycleDays.filter(d => {
+                                const dateStr = d.toISOString().slice(0, 10);
+                                return confirmedMap[dateStr]?.has(emp.id);
+                              }).length;
+                              return (
+                                <tr key={emp.id} className="border-t border-[#14141408] hover:bg-[#F5F5F3]/40 transition-colors">
+                                  <td className="px-4 py-2.5 sticky left-0 bg-white border-r border-[#141414]/10">
+                                    <p className="font-semibold text-sm truncate max-w-32">{emp.name}</p>
+                                    <p className="text-[10px] opacity-40 truncate">{emp.role || emp.department}</p>
+                                  </td>
+                                  {cycleDays.map(d => {
+                                    const dateStr = d.toISOString().slice(0, 10);
+                                    const isFuture = dateStr > todayISO();
+                                    const confirmed = confirmedMap[dateStr]?.has(emp.id);
+                                    const isToday = dateStr === todayISO();
+                                    return (
+                                      <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : ''}`}>
+                                        {isFuture ? (
+                                          <span className="text-[#141414]/15 text-lg">·</span>
+                                        ) : confirmed ? (
+                                          <span className="text-green-500 font-bold text-base" title="Presente">✓</span>
+                                        ) : (
+                                          <span className="text-red-300 text-sm font-bold" title="Ausente">✕</span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="text-center px-3 py-2.5">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${presences === totalDays ? 'bg-green-100 text-green-700' : presences === 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                                      {presences}/{totalDays}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-center opacity-30 mt-3">
+                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · · Futuro
+                  </p>
+                </div>
+              );
+            })()}
+
           </div>
         )}
 
