@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   LayoutDashboard, Users, Receipt, ArrowLeft, Plus, Search, Edit2,
   Trash2, X, Check, ChevronDown, TrendingUp, TrendingDown, Wallet,
   Building, AlertCircle, Loader2, DollarSign, UserCheck, UserX, Calendar,
-  Settings, History
+  Settings, History, QrCode, Printer, ClipboardList
 } from 'lucide-react';
 
 // ── Config types ───────────────────────────────────────────────────────────────
@@ -490,6 +491,70 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const [valeSelectedIds, setValeSelectedIds] = useState<string[]>([]);
   const [valeDate, setValeDate] = useState(todayISO());
   const [valeSaving, setValeSaving] = useState(false);
+
+  // Presença / QR Code
+  const [attQrModal, setAttQrModal] = useState(false);
+  const [attToken, setAttToken] = useState('');
+  const [attDate, setAttDate] = useState('');
+  const [attUrl, setAttUrl] = useState('');
+  const [attLoading, setAttLoading] = useState(false);
+  const [attRecords, setAttRecords] = useState<any[]>([]);
+  const [attPanelDate, setAttPanelDate] = useState(todayISO());
+  const [attPanelOpen, setAttPanelOpen] = useState(false);
+  const [attPanelRecords, setAttPanelRecords] = useState<any[]>([]);
+  const [attPanelLoading, setAttPanelLoading] = useState(false);
+
+  const openAttQr = async () => {
+    setAttLoading(true);
+    setAttQrModal(true);
+    try {
+      const r = await fetch('/api/attendance/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId }),
+      });
+      const data = await r.json();
+      if (data.error) { toast.error(data.error); setAttQrModal(false); }
+      else {
+        const url = `${window.location.origin}/presenca/${data.token}`;
+        setAttToken(data.token);
+        setAttDate(data.date);
+        setAttUrl(url);
+        // Load today's records
+        const rr = await fetch(`/api/attendance/records/${tenantId}?from=${data.date}&to=${data.date}`);
+        const dd = await rr.json();
+        setAttRecords(dd.records || []);
+      }
+    } catch { toast.error('Erro ao gerar QR de presença.'); setAttQrModal(false); }
+    setAttLoading(false);
+  };
+
+  const loadAttPanel = async (date: string) => {
+    setAttPanelLoading(true);
+    try {
+      const r = await fetch(`/api/attendance/records/${tenantId}?from=${date}&to=${date}`);
+      const d = await r.json();
+      setAttPanelRecords(d.records || []);
+    } catch {}
+    setAttPanelLoading(false);
+  };
+
+  const openAttPanel = () => { setAttPanelOpen(true); loadAttPanel(attPanelDate); };
+
+  const printAttQr = () => {
+    const win = window.open('', '_blank', 'width=400,height=500');
+    if (!win) return;
+    const dateLabel = new Date(attDate + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const qrImg = document.getElementById('att-qr-svg')?.querySelector('svg')?.outerHTML || '';
+    win.document.write(`<!DOCTYPE html><html><head><title>QR Presença</title>
+      <style>body{font-family:sans-serif;text-align:center;padding:40px}h2{margin-bottom:4px}p{opacity:.6;font-size:14px;margin-bottom:20px}.qr{display:inline-block;border:3px solid #000;border-radius:12px;padding:12px;background:#fff}</style>
+      </head><body><h2>Registro de Presença</h2><p style="text-transform:capitalize">${dateLabel}</p>
+      <div class="qr">${qrImg}</div>
+      <p style="margin-top:16px;font-size:12px">Escaneie o QR Code para confirmar sua presença</p>
+      <script>window.onload=()=>{window.print();window.close()}</script>
+      </body></html>`);
+    win.document.close();
+  };
 
   const applyVales = async () => {
     if (valeSelectedIds.length === 0) { toast.error('Selecione pelo menos um colaborador.'); return; }
@@ -975,6 +1040,10 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 setBatchPayModal(true);
               }} className="px-4 py-2 bg-white border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/75 hover:bg-[#141414]/5 hover:text-[#141414] transition-all">
                 Pagamentos
+              </button>
+              <button onClick={openAttQr}
+                className="flex items-center gap-1.5 px-4 py-2 bg-[#141414] text-[#E4E3E0] border border-[#141414] rounded-xl text-xs font-bold hover:opacity-80 transition-all">
+                <QrCode size={13} /> QR Presença
               </button>
               <button onClick={() => setFolgaTableModal(true)}
                 className="flex items-center gap-1.5 px-4 py-2 bg-white border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/75 hover:bg-[#141414]/5 hover:text-[#141414] transition-all ml-auto">
@@ -2204,6 +2273,190 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: QR de Presença ─────────────────────────────────────────────── */}
+      {attQrModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#141414]/10">
+              <h3 className="font-serif italic text-xl font-bold flex items-center gap-2">
+                <QrCode size={18} /> QR Code de Presença
+              </h3>
+              <button onClick={() => setAttQrModal(false)} className="p-1.5 hover:bg-gray-100 rounded-full"><X size={16} /></button>
+            </div>
+
+            <div className="p-6">
+              {attLoading ? (
+                <div className="flex flex-col items-center py-10 gap-3">
+                  <Loader2 size={28} className="animate-spin opacity-40" />
+                  <p className="text-sm opacity-40">Gerando QR Code...</p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-center opacity-50 mb-1 capitalize">
+                    {attDate ? new Date(attDate + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : ''}
+                  </p>
+                  <p className="text-xs text-center opacity-40 mb-5">Válido apenas hoje · Um registro por colaborador</p>
+
+                  <div id="att-qr-svg" className="flex justify-center mb-5">
+                    <div className="bg-white border-4 border-[#141414] rounded-2xl p-4 shadow-sm">
+                      <QRCodeSVG value={attUrl} size={180} fgColor="#141414" bgColor="#ffffff" />
+                    </div>
+                  </div>
+
+                  <div className="bg-[#F5F5F3] rounded-xl px-3 py-2 mb-5 text-center">
+                    <p className="text-[10px] font-mono text-[#141414]/50 break-all">{attUrl}</p>
+                  </div>
+
+                  <div className="flex gap-2 mb-5">
+                    <button onClick={printAttQr}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#141414] text-[#E4E3E0] rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
+                      <Printer size={13} /> Imprimir
+                    </button>
+                    <button onClick={() => { navigator.clipboard.writeText(attUrl); toast.success('Link copiado!'); }}
+                      className="flex-1 py-2.5 border border-[#141414]/20 text-[#141414] rounded-xl text-xs font-bold hover:bg-gray-50 transition-colors">
+                      Copiar Link
+                    </button>
+                    <button onClick={openAttPanel}
+                      className="flex items-center gap-1.5 px-4 py-2.5 border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/70 hover:bg-gray-50 transition-colors">
+                      <ClipboardList size={13} />
+                      {attRecords.length > 0 && <span className="bg-green-500 text-white text-[9px] rounded-full w-4 h-4 flex items-center justify-center">{attRecords.length}</span>}
+                    </button>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-40 mb-2">
+                      Confirmados hoje ({attRecords.length})
+                    </p>
+                    {attRecords.length === 0 ? (
+                      <p className="text-xs opacity-30 text-center py-3">Nenhuma confirmação ainda.</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                        {attRecords.map(r => (
+                          <div key={r.id} className="flex items-center justify-between bg-green-50 border border-green-100 rounded-xl px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 bg-green-200 text-green-800 rounded-full flex items-center justify-center text-[10px] font-bold">
+                                {r.employee_name?.[0]}
+                              </div>
+                              <span className="text-xs font-semibold text-green-800">{r.employee_name}</span>
+                            </div>
+                            <span className="text-[10px] text-green-600 font-mono">
+                              {new Date(r.confirmed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Painel de Presenças ────────────────────────────────────────── */}
+      {attPanelOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#141414]/10">
+              <h3 className="font-serif italic text-xl font-bold flex items-center gap-2">
+                <ClipboardList size={18} /> Painel de Presenças
+              </h3>
+              <button onClick={() => setAttPanelOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full"><X size={16} /></button>
+            </div>
+
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-5">
+                <input
+                  type="date"
+                  value={attPanelDate}
+                  onChange={e => { setAttPanelDate(e.target.value); loadAttPanel(e.target.value); }}
+                  className="flex-1 px-3 py-2 bg-[#F5F5F3] border border-[#141414]/10 rounded-xl text-sm focus:outline-none"
+                />
+                <button onClick={() => loadAttPanel(attPanelDate)}
+                  className="px-4 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-opacity">
+                  Atualizar
+                </button>
+              </div>
+
+              {attPanelLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={24} className="animate-spin opacity-40" />
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-bold uppercase tracking-wider opacity-40">
+                      {new Date(attPanelDate + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                    </p>
+                    <div className="flex gap-2 text-xs">
+                      <span className="bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full">
+                        {attPanelRecords.length} presença{attPanelRecords.length !== 1 ? 's' : ''}
+                      </span>
+                      {(() => {
+                        const absent = employees.filter(e => e.status === 'ativo').length - attPanelRecords.length;
+                        return absent > 0 ? (
+                          <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
+                            {absent} falta{absent !== 1 ? 's' : ''}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+                  </div>
+
+                  {attPanelRecords.length === 0 ? (
+                    <div className="text-center py-8 border border-dashed border-[#141414]/10 rounded-xl opacity-40">
+                      <ClipboardList size={28} className="mx-auto mb-2" />
+                      <p className="text-sm">Nenhuma presença registrada nesta data.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto">
+                      {attPanelRecords.map(r => (
+                        <div key={r.id} className="flex items-center justify-between bg-[#F5F5F3] rounded-xl px-3 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 bg-green-100 text-green-700 rounded-full flex items-center justify-center text-xs font-bold">
+                              {r.employee_name?.[0]}
+                            </div>
+                            <span className="text-sm font-semibold">{r.employee_name}</span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] font-mono text-[#141414]/50">
+                              {new Date(r.confirmed_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                            <p className="text-[9px] text-green-600 font-bold">✓ Confirmado</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {(() => {
+                    const presentIds = new Set(attPanelRecords.map(r => r.employee_id));
+                    const absent = employees.filter(e => e.status === 'ativo' && !presentIds.has(e.id));
+                    if (absent.length === 0) return null;
+                    return (
+                      <div className="mt-4">
+                        <p className="text-[10px] font-bold uppercase tracking-wider opacity-40 mb-2">Ausentes ({absent.length})</p>
+                        <div className="space-y-1.5">
+                          {absent.map(e => (
+                            <div key={e.id} className="flex items-center gap-2.5 px-3 py-2 bg-red-50 border border-red-100 rounded-xl">
+                              <div className="w-6 h-6 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-[10px] font-bold">
+                                {e.name[0]}
+                              </div>
+                              <span className="text-xs font-medium text-red-700">{e.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

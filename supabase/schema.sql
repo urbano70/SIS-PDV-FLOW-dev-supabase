@@ -121,6 +121,32 @@ do $$ begin
   alter publication supabase_realtime add table pizza_crusts;
 exception when others then null; end $$;
 
+-- ── Controle de Presença ─────────────────────────────────────
+-- Um token por tenant por dia; colaboradores confirmam via QR
+create table if not exists fin_attendance_tokens (
+  id         text primary key,
+  tenant_id  text not null,
+  date       date not null,
+  token      text not null unique,
+  created_at timestamptz default now(),
+  unique(tenant_id, date)
+);
+
+-- Registro de presença: cada colaborador confirma uma vez por dia
+create table if not exists fin_attendance_records (
+  id            text primary key,
+  tenant_id     text not null,
+  employee_id   text not null,
+  employee_name text not null,
+  date          date not null,
+  confirmed_at  timestamptz default now(),
+  token_id      text not null,
+  unique(tenant_id, employee_id, date)
+);
+
+alter table fin_attendance_tokens  disable row level security;
+alter table fin_attendance_records disable row level security;
+
 -- ── RLS (Row Level Security) ──────────────────────────────────
 -- Por enquanto desabilitado: o servidor acessa via service_role key (bypass RLS)
 -- Habilite e crie políticas quando adicionar auth por tenant

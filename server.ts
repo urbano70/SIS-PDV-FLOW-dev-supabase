@@ -1873,6 +1873,103 @@ async function startServer() {
     return res.json({ success: true, waiter: { id: newWaiter.id, name: newWaiter.name, status: newWaiter.status } });
   });
 
+  // ── Controle de Presença ──────────────────────────────────────────────────────
+
+  function todayDateStr() {
+    return new Date().toISOString().split('T')[0];
+  }
+
+  // Gera ou retorna o token do dia para um tenant
+  app.post("/api/attendance/token", express.json(), async (req, res) => {
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
+    const { tenantId } = req.body;
+    if (!tenantId) return res.status(400).json({ error: "tenantId obrigatório" });
+
+    const today = todayDateStr();
+    const { data: existing } = await db.from('fin_attendance_tokens').select('*').eq('tenant_id', tenantId).eq('date', today).single();
+    if (existing) {
+      return res.json({ token: existing.token, date: existing.date });
+    }
+
+    const newToken = {
+      id: `att_${tenantId}_${today}`,
+      tenant_id: tenantId,
+      date: today,
+      token: Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10),
+    };
+    const { data, error } = await db.from('fin_attendance_tokens').insert(newToken).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ token: (data as any).token, date: (data as any).date });
+  });
+
+  // Página pública: info do token (data + lista de colaboradores do tenant)
+  app.get("/api/attendance/:token", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
+    const { token } = req.params;
+
+    const { data: tokenData } = await db.from('fin_attendance_tokens').select('*').eq('token', token).single();
+    if (!tokenData) return res.status(404).json({ error: "QR Code inválido ou expirado." });
+
+    const today = todayDateStr();
+    if ((tokenData as any).date !== today) return res.status(410).json({ error: "QR Code expirado. Solicite um novo ao gestor." });
+
+    const { data: employees } = await db.from('fin_employees').select('id, name').eq('tenant_id', (tokenData as any).tenant_id).eq('status', 'ativo').order('name');
+    const { data: records } = await db.from('fin_attendance_records').select('employee_id').eq('tenant_id', (tokenData as any).tenant_id).eq('date', today);
+    const confirmedIds = new Set(((records || []) as any[]).map(r => r.employee_id));
+
+    return res.json({
+      date: (tokenData as any).date,
+      employees: ((employees || []) as any[]).map(e => ({ id: e.id, name: e.name, confirmed: confirmedIds.has(e.id) })),
+    });
+  });
+
+  // Confirmação pública de presença
+  app.post("/api/attendance/:token/confirm", express.json(), async (req, res) => {
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
+    const { token } = req.params;
+    const { employee_id } = req.body;
+    if (!employee_id) return res.status(400).json({ error: "employee_id obrigatório" });
+
+    const { data: tokenData } = await db.from('fin_attendance_tokens').select('*').eq('token', token).single();
+    if (!tokenData) return res.status(404).json({ error: "QR Code inválido." });
+
+    const today = todayDateStr();
+    if ((tokenData as any).date !== today) return res.status(410).json({ error: "QR Code expirado." });
+
+    const { data: emp } = await db.from('fin_employees').select('name').eq('id', employee_id).single();
+    if (!emp) return res.status(404).json({ error: "Colaborador não encontrado." });
+
+    const record = {
+      id: `rec_${(tokenData as any).tenant_id}_${employee_id}_${today}`,
+      tenant_id: (tokenData as any).tenant_id,
+      employee_id,
+      employee_name: (emp as any).name,
+      date: today,
+      confirmed_at: new Date().toISOString(),
+      token_id: (tokenData as any).id,
+    };
+
+    const { error } = await db.from('fin_attendance_records').upsert(record);
+    if (error) return res.status(500).json({ error: error.message });
+
+    return res.json({ ok: true, name: (emp as any).name });
+  });
+
+  // Registros de presença por tenant e período (usado pelo Dashboard)
+  app.get("/api/attendance/records/:tenantId", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
+    const { tenantId } = req.params;
+    const { from, to } = req.query as { from?: string; to?: string };
+
+    let q = db.from('fin_attendance_records').select('*').eq('tenant_id', tenantId).order('date', { ascending: false }).order('confirmed_at', { ascending: true });
+    if (from) q = q.gte('date', from);
+    if (to) q = q.lte('date', to);
+
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ records: data || [] });
+  });
+
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
