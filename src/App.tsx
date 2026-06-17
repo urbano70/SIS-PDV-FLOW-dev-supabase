@@ -20,6 +20,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import UserPanel from './pages/UserPanel';
 import FinanceiroDashboard from './pages/FinanceiroDashboard';
+import AttendancePage from './pages/AttendancePage';
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -379,6 +380,7 @@ export default function App() {
           element={ownerUser ? <FinanceiroDashboard ownerUser={ownerUser} /> : <Navigate to="/login" replace />}
         />
         <Route path="/waiter" element={<WaiterRoute />} />
+        <Route path="/presenca/:token" element={<AttendancePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
