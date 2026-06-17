@@ -423,15 +423,15 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
     setAttMatrixLoading(false);
   };
 
-  useEffect(() => {
-    if (empSubTab === 'presenca') loadAttMatrix(attMatrixOffset);
-  }, [empSubTab, attMatrixOffset, discCycleStartDay]);
-
   // Ciclo semanal de descontos
   const [discCycleStartDay, setDiscCycleStartDay] = useState<number>(() => {
     const saved = localStorage.getItem(`disc_cycle_start_${tenantId}`);
     return saved !== null ? Number(saved) : 1; // padrão: segunda-feira
   });
+
+  useEffect(() => {
+    if (empSubTab === 'presenca') loadAttMatrix(attMatrixOffset);
+  }, [empSubTab, attMatrixOffset, discCycleStartDay]);
   const [discFolgaDow, setDiscFolgaDow] = useState<number>(() => {
     const saved = localStorage.getItem(`disc_folga_dow_${tenantId}`);
     return saved !== null ? Number(saved) : 0; // padrão: domingo
