@@ -1664,8 +1664,14 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                             (discFechadoDow >= 0 && dow === discFechadoDow);
                           return !isRest && !cycleAttDates.has(dateStr);
                         });
-                      const activeAbsences = absences.filter(d => !excusedAbsences.has(d));
                       if (absences.length === 0) return null;
+                      // valor de um dia de trabalho
+                      const effDays = getEffectiveDays(cycleEmployee);
+                      const dayValue = cycleEmployee.payment_type === 'daily'
+                        ? (cycleEmployee.daily_rate || 0)
+                        : effDays > 0 ? (cycleEmployee.monthly_salary || 0) / effDays : 0;
+                      const activeAbsences = absences.filter(d => !excusedAbsences.has(d));
+                      const absenceDeduction = activeAbsences.length * dayValue;
                       return (
                         <div className="border-t border-[#141414]/5 pt-3">
                           <p className="text-[10px] font-bold uppercase opacity-40 mb-2">Faltas no Ciclo</p>
@@ -1674,8 +1680,11 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                               const excused = excusedAbsences.has(dateStr);
                               const label = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
                               return (
-                                <div key={dateStr} className={`flex items-center justify-between px-2 py-1.5 rounded-lg ${excused ? 'bg-gray-50 opacity-50' : 'bg-red-50'}`}>
-                                  <span className={`text-xs font-semibold ${excused ? 'text-gray-400 line-through' : 'text-red-600'}`}>{label}</span>
+                                <div key={dateStr} className={`flex items-center justify-between px-2 py-1.5 rounded-lg ${excused ? 'bg-gray-50 opacity-40' : 'bg-red-50'}`}>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-xs font-semibold ${excused ? 'text-gray-400 line-through' : 'text-red-600'}`}>{label}</span>
+                                    {dayValue > 0 && <span className={`text-[10px] font-mono ${excused ? 'text-gray-300' : 'text-red-400'}`}>- {fmt(dayValue)}</span>}
+                                  </div>
                                   <button
                                     onClick={() => {
                                       setExcusedAbsences(prev => {
@@ -1686,24 +1695,50 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                         return next;
                                       });
                                     }}
-                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${excused ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors flex-shrink-0 ${excused ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
                                   >{excused ? 'Restaurar' : 'Remover'}</button>
                                 </div>
                               );
                             })}
                           </div>
-                          {activeAbsences.length > 0 && (
-                            <p className="text-[10px] text-red-500 font-bold mt-2">{activeAbsences.length} falta{activeAbsences.length > 1 ? 's' : ''} registrada{activeAbsences.length > 1 ? 's' : ''} neste ciclo</p>
+                          {absenceDeduction > 0 && (
+                            <div className="flex justify-between font-bold text-red-600 mt-2">
+                              <span>(-) Desconto por faltas</span>
+                              <span className="font-mono">- {fmt(absenceDeduction)}</span>
+                            </div>
                           )}
                         </div>
                       );
                     })()}
 
                     {/* Líquido projetado */}
-                    <div className="flex justify-between font-bold border-t border-[#141414]/10 pt-3 text-base">
-                      <span>Líquido projetado</span>
-                      <span className="text-green-700 font-mono">{fmt(empCalcNet(cycleEmployee))}</span>
-                    </div>
+                    {(() => {
+                      const cycleDays = getCycleDays(discCycleStartDay);
+                      const empFolgaDow = empRestDays[cycleEmployee.id] ?? -1;
+                      const absences = cycleAttLoading ? [] : cycleDays
+                        .map(d => d.toISOString().slice(0, 10))
+                        .filter(dateStr => {
+                          if (dateStr > todayISO()) return false;
+                          const dow = new Date(dateStr + 'T12:00:00').getDay();
+                          const isRest = (empFolgaDow >= 0 && dow === empFolgaDow) ||
+                            (discFolgaDow >= 0 && dow === discFolgaDow) ||
+                            (discFechadoDow >= 0 && dow === discFechadoDow);
+                          return !isRest && !cycleAttDates.has(dateStr);
+                        });
+                      const effDays = getEffectiveDays(cycleEmployee);
+                      const dayValue = cycleEmployee.payment_type === 'daily'
+                        ? (cycleEmployee.daily_rate || 0)
+                        : effDays > 0 ? (cycleEmployee.monthly_salary || 0) / effDays : 0;
+                      const activeAbsences = absences.filter(d => !excusedAbsences.has(d));
+                      const absenceDeduction = activeAbsences.length * dayValue;
+                      const net = empCalcNet(cycleEmployee) - absenceDeduction;
+                      return (
+                        <div className="flex justify-between font-bold border-t border-[#141414]/10 pt-3 text-base">
+                          <span>Líquido projetado</span>
+                          <span className="text-green-700 font-mono">{fmt(net)}</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
