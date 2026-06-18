@@ -401,6 +401,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const [attMatrixOffset, setAttMatrixOffset] = useState(0); // 0=ciclo atual, -1=anterior, etc.
   const [attMatrixRecords, setAttMatrixRecords] = useState<any[]>([]);
   const [attMatrixLoading, setAttMatrixLoading] = useState(false);
+  const [todayAttRecords, setTodayAttRecords] = useState<Set<string>>(new Set());
 
   function getCycleDaysAtOffset(startDow: number, offset: number): Date[] {
     const today = new Date();
@@ -427,6 +428,16 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
     setAttMatrixLoading(false);
   };
 
+  const loadTodayAttRecords = async () => {
+    const t = todayISO();
+    try {
+      const r = await fetch(`/api/attendance/records/${tenantId}?from=${t}&to=${t}`);
+      const d = await r.json();
+      const ids = new Set<string>((d.records || []).map((rec: any) => rec.employee_id));
+      setTodayAttRecords(ids);
+    } catch {}
+  };
+
   // Ciclo semanal de descontos
   const [discCycleStartDay, setDiscCycleStartDay] = useState<number>(() => {
     const saved = localStorage.getItem(`disc_cycle_start_${tenantId}`);
@@ -437,10 +448,15 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
     if (empSubTab === 'presenca') loadAttMatrix(attMatrixOffset);
   }, [empSubTab, attMatrixOffset, discCycleStartDay]);
 
+  // Carrega presenças de hoje (independente do ciclo exibido)
+  useEffect(() => {
+    if (empSubTab === 'presenca') loadTodayAttRecords();
+  }, [empSubTab]);
+
   // Auto-refresh da matriz de presença a cada 30s enquanto estiver visível
   useEffect(() => {
-    if (empSubTab !== 'presenca' || attMatrixOffset !== 0) return;
-    const interval = setInterval(() => loadAttMatrix(0), 30000);
+    if (empSubTab !== 'presenca') return;
+    const interval = setInterval(() => { loadAttMatrix(attMatrixOffset); loadTodayAttRecords(); }, 30000);
     return () => clearInterval(interval);
   }, [empSubTab, attMatrixOffset]);
   const [discFolgaDow, setDiscFolgaDow] = useState<number>(() => {
@@ -1222,21 +1238,18 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                     </div>
                     <div className="bg-green-50 rounded-xl border border-green-100 p-3 text-center">
                       <p className="text-[10px] uppercase font-bold text-green-600 mb-1">Presenças Hoje</p>
-                      <p className="text-xl font-bold text-green-700">
-                        {(confirmedMap[todayISO()] ? confirmedMap[todayISO()].size : 0)}
-                      </p>
+                      <p className="text-xl font-bold text-green-700">{todayAttRecords.size}</p>
                     </div>
                     <div className="bg-red-50 rounded-xl border border-red-100 p-3 text-center">
                       <p className="text-[10px] uppercase font-bold text-red-500 mb-1">Faltas Hoje</p>
                       <p className="text-xl font-bold text-red-600">
                         {(() => {
                           const todayDow = new Date().getDay();
-                          const presentToday = confirmedMap[todayISO()] ? confirmedMap[todayISO()].size : 0;
                           const workingToday = activeEmpsForMatrix.filter(emp => {
                             const efDow = empRestDays[emp.id] ?? -1;
                             return efDow !== todayDow && discFolgaDow !== todayDow && (discFechadoDow < 0 || discFechadoDow !== todayDow);
                           }).length;
-                          return Math.max(0, workingToday - presentToday);
+                          return Math.max(0, workingToday - todayAttRecords.size);
                         })()}
                       </p>
                     </div>
