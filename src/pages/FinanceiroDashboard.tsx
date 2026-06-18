@@ -2377,35 +2377,39 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
 
             <div className="flex-shrink-0 px-6 py-4 border-t border-[#141414]/10 flex gap-2">
               <button onClick={() => {
-                const win = window.open('', '_blank', 'width=700,height=600');
+                const win = window.open('', '_blank', 'width=1000,height=600');
                 if (!win) return;
                 const cycleDaysF = getCycleDays(discCycleStartDay);
-                const sorted = [...employees].sort((a, b) => {
-                  const da = empRestDays[a.id] ?? 99, db = empRestDays[b.id] ?? 99;
-                  return da !== db ? da - db : a.name.localeCompare(b.name);
-                });
                 const deptColorMap: Record<string, string> = {};
                 config.departments.forEach(d => { deptColorMap[d.name] = d.color || '#141414'; });
-                const rows = sorted.map(emp => {
-                  const dow = empRestDays[emp.id];
-                  const color = deptColorMap[emp.department] || '#141414';
-                  return `<tr>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">
-                      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${emp.name}
-                    </td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#666">${emp.role || '—'}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:${color};font-weight:600">${emp.department}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700">${dow !== undefined && dow >= 0 ? DAY_ABBR[dow] : '—'}</td>
-                  </tr>`;
+                // Build columns: for each day in cycle, list employees whose rest day matches
+                const cols = cycleDaysF.map(day => {
+                  const dow = day.getDay();
+                  const empsOnDay = employees.filter(emp => (empRestDays[emp.id] ?? -1) === dow);
+                  const dayLabel = `${DAY_ABBR[dow]}<br><span style="font-size:11px;font-weight:400;color:#999">${String(day.getDate()).padStart(2,'0')}/${String(day.getMonth()+1).padStart(2,'0')}</span>`;
+                  const empRows = empsOnDay.length === 0
+                    ? `<div style="color:#ccc;font-size:11px;margin-top:8px">—</div>`
+                    : empsOnDay.map(emp => {
+                        const color = deptColorMap[emp.department] || '#141414';
+                        return `<div style="margin-top:10px;display:flex;align-items:flex-start;gap:6px">
+                          <span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;margin-top:3px;display:inline-block"></span>
+                          <div>
+                            <div style="font-weight:600;font-size:12px;line-height:1.3">${emp.name}</div>
+                            <div style="font-size:10px;color:#888">${emp.role || '—'}</div>
+                          </div>
+                        </div>`;
+                      }).join('');
+                  return `<td style="border:1px solid #eee;padding:10px 12px;vertical-align:top;width:14.28%">
+                    <div style="font-size:13px;font-weight:700;text-transform:uppercase;padding-bottom:8px;border-bottom:2px solid #eee;text-align:center">${dayLabel}</div>
+                    ${empRows}
+                  </td>`;
                 }).join('');
-                const header = cycleDaysF.map(d => `<th style="padding:8px 12px;text-align:left;font-size:11px;color:#999;font-weight:700;text-transform:uppercase">${DAY_ABBR[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}</th>`).join('');
                 win.document.write(`<!DOCTYPE html><html><head><title>Tabela de Folgas</title>
-                  <style>body{font-family:sans-serif;padding:32px}h2{margin-bottom:4px}p{color:#999;font-size:13px;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:#999;border-bottom:2px solid #eee}</style>
+                  <style>@page{size:A4 landscape;margin:15mm}body{font-family:sans-serif;padding:0}h2{margin-bottom:2px;font-size:18px}p{color:#999;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;table-layout:fixed}</style>
                   </head><body>
                   <h2>Tabela de Folgas</h2>
                   <p>Ciclo: ${cycleDaysF[0].toLocaleDateString('pt-BR')} – ${cycleDaysF[6].toLocaleDateString('pt-BR')}</p>
-                  <table><thead><tr><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Folga</th></tr></thead>
-                  <tbody>${rows}</tbody></table>
+                  <table><tbody><tr>${cols}</tr></tbody></table>
                   <script>window.onload=()=>{window.print();window.close()}</script>
                   </body></html>`);
                 win.document.close();
