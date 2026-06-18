@@ -352,6 +352,9 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   // Ciclo atual (botão $)
   const [cycleModal, setCycleModal] = useState(false);
   const [cycleEmployee, setCycleEmployee] = useState<Employee | null>(null);
+  const [cycleAttDates, setCycleAttDates] = useState<Set<string>>(new Set());
+  const [cycleAttLoading, setCycleAttLoading] = useState(false);
+  const [excusedAbsences, setExcusedAbsences] = useState<Set<string>>(new Set());
 
   // Tabela de folgas
   const [folgaTableModal, setFolgaTableModal] = useState(false);
@@ -426,6 +429,25 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
       setAttMatrixRecords(d.records || []);
     } catch {}
     setAttMatrixLoading(false);
+  };
+
+  const loadCycleAtt = async (emp: Employee) => {
+    setCycleAttLoading(true);
+    const days = getCycleDays(discCycleStartDay);
+    const from = days[0].toISOString().slice(0, 10);
+    const to = days[6].toISOString().slice(0, 10);
+    try {
+      const r = await fetch(`/api/attendance/records/${tenantId}?from=${from}&to=${to}`);
+      const d = await r.json();
+      const dates = new Set<string>(
+        (d.records || []).filter((rec: any) => rec.employee_id === emp.id).map((rec: any) => rec.date as string)
+      );
+      setCycleAttDates(dates);
+      const key = `excused_${tenantId}_${emp.id}`;
+      const saved = localStorage.getItem(key);
+      setExcusedAbsences(saved ? new Set(JSON.parse(saved)) : new Set());
+    } catch {}
+    setCycleAttLoading(false);
   };
 
   const loadTodayAttRecords = async () => {
@@ -1168,7 +1190,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                               const isCycleEmpty = e.status === 'pago' && e.discounts === 0 && e.additions === 0 && !e.observations;
                               return (
                                 <button
-                                  onClick={() => { setCycleEmployee(e); setCycleModal(true); }}
+                                  onClick={() => { setCycleEmployee(e); setCycleModal(true); loadCycleAtt(e); }}
                                   title={isCycleEmpty ? 'Ciclo zerado — sem movimentações' : 'Ver ciclo atual'}
                                   className={`p-1.5 rounded-lg transition-colors ${isCycleEmpty ? 'text-gray-300 hover:bg-gray-50 cursor-default' : 'hover:bg-green-50 text-green-600'}`}>
                                   <DollarSign size={14} />
@@ -1245,11 +1267,11 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                       <p className="text-xl font-bold text-red-600">
                         {(() => {
                           const todayDow = new Date().getDay();
-                          const workingToday = activeEmpsForMatrix.filter(emp => {
+                          return activeEmpsForMatrix.filter(emp => {
                             const efDow = empRestDays[emp.id] ?? -1;
-                            return efDow !== todayDow && discFolgaDow !== todayDow && (discFechadoDow < 0 || discFechadoDow !== todayDow);
+                            const isRestDay = efDow === todayDow || (discFolgaDow >= 0 && discFolgaDow === todayDow) || (discFechadoDow >= 0 && discFechadoDow === todayDow);
+                            return !isRestDay && !todayAttRecords.has(emp.id);
                           }).length;
-                          return Math.max(0, workingToday - todayAttRecords.size);
                         })()}
                       </p>
                     </div>
@@ -1626,6 +1648,56 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                         </div>
                       </div>
                     )}
+
+                    {/* Faltas no Ciclo */}
+                    {(() => {
+                      if (cycleAttLoading) return null;
+                      const cycleDays = getCycleDays(discCycleStartDay);
+                      const empFolgaDow = empRestDays[cycleEmployee.id] ?? -1;
+                      const absences = cycleDays
+                        .map(d => d.toISOString().slice(0, 10))
+                        .filter(dateStr => {
+                          if (dateStr > todayISO()) return false;
+                          const dow = new Date(dateStr + 'T12:00:00').getDay();
+                          const isRest = (empFolgaDow >= 0 && dow === empFolgaDow) ||
+                            (discFolgaDow >= 0 && dow === discFolgaDow) ||
+                            (discFechadoDow >= 0 && dow === discFechadoDow);
+                          return !isRest && !cycleAttDates.has(dateStr);
+                        });
+                      const activeAbsences = absences.filter(d => !excusedAbsences.has(d));
+                      if (absences.length === 0) return null;
+                      return (
+                        <div className="border-t border-[#141414]/5 pt-3">
+                          <p className="text-[10px] font-bold uppercase opacity-40 mb-2">Faltas no Ciclo</p>
+                          <div className="space-y-1.5">
+                            {absences.map(dateStr => {
+                              const excused = excusedAbsences.has(dateStr);
+                              const label = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+                              return (
+                                <div key={dateStr} className={`flex items-center justify-between px-2 py-1.5 rounded-lg ${excused ? 'bg-gray-50 opacity-50' : 'bg-red-50'}`}>
+                                  <span className={`text-xs font-semibold ${excused ? 'text-gray-400 line-through' : 'text-red-600'}`}>{label}</span>
+                                  <button
+                                    onClick={() => {
+                                      setExcusedAbsences(prev => {
+                                        const next = new Set(prev);
+                                        if (excused) next.delete(dateStr); else next.add(dateStr);
+                                        const key = `excused_${tenantId}_${cycleEmployee!.id}`;
+                                        localStorage.setItem(key, JSON.stringify([...next]));
+                                        return next;
+                                      });
+                                    }}
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${excused ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                                  >{excused ? 'Restaurar' : 'Remover'}</button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {activeAbsences.length > 0 && (
+                            <p className="text-[10px] text-red-500 font-bold mt-2">{activeAbsences.length} falta{activeAbsences.length > 1 ? 's' : ''} registrada{activeAbsences.length > 1 ? 's' : ''} neste ciclo</p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Líquido projetado */}
                     <div className="flex justify-between font-bold border-t border-[#141414]/10 pt-3 text-base">
