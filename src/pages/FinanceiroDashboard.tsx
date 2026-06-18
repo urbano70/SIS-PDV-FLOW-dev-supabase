@@ -296,7 +296,9 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
 
   useEffect(() => { document.title = 'Finan - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
-  const [tab, setTab] = useState<'geral' | 'colaboradores' | 'despesas'>('geral');
+  const [tab, setTab] = useState<'geral' | 'colaboradores' | 'despesas'>(() =>
+    (localStorage.getItem(`fin_tab_${tenantId}`) as any) || 'geral'
+  );
   const [needsSetup, setNeedsSetup] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -391,7 +393,9 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const [discDate, setDiscDate] = useState(todayISO());
   const [discSaving, setDiscSaving] = useState(false);
   // Sub-abas da aba Colaboradores
-  const [empSubTab, setEmpSubTab] = useState<'equipe' | 'presenca'>('equipe');
+  const [empSubTab, setEmpSubTab] = useState<'equipe' | 'presenca'>(() =>
+    (localStorage.getItem(`fin_subtab_${tenantId}`) as any) || 'equipe'
+  );
 
   // Matriz de presença
   const [attMatrixOffset, setAttMatrixOffset] = useState(0); // 0=ciclo atual, -1=anterior, etc.
@@ -432,6 +436,13 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   useEffect(() => {
     if (empSubTab === 'presenca') loadAttMatrix(attMatrixOffset);
   }, [empSubTab, attMatrixOffset, discCycleStartDay]);
+
+  // Auto-refresh da matriz de presença a cada 30s enquanto estiver visível
+  useEffect(() => {
+    if (empSubTab !== 'presenca' || attMatrixOffset !== 0) return;
+    const interval = setInterval(() => loadAttMatrix(0), 30000);
+    return () => clearInterval(interval);
+  }, [empSubTab, attMatrixOffset]);
   const [discFolgaDow, setDiscFolgaDow] = useState<number>(() => {
     const saved = localStorage.getItem(`disc_folga_dow_${tenantId}`);
     return saved !== null ? Number(saved) : 0; // padrão: domingo
@@ -865,7 +876,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             { id: 'colaboradores', label: 'Colaboradores', icon: Users },
             { id: 'despesas', label: 'Despesas', icon: Receipt },
           ] as const).map(({ id, label, icon: Icon }) => (
-            <button key={id} onClick={() => setTab(id)}
+            <button key={id} onClick={() => { setTab(id); localStorage.setItem(`fin_tab_${tenantId}`, id); }}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${tab === id ? 'bg-[#141414] text-white' : 'hover:bg-[#141414]/5 text-[#141414]/60'}`}>
               <Icon size={14} />{label}
             </button>
@@ -1094,7 +1105,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 { id: 'equipe', label: 'Equipe' },
                 { id: 'presenca', label: 'Presença' },
               ] as const).map(({ id, label }) => (
-                <button key={id} onClick={() => setEmpSubTab(id)}
+                <button key={id} onClick={() => { setEmpSubTab(id); localStorage.setItem(`fin_subtab_${tenantId}`, id); }}
                   className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${empSubTab === id ? 'bg-white text-[#141414] shadow-sm' : 'text-[#141414]/40 hover:text-[#141414]/70'}`}>
                   {label}
                 </button>
@@ -1119,8 +1130,8 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEmps.map(e => (
-                      <tr key={e.id} className="border-b border-[#14141408] hover:bg-[#F5F5F3]/50 transition-colors">
+                    {filteredEmps.map((e, idx) => (
+                      <tr key={e.id} className={`border-b border-[#14141408] hover:bg-blue-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
                         <td className="px-4 py-3">
                           <p className="font-semibold">{e.name}</p>
                           <p className="text-[11px] opacity-40">{e.cpf}</p>
@@ -1142,20 +1153,20 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                               return (
                                 <button
                                   onClick={() => { setCycleEmployee(e); setCycleModal(true); }}
-                                  title={isCycleEmpty ? 'Ciclo zerado — sem movimentações' : 'Ciclo atual'}
+                                  title={isCycleEmpty ? 'Ciclo zerado — sem movimentações' : 'Ver ciclo atual'}
                                   className={`p-1.5 rounded-lg transition-colors ${isCycleEmpty ? 'text-gray-300 hover:bg-gray-50 cursor-default' : 'hover:bg-green-50 text-green-600'}`}>
                                   <DollarSign size={14} />
                                 </button>
                               );
                             })()}
-                            <button
-                              onClick={() => openPayHistory(e)}
-                              title="Histórico de pagamentos"
+                            <button onClick={() => openPayHistory(e)} title="Histórico de pagamentos"
                               className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors">
                               <History size={14} />
                             </button>
-                            <button onClick={() => openEditEmp(e)} className="p-1.5 rounded-lg hover:bg-[#141414]/5 transition-colors"><Edit2 size={14} /></button>
-                            <button onClick={() => deleteEmployee(e.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors"><Trash2 size={14} /></button>
+                            <button onClick={() => openEditEmp(e)} title="Editar colaborador"
+                              className="p-1.5 rounded-lg hover:bg-[#141414]/5 transition-colors"><Edit2 size={14} /></button>
+                            <button onClick={() => deleteEmployee(e.id)} title="Excluir colaborador"
+                              className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors"><Trash2 size={14} /></button>
                           </div>
                         </td>
                       </tr>
@@ -1256,14 +1267,14 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                               </td>
                             </tr>
                           ) : (
-                            activeEmpsForMatrix.map(emp => {
+                            activeEmpsForMatrix.map((emp, idx) => {
                               const presences = cycleDays.filter(d => {
                                 const dateStr = d.toISOString().slice(0, 10);
                                 return confirmedMap[dateStr]?.has(emp.id);
                               }).length;
                               return (
-                                <tr key={emp.id} className="border-t border-[#14141408] hover:bg-[#F5F5F3]/40 transition-colors">
-                                  <td className="px-4 py-2.5 sticky left-0 bg-white border-r border-[#141414]/10">
+                                <tr key={emp.id} className={`border-t border-[#14141408] hover:bg-blue-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
+                                  <td className={`px-4 py-2.5 sticky left-0 border-r border-[#141414]/10 ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
                                     <p className="font-semibold text-sm truncate max-w-32">{emp.name}</p>
                                     <p className="text-[10px] opacity-40 truncate">{emp.role || emp.department}</p>
                                   </td>
@@ -2315,16 +2326,22 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                       if (dowA !== dowB) return dowA - dowB;
                       return a.name.localeCompare(b.name);
                     })
-                    .map(emp => {
+                    .map((emp, idx) => {
                       const dow = empRestDays[emp.id];
                       const hasFolga = dow !== undefined && dow >= 0;
                       const isSelected = folgaTableSelected === emp.id;
+                      const deptColor = config.departments.find(d => d.name === emp.department)?.color || '#141414';
                       return (
                         <tr key={emp.id}
                           onClick={() => setFolgaTableSelected(isSelected ? null : emp.id)}
                           className={`border-b border-[#14141408] cursor-pointer transition-colors
-                            ${isSelected ? 'bg-amber-50' : 'hover:bg-[#F5F5F3]/60'}`}>
-                          <td className={`px-4 py-3 font-semibold ${isSelected ? 'text-amber-700' : ''}`}>{emp.name}</td>
+                            ${isSelected ? 'bg-amber-50' : idx % 2 === 0 ? 'bg-white hover:bg-[#F5F5F3]/60' : 'bg-[#F8F8F6] hover:bg-[#F5F5F3]'}`}>
+                          <td className={`px-4 py-3 font-semibold ${isSelected ? 'text-amber-700' : ''}`}>
+                            <span className="flex items-center gap-2">
+                              <span style={{ backgroundColor: deptColor }} className="w-2 h-2 rounded-full flex-shrink-0 opacity-80" />
+                              {emp.name}
+                            </span>
+                          </td>
                           <td className="px-4 py-3 text-[#141414]/60">{emp.role || '—'}</td>
                           <td className="px-4 py-3">
                             {hasFolga ? (
@@ -2350,9 +2367,45 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               )}
             </div>
 
-            <div className="flex-shrink-0 px-6 py-4 border-t border-[#141414]/10">
+            <div className="flex-shrink-0 px-6 py-4 border-t border-[#141414]/10 flex gap-2">
+              <button onClick={() => {
+                const win = window.open('', '_blank', 'width=700,height=600');
+                if (!win) return;
+                const cycleDaysF = getCycleDays(discCycleStartDay);
+                const sorted = [...employees].sort((a, b) => {
+                  const da = empRestDays[a.id] ?? 99, db = empRestDays[b.id] ?? 99;
+                  return da !== db ? da - db : a.name.localeCompare(b.name);
+                });
+                const deptColorMap: Record<string, string> = {};
+                config.departments.forEach(d => { deptColorMap[d.name] = d.color || '#141414'; });
+                const rows = sorted.map(emp => {
+                  const dow = empRestDays[emp.id];
+                  const color = deptColorMap[emp.department] || '#141414';
+                  return `<tr>
+                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">
+                      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${emp.name}
+                    </td>
+                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#666">${emp.role || '—'}</td>
+                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:${color};font-weight:600">${emp.department}</td>
+                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700">${dow !== undefined && dow >= 0 ? DAY_ABBR[dow] : '—'}</td>
+                  </tr>`;
+                }).join('');
+                const header = cycleDaysF.map(d => `<th style="padding:8px 12px;text-align:left;font-size:11px;color:#999;font-weight:700;text-transform:uppercase">${DAY_ABBR[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}</th>`).join('');
+                win.document.write(`<!DOCTYPE html><html><head><title>Tabela de Folgas</title>
+                  <style>body{font-family:sans-serif;padding:32px}h2{margin-bottom:4px}p{color:#999;font-size:13px;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:#999;border-bottom:2px solid #eee}</style>
+                  </head><body>
+                  <h2>Tabela de Folgas</h2>
+                  <p>Ciclo: ${cycleDaysF[0].toLocaleDateString('pt-BR')} – ${cycleDaysF[6].toLocaleDateString('pt-BR')}</p>
+                  <table><thead><tr><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Folga</th></tr></thead>
+                  <tbody>${rows}</tbody></table>
+                  <script>window.onload=()=>{window.print();window.close()}</script>
+                  </body></html>`);
+                win.document.close();
+              }} className="flex items-center gap-2 px-4 py-2.5 bg-[#141414] text-white rounded-xl text-sm font-bold hover:opacity-80 transition-opacity">
+                <Printer size={14} /> Imprimir
+              </button>
               <button onClick={() => { setFolgaTableModal(false); setFolgaTableSelected(null); setFolgaTableCfgOpen(false); }}
-                className="w-full py-2.5 border border-[#141414]/20 rounded-xl text-sm font-bold text-[#141414]/60 hover:bg-gray-50">
+                className="flex-1 py-2.5 border border-[#141414]/20 rounded-xl text-sm font-bold text-[#141414]/60 hover:bg-gray-50">
                 Fechar
               </button>
             </div>
