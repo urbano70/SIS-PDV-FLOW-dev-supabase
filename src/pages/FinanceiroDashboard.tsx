@@ -101,7 +101,7 @@ interface Expense {
   category: string;
   amount: number;
   due_date: string;
-  recurrence: 'mensal' | 'semanal' | 'anual';
+  recurrence: 'avulsa' | 'mensal' | 'semanal' | 'anual';
   payment_method: string;
   paid: boolean;
   observations: string;
@@ -126,7 +126,7 @@ const EMPTY_EMPLOYEE: Omit<Employee, 'id' | 'tenant_id' | 'created_at'> = {
 
 const EMPTY_EXPENSE: Omit<Expense, 'id' | 'tenant_id'> = {
   name: '', category: 'Aluguel', amount: 0,
-  due_date: '', recurrence: 'mensal',
+  due_date: '', recurrence: 'avulsa',
   payment_method: 'Pix', paid: false, observations: '',
 };
 
@@ -1268,10 +1268,10 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                             </tr>
                           ) : (
                             activeEmpsForMatrix.map((emp, idx) => {
-                              const presences = cycleDays.filter(d => {
-                                const dateStr = d.toISOString().slice(0, 10);
-                                return confirmedMap[dateStr]?.has(emp.id);
-                              }).length;
+                              const empFolgaDow = empRestDays[emp.id] ?? -1;
+                              const workDays = cycleDays.filter(d => d.getDay() !== empFolgaDow && d.getDay() !== discFolgaDow && (discFechadoDow < 0 || d.getDay() !== discFechadoDow));
+                              const presences = workDays.filter(d => confirmedMap[d.toISOString().slice(0, 10)]?.has(emp.id)).length;
+                              const workDaysCount = workDays.filter(d => d.toISOString().slice(0, 10) <= todayISO()).length;
                               return (
                                 <tr key={emp.id} className={`border-t border-[#14141408] hover:bg-blue-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
                                   <td className={`px-4 py-2.5 sticky left-0 border-r border-[#141414]/10 ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
@@ -1283,9 +1283,16 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                     const isFuture = dateStr > todayISO();
                                     const confirmed = confirmedMap[dateStr]?.has(emp.id);
                                     const isToday = dateStr === todayISO();
+                                    const dow = d.getDay();
+                                    const isEmpFolga = empFolgaDow >= 0 && dow === empFolgaDow;
+                                    const isGlobalFolga = discFolgaDow >= 0 && dow === discFolgaDow;
+                                    const isFechado = discFechadoDow >= 0 && dow === discFechadoDow;
+                                    const isRestDay = isEmpFolga || isGlobalFolga || isFechado;
                                     return (
-                                      <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : ''}`}>
-                                        {isFuture ? (
+                                      <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : isRestDay ? 'bg-amber-50/60' : ''}`}>
+                                        {isRestDay ? (
+                                          <span className="text-amber-400 text-xs font-bold" title={isEmpFolga ? 'Folga individual' : isGlobalFolga ? 'Folga geral' : 'Dia fechado'}>F</span>
+                                        ) : isFuture ? (
                                           <span className="text-[#141414]/15 text-lg">·</span>
                                         ) : confirmed ? (
                                           <span className="text-green-500 font-bold text-base" title="Presente">✓</span>
@@ -1296,8 +1303,8 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                     );
                                   })}
                                   <td className="text-center px-3 py-2.5">
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${presences === totalDays ? 'bg-green-100 text-green-700' : presences === 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
-                                      {presences}/{totalDays}
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${presences === workDaysCount ? 'bg-green-100 text-green-700' : presences === 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                                      {presences}/{workDaysCount}
                                     </span>
                                   </td>
                                 </tr>
@@ -1310,7 +1317,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                   )}
 
                   <p className="text-[10px] text-center opacity-30 mt-3">
-                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · · Futuro
+                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · F Folga/Fechado · · Futuro
                   </p>
                 </div>
               );
@@ -1739,6 +1746,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 <div>
                   <label className="text-xs font-bold uppercase opacity-40 block mb-1">Recorrência</label>
                   <select value={expForm.recurrence} onChange={e => setExpForm(p => ({ ...p, recurrence: e.target.value as any }))} className="w-full border border-[#141414]/10 rounded-xl px-3 py-2 text-sm focus:outline-none appearance-none">
+                    <option value="avulsa">Avulsa (pagamento único)</option>
                     <option value="mensal">Mensal</option>
                     <option value="semanal">Semanal</option>
                     <option value="anual">Anual</option>
@@ -2369,35 +2377,39 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
 
             <div className="flex-shrink-0 px-6 py-4 border-t border-[#141414]/10 flex gap-2">
               <button onClick={() => {
-                const win = window.open('', '_blank', 'width=700,height=600');
+                const win = window.open('', '_blank', 'width=1000,height=600');
                 if (!win) return;
                 const cycleDaysF = getCycleDays(discCycleStartDay);
-                const sorted = [...employees].sort((a, b) => {
-                  const da = empRestDays[a.id] ?? 99, db = empRestDays[b.id] ?? 99;
-                  return da !== db ? da - db : a.name.localeCompare(b.name);
-                });
                 const deptColorMap: Record<string, string> = {};
                 config.departments.forEach(d => { deptColorMap[d.name] = d.color || '#141414'; });
-                const rows = sorted.map(emp => {
-                  const dow = empRestDays[emp.id];
-                  const color = deptColorMap[emp.department] || '#141414';
-                  return `<tr>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600">
-                      <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};margin-right:6px;vertical-align:middle"></span>${emp.name}
-                    </td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:#666">${emp.role || '—'}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;color:${color};font-weight:600">${emp.department}</td>
-                    <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700">${dow !== undefined && dow >= 0 ? DAY_ABBR[dow] : '—'}</td>
-                  </tr>`;
+                // Build columns: for each day in cycle, list employees whose rest day matches
+                const cols = cycleDaysF.map(day => {
+                  const dow = day.getDay();
+                  const empsOnDay = employees.filter(emp => (empRestDays[emp.id] ?? -1) === dow);
+                  const dayLabel = `${DAY_ABBR[dow]}<br><span style="font-size:11px;font-weight:400;color:#999">${String(day.getDate()).padStart(2,'0')}/${String(day.getMonth()+1).padStart(2,'0')}</span>`;
+                  const empRows = empsOnDay.length === 0
+                    ? `<div style="color:#ccc;font-size:11px;margin-top:8px">—</div>`
+                    : empsOnDay.map(emp => {
+                        const color = deptColorMap[emp.department] || '#141414';
+                        return `<div style="margin-top:10px;display:flex;align-items:flex-start;gap:6px">
+                          <span style="width:9px;height:9px;border-radius:50%;background:${color};flex-shrink:0;margin-top:3px;display:inline-block"></span>
+                          <div>
+                            <div style="font-weight:600;font-size:12px;line-height:1.3">${emp.name}</div>
+                            <div style="font-size:10px;color:#888">${emp.role || '—'}</div>
+                          </div>
+                        </div>`;
+                      }).join('');
+                  return `<td style="border:1px solid #eee;padding:10px 12px;vertical-align:top;width:14.28%">
+                    <div style="font-size:13px;font-weight:700;text-transform:uppercase;padding-bottom:8px;border-bottom:2px solid #eee;text-align:center">${dayLabel}</div>
+                    ${empRows}
+                  </td>`;
                 }).join('');
-                const header = cycleDaysF.map(d => `<th style="padding:8px 12px;text-align:left;font-size:11px;color:#999;font-weight:700;text-transform:uppercase">${DAY_ABBR[d.getDay()]} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}</th>`).join('');
                 win.document.write(`<!DOCTYPE html><html><head><title>Tabela de Folgas</title>
-                  <style>body{font-family:sans-serif;padding:32px}h2{margin-bottom:4px}p{color:#999;font-size:13px;margin-bottom:20px}table{width:100%;border-collapse:collapse}th{text-align:left;padding:8px 12px;font-size:11px;text-transform:uppercase;color:#999;border-bottom:2px solid #eee}</style>
+                  <style>@page{size:A4 landscape;margin:15mm}body{font-family:sans-serif;padding:0}h2{margin-bottom:2px;font-size:18px}p{color:#999;font-size:12px;margin-bottom:16px}table{width:100%;border-collapse:collapse;table-layout:fixed}</style>
                   </head><body>
                   <h2>Tabela de Folgas</h2>
                   <p>Ciclo: ${cycleDaysF[0].toLocaleDateString('pt-BR')} – ${cycleDaysF[6].toLocaleDateString('pt-BR')}</p>
-                  <table><thead><tr><th>Nome</th><th>Cargo</th><th>Departamento</th><th>Folga</th></tr></thead>
-                  <tbody>${rows}</tbody></table>
+                  <table><tbody><tr>${cols}</tr></tbody></table>
                   <script>window.onload=()=>{window.print();window.close()}</script>
                   </body></html>`);
                 win.document.close();
