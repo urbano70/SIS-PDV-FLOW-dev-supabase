@@ -1221,13 +1221,23 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                       <p className="text-xl font-bold">{activeEmpsForMatrix.length}</p>
                     </div>
                     <div className="bg-green-50 rounded-xl border border-green-100 p-3 text-center">
-                      <p className="text-[10px] uppercase font-bold text-green-600 mb-1">Total Presenças</p>
-                      <p className="text-xl font-bold text-green-700">{attMatrixRecords.length}</p>
+                      <p className="text-[10px] uppercase font-bold text-green-600 mb-1">Presenças Hoje</p>
+                      <p className="text-xl font-bold text-green-700">
+                        {(confirmedMap[todayISO()] ? confirmedMap[todayISO()].size : 0)}
+                      </p>
                     </div>
                     <div className="bg-red-50 rounded-xl border border-red-100 p-3 text-center">
-                      <p className="text-[10px] uppercase font-bold text-red-500 mb-1">Total Faltas</p>
+                      <p className="text-[10px] uppercase font-bold text-red-500 mb-1">Faltas Hoje</p>
                       <p className="text-xl font-bold text-red-600">
-                        {activeEmpsForMatrix.length * totalDays - attMatrixRecords.length}
+                        {(() => {
+                          const todayDow = new Date().getDay();
+                          const presentToday = confirmedMap[todayISO()] ? confirmedMap[todayISO()].size : 0;
+                          const workingToday = activeEmpsForMatrix.filter(emp => {
+                            const efDow = empRestDays[emp.id] ?? -1;
+                            return efDow !== todayDow && discFolgaDow !== todayDow && (discFechadoDow < 0 || discFechadoDow !== todayDow);
+                          }).length;
+                          return Math.max(0, workingToday - presentToday);
+                        })()}
                       </p>
                     </div>
                   </div>
@@ -1291,7 +1301,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                     return (
                                       <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : isRestDay ? 'bg-amber-50/60' : ''}`}>
                                         {isRestDay ? (
-                                          <span className="text-amber-400 text-xs font-bold" title={isEmpFolga ? 'Folga individual' : isGlobalFolga ? 'Folga geral' : 'Dia fechado'}>F</span>
+                                          <span className="text-amber-500 text-[10px] font-bold" title={isEmpFolga ? 'Folga individual' : isGlobalFolga ? 'Folga geral' : 'Dia fechado'}>Folga</span>
                                         ) : isFuture ? (
                                           <span className="text-[#141414]/15 text-lg">·</span>
                                         ) : confirmed ? (
@@ -1317,7 +1327,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                   )}
 
                   <p className="text-[10px] text-center opacity-30 mt-3">
-                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · F Folga/Fechado · · Futuro
+                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · Folga Folga/Fechado · · Futuro
                   </p>
                 </div>
               );
