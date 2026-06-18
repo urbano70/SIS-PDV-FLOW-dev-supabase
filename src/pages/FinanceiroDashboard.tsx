@@ -101,7 +101,7 @@ interface Expense {
   category: string;
   amount: number;
   due_date: string;
-  recurrence: 'mensal' | 'semanal' | 'anual';
+  recurrence: 'avulsa' | 'mensal' | 'semanal' | 'anual';
   payment_method: string;
   paid: boolean;
   observations: string;
@@ -126,7 +126,7 @@ const EMPTY_EMPLOYEE: Omit<Employee, 'id' | 'tenant_id' | 'created_at'> = {
 
 const EMPTY_EXPENSE: Omit<Expense, 'id' | 'tenant_id'> = {
   name: '', category: 'Aluguel', amount: 0,
-  due_date: '', recurrence: 'mensal',
+  due_date: '', recurrence: 'avulsa',
   payment_method: 'Pix', paid: false, observations: '',
 };
 
@@ -1268,10 +1268,10 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                             </tr>
                           ) : (
                             activeEmpsForMatrix.map((emp, idx) => {
-                              const presences = cycleDays.filter(d => {
-                                const dateStr = d.toISOString().slice(0, 10);
-                                return confirmedMap[dateStr]?.has(emp.id);
-                              }).length;
+                              const empFolgaDow = empRestDays[emp.id] ?? -1;
+                              const workDays = cycleDays.filter(d => d.getDay() !== empFolgaDow && d.getDay() !== discFolgaDow && (discFechadoDow < 0 || d.getDay() !== discFechadoDow));
+                              const presences = workDays.filter(d => confirmedMap[d.toISOString().slice(0, 10)]?.has(emp.id)).length;
+                              const workDaysCount = workDays.filter(d => d.toISOString().slice(0, 10) <= todayISO()).length;
                               return (
                                 <tr key={emp.id} className={`border-t border-[#14141408] hover:bg-blue-50/30 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
                                   <td className={`px-4 py-2.5 sticky left-0 border-r border-[#141414]/10 ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F8F8F6]'}`}>
@@ -1283,9 +1283,16 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                     const isFuture = dateStr > todayISO();
                                     const confirmed = confirmedMap[dateStr]?.has(emp.id);
                                     const isToday = dateStr === todayISO();
+                                    const dow = d.getDay();
+                                    const isEmpFolga = empFolgaDow >= 0 && dow === empFolgaDow;
+                                    const isGlobalFolga = discFolgaDow >= 0 && dow === discFolgaDow;
+                                    const isFechado = discFechadoDow >= 0 && dow === discFechadoDow;
+                                    const isRestDay = isEmpFolga || isGlobalFolga || isFechado;
                                     return (
-                                      <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : ''}`}>
-                                        {isFuture ? (
+                                      <td key={dateStr} className={`text-center px-2 py-2.5 ${isToday ? 'bg-[#141414]/5' : isRestDay ? 'bg-amber-50/60' : ''}`}>
+                                        {isRestDay ? (
+                                          <span className="text-amber-400 text-xs font-bold" title={isEmpFolga ? 'Folga individual' : isGlobalFolga ? 'Folga geral' : 'Dia fechado'}>F</span>
+                                        ) : isFuture ? (
                                           <span className="text-[#141414]/15 text-lg">·</span>
                                         ) : confirmed ? (
                                           <span className="text-green-500 font-bold text-base" title="Presente">✓</span>
@@ -1296,8 +1303,8 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                                     );
                                   })}
                                   <td className="text-center px-3 py-2.5">
-                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${presences === totalDays ? 'bg-green-100 text-green-700' : presences === 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
-                                      {presences}/{totalDays}
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${presences === workDaysCount ? 'bg-green-100 text-green-700' : presences === 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-700'}`}>
+                                      {presences}/{workDaysCount}
                                     </span>
                                   </td>
                                 </tr>
@@ -1310,7 +1317,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                   )}
 
                   <p className="text-[10px] text-center opacity-30 mt-3">
-                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · · Futuro
+                    Presenças confirmadas via QR Code · ✓ Presente · ✕ Ausente · F Folga/Fechado · · Futuro
                   </p>
                 </div>
               );
@@ -1739,6 +1746,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 <div>
                   <label className="text-xs font-bold uppercase opacity-40 block mb-1">Recorrência</label>
                   <select value={expForm.recurrence} onChange={e => setExpForm(p => ({ ...p, recurrence: e.target.value as any }))} className="w-full border border-[#141414]/10 rounded-xl px-3 py-2 text-sm focus:outline-none appearance-none">
+                    <option value="avulsa">Avulsa (pagamento único)</option>
                     <option value="mensal">Mensal</option>
                     <option value="semanal">Semanal</option>
                     <option value="anual">Anual</option>
