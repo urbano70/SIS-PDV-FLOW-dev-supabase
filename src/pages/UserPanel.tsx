@@ -163,12 +163,12 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans flex flex-col">
 
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-[#141414]/10 bg-[#E4E3E0] sticky top-0 z-10">
+      <header className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-[#141414]/10 bg-[#E4E3E0] sticky top-0 z-10">
         <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
           <div className="w-8 h-8 bg-[#141414] rounded-full" />
           <span className="font-serif italic text-2xl font-bold">FechaConta</span>
         </div>
-        <div className="flex flex-col items-center">
+        <div className="hidden sm:flex flex-col items-center">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[#141414]/40">Painel de Controle</p>
           <h1 className="font-serif italic text-lg font-bold leading-tight">
             Olá, {formData.establishment_name || 'Seu Estabelecimento'}
@@ -182,7 +182,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 p-6 md:p-12 max-w-6xl w-full mx-auto">
+      <main className="flex-1 p-4 sm:p-6 md:p-12 max-w-6xl w-full mx-auto">
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
 
@@ -249,13 +249,14 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
             {/* Abas */}
             <div className="grid grid-cols-2 border-b border-[#141414]/10">
               {([
-                { id: 'pdv',        label: 'Acesso à Aplicação', icon: Store },
-                { id: 'financeiro', label: 'Gestão Empresarial', icon: DollarSign },
-              ] as const).map(({ id, label, icon: Icon }) => (
+                { id: 'pdv',        label: 'Acesso', fullLabel: 'Acesso à Aplicação', icon: Store },
+                { id: 'financeiro', label: 'Gestão', fullLabel: 'Gestão Empresarial', icon: DollarSign },
+              ] as const).map(({ id, label, fullLabel, icon: Icon }) => (
                 <button key={id} onClick={() => setModuleTab(id)}
                   className={`flex items-center justify-center gap-2 py-4 text-sm font-bold transition-all border-b-2 -mb-px ${moduleTab === id ? 'border-[#141414] text-[#141414]' : 'border-transparent text-[#141414]/40 hover:text-[#141414]/70'}`}>
                   <Icon size={15} />
-                  {label}
+                  <span className="hidden sm:inline">{fullLabel}</span>
+                  <span className="sm:hidden">{label}</span>
                 </button>
               ))}
             </div>

@@ -908,7 +908,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
           <div className="w-7 h-7 bg-[#141414] rounded-full" />
           <span className="font-serif italic text-lg font-bold">Gestão Empresarial</span>
         </div>
-        <nav className="ml-6 flex gap-1">
+        <nav className="ml-2 sm:ml-6 flex gap-1 overflow-x-auto">
           {([
             { id: 'geral', label: 'Geral', icon: LayoutDashboard },
             { id: 'colaboradores', label: 'Colaboradores', icon: Users },
@@ -926,7 +926,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
         </button>
       </header>
 
-      <main className="max-w-6xl mx-auto p-6">
+      <main className="max-w-6xl mx-auto p-3 sm:p-6">
 
         {/* ── TAB: GERAL ──────────────────────────────────────────────────────── */}
         {tab === 'geral' && (
@@ -937,7 +937,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               <div className="flex bg-white border border-[#141414]/10 rounded-xl p-1 shadow-sm gap-1">
                 {(['ciclo', 'mes', 'ano'] as const).map(f => (
                   <button key={f} onClick={() => setDashFilter(f)}
-                    className={`px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200
                       ${dashFilter === f ? 'bg-[#141414] text-white shadow-sm' : 'text-[#141414]/50 hover:text-[#141414] hover:bg-[#141414]/5'}`}>
                     {f === 'ciclo' ? 'Ciclo atual' : f === 'mes' ? 'Por mês' : 'Por ano'}
                   </button>
@@ -978,6 +978,21 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                   </div>
                   <p className="text-[10px] font-bold uppercase opacity-40 leading-none mb-1">{label}</p>
                   <p className="text-base font-bold leading-tight">{value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Resumo do Ciclo */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Bruto', value: fmt(dashFilter === 'ciclo' ? totalBruto : dashPayments.reduce((s, p) => s + p.amount_gross, 0)), color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+                { label: 'Total Descontos', value: fmt(dashTotalDiscounts), color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
+                { label: 'Total Acréscimos', value: fmt(dashTotalAdditions), color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+                { label: 'Saldo Líquido', value: fmt(dashNetPayroll), color: 'text-[#141414]', bg: 'bg-[#141414]/5', border: 'border-[#141414]/10' },
+              ].map(({ label, value, color, bg, border }) => (
+                <div key={label} className={`${bg} border ${border} rounded-xl p-3`}>
+                  <p className="text-[10px] font-bold uppercase opacity-60 mb-1">{label}</p>
+                  <p className={`text-sm font-bold ${color}`}>{value}</p>
                 </div>
               ))}
             </div>
@@ -1084,7 +1099,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             </div>
 
             {/* Ações Rápidas */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex flex-wrap gap-2 mb-4">
               <button onClick={() => {
                 setDiscAmount(0);
                 setDiscReason('');
@@ -1152,7 +1167,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
 
             {/* ── Sub-aba: EQUIPE ─────────────────────────────── */}
             {empSubTab === 'equipe' && (
-            <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden overflow-x-auto">
               {filteredEmps.length === 0 ? (
                 <div className="p-12 text-center opacity-40">
                   <Users size={32} className="mx-auto mb-3" />
@@ -1385,7 +1400,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               </button>
             </div>
 
-            <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-[#141414]/10 shadow-sm overflow-hidden overflow-x-auto">
               {filteredExps.length === 0 ? (
                 <div className="p-12 text-center opacity-40">
                   <Receipt size={32} className="mx-auto mb-3" />

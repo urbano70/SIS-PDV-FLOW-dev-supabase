@@ -3842,7 +3842,7 @@ export default function Dashboard({
               </header>
 
               {/* Card: Estrutura do Salão */}
-              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5">
+              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
                 <div className="flex items-center space-x-2 mb-2 shrink-0">
                   <LayoutDashboard className="text-[#141414]" size={12} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Estrutura do Salão</h3>
@@ -3870,7 +3870,7 @@ export default function Dashboard({
                     </span>
                   </div>
                 )}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
                       Nº de Mesas {planCfg.tablesLocked && <Lock size={7} className="text-amber-500" />}
