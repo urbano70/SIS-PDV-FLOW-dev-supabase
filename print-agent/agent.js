@@ -272,23 +272,109 @@ function startAgent({ serverUrl, agentSecret = '' }) {
 
       if (localName) {
         console.log(`[agente] Imprimindo via spooler Windows -> "${localName}"`);
-        const tmpFile = path.join(os.tmpdir(), `fc_print_${Date.now()}.bin`);
+        const tmpBin = path.join(os.tmpdir(), `fc_print_${Date.now()}.bin`);
+        const tmpPs  = path.join(os.tmpdir(), `fc_ps_${Date.now()}.ps1`);
         try {
-          fs.writeFileSync(tmpFile, Buffer.from(data));
-          execSync(`copy /b "${tmpFile}" "\\\\.\\${localName}"`, { windowsHide: true, stdio: 'pipe' });
-          console.log(`[agente] OK spooler "${localName}"`);
-          serverSocket.emit('printer_agent_result', { success: true, localName });
-        } catch (e) {
+          fs.writeFileSync(tmpBin, Buffer.from(data));
+
+          // ── Método 1: PowerShell + winspool.drv (raw print sem precisar de compartilhamento) ──
+          const escapedName = localName.replace(/'/g, "''");
+          const escapedBin  = tmpBin.replace(/'/g, "''");
+          // Monta o script PS1 via concatenação para evitar conflito com template literals ($var)
+          const psLines = [
+            'Add-Type -TypeDefinition @"',
+            'using System;',
+            'using System.Runtime.InteropServices;',
+            'public class FcRaw {',
+            '    [StructLayout(LayoutKind.Sequential)]',
+            '    public class DI {',
+            '        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;',
+            '        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;',
+            '        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;',
+            '    }',
+            '    [DllImport("winspool.drv", EntryPoint="OpenPrinterA")] public static extern bool Open(string n, out IntPtr h, IntPtr d);',
+            '    [DllImport("winspool.drv")] public static extern bool ClosePrinter(IntPtr h);',
+            '    [DllImport("winspool.drv", EntryPoint="StartDocPrinterA")] public static extern int StartDoc(IntPtr h, int l, [In] DI di);',
+            '    [DllImport("winspool.drv")] public static extern bool EndDocPrinter(IntPtr h);',
+            '    [DllImport("winspool.drv")] public static extern bool StartPagePrinter(IntPtr h);',
+            '    [DllImport("winspool.drv")] public static extern bool EndPagePrinter(IntPtr h);',
+            '    [DllImport("winspool.drv")] public static extern bool WritePrinter(IntPtr h, IntPtr b, int c, out int w);',
+            '}',
+            '"@ -Language CSharp',
+            '$h = [IntPtr]::Zero',
+            `if (-not [FcRaw]::Open('${escapedName}', [ref]$h, [IntPtr]::Zero)) { throw "Impressora nao encontrada: ${escapedName}" }`,
+            `$bytes = [System.IO.File]::ReadAllBytes('${escapedBin}')`,
+            '$di = New-Object FcRaw+DI; $di.pDocName = "FechaConta"; $di.pDataType = "RAW"',
+            '[FcRaw]::StartDoc($h, 1, $di) | Out-Null',
+            '[FcRaw]::StartPagePrinter($h) | Out-Null',
+            '$ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)',
+            '[System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $ptr, $bytes.Length)',
+            '$w = 0',
+            '[FcRaw]::WritePrinter($h, $ptr, $bytes.Length, [ref]$w) | Out-Null',
+            '[System.Runtime.InteropServices.Marshal]::FreeHGlobal($ptr)',
+            '[FcRaw]::EndPagePrinter($h) | Out-Null',
+            '[FcRaw]::EndDocPrinter($h) | Out-Null',
+            '[FcRaw]::ClosePrinter($h) | Out-Null',
+          ];
+          fs.writeFileSync(tmpPs, psLines.join('\r\n'), 'utf8');
           try {
-            execSync(`copy /b "${tmpFile}" "\\\\localhost\\${localName}"`, { windowsHide: true, stdio: 'pipe' });
-            console.log(`[agente] OK UNC "${localName}"`);
+            execSync(
+              `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tmpPs}"`,
+              { windowsHide: true, stdio: 'pipe', timeout: 15000 }
+            );
+            console.log(`[agente] OK winspool "${localName}"`);
             serverSocket.emit('printer_agent_result', { success: true, localName });
-          } catch (e2) {
-            console.error(`[agente] Erro spooler "${localName}":`, e2.message);
-            serverSocket.emit('printer_agent_result', { success: false, localName, error: e2.message });
+            return;
+          } catch (psErr) {
+            console.warn(`[agente] winspool falhou (${psErr.message}), tentando via porta TCP...`);
           }
+
+          // ── Método 2: detecta IP da porta da impressora e imprime via TCP ──
+          const winPrinters = getWindowsPrinters();
+          const found = winPrinters.find(p => p.localName === localName);
+          if (found?.portName) {
+            const ipMatch = found.portName.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/);
+            if (ipMatch) {
+              const printerIp = ipMatch[1];
+              console.log(`[agente] Tentando TCP ${printerIp}:9100 via porta "${found.portName}"...`);
+              const client2 = new net.Socket();
+              let fin2 = false;
+              const done2 = () => { if (!fin2) { fin2 = true; client2.destroy(); } };
+              client2.setTimeout(6000);
+              client2.connect(9100, printerIp, () => {
+                client2.write(Buffer.from(data), () => {
+                  console.log(`[agente] OK TCP porta ${printerIp}`);
+                  serverSocket.emit('printer_agent_result', { success: true, localName });
+                  setTimeout(done2, 300);
+                });
+              });
+              client2.on('timeout', () => { serverSocket.emit('printer_agent_result', { success: false, localName, error: 'Timeout TCP' }); done2(); });
+              client2.on('error', e3 => { serverSocket.emit('printer_agent_result', { success: false, localName, error: e3.message }); done2(); });
+              return;
+            }
+          }
+
+          // ── Método 3: copia para a porta USB diretamente (ex: USB001) ──
+          const portName = found?.portName || '';
+          if (/^USB\d+$/i.test(portName)) {
+            try {
+              execSync(`copy /b "${tmpBin}" "\\\\.\\${portName}"`, { windowsHide: true, stdio: 'pipe' });
+              console.log(`[agente] OK porta USB "${portName}"`);
+              serverSocket.emit('printer_agent_result', { success: true, localName });
+              return;
+            } catch (usbErr) {
+              console.warn(`[agente] porta USB falhou: ${usbErr.message}`);
+            }
+          }
+
+          // ── Fallback final: erro com diagnóstico útil ──
+          const detail = found ? `portName="${found.portName}"` : 'impressora não encontrada no sistema';
+          const msg = `Não foi possível imprimir em "${localName}" (${detail}). Verifique se a impressora está ligada e instalada corretamente.`;
+          console.error(`[agente] ${msg}`);
+          serverSocket.emit('printer_agent_result', { success: false, localName, error: msg });
         } finally {
-          try { fs.unlinkSync(tmpFile); } catch {}
+          try { fs.unlinkSync(tmpBin); } catch {}
+          try { fs.unlinkSync(tmpPs); } catch {}
         }
         return;
       }
