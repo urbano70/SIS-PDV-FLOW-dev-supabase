@@ -80,6 +80,25 @@ async function startServer() {
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  const resetActiveOrderTimestamps = () => {
+    const now = new Date().toISOString();
+    for (const order of orders) {
+      if (order.status === 'paid' || order.status === 'delivered') continue;
+      let updated = false;
+      if (order.items) {
+        for (const item of order.items) {
+          if (item.status === 'removed') continue;
+          item.timestamp = now;
+          updated = true;
+        }
+      }
+      if (updated) {
+        order.timestamp = now;
+        saveToSupabase('orders', order, String(order.id)).catch(() => {});
+      }
+    }
+  };
+
   const saveToSupabase = async (collection: string, data: any, docId?: string) => {
     if (!db) return;
     try {
@@ -199,6 +218,11 @@ async function startServer() {
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
         io.emit('update_cash_register', isCashRegisterOpen);
+        // Reset stale timestamps on startup so timers start fresh each session
+        if (isCashRegisterOpen) {
+          resetActiveOrderTimestamps();
+          io.emit('update_orders', orders);
+        }
       }
 
       if (sRes.data) {
@@ -319,6 +343,8 @@ async function startServer() {
       if (state.stockLog?.length) stockLog = state.stockLog;
       if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
       if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
+      // Reset timestamps so timers start fresh after server restart
+      resetActiveOrderTimestamps();
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
       console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
       return true;
@@ -622,25 +648,8 @@ async function startServer() {
         }
       }
       if (isOpen) {
-        const now = new Date().toISOString();
-        let anyUpdated = false;
-        for (const order of orders) {
-          if (order.status === 'paid' || order.status === 'delivered') continue;
-          let orderUpdated = false;
-          if (order.items) {
-            for (const item of order.items) {
-              if (item.status === 'removed') continue;
-              item.timestamp = now;
-              orderUpdated = true;
-            }
-          }
-          if (orderUpdated) {
-            order.timestamp = now;
-            anyUpdated = true;
-            saveToSupabase('orders', order, String(order.id)).catch(() => {});
-          }
-        }
-        if (anyUpdated) io.emit('update_orders', orders);
+        resetActiveOrderTimestamps();
+        io.emit('update_orders', orders);
       }
       isCashRegisterOpen = isOpen;
       io.emit("update_cash_register", isCashRegisterOpen);
