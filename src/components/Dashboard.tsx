@@ -2234,9 +2234,9 @@ export default function Dashboard({
                                   const types = getTableItemTypes(table.id, false);
                                   if (!types.hasLanche && !types.hasPizza) return null;
                                   return (
-                                    <div className="flex items-center gap-0.5 mt-1 opacity-60">
-                                      {types.hasLanche && <Sandwich size={7} />}
-                                      {types.hasPizza && <Pizza size={7} />}
+                                    <div className="flex items-center gap-1 mt-1 opacity-70">
+                                      {types.hasLanche && <Sandwich size={13} />}
+                                      {types.hasPizza && <Pizza size={13} />}
                                     </div>
                                   );
                                 })()}
@@ -2314,9 +2314,9 @@ export default function Dashboard({
                                   const types = getTableItemTypes(comanda.id, true);
                                   if (!types.hasLanche && !types.hasPizza) return null;
                                   return (
-                                    <div className="flex items-center gap-0.5 mt-1 opacity-60">
-                                      {types.hasLanche && <Sandwich size={7} />}
-                                      {types.hasPizza && <Pizza size={7} />}
+                                    <div className="flex items-center gap-1 mt-1 opacity-70">
+                                      {types.hasLanche && <Sandwich size={13} />}
+                                      {types.hasPizza && <Pizza size={13} />}
                                     </div>
                                   );
                                 })()}
