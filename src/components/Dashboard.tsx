@@ -994,14 +994,14 @@ export default function Dashboard({
     line();
     push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
 
-    if (printer.localName) {
-      // Impressora descoberta via Windows — usa spooler (mais confiável que TCP direto)
-      socket.emit('print_escpos', { localName: printer.localName, data: b });
-      toast.success(`Teste enviado para ${printerName}`, { description: `Spooler Windows: ${printer.localName}` });
-    } else if (printer.ip) {
-      // Impressora de rede sem nome Windows — TCP direto
+    if (printer.ip) {
+      // Impressora de rede (IP conhecido) — TCP direto é mais confiável que o spooler do Windows
       socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
       toast.success(`Teste enviado para ${printerName}`, { description: `TCP: ${printer.ip}:${printer.port || 9100}` });
+    } else if (printer.localName) {
+      // Impressora local (USB) descoberta via Windows — usa spooler
+      socket.emit('print_escpos', { localName: printer.localName, data: b });
+      toast.success(`Teste enviado para ${printerName}`, { description: `Spooler Windows: ${printer.localName}` });
     } else {
       toast.error('Configure o IP ou recadastre a impressora via busca.');
     }

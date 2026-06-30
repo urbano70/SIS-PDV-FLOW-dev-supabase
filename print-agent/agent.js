@@ -396,7 +396,15 @@ function startAgent({ serverUrl, agentSecret = '' }) {
       client.on('error', (e) => { serverSocket.emit('printer_agent_result', { success: false, ip, error: e.message }); done(); });
     });
 
-    serverSocket.on('scan_printers_request', () => runLocalScan(false));
+    serverSocket.on('scan_printers_request', () => {
+      // Responde imediatamente com o cache (scan de fundo já populou ao iniciar o agente)
+      if (scanResults.length > 0) {
+        console.log(`[scan] Resposta imediata com cache (${scanResults.length} impressora(s)).`);
+        serverSocket.emit('scan_printers_result', { printers: scanResults, cached: true });
+      }
+      // Atualiza em segundo plano e reenvia se encontrar mudanças
+      runLocalScan(false);
+    });
 
     serverSocket.on('disconnect', (reason) => {
       agentStatus = 'offline';
