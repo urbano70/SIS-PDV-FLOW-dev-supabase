@@ -621,6 +621,27 @@ async function startServer() {
           return;
         }
       }
+      if (isOpen) {
+        const now = new Date().toISOString();
+        let anyUpdated = false;
+        for (const order of orders) {
+          if (order.status === 'paid' || order.status === 'delivered') continue;
+          let orderUpdated = false;
+          if (order.items) {
+            for (const item of order.items) {
+              if (item.status === 'removed') continue;
+              item.timestamp = now;
+              orderUpdated = true;
+            }
+          }
+          if (orderUpdated) {
+            order.timestamp = now;
+            anyUpdated = true;
+            saveToSupabase('orders', order, String(order.id)).catch(() => {});
+          }
+        }
+        if (anyUpdated) io.emit('update_orders', orders);
+      }
       isCashRegisterOpen = isOpen;
       io.emit("update_cash_register", isCashRegisterOpen);
       await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString() }, 'app');

@@ -1576,6 +1576,20 @@ export default function Dashboard({
     return Date.now() > (snoozeMap[key] ?? 0);
   };
 
+  const getTableItemTypes = (id: number, isComanda: boolean): { hasLanche: boolean; hasPizza: boolean } => {
+    const tableOrders = orders.filter((o: any) =>
+      String(o.tableId) === String(id) &&
+      !!o.isComanda === isComanda &&
+      o.status !== 'paid' &&
+      o.status !== 'delivered'
+    );
+    const allItems = tableOrders.flatMap((o: any) => (o.items || []).filter((i: any) => !i.removed));
+    return {
+      hasLanche: allItems.some((i: any) => i.type === 'lanches'),
+      hasPizza: allItems.some((i: any) => i.type === 'pizzas'),
+    };
+  };
+
   const handleRemoveItem = (orderId: number | string, item: any) => {
     if (item.paid) {
       toast.error('Não é possível remover um item já pago!');
@@ -2193,29 +2207,39 @@ export default function Dashboard({
                                     setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
                                   }
                                 }}
-                                className={`p-1.5 rounded-lg border transition-all text-left w-full ${
-                                  selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
+                                className={`relative p-2 rounded-xl border transition-all duration-200 text-left w-full shadow-sm ${
+                                  selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-offset-1 ring-[#141414]/30' : ''
                                 } ${(() => {
                                   const pc = getPizzeriaTableColor(table.id, false);
-                                  if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
-                                  if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
-                                  if (pc === 'orange') return 'border-orange-500 bg-orange-500 text-white';
-                                  if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
-                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/50';
-                                  if (table.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
-                                  if (table.status === 'aguardando_baixa') return 'border-purple-500 bg-purple-600 text-white animate-pulse';
-                                  if (table.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-green-100';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-yellow-100';
+                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-orange-100';
+                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-red-100';
+                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/70 hover:bg-white hover:border-[#141414]/20 text-[#141414]/40';
+                                  if (table.status === 'occupied') return 'border-[#141414]/70 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-[#141414]/20';
+                                  if (table.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-purple-100';
+                                  if (table.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[6px] uppercase tracking-widest opacity-50">Mesa</p>
-                                <div className="flex items-center justify-between">
-                                  <p className="text-xs font-bold">{table.id}</p>
-                                  <div className="flex items-center space-x-0.5">
+                                <p className="text-[5px] uppercase tracking-widest opacity-50 font-semibold">Mesa</p>
+                                <div className="flex items-center justify-between mt-0.5">
+                                  <p className="text-sm font-black leading-none">{table.id}</p>
+                                  <div className="flex items-center gap-0.5">
                                     {table.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
                                     {shouldShowInactivityIcon(table.id, false) && <Clock size={8} className="text-amber-400 animate-pulse" />}
                                   </div>
                                 </div>
+                                {(() => {
+                                  const types = getTableItemTypes(table.id, false);
+                                  if (!types.hasLanche && !types.hasPizza) return null;
+                                  return (
+                                    <div className="flex items-center gap-0.5 mt-1 opacity-60">
+                                      {types.hasLanche && <Sandwich size={7} />}
+                                      {types.hasPizza && <Pizza size={7} />}
+                                    </div>
+                                  );
+                                })()}
                               </button>
                             ))}
                           </div>
@@ -2263,29 +2287,39 @@ export default function Dashboard({
                                     setInactivityPopup({ tableId: comanda.id, isComanda: true, minutes: getInactivityMinutes(comanda.id, true) });
                                   }
                                 }}
-                                className={`p-1.5 rounded-lg border transition-all text-left w-full ${
-                                  selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-[#141414]/20' : ''
+                                className={`relative p-2 rounded-xl border transition-all duration-200 text-left w-full shadow-sm ${
+                                  selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-offset-1 ring-[#141414]/30' : ''
                                 } ${(() => {
                                   const pc = getPizzeriaTableColor(comanda.id, true);
-                                  if (pc === 'green') return 'border-green-500 bg-green-500 text-white';
-                                  if (pc === 'yellow') return 'border-yellow-400 bg-yellow-400 text-[#141414]';
-                                  if (pc === 'orange') return 'border-orange-500 bg-orange-500 text-white';
-                                  if (pc === 'red') return 'border-red-500 bg-red-500 text-white animate-pulse';
-                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/50';
-                                  if (comanda.status === 'occupied') return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
-                                  if (comanda.status === 'aguardando_baixa') return 'border-purple-500 bg-purple-600 text-white animate-pulse';
-                                  if (comanda.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-green-100';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-yellow-100';
+                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-orange-100';
+                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-red-100';
+                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/70 hover:bg-white hover:border-[#141414]/20 text-[#141414]/40';
+                                  if (comanda.status === 'occupied') return 'border-[#141414]/70 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-[#141414]/20';
+                                  if (comanda.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-purple-100';
+                                  if (comanda.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[6px] uppercase tracking-widest opacity-50">Com.</p>
-                                <div className="flex items-center justify-between">
-                                  <p className="text-xs font-bold">{comanda.id}</p>
-                                  <div className="flex items-center space-x-0.5">
+                                <p className="text-[5px] uppercase tracking-widest opacity-50 font-semibold">Com.</p>
+                                <div className="flex items-center justify-between mt-0.5">
+                                  <p className="text-sm font-black leading-none">{comanda.id}</p>
+                                  <div className="flex items-center gap-0.5">
                                     {comanda.status === 'linked' && <LinkIcon size={8} className="text-blue-500" />}
                                     {shouldShowInactivityIcon(comanda.id, true) && <Clock size={8} className="text-amber-400 animate-pulse" />}
                                   </div>
                                 </div>
+                                {(() => {
+                                  const types = getTableItemTypes(comanda.id, true);
+                                  if (!types.hasLanche && !types.hasPizza) return null;
+                                  return (
+                                    <div className="flex items-center gap-0.5 mt-1 opacity-60">
+                                      {types.hasLanche && <Sandwich size={7} />}
+                                      {types.hasPizza && <Pizza size={7} />}
+                                    </div>
+                                  );
+                                })()}
                               </button>
                             ))}
                           </div>
