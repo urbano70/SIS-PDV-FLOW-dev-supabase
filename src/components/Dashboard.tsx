@@ -698,6 +698,8 @@ export default function Dashboard({
   ownerCreatedAt,
 }: DashboardProps) {
   const { updateTableStatusLocal, logout } = useFirebase();
+  // Track session start so stale timestamps from previous shifts don't inflate timers
+  const sessionStartMs = useRef(Date.now());
 
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
@@ -1558,7 +1560,9 @@ export default function Dashboard({
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
     const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
-    return ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    const rawMs = ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    // Cap at session start: timestamps older than this session belong to a previous shift
+    return Math.max(rawMs, sessionStartMs.current);
   };
 
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {
