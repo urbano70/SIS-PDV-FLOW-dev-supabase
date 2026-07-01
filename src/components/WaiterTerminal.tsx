@@ -519,11 +519,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
                                 (() => {
-                                  const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-                                  if (rawMs === 0) return null; // sem timestamp = sem contagem
-                                  const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
-                                  const startMs = shiftMs > 0 ? Math.max(rawMs, shiftMs) : rawMs;
-                                  return <OrderTimer timestamp={new Date(startMs).toISOString()} />;
+                                  if (!item.timestamp) return null; // sem timestamp = sem contagem
+                                  return <OrderTimer timestamp={item.timestamp} />;
                                 })()
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
