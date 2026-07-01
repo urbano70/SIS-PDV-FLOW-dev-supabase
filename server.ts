@@ -211,6 +211,7 @@ async function startServer() {
         else if (isCashRegisterOpen && cfg.updatedAt) shiftStartedAt = cfg.updatedAt;
         else if (isCashRegisterOpen) markShiftStart();
         io.emit('update_cash_register', isCashRegisterOpen);
+        io.emit('update_shift_started_at', shiftStartedAt);
       }
 
       if (sRes.data) {
@@ -303,7 +304,7 @@ async function startServer() {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(LOCAL_BACKUP_FILE, JSON.stringify({
           orders, tables, comandas, waiters, menu, stock, stockLog,
-          isCashRegisterOpen, pizzariaConfig,
+          isCashRegisterOpen, pizzariaConfig, shiftStartedAt,
           savedAt: new Date().toISOString()
         }), 'utf-8');
       } catch (e) {
@@ -331,6 +332,7 @@ async function startServer() {
       if (state.stockLog?.length) stockLog = state.stockLog;
       if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
       if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
+      if (state.shiftStartedAt) shiftStartedAt = state.shiftStartedAt;
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
       console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
       return true;
