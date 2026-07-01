@@ -208,6 +208,7 @@ async function startServer() {
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
         if (cfg.shiftStartedAt) shiftStartedAt = cfg.shiftStartedAt;
+        else if (isCashRegisterOpen && cfg.updatedAt) shiftStartedAt = cfg.updatedAt;
         else if (isCashRegisterOpen) markShiftStart();
         io.emit('update_cash_register', isCashRegisterOpen);
       }
