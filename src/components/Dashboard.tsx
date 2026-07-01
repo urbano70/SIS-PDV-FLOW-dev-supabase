@@ -520,7 +520,7 @@ const OrderDetails = ({
                           urgent={
                             pizzariaConfig?.enabled &&
                             !!item.timestamp &&
-                            (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= pizzariaConfig.redMinutes
+                            (Date.now() - Math.max(new Date(item.timestamp).getTime(), sessionStartMs.current)) / 60000 >= pizzariaConfig.redMinutes
                           }
                         />
                       )}
@@ -2199,7 +2199,7 @@ export default function Dashboard({
                           className="h-full flex flex-col min-h-0"
                         >
                           <div className="flex-1 overflow-y-auto scrollbar-hide pr-1">
-                          <div className="grid grid-cols-5 gap-1.5 pb-2">
+                          <div className="grid grid-cols-8 gap-1 pb-2">
                             {[...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))).map(table => (
                               <button
                                 key={table.id}
@@ -2226,19 +2226,17 @@ export default function Dashboard({
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[10px] uppercase tracking-widest opacity-60 font-bold leading-none">Mesa</p>
-                                <p className="text-2xl font-black leading-none">{table.id}</p>
-                                <div className="flex items-center justify-center gap-1 h-5">
+                                <p className="text-[7px] uppercase tracking-widest opacity-55 font-bold leading-none">Mesa</p>
+                                <p className="text-sm font-black leading-none">{table.id}</p>
+                                <div className="flex items-center justify-center gap-0.5 h-6">
                                   {(() => {
                                     const types = getTableItemTypes(table.id, false);
+                                    const hasType = types.hasLanche || types.hasPizza;
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={18} className="opacity-75" />}
-                                      {types.hasPizza && <Pizza size={18} className="opacity-75" />}
-                                      {!types.hasLanche && !types.hasPizza && table.status !== 'free' && (
-                                        <>{table.status === 'linked' && <LinkIcon size={14} className="text-blue-500" />}
-                                        {shouldShowInactivityIcon(table.id, false) && <Clock size={14} className="text-amber-400 animate-pulse" />}</>
-                                      )}
-                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(table.id, false) && <Clock size={14} className="text-amber-400 animate-pulse" />}
+                                      {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
+                                      {types.hasPizza && <Pizza size={22} className="opacity-80" />}
+                                      {!hasType && table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
+                                      {shouldShowInactivityIcon(table.id, false) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}
                                 </div>
@@ -2277,7 +2275,7 @@ export default function Dashboard({
                           transition={{ duration: 0.2 }}
                           className="h-full overflow-y-auto scrollbar-hide pr-1"
                         >
-                          <div className="grid grid-cols-5 gap-1.5 pb-2">
+                          <div className="grid grid-cols-8 gap-1 pb-2">
                             {[...comandas].sort((a, b) => a.id - b.id).filter(c => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas).map(comanda => (
                               <button
                                 key={comanda.id}
@@ -2304,19 +2302,17 @@ export default function Dashboard({
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[10px] uppercase tracking-widest opacity-60 font-bold leading-none">Com.</p>
-                                <p className="text-2xl font-black leading-none">{comanda.id}</p>
-                                <div className="flex items-center justify-center gap-1 h-5">
+                                <p className="text-[7px] uppercase tracking-widest opacity-55 font-bold leading-none">Com.</p>
+                                <p className="text-sm font-black leading-none">{comanda.id}</p>
+                                <div className="flex items-center justify-center gap-0.5 h-6">
                                   {(() => {
                                     const types = getTableItemTypes(comanda.id, true);
+                                    const hasType = types.hasLanche || types.hasPizza;
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={18} className="opacity-75" />}
-                                      {types.hasPizza && <Pizza size={18} className="opacity-75" />}
-                                      {!types.hasLanche && !types.hasPizza && comanda.status !== 'free' && (
-                                        <>{comanda.status === 'linked' && <LinkIcon size={14} className="text-blue-500" />}
-                                        {shouldShowInactivityIcon(comanda.id, true) && <Clock size={14} className="text-amber-400 animate-pulse" />}</>
-                                      )}
-                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(comanda.id, true) && <Clock size={14} className="text-amber-400 animate-pulse" />}
+                                      {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
+                                      {types.hasPizza && <Pizza size={22} className="opacity-80" />}
+                                      {!hasType && comanda.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
+                                      {shouldShowInactivityIcon(comanda.id, true) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}
                                 </div>
