@@ -114,19 +114,17 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const order = orders.find(o => String(o.id) === String(tableItem.currentOrder));
     if (!order) return null;
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
-    if (activeItems.length === 0) return 0;
+    if (activeItems.length === 0) return null;
     // Use the real server timestamp of the most recently added item.
-    // Cap at 24h ago to discard corrupted/stale timestamps.
+    // Discard timestamps older than 24h (corrupted legacy data).
     const floorMs = Date.now() - 24 * 60 * 60 * 1000;
-    let latestMs = floorMs;
+    let latestMs = 0;
     for (const item of activeItems) {
       const ts = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-      if (ts > latestMs) latestMs = ts;
+      if (ts > floorMs && ts > latestMs) latestMs = ts;
     }
-    // If all timestamps are older than 24h (corrupted), fall back to page-load time
-    if (latestMs <= floorMs) {
-      latestMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
-    }
+    // No valid timestamps — don't show inactivity to avoid false positives
+    if (latestMs === 0) return null;
     return Math.floor((Date.now() - latestMs) / 60_000);
   };
 
