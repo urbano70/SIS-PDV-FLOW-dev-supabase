@@ -516,14 +516,11 @@ const OrderDetails = ({
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
-                        const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-                        if (rawMs === 0) return null; // sem timestamp = sem contagem (requisito)
-                        const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
-                        const startMs = shiftMs > 0 ? Math.max(rawMs, shiftMs) : rawMs;
-                        const elapsedMin = (Date.now() - startMs) / 60000;
+                        if (!item.timestamp) return null; // sem timestamp = sem contagem
+                        const elapsedMin = (Date.now() - new Date(item.timestamp).getTime()) / 60000;
                         return (
                           <OrderTimer
-                            timestamp={new Date(startMs).toISOString()}
+                            timestamp={item.timestamp}
                             urgent={!!(pizzariaConfig?.enabled && elapsedMin >= (pizzariaConfig?.redMinutes ?? 30))}
                           />
                         );
