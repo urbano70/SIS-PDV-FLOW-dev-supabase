@@ -2622,7 +2622,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               });
               const totalSelected = batchPaySelectedIds.reduce((sum, id) => {
                 const emp = employees.find(e => e.id === id);
-                return sum + (emp ? calcNet(emp) : 0);
+                return sum + (emp ? empCalcNet(emp) : 0);
               }, 0);
               return (
                 <>
@@ -2646,7 +2646,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                             <p className="text-[10px] opacity-40">{emp.role} · {emp.department}</p>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-sm font-bold text-green-700 font-mono">{fmt(calcNet(emp))}</span>
+                            <span className="text-sm font-bold text-green-700 font-mono">{fmt(empCalcNet(emp))}</span>
                             <input type="checkbox" checked={isSelected} onChange={() => {}} className="w-4 h-4 text-[#141414] border-gray-300 rounded focus:ring-[#141414]" />
                           </div>
                         </div>
