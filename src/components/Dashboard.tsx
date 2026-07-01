@@ -517,7 +517,7 @@ const OrderDetails = ({
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
                         <OrderTimer
                           timestamp={item.timestamp}
-                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - Math.max(new Date(item.timestamp).getTime(), sessionStartMs.current)) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
+                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
                         />
                       )}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
