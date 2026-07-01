@@ -23,7 +23,6 @@ interface WaiterTerminalProps {
 export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
   const sessionStartMs = useRef(Date.now());
-  const itemFirstSeenRef = useRef<Map<string, number>>(new Map());
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -54,18 +53,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const id = setInterval(() => forceInactivityUpdate(n => n + 1), 60_000);
     return () => clearInterval(id);
   }, []);
-
-  useEffect(() => {
-    const now = Date.now();
-    orders.forEach((o: any) => {
-      (o.items || []).forEach((item: any) => {
-        const key = String(item.id);
-        if (key && !itemFirstSeenRef.current.has(key)) {
-          itemFirstSeenRef.current.set(key, now);
-        }
-      });
-    });
-  }, [orders]);
 
   const [, setPizzeriaColorTick] = useState(0);
   useEffect(() => {
@@ -106,7 +93,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (!order) return null;
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
     const timestamps = activeItems.filter((i: any) => i.timestamp).map((i: any) => new Date(i.timestamp).getTime());
-    const lastMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
+    const rawMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
+    // Cap at session start to avoid showing stale times from previous shifts
+    const lastMs = Math.max(rawMs, sessionStartMs.current);
     return Math.floor((Date.now() - lastMs) / 60_000);
   };
 
@@ -499,7 +488,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
-                                <OrderTimer timestamp={new Date(itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current).toISOString()} />
+                                <OrderTimer timestamp={item.timestamp} />
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
                                   ✓ Pronto — Retirar
