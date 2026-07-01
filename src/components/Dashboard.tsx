@@ -514,16 +514,19 @@ const OrderDetails = ({
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
-                        <OrderTimer
-                          timestamp={item.timestamp}
-                          urgent={
-                            pizzariaConfig?.enabled &&
-                            !!item.timestamp &&
-                            (Date.now() - Math.max(new Date(item.timestamp).getTime(), sessionStartMs.current)) / 60000 >= pizzariaConfig.redMinutes
-                          }
-                        />
-                      )}
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
+                        const firstSeen = itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current;
+                        const tsStr = new Date(firstSeen).toISOString();
+                        return (
+                          <OrderTimer
+                            timestamp={tsStr}
+                            urgent={
+                              pizzariaConfig?.enabled &&
+                              (Date.now() - firstSeen) / 60000 >= (pizzariaConfig.redMinutes ?? 30)
+                            }
+                          />
+                        );
+                      })()}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
                         item.kitchenStatus === 'ready' ? (
                           <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
@@ -700,8 +703,23 @@ export default function Dashboard({
   const { updateTableStatusLocal, logout } = useFirebase();
   // Track session start so stale timestamps from previous shifts don't inflate timers
   const sessionStartMs = useRef(Date.now());
+  // Track when each item was first seen by this client — used as timer baseline
+  const itemFirstSeenRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
+
+  // Populate first-seen map whenever orders change — new items get current time as baseline
+  useEffect(() => {
+    const now = Date.now();
+    orders.forEach((o: any) => {
+      (o.items || []).forEach((item: any) => {
+        const key = String(item.id);
+        if (key && !itemFirstSeenRef.current.has(key)) {
+          itemFirstSeenRef.current.set(key, now);
+        }
+      });
+    });
+  }, [orders]);
 
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [selectedComandaId, setSelectedComandaId] = useState<number | null>(null);
