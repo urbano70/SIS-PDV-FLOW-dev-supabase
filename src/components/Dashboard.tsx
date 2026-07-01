@@ -516,8 +516,8 @@ const OrderDetails = ({
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
                         <OrderTimer
-                          timestamp={new Date(itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current).toISOString()}
-                          urgent={!!(pizzariaConfig?.enabled && (Date.now() - (itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current)) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
+                          timestamp={item.timestamp}
+                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - Math.max(new Date(item.timestamp).getTime(), sessionStartMs.current)) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
                         />
                       )}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
@@ -544,7 +544,7 @@ const OrderDetails = ({
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`font-mono font-bold whitespace-nowrap ${item.paid ? 'text-green-700' : ''}`}>
                       R$ {(() => {
-                        let price = item.price;
+                        let price = item.price ?? 0;
                         if (item.discount) {
                           if (item.discountType === 'percentage') price *= (1 - item.discount / 100);
                           else price = Math.max(0, price - item.discount);
@@ -696,23 +696,8 @@ export default function Dashboard({
   const { updateTableStatusLocal, logout } = useFirebase();
   // Track session start so stale timestamps from previous shifts don't inflate timers
   const sessionStartMs = useRef(Date.now());
-  // Track when each item was first seen by this client — used as timer baseline
-  const itemFirstSeenRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
-
-  // Populate first-seen map whenever orders change — new items get current time as baseline
-  useEffect(() => {
-    const now = Date.now();
-    orders.forEach((o: any) => {
-      (o.items || []).forEach((item: any) => {
-        const key = String(item.id);
-        if (key && !itemFirstSeenRef.current.has(key)) {
-          itemFirstSeenRef.current.set(key, now);
-        }
-      });
-    });
-  }, [orders]);
 
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [selectedComandaId, setSelectedComandaId] = useState<number | null>(null);
