@@ -22,7 +22,6 @@ interface WaiterTerminalProps {
 
 export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
-  const sessionStartMs = useRef(Date.now());
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -93,9 +92,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (!order) return null;
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
     const timestamps = activeItems.filter((i: any) => i.timestamp).map((i: any) => new Date(i.timestamp).getTime());
-    const rawMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
-    // Cap at session start to avoid showing stale times from previous shifts
-    const lastMs = Math.max(rawMs, sessionStartMs.current);
+    const lastMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
     return Math.floor((Date.now() - lastMs) / 60_000);
   };
 
