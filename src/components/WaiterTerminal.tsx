@@ -18,9 +18,10 @@ interface WaiterTerminalProps {
   isCashRegisterOpen: boolean;
   printerConfig: any;
   pizzariaConfig: PizzeriaConfig;
+  shiftStartedAt?: string;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
 
   // Client-side first-seen tracking — avoids relying on potentially stale DB timestamps.
@@ -518,9 +519,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
                                 <OrderTimer timestamp={(() => {
-                                  const floorMs = Date.now() - 24 * 60 * 60 * 1000;
                                   const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-                                  const startMs = rawMs > floorMs ? rawMs : (firstSeenRef.current.get(String(item.id)) ?? Date.now());
+                                  const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
+                                  // Cap at shift start: items from before the current shift show time since shift started
+                                  const startMs = rawMs > shiftMs ? rawMs : (shiftMs || Date.now());
                                   return new Date(startMs).toISOString();
                                 })()} />
                               ) : (item as any).kitchenStatus === 'ready' ? (

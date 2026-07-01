@@ -233,7 +233,7 @@ const OrderDetails = ({
   printerConfig,
   firstSeenRef,
 }: any) => {
-  const { data: { pizzariaConfig } } = useFirebase();
+  const { data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
   if (!targetId) return (
     <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
@@ -516,10 +516,10 @@ const OrderDetails = ({
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
-                        // Use server timestamp (real time item was added); cap at 24h to discard corrupted values
-                        const floorMs = Date.now() - 24 * 60 * 60 * 1000;
                         const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-                        const startMs = rawMs > floorMs ? rawMs : (firstSeenRef?.current?.get(String(item.id)) ?? Date.now());
+                        const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
+                        // Cap at shift start: items from before the current shift show time since shift started
+                        const startMs = rawMs > shiftMs ? rawMs : (shiftMs || Date.now());
                         const elapsedMin = (Date.now() - startMs) / 60000;
                         return (
                           <OrderTimer

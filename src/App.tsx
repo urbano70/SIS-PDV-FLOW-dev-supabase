@@ -266,7 +266,7 @@ function WaiterRoute() {
 
 function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   const { data } = useFirebase();
-  const { tables, comandas, orders, menu, waiters, isCashRegisterOpen, pizzariaConfig } = data;
+  const { tables, comandas, orders, menu, waiters, isCashRegisterOpen, pizzariaConfig, shiftStartedAt } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
@@ -317,6 +317,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
       isCashRegisterOpen={isCashRegisterOpen}
       printerConfig={printerConfig}
       pizzariaConfig={pizzariaConfig}
+      shiftStartedAt={shiftStartedAt}
     />
   ) : (
     <SelfOnboarding waiters={waiters} />
