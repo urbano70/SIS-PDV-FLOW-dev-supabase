@@ -518,7 +518,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
-                                <OrderTimer timestamp={new Date(firstSeenRef.current.get(String(item.id)) ?? Date.now()).toISOString()} />
+                                <OrderTimer timestamp={(() => {
+                                  const floorMs = Date.now() - 24 * 60 * 60 * 1000;
+                                  const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+                                  const startMs = rawMs > floorMs ? rawMs : (firstSeenRef.current.get(String(item.id)) ?? Date.now());
+                                  return new Date(startMs).toISOString();
+                                })()} />
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
                                   ✓ Pronto — Retirar
