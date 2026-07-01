@@ -95,13 +95,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     );
     if (pending.length === 0) return null;
     const now = Date.now();
-    // Use client-side first-seen time to avoid stale DB timestamps
+    const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
     let oldest = Infinity;
     for (const i of pending) {
-      const seenAt = firstSeenRef.current.get(String(i.id)) ?? now;
-      if (seenAt < oldest) oldest = seenAt;
+      const rawMs = i.timestamp ? new Date(i.timestamp).getTime() : 0;
+      if (rawMs === 0) continue; // sem timestamp = sem contagem
+      const startMs = shiftMs > 0 ? Math.max(rawMs, shiftMs) : rawMs;
+      if (startMs < oldest) oldest = startMs;
     }
-    if (oldest === Infinity) return 'green';
+    if (!isFinite(oldest)) return 'green'; // sem timestamps válidos = verde (recém-iniciado)
     const elapsed = (now - oldest) / 60000;
     if (elapsed >= pizzariaConfig.redMinutes) return 'red';
     if (elapsed >= pizzariaConfig.orangeMinutes) return 'orange';
@@ -116,15 +118,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (!order) return null;
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
     if (activeItems.length === 0) return null;
-    // Use the real server timestamp of the most recently added item.
-    // Discard timestamps older than 24h (corrupted legacy data).
-    const floorMs = Date.now() - 24 * 60 * 60 * 1000;
+    // Only count items added in the current shift. No timestamp = no timer.
+    const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
     let latestMs = 0;
     for (const item of activeItems) {
       const ts = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-      if (ts > floorMs && ts > latestMs) latestMs = ts;
+      if (ts > 0 && (shiftMs === 0 || ts >= shiftMs) && ts > latestMs) latestMs = ts;
     }
-    // No valid timestamps — don't show inactivity to avoid false positives
     if (latestMs === 0) return null;
     return Math.floor((Date.now() - latestMs) / 60_000);
   };
@@ -518,13 +518,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
-                                <OrderTimer timestamp={(() => {
+                                (() => {
                                   const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+                                  if (rawMs === 0) return null; // sem timestamp = sem contagem
                                   const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
-                                  // Cap at shift start: items from before the current shift show time since shift started
-                                  const startMs = rawMs > shiftMs ? rawMs : (shiftMs || Date.now());
-                                  return new Date(startMs).toISOString();
-                                })()} />
+                                  const startMs = shiftMs > 0 ? Math.max(rawMs, shiftMs) : rawMs;
+                                  return <OrderTimer timestamp={new Date(startMs).toISOString()} />;
+                                })()
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
                                   ✓ Pronto — Retirar
