@@ -18,11 +18,33 @@ interface WaiterTerminalProps {
   isCashRegisterOpen: boolean;
   printerConfig: any;
   pizzariaConfig: PizzeriaConfig;
-  shiftStartedAt: string;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
+
+  // Client-side first-seen tracking — avoids relying on potentially stale DB timestamps.
+  // Key = item.id, value = ms when THIS client first received the item.
+  // Key = "order:<orderId>", value = ms when this client first received ANY item for that order.
+  const firstSeenRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    const now = Date.now();
+    orders.forEach((o: any) => {
+      const orderKey = `order:${o.id}`;
+      (o.items || []).forEach((item: any) => {
+        const itemKey = String(item.id);
+        if (itemKey && !firstSeenRef.current.has(itemKey)) {
+          firstSeenRef.current.set(itemKey, now);
+          // Mark order as active from the first time we see any of its items
+          if (!firstSeenRef.current.has(orderKey)) {
+            firstSeenRef.current.set(orderKey, now);
+          }
+        }
+      });
+    });
+  }, [orders]);
+
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -72,17 +94,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     );
     if (pending.length === 0) return null;
     const now = Date.now();
+    // Use client-side first-seen time to avoid stale DB timestamps
     let oldest = Infinity;
     for (const i of pending) {
-      if (i.timestamp) {
-        const t = new Date(i.timestamp).getTime();
-        if (t < oldest) oldest = t;
-      }
+      const seenAt = firstSeenRef.current.get(String(i.id)) ?? now;
+      if (seenAt < oldest) oldest = seenAt;
     }
     if (oldest === Infinity) return 'green';
-    // Cap at shift start so pre-shift items don't skew the color
-    const shiftMs = new Date(shiftStartedAt).getTime();
-    const elapsed = (now - Math.max(oldest, shiftMs)) / 60000;
+    const elapsed = (now - oldest) / 60000;
     if (elapsed >= pizzariaConfig.redMinutes) return 'red';
     if (elapsed >= pizzariaConfig.orangeMinutes) return 'orange';
     if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
@@ -93,12 +112,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (tableItem.status === 'free' || !tableItem.currentOrder) return null;
     const order = orders.find(o => String(o.id) === String(tableItem.currentOrder));
     if (!order) return null;
+    // Use client-side last-seen time: when did this client last receive a new item for this order?
+    // Falls back to when the order itself was first seen.
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
-    const timestamps = activeItems.filter((i: any) => i.timestamp).map((i: any) => new Date(i.timestamp).getTime());
-    const rawMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
-    // Cap at shift start so pre-shift orders don't show inflated inactivity times
-    const lastMs = Math.max(rawMs, new Date(shiftStartedAt).getTime());
-    return Math.floor((Date.now() - lastMs) / 60_000);
+    let latestSeenMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    for (const item of activeItems) {
+      const seenAt = firstSeenRef.current.get(String(item.id));
+      if (seenAt && seenAt > latestSeenMs) latestSeenMs = seenAt;
+    }
+    return Math.floor((Date.now() - latestSeenMs) / 60_000);
   };
 
   const formatInactivity = (minutes: number): string => {
@@ -490,7 +512,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
-                                <OrderTimer timestamp={item.timestamp} shiftStartedAt={shiftStartedAt} />
+                                <OrderTimer timestamp={new Date(firstSeenRef.current.get(String(item.id)) ?? Date.now()).toISOString()} />
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
                                   ✓ Pronto — Retirar
