@@ -730,7 +730,8 @@ async function startServer() {
       const waiterName = orderData.waiterName || (waiter ? waiter.name : "Desconhecido");
 
       // Tag items with waiter name and resolve type from server menu
-      const itemsWithWaiter = (orderData.items || []).map((item: any) => {
+      const orderCreatedAt = Date.now();
+      const itemsWithWaiter = (orderData.items || []).map((item: any, idx: number) => {
         // Pizzas always keep type 'pizzas'; for other items resolve from server menu
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
@@ -744,7 +745,8 @@ async function startServer() {
           type: resolvedType,
           id: item.id || Math.random().toString(36).substr(2, 9),
           waiterName: item.waiterName || waiterName,
-          timestamp: new Date().toISOString()
+          // Offset each item by its index so items in the same cart have unique timestamps
+          timestamp: new Date(orderCreatedAt + idx).toISOString()
         };
       });
 
