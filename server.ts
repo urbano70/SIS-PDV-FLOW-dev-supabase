@@ -80,20 +80,29 @@ async function startServer() {
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // Reset timestamps that are from a previous shift (>8h old) so stale items
+  // don't show huge timers. Items from the current shift keep their original
+  // timestamps so per-item timers stay accurate and independent.
   const resetActiveOrderTimestamps = () => {
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const STALE_MS = 8 * 60 * 60 * 1000; // 8 hours
     for (const order of orders) {
       if (order.status === 'paid' || order.status === 'delivered') continue;
       let updated = false;
       if (order.items) {
         for (const item of order.items) {
           if (item.status === 'removed') continue;
-          item.timestamp = now;
-          updated = true;
+          const age = nowMs - new Date(item.timestamp || 0).getTime();
+          if (age > STALE_MS) {
+            item.timestamp = nowIso;
+            updated = true;
+          }
         }
       }
       if (updated) {
-        order.timestamp = now;
+        const orderAge = nowMs - new Date(order.timestamp || 0).getTime();
+        if (orderAge > STALE_MS) order.timestamp = nowIso;
         saveToSupabase('orders', order, String(order.id)).catch(() => {});
       }
     }
