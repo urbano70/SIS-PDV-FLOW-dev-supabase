@@ -1577,19 +1577,17 @@ export default function Dashboard({
     const order = orders.find(o => String(o.id) === String(entity.currentOrder));
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
-    if (activeItems.length === 0) return Date.now();
+    if (activeItems.length === 0) return null;
     // Use the real server timestamp of the most recently added item.
-    // Cap at 24h ago to discard corrupted/stale timestamps.
+    // Discard timestamps older than 24h (corrupted legacy data).
     const floorMs = Date.now() - 24 * 60 * 60 * 1000;
-    let latestMs = floorMs;
+    let latestMs = 0;
     for (const item of activeItems) {
       const ts = item.timestamp ? new Date(item.timestamp).getTime() : 0;
-      if (ts > latestMs) latestMs = ts;
+      if (ts > floorMs && ts > latestMs) latestMs = ts;
     }
-    // If all timestamps are older than 24h (corrupted), fall back to page-load time
-    if (latestMs <= floorMs) {
-      latestMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
-    }
+    // No valid timestamps found — don't show inactivity to avoid false positives
+    if (latestMs === 0) return null;
     return latestMs;
   };
 
@@ -1604,7 +1602,9 @@ export default function Dashboard({
     const list = isComanda ? comandas : tables;
     const entity = list.find(e => e.id === id);
     if (!entity || entity.status === 'free' || !entity.currentOrder) return false;
-    if (getInactivityMinutes(id, isComanda) < (pizzariaConfig?.inactivityMinutes ?? 30)) return false;
+    const last = getLastActivityMs(id, isComanda);
+    if (last === null) return false; // no valid timestamps — don't alert
+    if (Math.floor((Date.now() - last) / 60_000) < (pizzariaConfig?.inactivityMinutes ?? 30)) return false;
     const key = `${isComanda ? 'c' : 't'}_${id}`;
     return Date.now() > (snoozeMap[key] ?? 0);
   };
