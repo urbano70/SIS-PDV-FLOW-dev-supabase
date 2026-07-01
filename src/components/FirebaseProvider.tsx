@@ -24,6 +24,7 @@ interface FirebaseContextType {
     menu: MenuCategory[];
     isCashRegisterOpen: boolean;
     pizzariaConfig: PizzeriaConfig;
+    shiftStartedAt: string;
   };
 }
 
@@ -78,6 +79,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [menu, setMenu] = useState<MenuCategory[]>(cached?.menu ?? []);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState<boolean>(cached?.isCashRegisterOpen ?? false);
   const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(cached?.pizzariaConfig ?? defaultPizzeriaConfig);
+  // shiftStartedAt: when the current service shift began — used to cap stale timestamps
+  const [shiftStartedAt, setShiftStartedAt] = useState<string>(cached?.shiftStartedAt ?? new Date().toISOString());
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -95,6 +98,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
     const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
     const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
+    const handleUpdateShiftStartedAt = (ts: string) => setShiftStartedAt(ts);
     const handleUpdateMenu = (data: MenuCategory[]) => {
       const transformed = data.map((cat: any) => ({
         ...cat,
@@ -122,6 +126,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
       if (data.pizzariaConfig) setPizzeriaConfig(data.pizzariaConfig);
       if (data.menu) setMenu(transformMenu(data.menu));
+      if (data.shiftStartedAt) setShiftStartedAt(data.shiftStartedAt);
 
       saveCache(tenantId, {
         ...data,
@@ -136,6 +141,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('update_comandas', handleUpdateComandas);
     socket.on('update_cash_register', handleUpdateCashRegister);
     socket.on('update_pizzaria_config', handleUpdatePizzeriaConfig);
+    socket.on('update_shift_started_at', handleUpdateShiftStartedAt);
     socket.on('update_menu', handleUpdateMenu);
     socket.on('update_stock', handleUpdateStock);
     socket.on('update_stock_log', handleUpdateStockLog);
@@ -190,6 +196,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('update_comandas', handleUpdateComandas);
       socket.off('update_cash_register', handleUpdateCashRegister);
       socket.off('update_pizzaria_config', handleUpdatePizzeriaConfig);
+      socket.off('update_shift_started_at', handleUpdateShiftStartedAt);
       socket.off('update_menu', handleUpdateMenu);
       socket.off('update_stock', handleUpdateStock);
       socket.off('update_stock_log', handleUpdateStockLog);
@@ -226,7 +233,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       toggleCashRegister,
       updateTableStatusLocal,
       updatePizzeriaConfig,
-      data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig }
+      data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig, shiftStartedAt }
     }}>
       {children}
     </FirebaseContext.Provider>

@@ -232,7 +232,7 @@ const OrderDetails = ({
   handleRemoveItem,
   printerConfig
 }: any) => {
-  const { data: { pizzariaConfig } } = useFirebase();
+  const { data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
   if (!targetId) return (
     <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
@@ -517,7 +517,8 @@ const OrderDetails = ({
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
                         <OrderTimer
                           timestamp={item.timestamp}
-                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - new Date(item.timestamp).getTime()) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
+                          shiftStartedAt={shiftStartedAt}
+                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - Math.max(new Date(item.timestamp).getTime(), new Date(shiftStartedAt).getTime())) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
                         />
                       )}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
@@ -1553,7 +1554,9 @@ export default function Dashboard({
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
     const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
-    return ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    const rawMs = ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    // Cap at shift start so pre-shift orders don't show inflated inactivity times
+    return Math.max(rawMs, new Date(shiftStartedAt).getTime());
   };
 
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {

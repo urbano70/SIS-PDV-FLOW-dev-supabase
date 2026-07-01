@@ -18,9 +18,10 @@ interface WaiterTerminalProps {
   isCashRegisterOpen: boolean;
   printerConfig: any;
   pizzariaConfig: PizzeriaConfig;
+  shiftStartedAt: string;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
   const [selectionType, setSelectionType] = useState<'tables' | 'comandas'>('tables');
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -79,7 +80,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       }
     }
     if (oldest === Infinity) return 'green';
-    const elapsed = (now - oldest) / 60000;
+    // Cap at shift start so pre-shift items don't skew the color
+    const shiftMs = new Date(shiftStartedAt).getTime();
+    const elapsed = (now - Math.max(oldest, shiftMs)) / 60000;
     if (elapsed >= pizzariaConfig.redMinutes) return 'red';
     if (elapsed >= pizzariaConfig.orangeMinutes) return 'orange';
     if (elapsed >= pizzariaConfig.yellowMinutes) return 'yellow';
@@ -92,7 +95,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (!order) return null;
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
     const timestamps = activeItems.filter((i: any) => i.timestamp).map((i: any) => new Date(i.timestamp).getTime());
-    const lastMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
+    const rawMs = timestamps.length > 0 ? Math.max(...timestamps) : new Date(order.timestamp).getTime();
+    // Cap at shift start so pre-shift orders don't show inflated inactivity times
+    const lastMs = Math.max(rawMs, new Date(shiftStartedAt).getTime());
     return Math.floor((Date.now() - lastMs) / 60_000);
   };
 
@@ -485,7 +490,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
-                                <OrderTimer timestamp={item.timestamp} />
+                                <OrderTimer timestamp={item.timestamp} shiftStartedAt={shiftStartedAt} />
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
                                   ✓ Pronto — Retirar

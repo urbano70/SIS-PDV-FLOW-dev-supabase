@@ -57,6 +57,9 @@ async function startServer() {
   let waiters: any[] = [];
   let orders: any[] = [];
   let isCashRegisterOpen = false;
+  // Tracks when the current service shift started (cashier was last opened).
+  // Sent to clients so they can cap stale timestamps without losing per-item accuracy.
+  let shiftStartedAt: string = new Date().toISOString();
   let tables: any[] = Array.from({ length: 40 }, (_, i) => ({
     id: i + 1,
     status: "free",
@@ -80,27 +83,10 @@ async function startServer() {
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-  // On shift start (cashier open), reset all active item timestamps to now.
-  // This marks the beginning of a new service shift — items carried over from
-  // previous sessions start their kitchen timer from zero. Items added during
-  // the shift keep their individual submission timestamps.
-  const resetActiveOrderTimestamps = () => {
-    const now = new Date().toISOString();
-    for (const order of orders) {
-      if (order.status === 'paid' || order.status === 'delivered') continue;
-      let updated = false;
-      if (order.items) {
-        for (const item of order.items) {
-          if (item.removed) continue;
-          item.timestamp = now;
-          updated = true;
-        }
-      }
-      if (updated) {
-        order.timestamp = now;
-        saveToSupabase('orders', order, String(order.id)).catch(() => {});
-      }
-    }
+  // Called when a new service shift starts (cashier opened or server startup with open cashier).
+  // Records shiftStartedAt so clients can cap stale timers without resetting individual items.
+  const markShiftStart = () => {
+    shiftStartedAt = new Date().toISOString();
   };
 
   const saveToSupabase = async (collection: string, data: any, docId?: string) => {
@@ -222,10 +208,8 @@ async function startServer() {
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
         io.emit('update_cash_register', isCashRegisterOpen);
-        // Reset stale timestamps on startup so timers start fresh each session
         if (isCashRegisterOpen) {
-          resetActiveOrderTimestamps();
-          io.emit('update_orders', orders);
+          markShiftStart();
         }
       }
 
@@ -495,6 +479,7 @@ async function startServer() {
       pizzaFlavors,
       pizzaCrusts,
       isCashRegisterOpen,
+      shiftStartedAt,
       pizzariaConfig,
       firebaseActive: !!db,
       printerAgentOnline: !!(printerAgentSocket?.connected),
@@ -512,6 +497,7 @@ async function startServer() {
         pizzaFlavors,
         pizzaCrusts,
         isCashRegisterOpen,
+        shiftStartedAt,
         pizzariaConfig,
         firebaseActive: !!db,
         printerAgentOnline: !!(printerAgentSocket?.connected),
@@ -650,8 +636,8 @@ async function startServer() {
         }
       }
       if (isOpen) {
-        resetActiveOrderTimestamps();
-        io.emit('update_orders', orders);
+        markShiftStart();
+        io.emit('update_shift_started_at', shiftStartedAt);
       }
       isCashRegisterOpen = isOpen;
       io.emit("update_cash_register", isCashRegisterOpen);

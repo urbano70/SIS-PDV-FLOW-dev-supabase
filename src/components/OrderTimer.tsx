@@ -4,16 +4,21 @@ import { Clock } from 'lucide-react';
 interface OrderTimerProps {
   timestamp?: string;
   urgent?: boolean;
+  shiftStartedAt?: string;
 }
 
-export const OrderTimer = ({ timestamp, urgent }: OrderTimerProps) => {
+export const OrderTimer = ({ timestamp, urgent, shiftStartedAt }: OrderTimerProps) => {
   const [elapsed, setElapsed] = useState<string>('');
 
   useEffect(() => {
     if (!timestamp) return;
 
     const updateTimer = () => {
-      const start = new Date(timestamp).getTime();
+      const rawStart = new Date(timestamp).getTime();
+      // Cap at shift start: items that predate the current shift show time since shift started
+      const start = shiftStartedAt
+        ? Math.max(rawStart, new Date(shiftStartedAt).getTime())
+        : rawStart;
       const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
       const mins = Math.floor(diff / 60);
       const secs = diff % 60;
@@ -23,7 +28,7 @@ export const OrderTimer = ({ timestamp, urgent }: OrderTimerProps) => {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [timestamp]);
+  }, [timestamp, shiftStartedAt]);
 
   if (!timestamp) return null;
 
