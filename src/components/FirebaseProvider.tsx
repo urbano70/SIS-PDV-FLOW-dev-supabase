@@ -145,15 +145,23 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.emit('request_init_data');
 
     // Auth in background: grants admin privileges on the socket
+    // Cache the last known token so reconnects can auth synchronously
+    let cachedAdminToken: string | null = null;
+
     const identifyConnection = async () => {
       if (isWaiterMode && tenantId) {
         socket.emit('waiter_identify_tenant', { tenantId });
         return;
       }
+      // Send cached token immediately (synchronous) so buffered events aren't rejected
+      if (cachedAdminToken) {
+        socket.emit('admin_connect', cachedAdminToken);
+      }
       try {
         const session = await getSession();
         const token = session?.access_token;
         if (token) {
+          cachedAdminToken = token;
           socket.emit('admin_connect', token);
           if (tenantId) socket.emit('tenant_connect', { tenantId, supabaseToken: token });
         }
@@ -164,6 +172,12 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
 
     // Re-identify and re-request data on reconnect
     const handleReconnect = () => {
+      // Auth first (sync with cached token), then request data
+      if (!isWaiterMode && cachedAdminToken) {
+        socket.emit('admin_connect', cachedAdminToken);
+      } else if (isWaiterMode && tenantId) {
+        socket.emit('waiter_identify_tenant', { tenantId });
+      }
       socket.emit('request_init_data');
       identifyConnection();
     };

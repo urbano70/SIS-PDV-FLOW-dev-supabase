@@ -514,19 +514,12 @@ const OrderDetails = ({
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
-                        const firstSeen = itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current;
-                        const tsStr = new Date(firstSeen).toISOString();
-                        return (
-                          <OrderTimer
-                            timestamp={tsStr}
-                            urgent={
-                              pizzariaConfig?.enabled &&
-                              (Date.now() - firstSeen) / 60000 >= (pizzariaConfig.redMinutes ?? 30)
-                            }
-                          />
-                        );
-                      })()}
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
+                        <OrderTimer
+                          timestamp={new Date(itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current).toISOString()}
+                          urgent={!!(pizzariaConfig?.enabled && (Date.now() - (itemFirstSeenRef.current.get(String(item.id)) ?? sessionStartMs.current)) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
+                        />
+                      )}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
                         item.kitchenStatus === 'ready' ? (
                           <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
