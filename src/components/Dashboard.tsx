@@ -698,6 +698,8 @@ export default function Dashboard({
   ownerCreatedAt,
 }: DashboardProps) {
   const { updateTableStatusLocal, logout } = useFirebase();
+  // Track session start so stale timestamps from previous shifts don't inflate timers
+  const sessionStartMs = useRef(Date.now());
 
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
@@ -1558,7 +1560,9 @@ export default function Dashboard({
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
     const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
-    return ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    const rawMs = ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
+    // Cap at session start: timestamps older than this session belong to a previous shift
+    return Math.max(rawMs, sessionStartMs.current);
   };
 
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {
@@ -2222,19 +2226,19 @@ export default function Dashboard({
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[8px] uppercase tracking-widest opacity-60 font-bold leading-none">Mesa</p>
-                                <p className="text-base font-black leading-none">{table.id}</p>
-                                <div className="flex items-center justify-center gap-0.5 h-4">
+                                <p className="text-[10px] uppercase tracking-widest opacity-60 font-bold leading-none">Mesa</p>
+                                <p className="text-2xl font-black leading-none">{table.id}</p>
+                                <div className="flex items-center justify-center gap-1 h-5">
                                   {(() => {
                                     const types = getTableItemTypes(table.id, false);
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={12} className="opacity-75" />}
-                                      {types.hasPizza && <Pizza size={12} className="opacity-75" />}
+                                      {types.hasLanche && <Sandwich size={18} className="opacity-75" />}
+                                      {types.hasPizza && <Pizza size={18} className="opacity-75" />}
                                       {!types.hasLanche && !types.hasPizza && table.status !== 'free' && (
-                                        <>{table.status === 'linked' && <LinkIcon size={10} className="text-blue-500" />}
-                                        {shouldShowInactivityIcon(table.id, false) && <Clock size={10} className="text-amber-400 animate-pulse" />}</>
+                                        <>{table.status === 'linked' && <LinkIcon size={14} className="text-blue-500" />}
+                                        {shouldShowInactivityIcon(table.id, false) && <Clock size={14} className="text-amber-400 animate-pulse" />}</>
                                       )}
-                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(table.id, false) && <Clock size={10} className="text-amber-400 animate-pulse" />}
+                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(table.id, false) && <Clock size={14} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}
                                 </div>
@@ -2300,19 +2304,19 @@ export default function Dashboard({
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[8px] uppercase tracking-widest opacity-60 font-bold leading-none">Com.</p>
-                                <p className="text-base font-black leading-none">{comanda.id}</p>
-                                <div className="flex items-center justify-center gap-0.5 h-4">
+                                <p className="text-[10px] uppercase tracking-widest opacity-60 font-bold leading-none">Com.</p>
+                                <p className="text-2xl font-black leading-none">{comanda.id}</p>
+                                <div className="flex items-center justify-center gap-1 h-5">
                                   {(() => {
                                     const types = getTableItemTypes(comanda.id, true);
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={12} className="opacity-75" />}
-                                      {types.hasPizza && <Pizza size={12} className="opacity-75" />}
+                                      {types.hasLanche && <Sandwich size={18} className="opacity-75" />}
+                                      {types.hasPizza && <Pizza size={18} className="opacity-75" />}
                                       {!types.hasLanche && !types.hasPizza && comanda.status !== 'free' && (
-                                        <>{comanda.status === 'linked' && <LinkIcon size={10} className="text-blue-500" />}
-                                        {shouldShowInactivityIcon(comanda.id, true) && <Clock size={10} className="text-amber-400 animate-pulse" />}</>
+                                        <>{comanda.status === 'linked' && <LinkIcon size={14} className="text-blue-500" />}
+                                        {shouldShowInactivityIcon(comanda.id, true) && <Clock size={14} className="text-amber-400 animate-pulse" />}</>
                                       )}
-                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(comanda.id, true) && <Clock size={10} className="text-amber-400 animate-pulse" />}
+                                      {(types.hasLanche || types.hasPizza) && shouldShowInactivityIcon(comanda.id, true) && <Clock size={14} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}
                                 </div>
