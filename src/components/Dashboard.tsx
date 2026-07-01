@@ -214,14 +214,14 @@ function buildEscPosKitchenTicket(
 }
 
 // Separate component for Order Details to avoid Hook issues and improve readability
-const OrderDetails = ({ 
-  isComandaSelected, 
-  selectedComandaId, 
-  selectedTableId, 
-  comandas, 
-  tables, 
-  orders, 
-  waiters, 
+const OrderDetails = ({
+  isComandaSelected,
+  selectedComandaId,
+  selectedTableId,
+  comandas,
+  tables,
+  orders,
+  waiters,
   isCashRegisterOpen,
   setIsAddItemModalOpen,
   setIsHistoryModalOpen,
@@ -230,9 +230,10 @@ const OrderDetails = ({
   setIsPaymentModalOpen,
   setIsBaixaModalOpen,
   handleRemoveItem,
-  printerConfig
+  printerConfig,
+  firstSeenRef,
 }: any) => {
-  const { data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
+  const { data: { pizzariaConfig } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
   if (!targetId) return (
     <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
@@ -514,13 +515,17 @@ const OrderDetails = ({
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (
-                        <OrderTimer
-                          timestamp={item.timestamp}
-                          shiftStartedAt={shiftStartedAt}
-                          urgent={!!(pizzariaConfig?.enabled && item.timestamp && (Date.now() - Math.max(new Date(item.timestamp).getTime(), new Date(shiftStartedAt).getTime())) / 60000 >= (pizzariaConfig?.redMinutes ?? 30))}
-                        />
-                      )}
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
+                        const seenMs = firstSeenRef?.current?.get(String(item.id)) ?? Date.now();
+                        const seenIso = new Date(seenMs).toISOString();
+                        const elapsedMin = (Date.now() - seenMs) / 60000;
+                        return (
+                          <OrderTimer
+                            timestamp={seenIso}
+                            urgent={!!(pizzariaConfig?.enabled && elapsedMin >= (pizzariaConfig?.redMinutes ?? 30))}
+                          />
+                        );
+                      })()}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
                         item.kitchenStatus === 'ready' ? (
                           <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
@@ -697,6 +702,24 @@ export default function Dashboard({
   const { updateTableStatusLocal, logout } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
+  // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
+  const firstSeenRef = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    const now = Date.now();
+    orders.forEach((o: any) => {
+      const orderKey = `order:${o.id}`;
+      (o.items || []).forEach((item: any) => {
+        const itemKey = String(item.id);
+        if (itemKey && !firstSeenRef.current.has(itemKey)) {
+          firstSeenRef.current.set(itemKey, now);
+          if (!firstSeenRef.current.has(orderKey)) {
+            firstSeenRef.current.set(orderKey, now);
+          }
+        }
+      });
+    });
+  }, [orders]);
+
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
   const [selectedComandaId, setSelectedComandaId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
@@ -823,12 +846,11 @@ export default function Dashboard({
     );
     if (pending.length === 0) return null;
     const now = Date.now();
+    // Use client-side first-seen time to avoid stale DB timestamps
     let oldest = Infinity;
     for (const i of pending) {
-      if (i.timestamp) {
-        const t = new Date(i.timestamp).getTime();
-        if (t < oldest) oldest = t;
-      }
+      const seenAt = firstSeenRef.current.get(String(i.id)) ?? now;
+      if (seenAt < oldest) oldest = seenAt;
     }
     if (oldest === Infinity) return 'green';
     const elapsed = (now - oldest) / 60000;
@@ -1553,10 +1575,13 @@ export default function Dashboard({
     const order = orders.find(o => String(o.id) === String(entity.currentOrder));
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
-    const ts = activeItems.filter(i => i.timestamp).map(i => new Date(i.timestamp!).getTime());
-    const rawMs = ts.length > 0 ? Math.max(...ts) : new Date(order.timestamp).getTime();
-    // Cap at shift start so pre-shift orders don't show inflated inactivity times
-    return Math.max(rawMs, new Date(shiftStartedAt).getTime());
+    // Use client-side first-seen time so stale DB timestamps never inflate the inactivity display
+    let latestSeenMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    for (const item of activeItems) {
+      const seenAt = firstSeenRef.current.get(String(item.id));
+      if (seenAt && seenAt > latestSeenMs) latestSeenMs = seenAt;
+    }
+    return latestSeenMs;
   };
 
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {
@@ -2441,6 +2466,7 @@ export default function Dashboard({
                           setIsBaixaModalOpen={setIsBaixaModalOpen}
                           handleRemoveItem={handleRemoveItem}
                           printerConfig={printerConfig}
+                          firstSeenRef={firstSeenRef}
                         />
                       </motion.div>
                     )}
