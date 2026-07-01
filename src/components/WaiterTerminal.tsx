@@ -109,6 +109,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const getInactivityMinutes = (tableItem: Table): number | null => {
+    if (!pizzariaConfig?.enabled) return null;
     if (tableItem.status === 'free' || !tableItem.currentOrder) return null;
     const order = orders.find(o => String(o.id) === String(tableItem.currentOrder));
     if (!order) return null;
