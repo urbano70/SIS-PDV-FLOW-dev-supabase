@@ -80,29 +80,24 @@ async function startServer() {
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-  // Reset timestamps that are from a previous shift (>8h old) so stale items
-  // don't show huge timers. Items from the current shift keep their original
-  // timestamps so per-item timers stay accurate and independent.
+  // On shift start (cashier open), reset all active item timestamps to now.
+  // This marks the beginning of a new service shift — items carried over from
+  // previous sessions start their kitchen timer from zero. Items added during
+  // the shift keep their individual submission timestamps.
   const resetActiveOrderTimestamps = () => {
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
-    const STALE_MS = 8 * 60 * 60 * 1000; // 8 hours
+    const now = new Date().toISOString();
     for (const order of orders) {
       if (order.status === 'paid' || order.status === 'delivered') continue;
       let updated = false;
       if (order.items) {
         for (const item of order.items) {
-          if (item.status === 'removed') continue;
-          const age = nowMs - new Date(item.timestamp || 0).getTime();
-          if (age > STALE_MS) {
-            item.timestamp = nowIso;
-            updated = true;
-          }
+          if (item.removed) continue;
+          item.timestamp = now;
+          updated = true;
         }
       }
       if (updated) {
-        const orderAge = nowMs - new Date(order.timestamp || 0).getTime();
-        if (orderAge > STALE_MS) order.timestamp = nowIso;
+        order.timestamp = now;
         saveToSupabase('orders', order, String(order.id)).catch(() => {});
       }
     }
@@ -352,8 +347,6 @@ async function startServer() {
       if (state.stockLog?.length) stockLog = state.stockLog;
       if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
       if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
-      // Reset timestamps so timers start fresh after server restart
-      resetActiveOrderTimestamps();
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
       console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
       return true;
