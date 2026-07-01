@@ -1600,6 +1600,7 @@ export default function Dashboard({
   };
 
   const shouldShowInactivityIcon = (id: number, isComanda: boolean): boolean => {
+    if (!pizzariaConfig?.enabled) return false;
     const list = isComanda ? comandas : tables;
     const entity = list.find(e => e.id === id);
     if (!entity || entity.status === 'free' || !entity.currentOrder) return false;
