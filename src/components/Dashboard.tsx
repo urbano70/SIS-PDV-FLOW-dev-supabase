@@ -516,12 +516,14 @@ const OrderDetails = ({
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
-                        const seenMs = firstSeenRef?.current?.get(String(item.id)) ?? Date.now();
-                        const seenIso = new Date(seenMs).toISOString();
-                        const elapsedMin = (Date.now() - seenMs) / 60000;
+                        // Use server timestamp (real time item was added); cap at 24h to discard corrupted values
+                        const floorMs = Date.now() - 24 * 60 * 60 * 1000;
+                        const rawMs = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+                        const startMs = rawMs > floorMs ? rawMs : (firstSeenRef?.current?.get(String(item.id)) ?? Date.now());
+                        const elapsedMin = (Date.now() - startMs) / 60000;
                         return (
                           <OrderTimer
-                            timestamp={seenIso}
+                            timestamp={new Date(startMs).toISOString()}
                             urgent={!!(pizzariaConfig?.enabled && elapsedMin >= (pizzariaConfig?.redMinutes ?? 30))}
                           />
                         );
