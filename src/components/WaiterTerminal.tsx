@@ -112,15 +112,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     if (tableItem.status === 'free' || !tableItem.currentOrder) return null;
     const order = orders.find(o => String(o.id) === String(tableItem.currentOrder));
     if (!order) return null;
-    // Use client-side last-seen time: when did this client last receive a new item for this order?
-    // Falls back to when the order itself was first seen.
     const activeItems = (order.items || []).filter((i: any) => !i.removed);
-    let latestSeenMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    if (activeItems.length === 0) return 0;
+    // Use the real server timestamp of the most recently added item.
+    // Cap at 24h ago to discard corrupted/stale timestamps.
+    const floorMs = Date.now() - 24 * 60 * 60 * 1000;
+    let latestMs = floorMs;
     for (const item of activeItems) {
-      const seenAt = firstSeenRef.current.get(String(item.id));
-      if (seenAt && seenAt > latestSeenMs) latestSeenMs = seenAt;
+      const ts = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+      if (ts > latestMs) latestMs = ts;
     }
-    return Math.floor((Date.now() - latestSeenMs) / 60_000);
+    // If all timestamps are older than 24h (corrupted), fall back to page-load time
+    if (latestMs <= floorMs) {
+      latestMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    }
+    return Math.floor((Date.now() - latestMs) / 60_000);
   };
 
   const formatInactivity = (minutes: number): string => {

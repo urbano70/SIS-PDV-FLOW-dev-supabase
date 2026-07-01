@@ -1575,13 +1575,20 @@ export default function Dashboard({
     const order = orders.find(o => String(o.id) === String(entity.currentOrder));
     if (!order) return null;
     const activeItems = (order.items || []).filter(i => !i.removed);
-    // Use client-side first-seen time so stale DB timestamps never inflate the inactivity display
-    let latestSeenMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    if (activeItems.length === 0) return Date.now();
+    // Use the real server timestamp of the most recently added item.
+    // Cap at 24h ago to discard corrupted/stale timestamps.
+    const floorMs = Date.now() - 24 * 60 * 60 * 1000;
+    let latestMs = floorMs;
     for (const item of activeItems) {
-      const seenAt = firstSeenRef.current.get(String(item.id));
-      if (seenAt && seenAt > latestSeenMs) latestSeenMs = seenAt;
+      const ts = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+      if (ts > latestMs) latestMs = ts;
     }
-    return latestSeenMs;
+    // If all timestamps are older than 24h (corrupted), fall back to page-load time
+    if (latestMs <= floorMs) {
+      latestMs = firstSeenRef.current.get(`order:${order.id}`) ?? Date.now();
+    }
+    return latestMs;
   };
 
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {
