@@ -207,10 +207,9 @@ async function startServer() {
         isCashRegisterOpen = cfg.isCashRegisterOpen || false;
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
+        if (cfg.shiftStartedAt) shiftStartedAt = cfg.shiftStartedAt;
+        else if (isCashRegisterOpen) markShiftStart();
         io.emit('update_cash_register', isCashRegisterOpen);
-        if (isCashRegisterOpen) {
-          markShiftStart();
-        }
       }
 
       if (sRes.data) {
@@ -641,7 +640,7 @@ async function startServer() {
       }
       isCashRegisterOpen = isOpen;
       io.emit("update_cash_register", isCashRegisterOpen);
-      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString() }, 'app');
+      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt } : {}) }, 'app');
     }));
 
     socket.on("toggle_waiter_status", requireAdmin(({ waiterId, status }) => {
