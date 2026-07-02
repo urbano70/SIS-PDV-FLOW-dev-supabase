@@ -1570,6 +1570,7 @@ export default function Dashboard({
   }, [orders, tables, comandas]);
 
   const getLastActivityMs = (id: number, isComanda: boolean): number | null => {
+    if (!isCashRegisterOpen) return null;
     const list = isComanda ? comandas : tables;
     const entity = list.find(e => e.id === id);
     if (!entity || entity.status === 'free' || !entity.currentOrder) return null;
