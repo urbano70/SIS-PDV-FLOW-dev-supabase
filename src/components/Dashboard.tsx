@@ -845,7 +845,7 @@ export default function Dashboard({
       (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches')
     );
     if (pending.length === 0) return null;
-    const now = Date.now();
+    const now = Date.now() - clockOffset;
     const shiftMs = shiftStartedAt ? new Date(shiftStartedAt).getTime() : 0;
     let oldest = Infinity;
     for (const i of pending) {
