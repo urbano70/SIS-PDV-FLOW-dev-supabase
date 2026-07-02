@@ -517,11 +517,12 @@ const OrderDetails = ({
                       </span>
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
                         if (!item.timestamp) return null; // sem timestamp = sem contagem
-                        const elapsedMin = (Date.now() - new Date(item.timestamp).getTime()) / 60000;
+                        const elapsedMin = ((Date.now() - clockOffset) - new Date(item.timestamp).getTime()) / 60000;
                         return (
                           <OrderTimer
                             timestamp={item.timestamp}
                             urgent={!!(pizzariaConfig?.enabled && elapsedMin >= (pizzariaConfig?.redMinutes ?? 30))}
+                            clockOffset={clockOffset}
                           />
                         );
                       })()}

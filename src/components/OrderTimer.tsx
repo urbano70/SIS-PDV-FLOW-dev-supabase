@@ -5,9 +5,10 @@ interface OrderTimerProps {
   timestamp?: string;
   urgent?: boolean;
   shiftStartedAt?: string;
+  clockOffset?: number;
 }
 
-export const OrderTimer = ({ timestamp, urgent, shiftStartedAt }: OrderTimerProps) => {
+export const OrderTimer = ({ timestamp, urgent, shiftStartedAt, clockOffset = 0 }: OrderTimerProps) => {
   const [elapsed, setElapsed] = useState<string>('');
 
   useEffect(() => {
@@ -15,11 +16,10 @@ export const OrderTimer = ({ timestamp, urgent, shiftStartedAt }: OrderTimerProp
 
     const updateTimer = () => {
       const rawStart = new Date(timestamp).getTime();
-      // Cap at shift start: items that predate the current shift show time since shift started
       const start = shiftStartedAt
         ? Math.max(rawStart, new Date(shiftStartedAt).getTime())
         : rawStart;
-      const diff = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const diff = Math.max(0, Math.floor(((Date.now() - clockOffset) - start) / 1000));
       const mins = Math.floor(diff / 60);
       const secs = diff % 60;
       setElapsed(`${mins}:${secs.toString().padStart(2, '0')}`);
@@ -28,7 +28,7 @@ export const OrderTimer = ({ timestamp, urgent, shiftStartedAt }: OrderTimerProp
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [timestamp, shiftStartedAt]);
+  }, [timestamp, shiftStartedAt, clockOffset]);
 
   if (!timestamp) return null;
 
