@@ -522,7 +522,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
                                 (() => {
                                   if (!item.timestamp) return null; // sem timestamp = sem contagem
-                                  return <OrderTimer timestamp={item.timestamp} />;
+                                  return <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />;
                                 })()
                               ) : (item as any).kitchenStatus === 'ready' ? (
                                 <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
