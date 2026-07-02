@@ -519,27 +519,29 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
-                              ) : !(pizzariaConfig?.kdsEnabled ?? false) ? (
-                                (() => {
-                                  if (!item.timestamp) return null; // sem timestamp = sem contagem
-                                  return <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />;
-                                })()
-                              ) : (item as any).kitchenStatus === 'ready' ? (
-                                <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
-                                  ✓ Pronto — Retirar
-                                </span>
-                              ) : (item as any).kitchenStatus === 'oven' ? (
-                                <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                  No Forno...
-                                </span>
-                              ) : (item as any).kitchenStatus === 'preparing' ? (
-                                <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                  Em preparo...
-                                </span>
                               ) : (
-                                <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                  Na fila
-                                </span>
+                                <>
+                                  {item.timestamp && <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />}
+                                  {(pizzariaConfig?.kdsEnabled ?? false) && (
+                                    (item as any).kitchenStatus === 'ready' ? (
+                                      <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
+                                        ✓ Pronto — Retirar
+                                      </span>
+                                    ) : (item as any).kitchenStatus === 'oven' ? (
+                                      <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                        No Forno...
+                                      </span>
+                                    ) : (item as any).kitchenStatus === 'preparing' ? (
+                                      <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                        Em preparo...
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                        Na fila
+                                      </span>
+                                    )
+                                  )}
+                                </>
                               )
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
