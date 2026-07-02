@@ -68,6 +68,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     orangeMinutes: 20,
     redMinutes: 25,
     inactivityMinutes: 30,
+    kdsEnabled: false,
   };
 
   const [loading, setLoading] = useState(!cached);

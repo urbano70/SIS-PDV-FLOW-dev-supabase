@@ -233,7 +233,7 @@ const OrderDetails = ({
   printerConfig,
   firstSeenRef,
 }: any) => {
-  const { data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
+  const { clockOffset, data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
   if (!targetId) return (
     <div className="bg-white/50 border-2 border-dashed border-[#141414]/10 rounded-2xl p-10 text-center opacity-30 flex-1 flex flex-col justify-center">
@@ -526,7 +526,7 @@ const OrderDetails = ({
                           />
                         );
                       })()}
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? true) && (
+                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? false) && (
                         item.kitchenStatus === 'ready' ? (
                           <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
                         ) : item.kitchenStatus === 'oven' ? (
@@ -951,7 +951,7 @@ export default function Dashboard({
       (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
       pizzariaConfig.enabled !== cfg.pizzaEnabled ||
-      (pizzariaConfig.kdsEnabled ?? true) !== cfg.kdsEnabled;
+      (pizzariaConfig.kdsEnabled ?? false) !== cfg.kdsEnabled;
     if (needsUpdate) {
       updatePizzeriaConfig({
         ...pizzariaConfig,
@@ -2008,7 +2008,7 @@ export default function Dashboard({
             <Settings size={20} />
             <span className="text-sm font-medium">Configurações</span>
           </button>
-          {(pizzariaConfig.kdsEnabled ?? true) && (
+          {(pizzariaConfig.kdsEnabled ?? false) && (
             <div className="border-t border-[#141414]/10 pt-2 mt-1">
               <a
                 href="/app/kitchen"
@@ -2085,7 +2085,7 @@ export default function Dashboard({
                 >
                   <Settings size={16} />
                 </button>
-                {(pizzariaConfig.kdsEnabled ?? true) && (
+                {(pizzariaConfig.kdsEnabled ?? false) && (
                   <>
                     <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
                     <a
@@ -4333,14 +4333,14 @@ export default function Dashboard({
                           <Monitor size={10} className="opacity-50" />
                           <div>
                             <p className="text-[8px] font-bold leading-none flex items-center gap-1">KDS {planCfg.kdsLocked && <Lock size={7} className="text-amber-500" />}</p>
-                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? true) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
+                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? false) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
                           </div>
                         </div>
-                        <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? true) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
-                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? true) ? 'translate-x-4' : ''}`} />
+                        <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? false) ? 'translate-x-4' : ''}`} />
                         </button>
                       </div>
-                      {(pizzariaConfig.kdsEnabled ?? true) && (
+                      {(pizzariaConfig.kdsEnabled ?? false) && (
                         <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
                           <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
                           <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
