@@ -503,7 +503,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <h3 className="font-bold text-base border-b pb-2">Pedidos em Aberto</h3>
                   <div className="space-y-3">
                     {currentOrder.items.map((item) => {
-                      const kdsEnabled = pizzariaConfig?.kdsEnabled ?? true;
+                      const kdsEnabled = pizzariaConfig?.kdsEnabled ?? false;
                       const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt &&
                         (item.type === 'pizzas' || item.type === 'lanches') &&
                         (kdsEnabled ? (item as any).kitchenStatus === 'ready' : true);
@@ -519,7 +519,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                                 <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
                                 </span>
-                              ) : !(pizzariaConfig?.kdsEnabled ?? true) ? (
+                              ) : !(pizzariaConfig?.kdsEnabled ?? false) ? (
                                 (() => {
                                   if (!item.timestamp) return null; // sem timestamp = sem contagem
                                   return <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />;
