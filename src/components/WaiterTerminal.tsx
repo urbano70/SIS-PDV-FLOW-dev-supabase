@@ -19,9 +19,10 @@ interface WaiterTerminalProps {
   printerConfig: any;
   pizzariaConfig: PizzeriaConfig;
   shiftStartedAt?: string;
+  clockOffset?: number;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
 
   // Client-side first-seen tracking — avoids relying on potentially stale DB timestamps.
@@ -127,7 +128,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       if (ts > 0 && (shiftMs === 0 || ts >= shiftMs) && ts > latestMs) latestMs = ts;
     }
     if (latestMs === 0) return null;
-    return Math.floor((Date.now() - latestMs) / 60_000);
+    return Math.floor(((Date.now() - clockOffset) - latestMs) / 60_000);
   };
 
   const formatInactivity = (minutes: number): string => {

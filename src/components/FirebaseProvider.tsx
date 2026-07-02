@@ -14,6 +14,7 @@ interface FirebaseContextType {
   toggleCashRegister: (open: boolean) => void;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
+  clockOffset: number;
   data: {
     tables: Table[];
     comandas: Table[];
@@ -81,6 +82,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(cached?.pizzariaConfig ?? defaultPizzeriaConfig);
   // shiftStartedAt: when the current service shift began — used to cap stale timestamps
   const [shiftStartedAt, setShiftStartedAt] = useState<string>(cached?.shiftStartedAt ?? new Date().toISOString());
+  // clockOffset: ms difference (client - server). Use Date.now() - clockOffset for server-aligned time.
+  const [clockOffset, setClockOffset] = useState<number>(0);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -127,6 +130,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (data.pizzariaConfig) setPizzeriaConfig(data.pizzariaConfig);
       if (data.menu) setMenu(transformMenu(data.menu));
       if (data.shiftStartedAt) setShiftStartedAt(data.shiftStartedAt);
+      if (data.serverNow) setClockOffset(Date.now() - new Date(data.serverNow).getTime());
 
       saveCache(tenantId, {
         ...data,
@@ -233,6 +237,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       toggleCashRegister,
       updateTableStatusLocal,
       updatePizzeriaConfig,
+      clockOffset,
       data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig, shiftStartedAt }
     }}>
       {children}

@@ -484,6 +484,7 @@ async function startServer() {
       pizzariaConfig,
       firebaseActive: !!db,
       printerAgentOnline: !!(printerAgentSocket?.connected),
+      serverNow: new Date().toISOString(),
     });
 
     socket.on("request_init_data", () => {
@@ -502,6 +503,7 @@ async function startServer() {
         pizzariaConfig,
         firebaseActive: !!db,
         printerAgentOnline: !!(printerAgentSocket?.connected),
+        serverNow: new Date().toISOString(),
       });
     });
 
