@@ -698,7 +698,7 @@ export default function Dashboard({
   plan = 'free',
   ownerCreatedAt,
 }: DashboardProps) {
-  const { updateTableStatusLocal, logout, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, logout, clockOffset, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
@@ -1593,7 +1593,7 @@ export default function Dashboard({
   const getInactivityMinutes = (id: number, isComanda: boolean): number => {
     const last = getLastActivityMs(id, isComanda);
     if (last === null) return 0;
-    return Math.floor((Date.now() - last) / 60_000);
+    return Math.floor(((Date.now() - clockOffset) - last) / 60_000);
   };
 
   const shouldShowInactivityIcon = (id: number, isComanda: boolean): boolean => {
@@ -1603,9 +1603,10 @@ export default function Dashboard({
     if (!entity || entity.status === 'free' || !entity.currentOrder) return false;
     const last = getLastActivityMs(id, isComanda);
     if (last === null) return false; // no valid timestamps — don't alert
-    if (Math.floor((Date.now() - last) / 60_000) < (pizzariaConfig?.inactivityMinutes ?? 30)) return false;
+    const nowAdjusted = Date.now() - clockOffset;
+    if (Math.floor((nowAdjusted - last) / 60_000) < (pizzariaConfig?.inactivityMinutes ?? 30)) return false;
     const key = `${isComanda ? 'c' : 't'}_${id}`;
-    return Date.now() > (snoozeMap[key] ?? 0);
+    return nowAdjusted > (snoozeMap[key] ?? 0);
   };
 
   const getTableItemTypes = (id: number, isComanda: boolean): { hasLanche: boolean; hasPizza: boolean } => {

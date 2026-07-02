@@ -207,9 +207,8 @@ async function startServer() {
         isCashRegisterOpen = cfg.isCashRegisterOpen || false;
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
-        if (cfg.shiftStartedAt) shiftStartedAt = cfg.shiftStartedAt;
-        else if (isCashRegisterOpen && cfg.updatedAt) shiftStartedAt = cfg.updatedAt;
-        else if (isCashRegisterOpen) markShiftStart();
+        // shiftStartedAt is NOT restored from DB — it always resets to server
+        // startup time so items from before this restart are excluded from inactivity.
         io.emit('update_cash_register', isCashRegisterOpen);
         io.emit('update_shift_started_at', shiftStartedAt);
       }
@@ -304,7 +303,7 @@ async function startServer() {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(LOCAL_BACKUP_FILE, JSON.stringify({
           orders, tables, comandas, waiters, menu, stock, stockLog,
-          isCashRegisterOpen, pizzariaConfig, shiftStartedAt,
+          isCashRegisterOpen, pizzariaConfig,
           savedAt: new Date().toISOString()
         }), 'utf-8');
       } catch (e) {
@@ -332,7 +331,7 @@ async function startServer() {
       if (state.stockLog?.length) stockLog = state.stockLog;
       if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
       if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
-      if (state.shiftStartedAt) shiftStartedAt = state.shiftStartedAt;
+      // shiftStartedAt is intentionally NOT restored from backup — resets on every restart.
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
       console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
       return true;
@@ -485,6 +484,7 @@ async function startServer() {
       pizzariaConfig,
       firebaseActive: !!db,
       printerAgentOnline: !!(printerAgentSocket?.connected),
+      serverNow: new Date().toISOString(),
     });
 
     socket.on("request_init_data", () => {
@@ -503,6 +503,7 @@ async function startServer() {
         pizzariaConfig,
         firebaseActive: !!db,
         printerAgentOnline: !!(printerAgentSocket?.connected),
+        serverNow: new Date().toISOString(),
       });
     });
 
