@@ -8,29 +8,29 @@ interface OrderTimerProps {
   clockOffset?: number;
 }
 
-export const OrderTimer = ({ timestamp, urgent, shiftStartedAt, clockOffset = 0 }: OrderTimerProps) => {
-  const [elapsed, setElapsed] = useState<string>('');
+export const OrderTimer = ({ timestamp, urgent, clockOffset = 0 }: OrderTimerProps) => {
+  const [, tick] = useState(0);
 
   useEffect(() => {
     if (!timestamp) return;
-
-    const updateTimer = () => {
-      const rawStart = new Date(timestamp).getTime();
-      const start = shiftStartedAt
-        ? Math.max(rawStart, new Date(shiftStartedAt).getTime())
-        : rawStart;
-      const diff = Math.max(0, Math.floor(((Date.now() - clockOffset) - start) / 1000));
-      const mins = Math.floor(diff / 60);
-      const secs = diff % 60;
-      setElapsed(`${mins}:${secs.toString().padStart(2, '0')}`);
+    // Força re-render a cada segundo
+    const interval = setInterval(() => tick(n => n + 1), 1000);
+    // Em mobile, retoma a contagem quando a tela volta ao foco
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(n => n + 1); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [timestamp, shiftStartedAt, clockOffset]);
+  }, [timestamp]);
 
   if (!timestamp) return null;
+
+  // Computed inline: sem estado inicial vazio, sempre correto a cada render
+  const diff = Math.max(0, Math.floor(((Date.now() - clockOffset) - new Date(timestamp).getTime()) / 1000));
+  const mins = Math.floor(diff / 60);
+  const secs = diff % 60;
+  const elapsed = `${mins}:${secs.toString().padStart(2, '0')}`;
 
   return (
     <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ml-2 flex items-center shrink-0 transition-colors ${

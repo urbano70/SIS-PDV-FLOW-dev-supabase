@@ -289,7 +289,7 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
-  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: true, waiterCanPay: true };
+  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true };
 
   // â"€â"€ Local state backup â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const LOCAL_BACKUP_FILE = path.join(process.cwd(), 'data', 'local-state.json');
