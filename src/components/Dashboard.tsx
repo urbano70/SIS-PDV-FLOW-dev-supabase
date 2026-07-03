@@ -1615,9 +1615,10 @@ export default function Dashboard({
       String(o.tableId) === String(id) &&
       !!o.isComanda === isComanda &&
       o.status !== 'paid' &&
-      o.status !== 'delivered'
+      o.status !== 'delivered' &&
+      o.status !== 'finalizada'
     );
-    const allItems = tableOrders.flatMap((o: any) => (o.items || []).filter((i: any) => !i.removed));
+    const allItems = tableOrders.flatMap((o: any) => (o.items || []).filter((i: any) => !i.removed && !i.paid));
     return {
       hasLanche: allItems.some((i: any) => i.type === 'lanches'),
       hasPizza: allItems.some((i: any) => i.type === 'pizzas'),
@@ -2256,8 +2257,8 @@ export default function Dashboard({
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse';
                                 })()}`}
                               >
-                                <p className="text-[7px] uppercase tracking-widest opacity-55 font-bold leading-none">Mesa</p>
-                                <p className="text-sm font-black leading-none">{table.id}</p>
+                                <p className="text-[9px] uppercase tracking-widest font-bold leading-none">Mesa</p>
+                                <p className="text-xl font-black leading-none">{table.id}</p>
                                 <div className="flex items-center justify-center gap-0.5 h-6">
                                   {(() => {
                                     const types = getTableItemTypes(table.id, false);

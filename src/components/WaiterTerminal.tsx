@@ -74,7 +74,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const [, forceInactivityUpdate] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => forceInactivityUpdate(n => n + 1), 60_000);
+    const id = setInterval(() => forceInactivityUpdate(n => n + 1), 1_000);
     return () => clearInterval(id);
   }, []);
 
