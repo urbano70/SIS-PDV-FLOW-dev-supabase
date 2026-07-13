@@ -1155,7 +1155,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             {/* Sub-abas */}
             <div className="flex gap-1 mb-4 bg-[#F5F5F3] p-1 rounded-xl w-fit">
               {([
-                { id: 'equipe', label: 'Equipe' },
+                { id: 'equipe', label: 'Remuneração' },
                 { id: 'presenca', label: 'Presença' },
               ] as const).map(({ id, label }) => (
                 <button key={id} onClick={() => { setEmpSubTab(id); localStorage.setItem(`fin_subtab_${tenantId}`, id); }}
