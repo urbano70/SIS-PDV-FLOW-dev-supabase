@@ -728,6 +728,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const totalAcrescimos = activeEmps.reduce((s, e) => s + e.additions, 0);
   const expPending = expenses.filter(e => !e.paid);
   const totalExpenses = expPending.reduce((s, e) => s + e.amount, 0);
+  const paidEmpIds = new Set(monthPayments.map(p => p.employee_id));
 
   const now = new Date();
   const thisPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -842,7 +843,6 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
           paid_at: paidAt, notes: detailNotes,
         });
         await supabase.from('fin_employees').update({
-          status: 'pago',
           discounts: 0,
           additions: 0,
           observations: '',
@@ -1116,7 +1116,6 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 <option value="ativo">Ativo</option>
                 <option value="afastado">Afastado</option>
                 <option value="inativo">Inativo</option>
-                <option value="pago">Pago</option>
               </select>
               <button onClick={openAddEmp} className="flex items-center gap-2 px-4 py-2.5 bg-[#141414] text-white rounded-xl text-sm font-bold hover:opacity-80 transition-opacity">
                 <Plus size={15} /> Novo Colaborador
@@ -1202,7 +1201,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 <table className="w-full text-sm">
                   <thead className="bg-[#F5F5F3] border-b border-[#141414]/10">
                     <tr>
-                      {['Nome', 'Cargo / Depart.', 'Regime', 'Bruto', 'Líquido', 'Status', ''].map(h => (
+                      {['Nome', 'Cargo / Depart.', 'Regime', 'Bruto', 'Líquido', '', ''].map(h => (
                         <th key={h} className="text-left px-4 py-3 text-[11px] font-bold uppercase opacity-40">{h}</th>
                       ))}
                     </tr>
@@ -1223,11 +1222,18 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                         </td>
                         <td className="px-4 py-3 font-mono font-semibold text-sm">{fmt(empCalcGross(e))}</td>
                         <td className="px-4 py-3 font-mono font-bold text-sm text-green-700">{fmt(empCalcNet(e))}</td>
-                        <td className="px-4 py-3">{statusBadge(e.status)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1 items-start">
+                            {e.status !== 'pago' && statusBadge(e.status)}
+                            {(paidEmpIds.has(e.id) || e.status === 'pago') && (
+                              <span className="text-[11px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">✓ Pago</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1 justify-end">
                             {(() => {
-                              const isCycleEmpty = e.status === 'pago' && e.discounts === 0 && e.additions === 0 && !e.observations;
+                              const isCycleEmpty = (paidEmpIds.has(e.id) || e.status === 'pago') && e.discounts === 0 && e.additions === 0 && !e.observations;
                               return (
                                 <button
                                   onClick={() => { setCycleEmployee(e); setCycleModal(true); loadCycleAtt(e); }}
@@ -1601,7 +1607,6 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                     <option value="ativo">Ativo</option>
                     <option value="afastado">Afastado</option>
                     <option value="inativo">Inativo</option>
-                    <option value="pago">Pago</option>
                   </select>
                 </div>
                 <div>
@@ -1642,7 +1647,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             </div>
 
             <div className="flex-1 overflow-y-auto p-5">
-              {cycleEmployee.status === 'pago' && cycleEmployee.discounts === 0 && cycleEmployee.additions === 0 && !cycleEmployee.observations ? (
+              {(paidEmpIds.has(cycleEmployee.id) || cycleEmployee.status === 'pago') && cycleEmployee.discounts === 0 && cycleEmployee.additions === 0 && !cycleEmployee.observations ? (
                 <div className="flex flex-col items-center justify-center py-10 text-[#141414]/30">
                   <DollarSign size={28} className="mb-2" />
                   <p className="text-sm font-semibold">Ciclo zerado</p>
