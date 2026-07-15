@@ -728,12 +728,12 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const totalAcrescimos = activeEmps.reduce((s, e) => s + e.additions, 0);
   const expPending = expenses.filter(e => !e.paid);
   const totalExpenses = expPending.reduce((s, e) => s + e.amount, 0);
-  const paidEmpIds = new Set(monthPayments.map(p => p.employee_id));
 
   const now = new Date();
   const thisPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const monthPayments = payments.filter(p => p.period === thisPeriod);
   const totalPaidMonth = monthPayments.reduce((s, p) => s + p.amount_net, 0);
+  const paidEmpIds = new Set(monthPayments.map(p => p.employee_id));
 
   // ── Dashboard métricas filtradas ────────────────────────────────────────────
   const dashPayments =
@@ -781,7 +781,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
   const openAddEmp = () => { setEmpEditing(null); setEmpForm({ ...EMPTY_EMPLOYEE }); setEmpFormRestDay(-1); setEmpModal(true); };
   const openEditEmp = (e: Employee) => {
     setEmpEditing(e);
-    setEmpForm({ name: e.name, cpf: e.cpf, role: e.role, department: e.department, contract_type: e.contract_type, payment_type: e.payment_type, daily_rate: e.daily_rate, working_days: e.working_days, monthly_salary: e.monthly_salary, discounts: 0, additions: 0, status: e.status, observations: e.observations });
+    setEmpForm({ name: e.name, cpf: e.cpf, role: e.role, department: e.department, contract_type: e.contract_type, payment_type: e.payment_type, daily_rate: e.daily_rate, working_days: e.working_days, monthly_salary: e.monthly_salary, discounts: 0, additions: 0, status: e.status === 'pago' ? 'ativo' : e.status, observations: e.observations });
     setEmpFormRestDay(empRestDays[e.id] ?? -1);
     setEmpModal(true);
   };
