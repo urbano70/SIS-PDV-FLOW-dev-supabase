@@ -2266,7 +2266,7 @@ export default function Dashboard({
                                     return (<>
                                       {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
                                       {types.hasPizza && <Pizza size={22} className="opacity-80" />}
-                                      {!hasType && table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
+                                      {table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(table.id, false) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}
@@ -2342,7 +2342,7 @@ export default function Dashboard({
                                     return (<>
                                       {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
                                       {types.hasPizza && <Pizza size={22} className="opacity-80" />}
-                                      {!hasType && comanda.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
+                                      {comanda.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(comanda.id, true) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
                                   })()}

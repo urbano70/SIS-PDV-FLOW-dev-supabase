@@ -114,7 +114,12 @@ const CONTRACT_TYPES = [
   { value: 'freelancer', label: 'Freelancer' },
   { value: 'diaria', label: 'Diária' },
 ];
-const EXPENSE_CATEGORIES = ['Aluguel', 'Energia', 'Internet', 'Água', 'Transporte', 'Equipamentos', 'Alimentação', 'Impostos', 'Serviços', 'Outro'];
+const EXPENSE_CATEGORIES_GROUPED = [
+  { group: 'Recorrentes', items: ['Água', 'Energia', 'Internet', 'Outros serviços'] },
+  { group: 'Não-recorrentes', items: ['Gasto pontual', 'Compra de produto', 'Parcela', 'Manutenção'] },
+  { group: 'Essenciais', items: ['Suprimentos', 'Produto de revenda'] },
+] as const;
+const EXPENSE_CATEGORIES = EXPENSE_CATEGORIES_GROUPED.flatMap(g => [...g.items]);
 const PAYMENT_METHODS = ['Pix', 'Transferência', 'Dinheiro', 'Débito', 'Crédito', 'Boleto'];
 
 const EMPTY_EMPLOYEE: Omit<Employee, 'id' | 'tenant_id' | 'created_at'> = {
@@ -963,108 +968,128 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             {/* ── Cards e gráficos (animam ao trocar filtro) ── */}
             <div key={`${dashFilter}-${dashMonth}-${dashYear}`} className="space-y-6">
 
-            {/* Summary cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {[
-                { label: dashFilter === 'ciclo' ? 'Colaboradores ativos' : 'Colaboradores pagos', value: dashActiveCount.toString(), icon: UserCheck, color: 'text-green-600', bg: 'bg-green-50' },
-                { label: 'Descontos', value: fmt(dashTotalDiscounts), icon: TrendingDown, color: 'text-red-600', bg: 'bg-red-50' },
-                { label: 'Acréscimos', value: fmt(dashTotalAdditions), icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                { label: 'Folha líquida', value: fmt(dashNetPayroll), icon: Wallet, color: 'text-[#141414]', bg: 'bg-[#141414]/5' },
-                { label: dashFilter === 'ciclo' ? 'Despesas pendentes' : 'Despesas no período', value: fmt(dashExpenseTotal), icon: AlertCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
-              ].map(({ label, value, icon: Icon, color, bg }) => (
-                <div key={label} className="bg-white rounded-xl p-4 border border-[#141414]/10 shadow-sm transition-all duration-300">
-                  <div className={`w-8 h-8 ${bg} rounded-lg flex items-center justify-center mb-3`}>
-                    <Icon size={15} className={color} />
-                  </div>
-                  <p className="text-[10px] font-bold uppercase opacity-40 leading-none mb-1">{label}</p>
-                  <p className="text-base font-bold leading-tight">{value}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+              {/* ── Coluna Esquerda: Colaboradores ── */}
+              <div className="space-y-4">
+                <p className="text-[10px] font-bold uppercase opacity-40 tracking-widest">Colaboradores</p>
+
+                {/* Cards de RH */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { label: dashFilter === 'ciclo' ? 'Ativos' : 'Pagos', value: dashActiveCount.toString(), color: 'text-green-600', bg: 'bg-green-50', border: 'border-green-100' },
+                    { label: 'Total Bruto', value: fmt(dashFilter === 'ciclo' ? totalBruto : dashPayments.reduce((s, p) => s + p.amount_gross, 0)), color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
+                    { label: 'Descontos', value: fmt(dashTotalDiscounts), color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
+                    { label: 'Acréscimos', value: fmt(dashTotalAdditions), color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
+                  ].map(({ label, value, color, bg, border }) => (
+                    <div key={label} className={`${bg} border ${border} rounded-xl p-3`}>
+                      <p className="text-[10px] font-bold uppercase opacity-60 mb-1">{label}</p>
+                      <p className={`text-sm font-bold ${color}`}>{value}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-
-            {/* Resumo do Ciclo */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label: 'Total Bruto', value: fmt(dashFilter === 'ciclo' ? totalBruto : dashPayments.reduce((s, p) => s + p.amount_gross, 0)), color: 'text-blue-600', bg: 'bg-blue-50', border: 'border-blue-100' },
-                { label: 'Total Descontos', value: fmt(dashTotalDiscounts), color: 'text-red-600', bg: 'bg-red-50', border: 'border-red-100' },
-                { label: 'Total Acréscimos', value: fmt(dashTotalAdditions), color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100' },
-                { label: 'Saldo Líquido', value: fmt(dashNetPayroll), color: 'text-[#141414]', bg: 'bg-[#141414]/5', border: 'border-[#141414]/10' },
-              ].map(({ label, value, color, bg, border }) => (
-                <div key={label} className={`${bg} border ${border} rounded-xl p-3`}>
-                  <p className="text-[10px] font-bold uppercase opacity-60 mb-1">{label}</p>
-                  <p className={`text-sm font-bold ${color}`}>{value}</p>
+                <div className="bg-[#141414]/5 border border-[#141414]/10 rounded-xl p-3">
+                  <p className="text-[10px] font-bold uppercase opacity-60 mb-1">Folha Líquida</p>
+                  <p className="text-base font-bold text-[#141414]">{fmt(dashNetPayroll)}</p>
                 </div>
-              ))}
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* By department */}
-              <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
-                <h3 className="font-serif italic text-base font-bold mb-4">Custo por Departamento</h3>
-                {Object.keys(dashByDept).length === 0 ? (
-                  <p className="text-sm opacity-40">Sem dados para o período.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {Object.entries(dashByDept).sort((a, b) => b[1] - a[1]).map(([dept, val]) => (
-                      <MiniBar key={dept} label={dept} value={val} max={dashMaxDept} />
-                    ))}
-                  </div>
-                )}
-              </div>
+                {/* Custo por departamento */}
+                <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
+                  <h3 className="font-serif italic text-base font-bold mb-4">Custo por Departamento</h3>
+                  {Object.keys(dashByDept).length === 0 ? (
+                    <p className="text-sm opacity-40">Sem dados para o período.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {Object.entries(dashByDept).sort((a, b) => b[1] - a[1]).map(([dept, val]) => (
+                        <MiniBar key={dept} label={dept} value={val} max={dashMaxDept} />
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-              {/* By expense category */}
-              <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
-                <h3 className="font-serif italic text-base font-bold mb-4">Despesas por Categoria</h3>
-                {Object.keys(dashByCat).length === 0 ? (
-                  <p className="text-sm opacity-40">Sem despesas no período.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {Object.entries(dashByCat).sort((a, b) => b[1] - a[1]).map(([cat, val]) => (
-                      <MiniBar key={cat} label={cat} value={val} max={dashMaxCat} color="#f59e0b" />
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Recent payments */}
-              <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
-                <h3 className="font-serif italic text-base font-bold mb-4">
-                  {dashFilter === 'ciclo' ? 'Últimos Pagamentos' : 'Pagamentos no Período'}
-                </h3>
-                {dashPayments.length === 0 ? <p className="text-sm opacity-40">Nenhum pagamento no período.</p> : (
-                  <div className="space-y-2">
-                    {dashPayments.slice(0, 6).map(p => (
-                      <div key={p.id} className="flex items-center justify-between py-2 border-b border-[#14141408] last:border-0">
-                        <div>
-                          <p className="text-sm font-semibold">{p.employee_name}</p>
-                          <p className="text-[11px] opacity-40">{new Date(p.paid_at).toLocaleDateString('pt-BR')} · {p.period}</p>
+                {/* Últimos pagamentos */}
+                <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
+                  <h3 className="font-serif italic text-base font-bold mb-4">
+                    {dashFilter === 'ciclo' ? 'Últimos Pagamentos' : 'Pagamentos no Período'}
+                  </h3>
+                  {dashPayments.length === 0 ? <p className="text-sm opacity-40">Nenhum pagamento no período.</p> : (
+                    <div className="space-y-2">
+                      {dashPayments.slice(0, 6).map(p => (
+                        <div key={p.id} className="flex items-center justify-between py-2 border-b border-[#14141408] last:border-0">
+                          <div>
+                            <p className="text-sm font-semibold">{p.employee_name}</p>
+                            <p className="text-[11px] opacity-40">{new Date(p.paid_at).toLocaleDateString('pt-BR')} · {p.period}</p>
+                          </div>
+                          <span className="font-bold text-sm text-green-700">{fmt(p.amount_net)}</span>
                         </div>
-                        <span className="font-bold text-sm text-green-700">{fmt(p.amount_net)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Upcoming expenses */}
-              <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
-                <h3 className="font-serif italic text-base font-bold mb-4">
-                  {dashFilter === 'ciclo' ? 'Despesas Pendentes' : 'Despesas no Período'}
-                </h3>
-                {dashExpenses.length === 0 ? <p className="text-sm opacity-40">Sem despesas no período.</p> : (
-                  <div className="space-y-2">
-                    {dashExpenses.slice(0, 6).map(e => (
-                      <div key={e.id} className="flex items-center justify-between py-2 border-b border-[#14141408] last:border-0">
-                        <div>
-                          <p className="text-sm font-semibold">{e.name}</p>
-                          <p className="text-[11px] opacity-40">{e.category} · Vence {e.due_date ? new Date(e.due_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</p>
-                        </div>
-                        <span className="font-bold text-sm text-amber-700">{fmt(e.amount)}</span>
-                      </div>
-                    ))}
+              {/* ── Coluna Direita: Despesas ── */}
+              <div className="space-y-4">
+                <p className="text-[10px] font-bold uppercase opacity-40 tracking-widest">Despesas</p>
+
+                {/* Cards de despesa */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold uppercase opacity-60 mb-1 text-amber-700">
+                      {dashFilter === 'ciclo' ? 'Pendentes' : 'Total lançado'}
+                    </p>
+                    <p className="text-sm font-bold text-amber-700">{fmt(dashExpenseTotal)}</p>
                   </div>
-                )}
+                  <div className="bg-green-50 border border-green-100 rounded-xl p-3">
+                    <p className="text-[10px] font-bold uppercase opacity-60 mb-1 text-green-700">Pagas</p>
+                    <p className="text-sm font-bold text-green-700">
+                      {fmt((() => {
+                        const paid = dashFilter === 'ciclo'
+                          ? expenses.filter(e => e.paid)
+                          : dashFilter === 'mes'
+                            ? expenses.filter(e => e.paid && e.due_date?.startsWith(dashMonth))
+                            : expenses.filter(e => e.paid && e.due_date?.startsWith(String(dashYear)));
+                        return paid.reduce((s, e) => s + e.amount, 0);
+                      })())}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Despesas por categoria */}
+                <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
+                  <h3 className="font-serif italic text-base font-bold mb-4">Despesas por Categoria</h3>
+                  {Object.keys(dashByCat).length === 0 ? (
+                    <p className="text-sm opacity-40">Sem despesas no período.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {Object.entries(dashByCat).sort((a, b) => b[1] - a[1]).map(([cat, val]) => (
+                        <MiniBar key={cat} label={cat} value={val} max={dashMaxCat} color="#f59e0b" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Lista de despesas */}
+                <div className="bg-white rounded-xl p-5 border border-[#141414]/10 shadow-sm">
+                  <h3 className="font-serif italic text-base font-bold mb-4">
+                    {dashFilter === 'ciclo' ? 'Despesas Pendentes' : 'Despesas no Período'}
+                  </h3>
+                  {dashExpenses.length === 0 ? <p className="text-sm opacity-40">Sem despesas no período.</p> : (
+                    <div className="space-y-2">
+                      {dashExpenses.slice(0, 6).map(e => (
+                        <div key={e.id} className="flex items-center justify-between py-2 border-b border-[#14141408] last:border-0">
+                          <div>
+                            <p className="text-sm font-semibold">{e.name}</p>
+                            <p className="text-[11px] opacity-40">{e.category} · Vence {e.due_date ? new Date(e.due_date + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</p>
+                          </div>
+                          <span className={`font-bold text-sm ${e.paid ? 'text-green-700' : 'text-amber-700'}`}>{fmt(e.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+
             </div>
             </div>{/* fim div key (animação) */}
           </div>
@@ -1155,7 +1180,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
             {/* Sub-abas */}
             <div className="flex gap-1 mb-4 bg-[#F5F5F3] p-1 rounded-xl w-fit">
               {([
-                { id: 'equipe', label: 'Equipe' },
+                { id: 'equipe', label: 'Remuneração' },
                 { id: 'presenca', label: 'Presença' },
               ] as const).map(({ id, label }) => (
                 <button key={id} onClick={() => { setEmpSubTab(id); localStorage.setItem(`fin_subtab_${tenantId}`, id); }}
@@ -1235,7 +1260,7 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               const cycleDays = getCycleDaysAtOffset(discCycleStartDay, attMatrixOffset);
               const from = cycleDays[0].toISOString().slice(0, 10);
               const to = cycleDays[6].toISOString().slice(0, 10);
-              const activeEmpsForMatrix = employees.filter(e => e.status !== 'inativo');
+              const activeEmpsForMatrix = employees.filter(e => e.status !== 'inativo' && (!empSearch || e.name.toLowerCase().includes(empSearch.toLowerCase())));
 
               // Map: date -> Set of employee_ids confirmed
               const confirmedMap: Record<string, Set<string>> = {};
@@ -1268,18 +1293,18 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                   </div>
 
                   {/* Resumo do ciclo */}
-                  <div className="grid grid-cols-3 gap-3 mb-4">
-                    <div className="bg-white rounded-xl border border-[#141414]/10 p-3 text-center">
-                      <p className="text-[10px] uppercase font-bold opacity-40 mb-1">Colaboradores</p>
-                      <p className="text-xl font-bold">{activeEmpsForMatrix.length}</p>
+                  <div className="grid grid-cols-4 gap-2 mb-4">
+                    <div className="bg-white rounded-xl border border-[#141414]/10 p-2 text-center">
+                      <p className="text-[9px] uppercase font-bold opacity-40 mb-0.5">Colaboradores</p>
+                      <p className="text-lg font-bold">{activeEmpsForMatrix.length}</p>
                     </div>
-                    <div className="bg-green-50 rounded-xl border border-green-100 p-3 text-center">
-                      <p className="text-[10px] uppercase font-bold text-green-600 mb-1">Presenças Hoje</p>
-                      <p className="text-xl font-bold text-green-700">{todayAttRecords.size}</p>
+                    <div className="bg-green-50 rounded-xl border border-green-100 p-2 text-center">
+                      <p className="text-[9px] uppercase font-bold text-green-600 mb-0.5">Presenças Hoje</p>
+                      <p className="text-lg font-bold text-green-700">{todayAttRecords.size}</p>
                     </div>
-                    <div className="bg-red-50 rounded-xl border border-red-100 p-3 text-center">
-                      <p className="text-[10px] uppercase font-bold text-red-500 mb-1">Faltas Hoje</p>
-                      <p className="text-xl font-bold text-red-600">
+                    <div className="bg-red-50 rounded-xl border border-red-100 p-2 text-center">
+                      <p className="text-[9px] uppercase font-bold text-red-500 mb-0.5">Faltas Hoje</p>
+                      <p className="text-lg font-bold text-red-600">
                         {(() => {
                           const todayDow = new Date().getDay();
                           return activeEmpsForMatrix.filter(emp => {
@@ -1289,6 +1314,23 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                           }).length;
                         })()}
                       </p>
+                    </div>
+                    <div className="bg-blue-50 rounded-xl border border-blue-100 p-2 text-center">
+                      <p className="text-[9px] uppercase font-bold text-blue-500 mb-0.5">Folga Hoje</p>
+                      {(() => {
+                        const todayDow = new Date().getDay();
+                        const onLeave = activeEmpsForMatrix.filter(emp => {
+                          const efDow = empRestDays[emp.id] ?? -1;
+                          return efDow === todayDow || (discFolgaDow >= 0 && discFolgaDow === todayDow);
+                        });
+                        return onLeave.length === 0
+                          ? <p className="text-lg font-bold text-blue-700">—</p>
+                          : <div className="mt-0.5 space-y-0.5">
+                              {onLeave.map(e => (
+                                <p key={e.id} className="text-[10px] font-semibold text-blue-700 leading-tight truncate">{e.name.split(' ')[0]}</p>
+                              ))}
+                            </div>;
+                      })()}
                     </div>
                   </div>
 
@@ -1393,7 +1435,11 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
               <select value={expCatFilter} onChange={e => setExpCatFilter(e.target.value)}
                 className="px-3 py-2.5 bg-white border border-[#141414]/10 rounded-xl text-sm focus:outline-none appearance-none cursor-pointer flex-1">
                 <option value="">Todas as categorias</option>
-                {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                {EXPENSE_CATEGORIES_GROUPED.map(g => (
+                  <optgroup key={g.group} label={g.group}>
+                    {g.items.map(c => <option key={c} value={c}>{c}</option>)}
+                  </optgroup>
+                ))}
               </select>
               <button onClick={openAddExp} className="flex items-center gap-2 px-4 py-2.5 bg-[#141414] text-white rounded-xl text-sm font-bold hover:opacity-80 transition-opacity">
                 <Plus size={15} /> Nova Despesa
@@ -1877,7 +1923,11 @@ export default function FinanceiroDashboard({ ownerUser }: Props) {
                 <div>
                   <label className="text-xs font-bold uppercase opacity-40 block mb-1">Categoria</label>
                   <select value={expForm.category} onChange={e => setExpForm(p => ({ ...p, category: e.target.value }))} className="w-full border border-[#141414]/10 rounded-xl px-3 py-2 text-sm focus:outline-none appearance-none">
-                    {EXPENSE_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                    {EXPENSE_CATEGORIES_GROUPED.map(g => (
+                      <optgroup key={g.group} label={g.group}>
+                        {g.items.map(c => <option key={c} value={c}>{c}</option>)}
+                      </optgroup>
+                    ))}
                   </select>
                 </div>
                 <div>
