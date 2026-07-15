@@ -13,8 +13,9 @@ export default function AttendancePage() {
   const [error, setError] = useState('');
   const [date, setDate] = useState('');
   const [employees, setEmployees] = useState<EmployeeInfo[]>([]);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const [successName, setSuccessName] = useState('');
+  const [pendingConfirm, setPendingConfirm] = useState<EmployeeInfo | null>(null);
 
   useEffect(() => {
     fetch(`/api/attendance/${token}`)
@@ -27,26 +28,27 @@ export default function AttendancePage() {
       .catch(() => { setError('Erro ao carregar. Verifique sua conexão.'); setLoading(false); });
   }, [token]);
 
-  const confirm = async (empId: string) => {
-    if (successName || confirming) return;
-    setConfirming(empId);
+  const confirm = async (emp: EmployeeInfo) => {
+    if (confirming) return;
+    setConfirming(true);
     try {
       const r = await fetch(`/api/attendance/${token}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: empId }),
+        body: JSON.stringify({ employee_id: emp.id }),
       });
       const data = await r.json();
       if (data.ok) {
         setSuccessName(data.name);
-        setEmployees(prev => prev.map(e => e.id === empId ? { ...e, confirmed: true } : e));
+        setEmployees(prev => prev.map(e => e.id === emp.id ? { ...e, confirmed: true } : e));
       } else {
         setError(data.error || 'Erro ao confirmar presença.');
       }
     } catch {
       setError('Erro de conexão.');
     }
-    setConfirming(null);
+    setConfirming(false);
+    setPendingConfirm(null);
   };
 
   const formattedDate = date
@@ -106,15 +108,13 @@ export default function AttendancePage() {
             {employees.map(emp => (
               <button
                 key={emp.id}
-                disabled={!!successName || emp.confirmed || confirming === emp.id}
-                onClick={() => confirm(emp.id)}
+                disabled={!!successName || emp.confirmed}
+                onClick={() => !emp.confirmed && setPendingConfirm(emp)}
                 className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all
                   ${emp.confirmed
                     ? 'bg-green-50 border-green-200 cursor-default'
                     : successName
                     ? 'opacity-30 cursor-not-allowed bg-gray-50 border-gray-100'
-                    : confirming === emp.id
-                    ? 'opacity-60 cursor-wait bg-[#F5F5F3] border-[#141414]/10'
                     : 'bg-[#F5F5F3] border-[#141414]/10 hover:border-[#141414]/25 hover:bg-[#EAEAE5] active:scale-[0.98]'
                   }`}
               >
@@ -128,11 +128,10 @@ export default function AttendancePage() {
                   </span>
                 </div>
                 {emp.confirmed && <span className="text-green-600 text-xs font-bold">✓ Confirmado</span>}
-                {confirming === emp.id && <span className="text-gray-400 text-xs">Aguarde...</span>}
               </button>
             ))}
             {employees.length === 0 && (
-              <p className="text-center text-sm text-gray-400 py-6">Nenhum colaborador cadastrado.</p>
+              <p className="text-center text-sm text-gray-400 py-6">Nenhum colaborador ativo encontrado.</p>
             )}
           </div>
         </div>
@@ -141,6 +140,47 @@ export default function AttendancePage() {
           Cada colaborador pode confirmar sua presença uma única vez por dia.
         </p>
       </div>
+
+      {/* ── Popup de confirmação ── */}
+      {pendingConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          onClick={() => !confirming && setPendingConfirm(null)}>
+          <div
+            className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Cabeçalho com destaque no nome */}
+            <div className="bg-[#141414] px-6 pt-8 pb-6 text-center">
+              <div className="w-14 h-14 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4 text-white text-2xl font-bold">
+                {pendingConfirm.name[0]}
+              </div>
+              <p className="text-white/60 text-[11px] uppercase tracking-widest font-bold mb-1">Confirmar presença de</p>
+              <p className="text-white text-xl font-bold leading-tight">{pendingConfirm.name}</p>
+              <p className="text-white/40 text-xs mt-2 capitalize">{formattedDate}</p>
+            </div>
+
+            {/* Botões */}
+            <div className="p-4 flex flex-col gap-2">
+              <button
+                onClick={() => confirm(pendingConfirm)}
+                disabled={confirming}
+                className="w-full py-3.5 bg-[#141414] text-white rounded-xl font-bold text-sm hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {confirming
+                  ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Confirmando...</>
+                  : '✓ Confirmar Presença'}
+              </button>
+              <button
+                onClick={() => setPendingConfirm(null)}
+                disabled={confirming}
+                className="w-full py-3 border border-[#141414]/15 rounded-xl font-bold text-sm text-[#141414]/60 hover:bg-[#141414]/5 transition-colors disabled:opacity-40"
+              >
+                Voltar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
