@@ -80,7 +80,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [stockLog, setStockLog] = useState<any[]>(cached?.stockLog ?? []);
   const [menu, setMenu] = useState<MenuCategory[]>(cached?.menu ?? []);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState<boolean>(cached?.isCashRegisterOpen ?? false);
-  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(cached?.pizzariaConfig ?? defaultPizzeriaConfig);
+  const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(
+    cached?.pizzariaConfig ? { ...cached.pizzariaConfig, kdsEnabled: false } : defaultPizzeriaConfig
+  );
   // shiftStartedAt: when the current service shift began — used to cap stale timestamps
   const [shiftStartedAt, setShiftStartedAt] = useState<string>(cached?.shiftStartedAt ?? new Date().toISOString());
   // clockOffset: ms difference (client - server). Use Date.now() - clockOffset for server-aligned time.
@@ -128,7 +130,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (data.stockLog) setStockLog(data.stockLog);
       if (data.waiters) setWaiters(data.waiters);
       if (data.isCashRegisterOpen !== undefined) setIsCashRegisterOpen(data.isCashRegisterOpen);
-      if (data.pizzariaConfig) setPizzeriaConfig(data.pizzariaConfig);
+      if (data.pizzariaConfig) setPizzeriaConfig({ ...data.pizzariaConfig, kdsEnabled: false });
       if (data.menu) setMenu(transformMenu(data.menu));
       if (data.shiftStartedAt) setShiftStartedAt(data.shiftStartedAt);
       if (data.serverNow) setClockOffset(Date.now() - new Date(data.serverNow).getTime());
