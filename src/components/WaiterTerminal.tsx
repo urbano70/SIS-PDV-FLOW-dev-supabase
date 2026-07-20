@@ -278,6 +278,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       toast.error('O caixa está fechado. Peça ao gerente para abrir o caixa.');
       return;
     }
+    const selectedItem = (isComandaSelected ? comandas : tables).find(t => t.id === selectedId);
+    if (selectedItem?.status === 'aguardando_baixa') {
+      toast.error('Esta mesa está aguardando baixa. O gerente precisa liberar antes de adicionar itens.');
+      return;
+    }
     if (selectedId === null || cart.length === 0) return;
     
     let waiterName = '';
@@ -432,6 +437,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     if (pc === 'red') return 'border-red-500 bg-red-500 text-white';
                     if (item.status === 'free') return 'border-[#141414]/10 bg-white';
                     if (item.status === 'linked') return 'border-blue-500 bg-blue-50 text-blue-700';
+                    if (item.status === 'aguardando_baixa') return 'border-purple-500 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse';
                     return 'border-[#141414] bg-[#141414] text-[#E4E3E0]';
                   })()}`}
                 >
@@ -806,7 +812,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       </button>
                       <button
                         onClick={submitOrder}
-                        className="flex-1 bg-[#141414] text-[#E4E3E0] py-2.5 rounded-2xl font-bold text-base flex items-center justify-center active:scale-95 transition-transform"
+                        disabled={(isComandaSelected ? comandas : tables).find(t => t.id === selectedId)?.status === 'aguardando_baixa'}
+                        className="flex-1 bg-[#141414] text-[#E4E3E0] py-2.5 rounded-2xl font-bold text-base flex items-center justify-center active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         Enviar Pedido <Send size={16} className="ml-2" />
                       </button>

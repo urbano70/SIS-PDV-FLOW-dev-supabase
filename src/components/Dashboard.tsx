@@ -1672,6 +1672,11 @@ export default function Dashboard({
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
     }
+    const selectedTableOrComanda = (isComandaSelected ? comandas : tables).find(t => t.id === tableId);
+    if (selectedTableOrComanda?.status === 'aguardando_baixa') {
+      toast.error('Esta mesa está aguardando baixa. Faça a baixa antes de adicionar novos itens.');
+      return;
+    }
     const activeOrder = orders.filter(o => 
       tableId && o.tableId && 
       String(o.tableId) === String(tableId) && 
@@ -3908,14 +3913,14 @@ export default function Dashboard({
                 <div className="flex items-center space-x-2 mb-2 shrink-0">
                   <LayoutDashboard className="text-[#141414]" size={12} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Estrutura do Salão</h3>
-                  {salonDirty && (
+                  {salonDirty && !isCashRegisterOpen && (
                     <span className="text-[8px] text-amber-600 font-bold uppercase">alterações não salvas</span>
                   )}
                   <button
                     onClick={saveSalonConfig}
-                    disabled={savingConfig || (!salonDirty && !planCfg.tablesLocked)}
+                    disabled={isCashRegisterOpen || savingConfig || (!salonDirty && !planCfg.tablesLocked)}
                     className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all ${
-                      salonDirty
+                      !isCashRegisterOpen && salonDirty
                         ? 'bg-[#141414] text-white hover:opacity-80'
                         : 'bg-[#141414]/10 text-[#141414]/40 cursor-not-allowed'
                     }`}
@@ -3924,7 +3929,15 @@ export default function Dashboard({
                     {savingConfig ? 'Salvando...' : 'Salvar'}
                   </button>
                 </div>
-                {(planCfg.tablesLocked || planCfg.comandasLocked) && (
+                {isCashRegisterOpen && (
+                  <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1 mb-2">
+                    <Lock size={9} className="text-red-500 shrink-0" />
+                    <span className="text-[8px] text-red-700 font-bold uppercase">
+                      Caixa aberto — feche o caixa para alterar a estrutura do salão
+                    </span>
+                  </div>
+                )}
+                {!isCashRegisterOpen && (planCfg.tablesLocked || planCfg.comandasLocked) && (
                   <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mb-2">
                     <Lock size={9} className="text-amber-600 shrink-0" />
                     <span className="text-[8px] text-amber-700 font-bold uppercase">
@@ -3942,10 +3955,10 @@ export default function Dashboard({
                       min="1"
                       max="500"
                       value={planCfg.tablesLocked ? planCfg.maxTables : localNumTables}
-                      readOnly={planCfg.tablesLocked}
-                      disabled={planCfg.tablesLocked}
-                      onChange={(e) => !planCfg.tablesLocked && setLocalNumTables(Math.max(1, parseInt(e.target.value) || 1))}
-                      className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${planCfg.tablesLocked ? 'bg-amber-50 text-amber-700 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
+                      readOnly={isCashRegisterOpen || planCfg.tablesLocked}
+                      disabled={isCashRegisterOpen || planCfg.tablesLocked}
+                      onChange={(e) => !isCashRegisterOpen && !planCfg.tablesLocked && setLocalNumTables(Math.max(1, parseInt(e.target.value) || 1))}
+                      className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed' : planCfg.tablesLocked ? 'bg-amber-50 text-amber-700 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
                     />
                   </div>
                   <div className="flex flex-col justify-center">
@@ -3953,10 +3966,12 @@ export default function Dashboard({
                       Comandas {planCfg.comandasLocked && <Lock size={7} className="text-amber-500" />}
                     </label>
                     <button
-                      disabled={planCfg.comandasLocked}
-                      onClick={() => !planCfg.comandasLocked && updatePizzeriaConfig({ ...pizzariaConfig, comandasEnabled: !(pizzariaConfig.comandasEnabled ?? true) })}
+                      disabled={isCashRegisterOpen || planCfg.comandasLocked}
+                      onClick={() => !isCashRegisterOpen && !planCfg.comandasLocked && updatePizzeriaConfig({ ...pizzariaConfig, comandasEnabled: !(pizzariaConfig.comandasEnabled ?? true) })}
                       className={`px-3 py-1.5 rounded-lg font-bold text-[8px] uppercase transition-all ${
-                        planCfg.comandasLocked
+                        isCashRegisterOpen
+                          ? 'bg-red-50 text-red-400 cursor-not-allowed'
+                          : planCfg.comandasLocked
                           ? 'bg-[#141414]/10 text-[#141414]/30 cursor-not-allowed'
                           : (pizzariaConfig.comandasEnabled ?? true) ? 'bg-[#141414] text-white' : 'bg-[#141414]/10 text-[#141414]/50'
                       }`}
@@ -3974,8 +3989,10 @@ export default function Dashboard({
                         min="1"
                         max="50"
                         value={localNumComandas}
-                        onChange={(e) => setLocalNumComandas(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
-                        className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-1 focus:ring-[#141414] outline-none"
+                        readOnly={isCashRegisterOpen}
+                        disabled={isCashRegisterOpen}
+                        onChange={(e) => !isCashRegisterOpen && setLocalNumComandas(Math.min(50, Math.max(1, parseInt(e.target.value) || 1)))}
+                        className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
                       />
                     </div>
                   )}
