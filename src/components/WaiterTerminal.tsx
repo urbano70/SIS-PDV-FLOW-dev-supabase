@@ -770,14 +770,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <button
                     key={item.id}
                     onClick={() => addToCart(item)}
-                    className="bg-white px-3 py-2.5 rounded-xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
+                    className="bg-white px-3 py-2 rounded-xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
                   >
                     <div className="text-left flex-1 min-w-0 mr-2">
-                      <p className="font-bold text-sm leading-tight">{item.name}</p>
-                      <p className="text-xs opacity-50 leading-tight truncate">{item.ingredients}</p>
+                      <p className="font-bold text-base leading-tight">{item.name}</p>
+                      <p className="text-sm opacity-50 leading-tight truncate">{item.ingredients}</p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-sm font-bold font-mono">R$ {item.price.toFixed(2)}</span>
+                      <span className="text-base font-bold font-mono">R$ {item.price.toFixed(2)}</span>
                       <Plus size={14} className="opacity-30" />
                     </div>
                   </button>
