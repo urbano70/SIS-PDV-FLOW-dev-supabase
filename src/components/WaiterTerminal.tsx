@@ -741,7 +741,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
             {/* Subcategory pills — sem "Todos" */}
             {filteredSubcategories.length > 0 && (
-              <div className="flex space-x-2 overflow-x-auto pb-0.5 scrollbar-hide shrink-0">
+              <div className="flex flex-wrap gap-2 shrink-0">
                 {filteredSubcategories.map(sub => (
                   <button
                     key={sub.id}
