@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Table, PizzaItem, Order, MenuCategory, PizzeriaConfig } from '../types';
+import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
@@ -51,8 +51,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [isComandaSelected, setIsComandaSelected] = useState(false);
   const [cart, setCart] = useState<PizzaItem[]>([]);
-  const [activeType, setActiveType] = useState<'pizzas' | 'lanches' | 'bebidas'>('pizzas');
-  const [activeCategory, setActiveCategory] = useState(menu[0]?.name || '');
+  const [activeCategory, setActiveCategory] = useState(() => menu.find(c => c.visible !== false)?.name || menu[0]?.name || '');
+  const [activeSubcategoryId, setActiveSubcategoryId] = useState<string | null>(null);
   const [isAddingItems, setIsAddingItems] = useState(false);
   const [isObservationModalOpen, setIsObservationModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -70,7 +70,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
   const currentOrder = orders.find(o => tableData?.currentOrder && o.id && String(o.id) === String(tableData.currentOrder));
 
-  const filteredCategories = menu.filter(cat => cat.type === activeType);
+  const visibleCategories = menu.filter(cat => cat.visible !== false);
+  const selectedCat = visibleCategories.find(c => c.name === activeCategory) || visibleCategories[0];
+  const filteredSubcategories = (selectedCat?.subcategories || []).filter(s => s.visible !== false);
 
   const [, forceInactivityUpdate] = useState(0);
   useEffect(() => {
@@ -138,11 +140,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
   
-  // Update active category when type changes
+  // Keep activeCategory valid when menu changes
   useEffect(() => {
-    const firstCat = menu.find(cat => cat.type === activeType);
-    if (firstCat) setActiveCategory(firstCat.name);
-  }, [activeType, menu]);
+    const visible = menu.filter(c => c.visible !== false);
+    if (visible.length > 0 && !visible.find(c => c.name === activeCategory)) {
+      setActiveCategory(visible[0].name);
+      setActiveSubcategoryId(null);
+    }
+  }, [menu]);
   
   // Multi-flavor selection state
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
@@ -717,64 +722,70 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             )}
 
-            <div className="flex space-x-2 shrink-0">
-              {[
-                { id: 'pizzas', label: 'Pizzas', icon: Pizza },
-                { id: 'lanches', label: 'Lanches', icon: Sandwich },
-                { id: 'bebidas', label: 'Bebidas', icon: Beer }
-              ].map(type => (
+            {/* Dynamic category buttons */}
+            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
+              {visibleCategories.map(cat => (
                 <button
-                  key={type.id}
-                  onClick={() => {
-                    setActiveType(type.id as any);
-                    setSelectedFlavors([]);
-                  }}
-                  className={`flex-1 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 flex items-center justify-center gap-1.5 ${
-                    cart.length > 0 ? 'py-2' : 'py-3 flex-col space-y-1'
-                  } ${
-                    activeType === type.id ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white border-[#141414]/10'
+                  key={cat.name}
+                  onClick={() => { setActiveCategory(cat.name); setActiveSubcategoryId(null); setSelectedFlavors([]); }}
+                  className={`shrink-0 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 px-3 py-2 ${
+                    selectedCat?.name === cat.name ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white border-[#141414]/10'
                   }`}
                 >
-                  <type.icon size={cart.length > 0 ? 13 : 16} />
-                  <span>{type.label}</span>
+                  {cat.name}
                 </button>
               ))}
             </div>
 
-            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
-              {filteredCategories.map(cat => {
-                const displayName = cat.name;
-                return (
+            {/* Subcategory pills */}
+            {filteredSubcategories.length > 0 && (
+              <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
+                <button
+                  onClick={() => setActiveSubcategoryId(null)}
+                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                    activeSubcategoryId === null ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
+                  }`}
+                >
+                  Todos
+                </button>
+                {filteredSubcategories.map(sub => (
                   <button
-                    key={cat.name}
-                    onClick={() => setActiveCategory(cat.name)}
-                    className={`shrink-0 px-4 py-2 rounded-full text-xs font-bold uppercase transition-colors ${
-                      activeCategory === cat.name ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
+                    key={sub.id}
+                    onClick={() => setActiveSubcategoryId(sub.id)}
+                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                      activeSubcategoryId === sub.id ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
                     }`}
                   >
-                    {displayName}
+                    {sub.name}
                   </button>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-1 gap-3 pb-2">
-              {menu.find(c => c.name === activeCategory)?.items?.map(pizza => {
-                return (
+              {(() => {
+                if (!selectedCat) return [];
+                if (activeSubcategoryId) {
+                  const sub = filteredSubcategories.find(s => s.id === activeSubcategoryId);
+                  return sub?.items || [];
+                }
+                const direct = selectedCat.items || [];
+                const subItems = filteredSubcategories.flatMap(s => s.items);
+                return [...direct, ...subItems];
+              })().map(item => (
                   <button
-                    key={pizza.id}
-                    onClick={() => addToCart(pizza)}
+                    key={item.id}
+                    onClick={() => addToCart(item)}
                     className="bg-white p-4 rounded-2xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
                   >
                     <div className="text-left">
-                      <p className="font-bold">{pizza.name}</p>
-                      <p className="text-[10px] opacity-50 mb-1">{pizza.ingredients}</p>
-                      <p className="text-xs font-bold">R$ {pizza.price.toFixed(2)}</p>
+                      <p className="font-bold">{item.name}</p>
+                      <p className="text-[10px] opacity-50 mb-1">{item.ingredients}</p>
+                      <p className="text-xs font-bold">R$ {item.price.toFixed(2)}</p>
                     </div>
                     <Plus className="opacity-30" />
                   </button>
-                );
-              })}
+                ))}
             </div>
 
             {/* Cart bar — inline, no overlap */}

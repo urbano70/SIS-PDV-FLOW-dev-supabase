@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { usePWA } from '../hooks/usePWA';
-import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, PizzeriaConfig } from '../types';
+import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -733,7 +733,8 @@ export default function Dashboard({
   const [removalQuantity, setRemovalQuantity] = useState(1);
   const [removalReason, setRemovalReason] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<'pizzas' | 'lanches' | 'bebidas'>('pizzas');
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [selectedPizzaItem, setSelectedPizzaItem] = useState<any>(null);
   const [selectedFlavors, setSelectedFlavors] = useState<any[]>([]);
@@ -865,15 +866,19 @@ export default function Dashboard({
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isAddCategoryPopupOpen, setIsAddCategoryPopupOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<{oldName: string, name: string, type: 'pizzas' | 'lanches' | 'bebidas'} | null>(null);
-  const [newCategoryData, setNewCategoryData] = useState({ name: '', type: 'lanches' as const });
+  const [editingCategory, setEditingCategory] = useState<{oldName: string, name: string, visible: boolean} | null>(null);
+  const [newCategoryData, setNewCategoryData] = useState({ name: '' });
   const [newProductCategory, setNewProductCategory] = useState<string | null>(null);
+  const [newProductSubcategoryId, setNewProductSubcategoryId] = useState<string | null>(null);
   const [newProductData, setNewProductData] = useState({ name: '', price: 0, ingredients: '' });
+  const [isAddSubcategoryModalOpen, setIsAddSubcategoryModalOpen] = useState(false);
+  const [newSubcategoryData, setNewSubcategoryData] = useState({ categoryName: '', name: '' });
+  const [editingSubcategory, setEditingSubcategory] = useState<{categoryName: string, subcategoryId: string, name: string} | null>(null);
   const [isEditFlavorModalOpen, setIsEditFlavorModalOpen] = useState(false);
   const [isAddFlavorModalOpen, setIsAddFlavorModalOpen] = useState(false);
   const [editingFlavor, setEditingFlavor] = useState<any>(null);
   const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '' });
-  const [editingProduct, setEditingProduct] = useState<{categoryName: string, item: MenuItem} | null>(null);
+  const [editingProduct, setEditingProduct] = useState<{categoryName: string, subcategoryId?: string, item: MenuItem} | null>(null);
 
   const [stockEdits, setStockEdits] = useState<Record<string, { quantity: string; minQuantity: string; unit: string }>>({});
   const [isStockHistoryModalOpen, setIsStockHistoryModalOpen] = useState(false);
@@ -1256,7 +1261,8 @@ export default function Dashboard({
   useEffect(() => {
     if (!isAddItemModalOpen) {
       setSearchTerm('');
-      setSelectedCategory('pizzas');
+      setSelectedCategory(null);
+      setSelectedSubcategory(null);
     }
   }, [isAddItemModalOpen]);
 
@@ -2884,97 +2890,183 @@ export default function Dashboard({
                     )}
                   </div>
                 </div>
-                <button 
-                  onClick={() => setIsCategoryModalOpen(true)}
-                  className="bg-[#141414] text-[#E4E3E0] px-6 py-3 rounded-2xl text-sm font-bold hover:scale-105 transition-transform flex items-center space-x-2 shadow-lg w-full md:w-auto justify-center"
-                >
-                  <Settings size={20} />
-                  <span>Categorias</span>
-                </button>
               </header>
 
-              <div className="space-y-12 pb-20">
-                {displayMenu.map(category => (
-                  <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
-                    <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center">
-                      <div className="flex items-center space-x-4">
-                        <h3 className="font-serif italic text-xl">{category.name}</h3>
-                        <span className="text-[10px] uppercase tracking-widest font-bold opacity-50 bg-white px-3 py-1 rounded-full border border-[#141414]/10">
-                          {category.items.length} itens
-                        </span>
+              <div className="space-y-8 pb-20">
+                {/* Add Category button */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setIsAddCategoryPopupOpen(true)}
+                    className="flex items-center gap-2 bg-[#141414] text-[#E4E3E0] px-5 py-2.5 rounded-2xl text-sm font-bold hover:scale-105 transition-transform shadow-md"
+                  >
+                    <PlusCircle size={16} />
+                    <span>Nova Categoria</span>
+                  </button>
+                </div>
+
+                {menu.map(category => {
+                  const totalItems = category.items.length + (category.subcategories || []).reduce((sum, s) => sum + s.items.length, 0);
+                  const renderItemRow = (item: MenuItem, catName: string, subId?: string) => (
+                    <div key={item.id} className="px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors">
+                      <div className="space-y-1">
+                        <p className="font-bold text-base">{item.name}</p>
+                        <p className="text-sm opacity-60 max-w-xl">{item.ingredients}</p>
                       </div>
-                      <button 
-                        onClick={() => {
-                          setNewProductCategory(category.name);
-                          setNewProductData({ name: '', price: 0, ingredients: '' });
-                          setIsAddProductModalOpen(true);
-                        }}
-                        className="flex items-center space-x-2 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform"
-                      >
-                        <PlusCircle size={16} />
-                        <span>Adicionar Item</span>
-                      </button>
+                      <div className="flex items-center space-x-3">
+                        <p className="font-mono font-bold text-lg mr-2">R$ {item.price.toFixed(2)}</p>
+                        <div className="flex flex-col items-center space-y-1">
+                          <span className="text-[7px] uppercase font-bold opacity-40 tracking-widest">Estoque</span>
+                          <button
+                            onClick={() => {
+                              const enabled = !(item as any).trackStock;
+                              socket.emit('toggle_stock_tracking', { menuItemId: item.id, categoryName: catName, subcategoryId: subId, enabled });
+                              toast.success(enabled ? `"${item.name}" adicionado ao estoque` : `"${item.name}" removido do estoque`);
+                            }}
+                            className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${(item as any).trackStock ? 'bg-green-500' : 'bg-gray-200'}`}
+                          >
+                            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(item as any).trackStock ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                          </button>
+                        </div>
+                        <button
+                          onClick={() => { setEditingProduct({ categoryName: catName, subcategoryId: subId, item: { ...item } }); setIsEditProductModalOpen(true); }}
+                          className="p-2.5 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all text-blue-600"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => { if (confirm(`Excluir "${item.name}"?`)) { socket.emit('delete_product', { categoryName: catName, productId: item.id, subcategoryId: subId }); toast.success('Produto excluído!'); }}}
+                          className="p-2.5 rounded-xl border border-[#141414]/10 hover:bg-red-600 hover:text-white transition-all text-red-600"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="divide-y divide-[#141414]/5">
-                      {category.items.map(item => (
-                        <div key={item.id} className="px-8 py-6 flex justify-between items-center hover:bg-gray-50/50 transition-colors">
-                          <div className="space-y-1">
-                            <p className="font-bold text-lg">{item.name}</p>
-                            <p className="text-sm opacity-60 max-w-xl">{item.ingredients}</p>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <p className="font-mono font-bold text-xl mr-4">R$ {item.price.toFixed(2)}</p>
+                  );
 
-                            {/* Toggle rastrear estoque */}
-                            <div className="flex flex-col items-center space-y-1">
-                              <span className="text-[7px] uppercase font-bold opacity-40 tracking-widest">Estoque</span>
-                              <button
-                                onClick={() => {
-                                  const enabled = !(item as any).trackStock;
-                                  socket.emit('toggle_stock_tracking', {
-                                    menuItemId: item.id,
-                                    categoryName: category.name,
-                                    enabled,
-                                  });
-                                  toast.success(enabled ? `"${item.name}" adicionado ao estoque` : `"${item.name}" removido do estoque`);
-                                }}
-                                className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none ${
-                                  (item as any).trackStock ? 'bg-green-500' : 'bg-gray-200'
-                                }`}
-                                title={(item as any).trackStock ? 'Desativar rastreamento de estoque' : 'Ativar rastreamento de estoque'}
-                              >
-                                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                                  (item as any).trackStock ? 'translate-x-5' : 'translate-x-0.5'
-                                }`} />
-                              </button>
+                  return (
+                    <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
+                      {/* Category header */}
+                      <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
+                        <div className="flex items-center gap-4">
+                          {editingCategory?.oldName === category.name ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={editingCategory.name}
+                                onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                                className="bg-white border border-[#141414]/20 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#141414]"
+                              />
+                              <button onClick={() => { socket.emit('update_category', { oldName: editingCategory.oldName, updatedData: { name: editingCategory.name } }); setEditingCategory(null); toast.success('Categoria atualizada!'); }} className="p-2 bg-green-500 text-white rounded-lg"><Save size={16} /></button>
+                              <button onClick={() => setEditingCategory(null)} className="p-2 bg-gray-200 rounded-lg"><X size={16} /></button>
                             </div>
+                          ) : (
+                            <>
+                              <h3 className="font-serif italic text-xl">{category.name}</h3>
+                              <span className="text-[10px] uppercase tracking-widest font-bold opacity-50 bg-white px-3 py-1 rounded-full border border-[#141414]/10">{totalItems} itens</span>
+                              {!(category.visible ?? true) && <span className="text-[10px] text-red-500 font-bold uppercase px-2 py-0.5 bg-red-50 rounded-full">Oculto</span>}
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            title={(category.visible ?? true) ? 'Ocultar no cardápio' : 'Exibir no cardápio'}
+                            onClick={() => socket.emit('toggle_category_visibility', { categoryName: category.name, visible: !(category.visible ?? true) })}
+                            className="p-2 rounded-xl border border-[#141414]/10 hover:bg-gray-100 transition-all"
+                          >
+                            {(category.visible ?? true) ? <Eye size={16} /> : <EyeOff size={16} className="text-red-400" />}
+                          </button>
+                          <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true })} className="p-2 rounded-xl border border-[#141414]/10 hover:bg-gray-100 transition-all text-blue-500"><Edit size={16} /></button>
+                          <button
+                            onClick={() => { setNewSubcategoryData({ categoryName: category.name, name: '' }); setIsAddSubcategoryModalOpen(true); }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#141414]/10 text-xs font-bold hover:bg-gray-100 transition-all"
+                          >
+                            <PlusCircle size={14} /> Subcategoria
+                          </button>
+                          {(category.subcategories || []).length === 0 && (
+                            <button
+                              onClick={() => { setNewProductCategory(category.name); setNewProductSubcategoryId(null); setNewProductData({ name: '', price: 0, ingredients: '' }); setIsAddProductModalOpen(true); }}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-all"
+                            >
+                              <PlusCircle size={14} /> Item
+                            </button>
+                          )}
+                          <button onClick={() => { if (confirm(`Excluir categoria "${category.name}" e todos seus itens?`)) { socket.emit('delete_category', category.name); toast.success('Categoria excluída!'); }}} className="p-2 rounded-xl border border-[#141414]/10 hover:bg-red-50 text-red-500 transition-all"><Trash2 size={16} /></button>
+                        </div>
+                      </div>
 
-                            <button
-                              onClick={() => {
-                                setEditingProduct({ categoryName: category.name, item: { ...item } });
-                                setIsEditProductModalOpen(true);
-                              }}
-                              className="p-3 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all text-blue-600"
-                            >
-                              <Edit size={18} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm(`Deseja realmente excluir o produto "${item.name}"?`)) {
-                                  socket.emit('delete_product', { categoryName: category.name, productId: item.id });
-                                  toast.success('Produto excluído com sucesso!');
-                                }
-                              }}
-                              className="p-3 rounded-xl border border-[#141414]/10 hover:bg-red-600 hover:text-white transition-all text-red-600"
-                            >
-                              <Trash2 size={18} />
-                            </button>
+                      {/* Subcategories */}
+                      {(category.subcategories || []).map(sub => (
+                        <div key={sub.id} className="border-b border-[#141414]/5 last:border-b-0">
+                          {/* Subcategory header */}
+                          <div className="px-8 py-3 bg-[#141414]/[0.02] border-b border-dashed border-[#141414]/10 flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-3">
+                              {editingSubcategory?.subcategoryId === sub.id ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs opacity-40">↳</span>
+                                  <input
+                                    type="text"
+                                    value={editingSubcategory.name}
+                                    onChange={(e) => setEditingSubcategory({ ...editingSubcategory, name: e.target.value })}
+                                    className="bg-white border border-[#141414]/20 rounded-lg px-3 py-1 text-sm font-bold outline-none focus:border-[#141414]"
+                                  />
+                                  <button onClick={() => { socket.emit('update_subcategory', { categoryName: category.name, subcategoryId: sub.id, updatedData: { name: editingSubcategory.name } }); setEditingSubcategory(null); toast.success('Subcategoria atualizada!'); }} className="p-1.5 bg-green-500 text-white rounded-lg"><Save size={14} /></button>
+                                  <button onClick={() => setEditingSubcategory(null)} className="p-1.5 bg-gray-200 rounded-lg"><X size={14} /></button>
+                                </div>
+                              ) : (
+                                <>
+                                  <span className="text-xs opacity-40">↳</span>
+                                  <span className="font-bold text-sm">{sub.name}</span>
+                                  <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-[#141414]/10 opacity-60">{sub.items.length} itens</span>
+                                  {!sub.visible && <span className="text-[10px] text-red-500 font-bold uppercase">Oculto</span>}
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                title={sub.visible ? 'Ocultar subcategoria' : 'Exibir subcategoria'}
+                                onClick={() => socket.emit('update_subcategory', { categoryName: category.name, subcategoryId: sub.id, updatedData: { visible: !sub.visible } })}
+                                className="p-1.5 rounded-lg hover:bg-gray-100 transition-all"
+                              >
+                                {sub.visible ? <Eye size={14} /> : <EyeOff size={14} className="text-red-400" />}
+                              </button>
+                              <button onClick={() => setEditingSubcategory({ categoryName: category.name, subcategoryId: sub.id, name: sub.name })} className="p-1.5 rounded-lg hover:bg-gray-100 text-blue-500"><Edit size={14} /></button>
+                              <button
+                                onClick={() => { setNewProductCategory(category.name); setNewProductSubcategoryId(sub.id); setNewProductData({ name: '', price: 0, ingredients: '' }); setIsAddProductModalOpen(true); }}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-[#141414] text-white rounded-lg text-xs font-bold hover:opacity-80"
+                              >
+                                <PlusCircle size={12} /> Item
+                              </button>
+                              <button onClick={() => { if (confirm(`Excluir subcategoria "${sub.name}"?`)) { socket.emit('delete_subcategory', { categoryName: category.name, subcategoryId: sub.id }); toast.success('Subcategoria excluída!'); }}} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
+                            </div>
+                          </div>
+                          {/* Items in subcategory */}
+                          <div className="divide-y divide-[#141414]/5">
+                            {sub.items.map(item => renderItemRow(item, category.name, sub.id))}
+                            {sub.items.length === 0 && (
+                              <p className="px-8 py-4 text-sm opacity-40 italic">Nenhum item nesta subcategoria.</p>
+                            )}
                           </div>
                         </div>
                       ))}
+
+                      {/* Direct items (when no subcategories or for backward compat) */}
+                      {category.items.length > 0 && (
+                        <div className="divide-y divide-[#141414]/5">
+                          {(category.subcategories || []).length > 0 && (
+                            <div className="px-8 py-2 bg-[#141414]/[0.02] border-b border-dashed border-[#141414]/10">
+                              <span className="text-[10px] font-bold opacity-40 uppercase">Itens sem subcategoria</span>
+                            </div>
+                          )}
+                          {category.items.map(item => renderItemRow(item, category.name))}
+                        </div>
+                      )}
+
+                      {totalItems === 0 && (
+                        <p className="px-8 py-6 text-sm opacity-40 italic text-center">Nenhum item cadastrado. Adicione subcategorias ou itens.</p>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 {pizzariaConfig.enabled && (<>
                 <div id="category-sabores-pizzas" className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
@@ -5399,44 +5491,76 @@ export default function Dashboard({
                   />
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 mb-6">
-                  <button
-                    onClick={() => setSelectedCategory('pizzas')}
-                    className={`flex flex-col sm:flex-row items-center justify-center space-y-1 sm:space-y-0 sm:space-x-2 px-2 sm:px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedCategory === 'pizzas' && !searchTerm ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]' : 'bg-gray-100 hover:bg-gray-200 opacity-60'}`}
-                  >
-                    {pizzariaConfig.enabled ? <Pizza size={18} /> : <Sandwich size={18} />}
-                    <span className="text-[10px] sm:text-sm">{pizzariaConfig.enabled ? 'Pizzas' : 'Pratos/Porções'}</span>
-                  </button>
-                  <button 
-                    onClick={() => setSelectedCategory('lanches')}
-                    className={`flex flex-col sm:flex-row items-center justify-center space-y-1 sm:space-y-0 sm:space-x-2 px-2 sm:px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedCategory === 'lanches' && !searchTerm ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]' : 'bg-gray-100 hover:bg-gray-200 opacity-60'}`}
-                  >
-                    <Sandwich size={18} />
-                    <span className="text-[10px] sm:text-sm">Lanches</span>
-                  </button>
-                  <button 
-                    onClick={() => setSelectedCategory('bebidas')}
-                    className={`flex flex-col sm:flex-row items-center justify-center space-y-1 sm:space-y-0 sm:space-x-2 px-2 sm:px-4 py-3 rounded-xl text-sm font-bold transition-all ${selectedCategory === 'bebidas' && !searchTerm ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]' : 'bg-gray-100 hover:bg-gray-200 opacity-60'}`}
-                  >
-                    <Beer size={18} />
-                    <span className="text-[10px] sm:text-sm">Bebidas</span>
-                  </button>
-                </div>
+                {/* Dynamic category buttons */}
+                {(() => {
+                  const visibleCats = menu.filter(cat => cat.visible !== false);
+                  const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
+                  const subcats = (effectiveCat?.subcategories || []).filter(s => s.visible !== false);
+                  return (
+                    <>
+                      <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
+                        {visibleCats.map(cat => (
+                          <button
+                            key={cat.name}
+                            onClick={() => { setSelectedCategory(cat.name); setSelectedSubcategory(null); }}
+                            className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                              effectiveCat?.name === cat.name && !searchTerm
+                                ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]'
+                                : 'bg-gray-100 hover:bg-gray-200 opacity-60'
+                            }`}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                      {subcats.length > 0 && !searchTerm && (
+                        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+                          <button
+                            onClick={() => setSelectedSubcategory(null)}
+                            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                              selectedSubcategory === null ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10'
+                            }`}
+                          >
+                            Todos
+                          </button>
+                          {subcats.map(sub => (
+                            <button
+                              key={sub.id}
+                              onClick={() => setSelectedSubcategory(sub.id)}
+                              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                                selectedSubcategory === sub.id ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10'
+                              }`}
+                            >
+                              {sub.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 flex-1">
-                {menu
-                  .filter(cat => {
-                    if (searchTerm.length > 0) return true;
-                    if (selectedCategory === 'pizzas' && !pizzariaConfig.enabled) {
-                      return cat.name === 'Pratos/Porção';
-                    }
-                    return cat.type === selectedCategory;
-                  })
-                  .flatMap(cat => cat.items)
-                  .filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
-                  .map((item, idx) => (
-                    <button 
+                {(() => {
+                  const visibleCats = menu.filter(cat => cat.visible !== false);
+                  const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
+                  if (searchTerm.length > 0) {
+                    return visibleCats.flatMap(cat => [
+                      ...cat.items,
+                      ...(cat.subcategories || []).filter(s => s.visible !== false).flatMap(s => s.items),
+                    ]).filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                  }
+                  if (!effectiveCat) return [];
+                  if (selectedSubcategory) {
+                    const sub = (effectiveCat.subcategories || []).find(s => s.id === selectedSubcategory);
+                    return (sub?.items || []).filter(i => i.visible !== false);
+                  }
+                  const directItems = effectiveCat.items.filter(i => i.visible !== false);
+                  const subItems = (effectiveCat.subcategories || []).filter(s => s.visible !== false).flatMap(s => s.items.filter(i => i.visible !== false));
+                  return [...directItems, ...subItems];
+                })().map((item, idx) => (
+                    <button
                       key={idx}
                       onClick={() => handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item)}
                       className="flex justify-between items-center p-4 rounded-xl border border-[#141414]/10 hover:bg-gray-50 transition-colors text-left"
@@ -5759,6 +5883,7 @@ export default function Dashboard({
                 onClick={() => {
                   socket.emit('update_product', {
                     categoryName: editingProduct.categoryName,
+                    subcategoryId: editingProduct.subcategoryId,
                     productId: editingProduct.item.id,
                     updatedData: {
                       name: editingProduct.item.name,
@@ -5780,12 +5905,12 @@ export default function Dashboard({
 
         {/* Add Product Modal */}
         {isAddProductModalOpen && newProductCategory && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="fixed inset-0 bg-[#141414]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               className="bg-white w-full max-w-md rounded-3xl p-8 space-y-6 shadow-2xl"
@@ -5793,6 +5918,11 @@ export default function Dashboard({
               <div className="flex justify-between items-center">
                 <div>
                   <h3 className="font-serif italic text-2xl">Novo Produto</h3>
+                  {newProductSubcategoryId && (
+                    <p className="text-xs opacity-50 mt-0.5">
+                      {newProductCategory} › {menu.find(c => c.name === newProductCategory)?.subcategories?.find(s => s.id === newProductSubcategoryId)?.name}
+                    </p>
+                  )}
                 </div>
                 <button onClick={() => setIsAddProductModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full">
                   <X size={24} />
@@ -5802,9 +5932,9 @@ export default function Dashboard({
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Categoria</label>
-                  <select 
+                  <select
                     value={newProductCategory}
-                    onChange={(e) => setNewProductCategory(e.target.value)}
+                    onChange={(e) => { setNewProductCategory(e.target.value); setNewProductSubcategoryId(null); }}
                     className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
                   >
                     {menu.map(cat => (
@@ -5812,6 +5942,25 @@ export default function Dashboard({
                     ))}
                   </select>
                 </div>
+                {(() => {
+                  const subcats = menu.find(c => c.name === newProductCategory)?.subcategories || [];
+                  if (subcats.length === 0) return null;
+                  return (
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Subcategoria</label>
+                      <select
+                        value={newProductSubcategoryId || ''}
+                        onChange={(e) => setNewProductSubcategoryId(e.target.value || null)}
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
+                      >
+                        <option value="">— Sem subcategoria —</option>
+                        {subcats.map(sub => (
+                          <option key={sub.id} value={sub.id}>{sub.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })()}
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Produto</label>
                   <input 
@@ -5852,6 +6001,7 @@ export default function Dashboard({
                   }
                   socket.emit('add_product', {
                     categoryName: newProductCategory,
+                    subcategoryId: newProductSubcategoryId || undefined,
                     productData: newProductData
                   });
                   setIsAddProductModalOpen(false);
@@ -5862,6 +6012,54 @@ export default function Dashboard({
                 <PlusCircle size={20} />
                 <span>Adicionar ao Cardápio</span>
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* Add Subcategory Modal */}
+        {isAddSubcategoryModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 bg-[#141414]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white w-full max-w-md rounded-3xl p-8 space-y-6 shadow-2xl"
+            >
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-serif italic text-2xl">Nova Subcategoria</h3>
+                  <p className="text-xs opacity-50 mt-0.5">Categoria: {newSubcategoryData.categoryName}</p>
+                </div>
+                <button onClick={() => setIsAddSubcategoryModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full"><X size={24} /></button>
+              </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome da Subcategoria</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Mini, Refrigerantes..."
+                  value={newSubcategoryData.name}
+                  onChange={(e) => setNewSubcategoryData({ ...newSubcategoryData, name: e.target.value })}
+                  className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setIsAddSubcategoryModalOpen(false)} className="flex-1 bg-gray-100 p-4 rounded-xl font-bold hover:bg-gray-200">Cancelar</button>
+                <button
+                  onClick={() => {
+                    if (!newSubcategoryData.name) return toast.error('Nome obrigatório');
+                    socket.emit('add_subcategory', { categoryName: newSubcategoryData.categoryName, subcategoryData: { name: newSubcategoryData.name } });
+                    setNewSubcategoryData({ categoryName: '', name: '' });
+                    setIsAddSubcategoryModalOpen(false);
+                    toast.success('Subcategoria adicionada!');
+                  }}
+                  className="flex-1 bg-[#141414] text-[#E4E3E0] p-4 rounded-xl font-bold hover:opacity-90"
+                >
+                  Confirmar
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -6019,64 +6217,27 @@ export default function Dashboard({
                   <h4 className="font-bold text-sm uppercase tracking-widest opacity-50">Categorias Existentes</h4>
                   {menu.map(cat => (
                     <div key={cat.name} className="flex items-center justify-between p-4 bg-white border border-[#141414]/10 rounded-2xl">
-                      {editingCategory?.oldName === cat.name ? (
-                        <div className="flex-1 flex space-x-2 mr-4">
-                          <input 
-                            type="text"
-                            value={editingCategory.name}
-                            onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                            className="flex-1 bg-gray-50 border border-[#141414]/10 rounded-lg px-3 py-1 font-bold outline-none"
-                          />
-                          <select 
-                            value={editingCategory.type}
-                            onChange={(e) => setEditingCategory({ ...editingCategory, type: e.target.value as any })}
-                            className="bg-gray-50 border border-[#141414]/10 rounded-lg px-3 py-1 font-bold outline-none"
-                          >
-                            <option value="pizzas">Pratos/Porções</option>
-                            <option value="lanches">Lanches</option>
-                            <option value="bebidas">Bebidas</option>
-                          </select>
-                          <button 
-                            onClick={() => {
-                              socket.emit('update_category', { oldName: editingCategory.oldName, updatedData: { name: editingCategory.name, type: editingCategory.type } });
-                              setEditingCategory(null);
-                              toast.success("Categoria atualizada!");
-                            }}
-                            className="p-2 bg-green-500 text-white rounded-lg"
-                          >
-                            <Save size={18} />
-                          </button>
-                          <button onClick={() => setEditingCategory(null)} className="p-2 bg-gray-200 rounded-lg">
-                            <X size={18} />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <div>
-                            <p className="font-bold">{cat.name}</p>
-                            <p className="text-[10px] uppercase opacity-50">{typeLabel(cat.type)}</p>
-                          </div>
-                          <div className="flex space-x-2">
-                            <button 
-                              onClick={() => setEditingCategory({ oldName: cat.name, name: cat.name, type: cat.type })}
-                              className="p-2 hover:bg-gray-100 rounded-lg text-blue-500"
-                            >
-                              <Edit size={18} />
-                            </button>
-                            <button 
-                              onClick={() => {
-                                if (confirm(`Excluir a categoria "${cat.name}" e todos os seus produtos?`)) {
-                                  socket.emit('delete_category', cat.name);
-                                  toast.success("Categoria excluída!");
-                                }
-                              }}
-                              className="p-2 hover:bg-gray-100 rounded-lg text-red-500"
-                            >
-                              <Trash2 size={18} />
-                            </button>
-                          </div>
-                        </>
-                      )}
+                      <div className="flex items-center gap-3">
+                        <p className="font-bold">{cat.name}</p>
+                        {!(cat.visible ?? true) && <span className="text-[10px] text-red-500 font-bold uppercase bg-red-50 px-2 py-0.5 rounded-full">Oculto</span>}
+                      </div>
+                      <div className="flex space-x-2">
+                        <button onClick={() => socket.emit('toggle_category_visibility', { categoryName: cat.name, visible: !(cat.visible ?? true) })} className="p-2 hover:bg-gray-100 rounded-lg">
+                          {(cat.visible ?? true) ? <Eye size={18} /> : <EyeOff size={18} className="text-red-400" />}
+                        </button>
+                        <button
+                          onClick={() => setEditingCategory({ oldName: cat.name, name: cat.name, visible: cat.visible ?? true })}
+                          className="p-2 hover:bg-gray-100 rounded-lg text-blue-500"
+                        >
+                          <Edit size={18} />
+                        </button>
+                        <button
+                          onClick={() => { if (confirm(`Excluir "${cat.name}"?`)) { socket.emit('delete_category', cat.name); toast.success('Categoria excluída!'); }}}
+                          className="p-2 hover:bg-gray-100 rounded-lg text-red-500"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -6456,43 +6617,29 @@ export default function Dashboard({
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome da Categoria</label>
-                  <input 
-                    type="text"
-                    placeholder="Ex: Porções"
-                    value={newCategoryData.name}
-                    onChange={(e) => setNewCategoryData({ ...newCategoryData, name: e.target.value })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Tipo de Categoria</label>
-                  <select 
-                    value={newCategoryData.type}
-                    onChange={(e) => setNewCategoryData({ ...newCategoryData, type: e.target.value as any })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
-                  >
-                    <option value="pizzas">Pizzas</option>
-                    <option value="lanches">Lanches</option>
-                    <option value="bebidas">Bebidas</option>
-                  </select>
-                </div>
+              <div>
+                <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome da Categoria</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Porções, Sobremesas..."
+                  value={newCategoryData.name}
+                  onChange={(e) => setNewCategoryData({ name: e.target.value })}
+                  className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                />
               </div>
 
               <div className="flex space-x-3">
-                <button 
+                <button
                   onClick={() => setIsAddCategoryPopupOpen(false)}
                   className="flex-1 bg-gray-100 text-[#141414] p-4 rounded-xl font-bold hover:bg-gray-200 transition-colors"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     if (!newCategoryData.name) return toast.error("Nome obrigatório");
-                    socket.emit('add_category', newCategoryData);
-                    setNewCategoryData({ name: '', type: 'lanches' });
+                    socket.emit('add_category', { name: newCategoryData.name });
+                    setNewCategoryData({ name: '' });
                     setIsAddCategoryPopupOpen(false);
                     toast.success("Categoria adicionada!");
                   }}
