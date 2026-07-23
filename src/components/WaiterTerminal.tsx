@@ -723,15 +723,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             )}
 
             {/* Dynamic category buttons — grid 4 por linha */}
-            <div className="grid grid-cols-4 gap-1.5 shrink-0">
+            <div className="grid grid-cols-4 gap-2 shrink-0">
               {visibleCategories.map(cat => (
                 <button
                   key={cat.name}
                   onClick={() => { setActiveCategory(cat.name); setActiveSubcategoryId(null); setSelectedFlavors([]); }}
-                  className={`rounded-xl text-[9px] font-bold uppercase transition-all border-2 px-2 py-2.5 text-center leading-tight ${
+                  className={`rounded-xl text-xs font-extrabold uppercase tracking-wide transition-all border-2 px-2 py-3 text-center leading-tight ${
                     selectedCat?.name === cat.name
                       ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md'
-                      : 'bg-white border-[#141414]/15 text-[#141414]/70 hover:border-[#141414]/40'
+                      : 'bg-white border-[#141414]/20 text-[#141414] hover:border-[#141414]/50'
                   }`}
                 >
                   {cat.name}
@@ -741,13 +741,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
             {/* Subcategory pills — sem "Todos" */}
             {filteredSubcategories.length > 0 && (
-              <div className="flex space-x-1.5 overflow-x-auto pb-0.5 scrollbar-hide shrink-0">
+              <div className="flex space-x-2 overflow-x-auto pb-0.5 scrollbar-hide shrink-0">
                 {filteredSubcategories.map(sub => (
                   <button
                     key={sub.id}
                     onClick={() => setActiveSubcategoryId(activeSubcategoryId === sub.id ? null : sub.id)}
-                    className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors ${
-                      activeSubcategoryId === sub.id ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10 text-[#141414]/70'
+                    className={`shrink-0 px-4 py-2 rounded-lg text-xs font-extrabold tracking-wide transition-colors ${
+                      activeSubcategoryId === sub.id ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border-2 border-[#141414]/20 text-[#141414]'
                     }`}
                   >
                     {sub.name}
