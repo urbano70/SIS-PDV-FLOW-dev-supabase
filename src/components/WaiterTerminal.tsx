@@ -722,14 +722,16 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             )}
 
-            {/* Dynamic category buttons */}
-            <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
+            {/* Dynamic category buttons — grid 4 por linha */}
+            <div className="grid grid-cols-4 gap-1.5 shrink-0">
               {visibleCategories.map(cat => (
                 <button
                   key={cat.name}
                   onClick={() => { setActiveCategory(cat.name); setActiveSubcategoryId(null); setSelectedFlavors([]); }}
-                  className={`shrink-0 rounded-2xl text-[10px] font-bold uppercase transition-all border-2 px-3 py-2 ${
-                    selectedCat?.name === cat.name ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'bg-white border-[#141414]/10'
+                  className={`rounded-xl text-[9px] font-bold uppercase transition-all border-2 px-2 py-2.5 text-center leading-tight ${
+                    selectedCat?.name === cat.name
+                      ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md'
+                      : 'bg-white border-[#141414]/15 text-[#141414]/70 hover:border-[#141414]/40'
                   }`}
                 >
                   {cat.name}
@@ -737,23 +739,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               ))}
             </div>
 
-            {/* Subcategory pills */}
+            {/* Subcategory pills — sem "Todos" */}
             {filteredSubcategories.length > 0 && (
-              <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-hide shrink-0">
-                <button
-                  onClick={() => setActiveSubcategoryId(null)}
-                  className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                    activeSubcategoryId === null ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
-                  }`}
-                >
-                  Todos
-                </button>
+              <div className="flex space-x-1.5 overflow-x-auto pb-0.5 scrollbar-hide shrink-0">
                 {filteredSubcategories.map(sub => (
                   <button
                     key={sub.id}
-                    onClick={() => setActiveSubcategoryId(sub.id)}
-                    className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                      activeSubcategoryId === sub.id ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10'
+                    onClick={() => setActiveSubcategoryId(activeSubcategoryId === sub.id ? null : sub.id)}
+                    className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors ${
+                      activeSubcategoryId === sub.id ? 'bg-[#141414] text-[#E4E3E0]' : 'bg-white border border-[#141414]/10 text-[#141414]/70'
                     }`}
                   >
                     {sub.name}
@@ -762,7 +756,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-1 gap-3 pb-2">
+            <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-1 gap-1.5 pb-2">
               {(() => {
                 if (!selectedCat) return [];
                 if (activeSubcategoryId) {
@@ -776,14 +770,16 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <button
                     key={item.id}
                     onClick={() => addToCart(item)}
-                    className="bg-white p-4 rounded-2xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
+                    className="bg-white px-3 py-2.5 rounded-xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
                   >
-                    <div className="text-left">
-                      <p className="font-bold">{item.name}</p>
-                      <p className="text-[10px] opacity-50 mb-1">{item.ingredients}</p>
-                      <p className="text-xs font-bold">R$ {item.price.toFixed(2)}</p>
+                    <div className="text-left flex-1 min-w-0 mr-2">
+                      <p className="font-bold text-sm leading-tight">{item.name}</p>
+                      <p className="text-xs opacity-50 leading-tight truncate">{item.ingredients}</p>
                     </div>
-                    <Plus className="opacity-30" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-bold font-mono">R$ {item.price.toFixed(2)}</span>
+                      <Plus size={14} className="opacity-30" />
+                    </div>
                   </button>
                 ))}
             </div>
