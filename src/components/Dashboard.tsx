@@ -5467,11 +5467,11 @@ export default function Dashboard({
       <AnimatePresence>
         {isAddItemModalOpen && (selectedTableId || selectedComandaId) && (
           <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-6">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl border-2 border-[#141414] flex flex-col max-h-[90vh]"
+              className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl border-2 border-[#141414] flex flex-col h-[85vh]"
             >
               <div className="flex justify-between items-center mb-6">
                 <h3 className="font-serif italic text-2xl">Adicionar Ítem</h3>
