@@ -5541,7 +5541,7 @@ export default function Dashboard({
                 })()}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-2 flex-1">
+              <div className="flex flex-col overflow-y-auto flex-1 divide-y divide-[#141414]/8 rounded-xl overflow-hidden border border-[#141414]/8">
                 {(() => {
                   const visibleCats = menu.filter(cat => cat.visible !== false);
                   const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
@@ -5563,13 +5563,13 @@ export default function Dashboard({
                     <button
                       key={idx}
                       onClick={() => handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item)}
-                      className="flex justify-between items-center p-4 rounded-xl border border-[#141414]/10 hover:bg-gray-50 transition-colors text-left"
+                      className={`flex justify-between items-center px-3 py-2 transition-colors text-left w-full ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F5F4F1]'} hover:bg-[#E8E7E4]`}
                     >
-                      <div className="flex-1 min-w-0 mr-4">
-                        <p className="font-bold">{item.name}</p>
-                        <p className="text-[10px] opacity-50 uppercase">{item.ingredients}</p>
+                      <div className="flex-1 min-w-0 mr-3">
+                        <p className="font-semibold text-sm leading-tight">{item.name}</p>
+                        {item.ingredients && <p className="text-[10px] opacity-50 leading-tight truncate">{item.ingredients}</p>}
                       </div>
-                      <span className="font-mono font-bold whitespace-nowrap">R$ {item.price.toFixed(2)}</span>
+                      <span className="font-mono font-bold text-sm whitespace-nowrap">R$ {item.price.toFixed(2)}</span>
                     </button>
                   ))}
               </div>
