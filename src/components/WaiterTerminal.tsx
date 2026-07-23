@@ -174,7 +174,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     // Check if it's a pizza category
     const category = menu.find(cat => cat.items?.some(i => i.id === pizza.id || i.name === pizza.name));
     const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
-    const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || pizza.type === 'lanches' || pizza.type === 'bebidas';
+    const isFromSubcategory = !!pizza._fromSubcategory;
+    const isSnackOrDrink = isFromSubcategory || category?.type === 'lanches' || category?.type === 'bebidas' || pizza.type === 'lanches' || pizza.type === 'bebidas';
 
     if (isPizza && !isFlavorModalOpen) {
       setSelectedPizzaItem(pizza);
@@ -758,13 +759,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
             <div className="flex-1 overflow-y-auto min-h-0 flex flex-col pb-2 divide-y divide-[#141414]/8">
               {(() => {
-                if (!selectedCat) return [];
+                if (!selectedCat) return [] as any[];
                 if (activeSubcategoryId) {
                   const sub = filteredSubcategories.find(s => s.id === activeSubcategoryId);
-                  return sub?.items || [];
+                  return (sub?.items || []).map((i: any) => ({ ...i, _fromSubcategory: true }));
                 }
-                const direct = selectedCat.items || [];
-                const subItems = filteredSubcategories.flatMap(s => s.items);
+                const direct = (selectedCat.items || []) as any[];
+                const subItems = filteredSubcategories.flatMap(s => s.items.map((i: any) => ({ ...i, _fromSubcategory: true })));
                 return [...direct, ...subItems];
               })().map((item, idx) => (
                   <button
