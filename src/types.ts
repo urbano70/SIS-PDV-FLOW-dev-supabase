@@ -97,10 +97,22 @@ export interface MenuItem {
   price: number;
   ingredients?: string;
   trackStock?: boolean;
+  visible?: boolean;
+}
+
+export interface MenuSubcategory {
+  id: string;
+  name: string;
+  position: number;
+  visible: boolean;
+  items: MenuItem[];
 }
 
 export interface MenuCategory {
   name: string;
-  type: 'pizzas' | 'lanches' | 'bebidas';
+  type: string;
+  visible: boolean;
+  position?: number;
+  subcategories: MenuSubcategory[];
   items: MenuItem[];
 }

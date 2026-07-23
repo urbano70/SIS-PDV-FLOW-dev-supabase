@@ -155,6 +155,8 @@ async function startServer() {
         menu = mRes.data.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
+          visible: row.visible !== false,
+          subcategories: row.subcategories || [],
         }));
         io.emit('update_menu', menu);
       } else {
@@ -173,8 +175,8 @@ async function startServer() {
             o.items = o.items.map((item: any) => {
               if (item.type === 'pizzas') return item;
               const cat = item.menuItemId
-                ? menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId))
-                : menu.find((c: any) => c.items?.some((i: any) => i.name === item.name));
+                ? menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+                : menu.find((c: any) => c.items?.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
               return cat?.type ? { ...item, type: cat.type } : item;
             });
           }
@@ -727,8 +729,8 @@ async function startServer() {
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
           const cat = item.menuItemId
-            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
-            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
+            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
           if (cat?.type) resolvedType = cat.type;
         }
         return {
@@ -831,20 +833,20 @@ async function startServer() {
       applyStockReduction(orderData.items);
     });
 
-    socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData }) => {
-      menu = menu.map(cat => {
-        if (cat.name === categoryName) {
+    socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData, subcategoryId }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        if (subcategoryId) {
           return {
             ...cat,
-            items: cat.items.map(item => {
-              if (item.id === productId) {
-                return { ...item, ...updatedData };
-              }
-              return item;
-            })
+            subcategories: (cat.subcategories || []).map((sub: any) =>
+              sub.id === subcategoryId
+                ? { ...sub, items: sub.items.map((item: any) => item.id === productId ? { ...item, ...updatedData } : item) }
+                : sub
+            ),
           };
         }
-        return cat;
+        return { ...cat, items: cat.items.map((item: any) => item.id === productId ? { ...item, ...updatedData } : item) };
       });
       io.emit("update_menu", menu);
       saveMenuToSupabase();
@@ -862,29 +864,32 @@ async function startServer() {
       }
     }));
 
-    socket.on("add_product", requireAdmin(({ categoryName, productData }) => {
-      menu = menu.map(cat => {
-        if (cat.name === categoryName) {
-          const newItem = {
-            id: randomUUID(),
-            ...productData
-          };
+    socket.on("add_product", requireAdmin(({ categoryName, productData, subcategoryId }) => {
+      const newItem = { id: randomUUID(), ...productData };
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        if (subcategoryId) {
           return {
             ...cat,
-            items: [...cat.items, newItem]
+            subcategories: (cat.subcategories || []).map((sub: any) =>
+              sub.id === subcategoryId ? { ...sub, items: [...sub.items, newItem] } : sub
+            ),
           };
         }
-        return cat;
+        return { ...cat, items: [...cat.items, newItem] };
       });
       io.emit("update_menu", menu);
       saveMenuToSupabase();
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
+      const slug = (categoryData.name as string).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
       const newCategory = {
         name: categoryData.name,
-        type: categoryData.type || "lanches",
-        items: []
+        type: slug || 'outros',
+        visible: true,
+        items: [],
+        subcategories: [],
       };
       menu.push(newCategory);
       io.emit("update_menu", menu);
@@ -892,39 +897,92 @@ async function startServer() {
     }));
 
     socket.on("update_category", requireAdmin(({ oldName, updatedData }) => {
-      menu = menu.map(cat => {
-        if (cat.name === oldName) {
-          return { ...cat, ...updatedData };
-        }
-        return cat;
-      });
+      menu = menu.map((cat: any) => cat.name === oldName ? { ...cat, ...updatedData } : cat);
+      io.emit("update_menu", menu);
+      saveMenuToSupabase();
+    }));
+
+    socket.on("toggle_category_visibility", requireAdmin(({ categoryName, visible }) => {
+      menu = menu.map((cat: any) => cat.name === categoryName ? { ...cat, visible } : cat);
       io.emit("update_menu", menu);
       saveMenuToSupabase();
     }));
 
     socket.on("delete_category", requireAdmin((categoryName) => {
-      menu = menu.filter(cat => cat.name !== categoryName);
+      menu = menu.filter((cat: any) => cat.name !== categoryName);
       io.emit("update_menu", menu);
       saveMenuToSupabase();
     }));
 
-    socket.on("delete_product", requireAdmin(({ categoryName, productId }) => {
-      menu = menu.map(cat => {
-        if (cat.name === categoryName) {
-          return {
-            ...cat,
-            items: cat.items.filter(item => item.id !== productId)
-          };
-        }
-        return cat;
+    socket.on("add_subcategory", requireAdmin(({ categoryName, subcategoryData }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        const newSub = {
+          id: randomUUID(),
+          name: subcategoryData.name,
+          position: (cat.subcategories || []).length,
+          visible: true,
+          items: [],
+        };
+        return { ...cat, subcategories: [...(cat.subcategories || []), newSub] };
       });
       io.emit("update_menu", menu);
       saveMenuToSupabase();
     }));
 
-    socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, enabled }) => {
+    socket.on("update_subcategory", requireAdmin(({ categoryName, subcategoryId, updatedData }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        return {
+          ...cat,
+          subcategories: (cat.subcategories || []).map((sub: any) =>
+            sub.id === subcategoryId ? { ...sub, ...updatedData } : sub
+          ),
+        };
+      });
+      io.emit("update_menu", menu);
+      saveMenuToSupabase();
+    }));
+
+    socket.on("delete_subcategory", requireAdmin(({ categoryName, subcategoryId }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        return { ...cat, subcategories: (cat.subcategories || []).filter((sub: any) => sub.id !== subcategoryId) };
+      });
+      io.emit("update_menu", menu);
+      saveMenuToSupabase();
+    }));
+
+    socket.on("delete_product", requireAdmin(({ categoryName, productId, subcategoryId }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        if (subcategoryId) {
+          return {
+            ...cat,
+            subcategories: (cat.subcategories || []).map((sub: any) =>
+              sub.id === subcategoryId ? { ...sub, items: sub.items.filter((i: any) => i.id !== productId) } : sub
+            ),
+          };
+        }
+        return { ...cat, items: cat.items.filter((item: any) => item.id !== productId) };
+      });
+      io.emit("update_menu", menu);
+      saveMenuToSupabase();
+    }));
+
+    socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, subcategoryId, enabled }) => {
       menu = menu.map((cat: any) => {
         if (cat.name === categoryName) {
+          if (subcategoryId) {
+            return {
+              ...cat,
+              subcategories: (cat.subcategories || []).map((sub: any) =>
+                sub.id === subcategoryId
+                  ? { ...sub, items: sub.items.map((item: any) => item.id === menuItemId ? { ...item, trackStock: enabled } : item) }
+                  : sub
+              ),
+            };
+          }
           return {
             ...cat,
             items: cat.items.map((item: any) =>
@@ -936,7 +994,8 @@ async function startServer() {
       });
 
       if (enabled) {
-        const menuItem = menu.flatMap((c: any) => c.items).find((i: any) => i.id === menuItemId);
+        const allItems = menu.flatMap((c: any) => [...c.items, ...(c.subcategories || []).flatMap((s: any) => s.items)]);
+        const menuItem = allItems.find((i: any) => i.id === menuItemId);
         if (menuItem && !stock.find((s: any) => s.menuItemId === menuItemId)) {
           stock.push({
             id: menuItemId,
@@ -1068,8 +1127,8 @@ async function startServer() {
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
           const cat = item.menuItemId
-            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId))
-            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name));
+            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
           if (cat?.type) resolvedType = cat.type;
         }
         const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };

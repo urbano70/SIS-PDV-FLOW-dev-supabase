@@ -51,11 +51,16 @@ create table if not exists orders (
 -- ── menu ─────────────────────────────────────────────────────
 -- Cada linha = uma categoria. items é um array de MenuItems em JSON.
 create table if not exists menu (
-  id       text primary key,  -- nome da categoria
-  name     text not null,
-  position integer not null default 0,
-  items    jsonb not null default '[]'
+  id            text primary key,  -- nome da categoria
+  name          text not null,
+  position      integer not null default 0,
+  items         jsonb not null default '[]',
+  visible       boolean not null default true,
+  subcategories jsonb not null default '[]'
 );
+-- migration: add columns if table already existed
+ALTER TABLE menu ADD COLUMN IF NOT EXISTS visible boolean not null default true;
+ALTER TABLE menu ADD COLUMN IF NOT EXISTS subcategories jsonb not null default '[]';
 
 -- ── stock ─────────────────────────────────────────────────────
 create table if not exists stock (
