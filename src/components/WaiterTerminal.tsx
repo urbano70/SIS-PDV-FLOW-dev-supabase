@@ -756,7 +756,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-1 gap-1.5 pb-2">
+            <div className="flex-1 overflow-y-auto min-h-0 flex flex-col pb-2 divide-y divide-[#141414]/8">
               {(() => {
                 if (!selectedCat) return [];
                 if (activeSubcategoryId) {
@@ -766,19 +766,23 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 const direct = selectedCat.items || [];
                 const subItems = filteredSubcategories.flatMap(s => s.items);
                 return [...direct, ...subItems];
-              })().map(item => (
+              })().map((item, idx) => (
                   <button
                     key={item.id}
                     onClick={() => addToCart(item)}
-                    className="bg-white px-3 py-2 rounded-xl border border-[#141414]/10 transition-all flex justify-between items-center active:scale-95"
+                    className={`w-full px-3 py-2 transition-all flex justify-between items-center active:scale-[0.99] ${
+                      idx % 2 === 0 ? 'bg-white' : 'bg-[#F5F4F1]'
+                    }`}
                   >
-                    <div className="text-left flex-1 min-w-0 mr-2">
-                      <p className="font-bold text-base leading-tight">{item.name}</p>
-                      <p className="text-sm opacity-50 leading-tight truncate">{item.ingredients}</p>
+                    <div className="text-left flex-1 min-w-0 mr-3">
+                      <p className="font-extrabold text-lg leading-tight tracking-tight">{item.name}</p>
+                      {item.ingredients && (
+                        <p className="text-base opacity-55 leading-tight truncate">{item.ingredients}</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-base font-bold font-mono">R$ {item.price.toFixed(2)}</span>
-                      <Plus size={14} className="opacity-30" />
+                      <span className="text-lg font-extrabold font-mono">R$ {item.price.toFixed(2)}</span>
+                      <Plus size={18} className="opacity-40" />
                     </div>
                   </button>
                 ))}
