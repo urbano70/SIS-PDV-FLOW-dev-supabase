@@ -515,6 +515,9 @@ const OrderDetails = ({
                       <span className={`font-bold ${item.paid ? 'text-green-700' : ''}`}>
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
+                      {item.paid && (
+                        <span className="text-[8px] bg-green-600 text-white px-1.5 py-0.5 rounded uppercase font-bold shrink-0">pago</span>
+                      )}
                       {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && !item.deliveredAt && (() => {
                         if (!item.timestamp) return null; // sem timestamp = sem contagem
                         const elapsedMin = ((Date.now() - clockOffset) - new Date(item.timestamp).getTime()) / 60000;
