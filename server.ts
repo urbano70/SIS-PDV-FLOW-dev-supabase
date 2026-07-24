@@ -888,6 +888,7 @@ async function startServer() {
         name: categoryData.name,
         type: slug || 'outros',
         visible: true,
+        trackTime: false,
         items: [],
         subcategories: [],
       };
@@ -922,6 +923,7 @@ async function startServer() {
           name: subcategoryData.name,
           position: (cat.subcategories || []).length,
           visible: true,
+          trackTime: false,
           items: [],
         };
         return { ...cat, subcategories: [...(cat.subcategories || []), newSub] };

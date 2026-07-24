@@ -2949,7 +2949,7 @@ export default function Dashboard({
                   return (
                     <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                       {/* Category header */}
-                      <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
+                      <div className="bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
                         <div className="flex items-center gap-4">
                           {editingCategory?.oldName === category.name ? (
                             <div className="flex items-center gap-2">
@@ -2957,16 +2957,17 @@ export default function Dashboard({
                                 type="text"
                                 value={editingCategory.name}
                                 onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                                className="bg-white border border-[#141414]/20 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-[#141414]"
+                                className="bg-white border border-white/30 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-white text-[#141414]"
                               />
                               <button onClick={() => { socket.emit('update_category', { oldName: editingCategory.oldName, updatedData: { name: editingCategory.name } }); setEditingCategory(null); toast.success('Categoria atualizada!'); }} className="p-2 bg-green-500 text-white rounded-lg"><Save size={16} /></button>
-                              <button onClick={() => setEditingCategory(null)} className="p-2 bg-gray-200 rounded-lg"><X size={16} /></button>
+                              <button onClick={() => setEditingCategory(null)} className="p-2 bg-white/20 text-white rounded-lg"><X size={16} /></button>
                             </div>
                           ) : (
                             <>
-                              <h3 className="font-serif italic text-xl">{category.name}</h3>
-                              <span className="text-[10px] uppercase tracking-widest font-bold opacity-50 bg-white px-3 py-1 rounded-full border border-[#141414]/10">{totalItems} itens</span>
-                              {!(category.visible ?? true) && <span className="text-[10px] text-red-500 font-bold uppercase px-2 py-0.5 bg-red-50 rounded-full">Oculto</span>}
+                              <h3 className="font-serif italic text-xl text-white">{category.name}</h3>
+                              <span className="text-[10px] uppercase tracking-widest font-bold text-white/50 bg-white/10 px-3 py-1 rounded-full">{totalItems} itens</span>
+                              {!(category.visible ?? true) && <span className="text-[10px] text-red-400 font-bold uppercase px-2 py-0.5 bg-red-900/30 rounded-full">Oculto</span>}
+                              {category.trackTime && <span className="text-[10px] text-amber-300 font-bold uppercase px-2 py-0.5 bg-amber-900/30 rounded-full flex items-center gap-1"><Clock size={10} /> Tempo ativo</span>}
                             </>
                           )}
                         </div>
@@ -2974,26 +2975,33 @@ export default function Dashboard({
                           <button
                             title={(category.visible ?? true) ? 'Ocultar no cardápio' : 'Exibir no cardápio'}
                             onClick={() => socket.emit('toggle_category_visibility', { categoryName: category.name, visible: !(category.visible ?? true) })}
-                            className="p-2 rounded-xl border border-[#141414]/10 hover:bg-gray-100 transition-all"
+                            className="p-2 rounded-xl border border-white/20 hover:bg-white/10 transition-all text-white"
                           >
                             {(category.visible ?? true) ? <Eye size={16} /> : <EyeOff size={16} className="text-red-400" />}
                           </button>
-                          <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true })} className="p-2 rounded-xl border border-[#141414]/10 hover:bg-gray-100 transition-all text-blue-500"><Edit size={16} /></button>
+                          <button
+                            title={category.trackTime ? 'Contagem de tempo: ativa' : 'Ativar contagem de tempo até entrega'}
+                            onClick={() => { socket.emit('update_category', { oldName: category.name, updatedData: { trackTime: !category.trackTime } }); toast.success(category.trackTime ? 'Contagem de tempo desativada' : 'Contagem de tempo ativada!'); }}
+                            className={`p-2 rounded-xl border transition-all ${category.trackTime ? 'border-amber-400 bg-amber-400/20 text-amber-300' : 'border-white/20 hover:bg-white/10 text-white/50'}`}
+                          >
+                            <Clock size={16} />
+                          </button>
+                          <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true })} className="p-2 rounded-xl border border-white/20 hover:bg-white/10 transition-all text-blue-300"><Edit size={16} /></button>
                           <button
                             onClick={() => { setNewSubcategoryData({ categoryName: category.name, name: '' }); setIsAddSubcategoryModalOpen(true); }}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-[#141414]/10 text-xs font-bold hover:bg-gray-100 transition-all"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/20 text-white text-xs font-bold hover:bg-white/10 transition-all"
                           >
                             <PlusCircle size={14} /> Subcategoria
                           </button>
                           {(category.subcategories || []).length === 0 && (
                             <button
                               onClick={() => { setNewProductCategory(category.name); setNewProductSubcategoryId(null); setNewProductData({ name: '', price: 0, ingredients: '' }); setIsAddProductModalOpen(true); }}
-                              className="flex items-center gap-1.5 px-3 py-2 bg-[#141414] text-white rounded-xl text-xs font-bold hover:opacity-80 transition-all"
+                              className="flex items-center gap-1.5 px-3 py-2 bg-white text-[#141414] rounded-xl text-xs font-bold hover:opacity-80 transition-all"
                             >
                               <PlusCircle size={14} /> Item
                             </button>
                           )}
-                          <button onClick={() => { if (confirm(`Excluir categoria "${category.name}" e todos seus itens?`)) { socket.emit('delete_category', category.name); toast.success('Categoria excluída!'); }}} className="p-2 rounded-xl border border-[#141414]/10 hover:bg-red-50 text-red-500 transition-all"><Trash2 size={16} /></button>
+                          <button onClick={() => { if (confirm(`Excluir categoria "${category.name}" e todos seus itens?`)) { socket.emit('delete_category', category.name); toast.success('Categoria excluída!'); }}} className="p-2 rounded-xl border border-white/20 hover:bg-red-900/30 text-red-400 transition-all"><Trash2 size={16} /></button>
                         </div>
                       </div>
 
@@ -3001,7 +3009,7 @@ export default function Dashboard({
                       {(category.subcategories || []).map(sub => (
                         <div key={sub.id} className="border-b border-[#141414]/5 last:border-b-0">
                           {/* Subcategory header */}
-                          <div className="px-8 py-3 bg-[#141414]/[0.02] border-b border-dashed border-[#141414]/10 flex items-center justify-between flex-wrap gap-2">
+                          <div className="px-8 py-3 bg-[#141414]/[0.06] border-b border-[#141414]/10 flex items-center justify-between flex-wrap gap-2">
                             <div className="flex items-center gap-3">
                               {editingSubcategory?.subcategoryId === sub.id ? (
                                 <div className="flex items-center gap-2">
@@ -3017,10 +3025,11 @@ export default function Dashboard({
                                 </div>
                               ) : (
                                 <>
-                                  <span className="text-xs opacity-40">↳</span>
+                                  <span className="text-[#141414]/30 font-bold">↳</span>
                                   <span className="font-bold text-sm">{sub.name}</span>
                                   <span className="text-[10px] bg-white px-2 py-0.5 rounded-full border border-[#141414]/10 opacity-60">{sub.items.length} itens</span>
-                                  {!sub.visible && <span className="text-[10px] text-red-500 font-bold uppercase">Oculto</span>}
+                                  {!sub.visible && <span className="text-[10px] text-red-500 font-bold uppercase px-2 py-0.5 bg-red-50 rounded-full">Oculto</span>}
+                                  {sub.trackTime && <span className="text-[10px] text-amber-600 font-bold uppercase px-2 py-0.5 bg-amber-50 rounded-full flex items-center gap-1"><Clock size={10} /> Tempo ativo</span>}
                                 </>
                               )}
                             </div>
@@ -3031,6 +3040,13 @@ export default function Dashboard({
                                 className="p-1.5 rounded-lg hover:bg-gray-100 transition-all"
                               >
                                 {sub.visible ? <Eye size={14} /> : <EyeOff size={14} className="text-red-400" />}
+                              </button>
+                              <button
+                                title={sub.trackTime ? 'Desativar contagem de tempo' : 'Ativar contagem de tempo até entrega'}
+                                onClick={() => { socket.emit('update_subcategory', { categoryName: category.name, subcategoryId: sub.id, updatedData: { trackTime: !sub.trackTime } }); toast.success(sub.trackTime ? 'Contagem de tempo desativada' : 'Contagem de tempo ativada!'); }}
+                                className={`p-1.5 rounded-lg transition-all ${sub.trackTime ? 'bg-amber-100 text-amber-600' : 'hover:bg-gray-100 text-[#141414]/30'}`}
+                              >
+                                <Clock size={14} />
                               </button>
                               <button onClick={() => setEditingSubcategory({ categoryName: category.name, subcategoryId: sub.id, name: sub.name })} className="p-1.5 rounded-lg hover:bg-gray-100 text-blue-500"><Edit size={14} /></button>
                               <button

@@ -105,6 +105,7 @@ export interface MenuSubcategory {
   name: string;
   position: number;
   visible: boolean;
+  trackTime?: boolean;
   items: MenuItem[];
 }
 
@@ -112,6 +113,7 @@ export interface MenuCategory {
   name: string;
   type: string;
   visible: boolean;
+  trackTime?: boolean;
   position?: number;
   subcategories: MenuSubcategory[];
   items: MenuItem[];

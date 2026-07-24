@@ -87,6 +87,18 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return () => clearInterval(id);
   }, [pizzariaConfig?.enabled]);
 
+  const itemShouldTrackTime = (item: any): boolean => {
+    if (item.type === 'pizzas' || item.type === 'lanches') return true;
+    const cat = menu.find((c: any) => {
+      if (c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name)) return true;
+      return (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name));
+    });
+    if (!cat) return false;
+    if (cat.trackTime) return true;
+    const sub = (cat.subcategories || []).find((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name));
+    return !!sub?.trackTime;
+  };
+
   const getPizzeriaTableColor = (tableItem: Table): 'green' | 'yellow' | 'orange' | 'red' | null => {
     if (!pizzariaConfig?.enabled || tableItem.status === 'free') return null;
     const order = orders.find((o: any) =>
@@ -94,7 +106,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     );
     if (!order) return null;
     const pending = (order.items || []).filter(
-      (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches')
+      (i: any) => !i.removed && !i.paid && !i.deliveredAt && itemShouldTrackTime(i)
     );
     if (pending.length === 0) return null;
     const now = Date.now() - clockOffset;
@@ -174,8 +186,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     // Check if it's a pizza category
     const category = menu.find(cat => cat.items?.some(i => i.id === pizza.id || i.name === pizza.name));
     const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
-    const isFromSubcategory = !!pizza._fromSubcategory;
-    const isSnackOrDrink = isFromSubcategory || category?.type === 'lanches' || category?.type === 'bebidas' || pizza.type === 'lanches' || pizza.type === 'bebidas';
+    const isSnackOrDrink = !isPizza;
 
     if (isPizza && !isFlavorModalOpen) {
       setSelectedPizzaItem(pizza);
@@ -517,7 +528,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     {currentOrder.items.map((item) => {
                       const kdsEnabled = pizzariaConfig?.kdsEnabled ?? false;
                       const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt &&
-                        (item.type === 'pizzas' || item.type === 'lanches') &&
+                        itemShouldTrackTime(item) &&
                         (kdsEnabled ? (item as any).kitchenStatus === 'ready' : true);
                       return (
                       <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>
@@ -526,7 +537,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
                               {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                             </p>
-                            {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches') && (
+                            {!item.removed && !item.paid && itemShouldTrackTime(item) && (
                               item.deliveredAt ? (
                                 <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
                                   ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
@@ -729,7 +740,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <button
                   key={cat.name}
                   onClick={() => { setActiveCategory(cat.name); setActiveSubcategoryId(null); setSelectedFlavors([]); }}
-                  className={`rounded-xl text-xs font-extrabold uppercase tracking-wide transition-all border-2 px-2 py-3 text-center leading-tight ${
+                  className={`rounded-xl text-xs font-extrabold uppercase tracking-wide transition-all border-2 px-2 py-3 text-center leading-tight min-h-[52px] flex items-center justify-center ${
                     selectedCat?.name === cat.name
                       ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md'
                       : 'bg-white border-[#141414]/20 text-[#141414] hover:border-[#141414]/50'
