@@ -894,7 +894,14 @@ export default function Dashboard({
   const [stockHistoryEnd, setStockHistoryEnd] = useState(new Date().toISOString().split('T')[0]);
 
   const importFileRef = useRef<HTMLInputElement>(null);
-  const [pendingImport, setPendingImport] = useState<{ menu: any[]; stock: any[]; printerConfig?: any; fileName: string } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{
+    menu: any[]; stock: any[]; stockLog: any[];
+    pizzaFlavors: any[]; pizzaCrusts: any[];
+    pizzariaConfig?: any; printerConfig?: any;
+    finEmployees: any[]; finPayments: any[]; finExpenses: any[];
+    fileName: string; version?: string;
+  } | null>(null);
+  const [importingFin, setImportingFin] = useState(false);
 
   const [isSeedModalOpen, setIsSeedModalOpen] = useState(false);
   const [seedSteps, setSeedSteps] = useState<string[]>([]);
@@ -4507,16 +4514,38 @@ export default function Dashboard({
                       {pendingImport && (
                         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden mb-2">
                           <div className="bg-orange-50 border border-orange-200 rounded-lg p-2 space-y-1.5">
-                            <p className="text-[8px] font-bold uppercase text-orange-700 leading-none">Confirmar importação</p>
+                            <p className="text-[8px] font-bold uppercase text-orange-700 leading-none">Confirmar importação {pendingImport.version ? `v${pendingImport.version}` : ''}</p>
                             <p className="text-[7px] text-orange-600 leading-tight truncate">{pendingImport.fileName}</p>
-                            <div className="flex gap-1.5 text-[6px]">
-                              <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.menu.length} categorias</span>
-                              <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.stock.length} insumos</span>
-                              {pendingImport.printerConfig && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">config impressora</span>}
+                            <div className="flex flex-wrap gap-1 text-[6px]">
+                              {pendingImport.menu.length > 0 && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.menu.length} categorias</span>}
+                              {pendingImport.stock.length > 0 && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.stock.length} insumos</span>}
+                              {pendingImport.pizzaFlavors.length > 0 && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.pizzaFlavors.length} sabores</span>}
+                              {pendingImport.pizzaCrusts.length > 0 && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.pizzaCrusts.length} bordas</span>}
+                              {pendingImport.pizzariaConfig && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">config geral</span>}
+                              {pendingImport.printerConfig && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">impressora</span>}
+                              {pendingImport.finEmployees.length > 0 && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.finEmployees.length} colaboradores</span>}
+                              {pendingImport.finPayments.length > 0 && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.finPayments.length} pagamentos</span>}
+                              {pendingImport.finExpenses.length > 0 && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">{pendingImport.finExpenses.length} despesas</span>}
                             </div>
-                            <p className="text-[6.5px] text-orange-500 leading-tight">O cardápio e estoque atuais serão substituídos.</p>
+                            <p className="text-[6.5px] text-orange-500 leading-tight">Cardápio, insumos, configurações e dados financeiros serão substituídos.</p>
                             <div className="flex gap-1">
-                              <button onClick={() => { socket.emit('bulk_import', { menu: pendingImport.menu, stock: pendingImport.stock }); if (pendingImport.printerConfig) { try { localStorage.setItem('printerConfig', JSON.stringify(pendingImport.printerConfig)); } catch {} } socket.once('import_complete', (result: any) => { toast.success('Importação concluída!', { description: `${result.menuCategories} categorias e ${result.stockItems} insumos restaurados.` }); }); setPendingImport(null); }} className="flex-1 py-1 bg-orange-600 text-white rounded text-[7px] font-bold uppercase hover:bg-orange-700 transition-colors">Confirmar</button>
+                              <button disabled={importingFin} onClick={async () => {
+                                socket.emit('bulk_import', { menu: pendingImport.menu, stock: pendingImport.stock, stockLog: pendingImport.stockLog, pizzaFlavors: pendingImport.pizzaFlavors, pizzaCrusts: pendingImport.pizzaCrusts, pizzariaConfig: pendingImport.pizzariaConfig });
+                                if (pendingImport.printerConfig) { try { localStorage.setItem('printerConfig', JSON.stringify(pendingImport.printerConfig)); } catch {} }
+                                socket.once('import_complete', (result: any) => { toast.success('Importação concluída!', { description: `${result.menuCategories} categorias · ${result.stockItems} insumos · ${result.flavors} sabores restaurados.` }); });
+                                if (tenantId && (pendingImport.finEmployees.length > 0 || pendingImport.finPayments.length > 0 || pendingImport.finExpenses.length > 0)) {
+                                  setImportingFin(true);
+                                  try {
+                                    const stamp = (rows: any[]) => rows.map(r => ({ ...r, tenant_id: tenantId }));
+                                    if (pendingImport.finEmployees.length > 0) await supabase.from('fin_employees').upsert(stamp(pendingImport.finEmployees), { onConflict: 'id' });
+                                    if (pendingImport.finPayments.length > 0) await supabase.from('fin_payments').upsert(stamp(pendingImport.finPayments), { onConflict: 'id' });
+                                    if (pendingImport.finExpenses.length > 0) await supabase.from('fin_expenses').upsert(stamp(pendingImport.finExpenses), { onConflict: 'id' });
+                                    toast.success('Dados financeiros restaurados!', { description: `${pendingImport.finEmployees.length} colaboradores · ${pendingImport.finPayments.length} pagamentos · ${pendingImport.finExpenses.length} despesas` });
+                                  } catch { toast.error('Erro ao restaurar dados financeiros.'); }
+                                  setImportingFin(false);
+                                }
+                                setPendingImport(null);
+                              }} className="flex-1 py-1 bg-orange-600 text-white rounded text-[7px] font-bold uppercase hover:bg-orange-700 transition-colors disabled:opacity-50">{importingFin ? 'Restaurando...' : 'Confirmar'}</button>
                               <button onClick={() => setPendingImport(null)} className="flex-1 py-1 bg-white border border-orange-200 text-orange-600 rounded text-[7px] font-bold uppercase hover:bg-orange-50 transition-colors">Cancelar</button>
                             </div>
                           </div>
@@ -4524,7 +4553,7 @@ export default function Dashboard({
                       )}
                     </AnimatePresence>
 
-                    <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const parsed = JSON.parse(ev.target?.result as string); if (!parsed.menu && !parsed.stock) { toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' }); return; } setPendingImport({ menu: parsed.menu ?? [], stock: parsed.stock ?? [], printerConfig: parsed.printerConfig ?? null, fileName: file.name }); } catch { toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' }); } }; reader.readAsText(file); e.target.value = ''; }} />
+                    <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const parsed = JSON.parse(ev.target?.result as string); if (!parsed.menu && !parsed.stock) { toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' }); return; } setPendingImport({ menu: parsed.menu ?? [], stock: parsed.stock ?? [], stockLog: parsed.stockLog ?? [], pizzaFlavors: parsed.pizzaFlavors ?? [], pizzaCrusts: parsed.pizzaCrusts ?? [], pizzariaConfig: parsed.pizzariaConfig ?? null, printerConfig: parsed.printerConfig ?? null, finEmployees: parsed.finEmployees ?? [], finPayments: parsed.finPayments ?? [], finExpenses: parsed.finExpenses ?? [], fileName: file.name, version: parsed.version }); } catch { toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' }); } }; reader.readAsText(file); e.target.value = ''; }} />
 
                     <div className="grid grid-cols-3 gap-1.5">
                       <button onClick={async () => { try { let finEmployees: any[] = []; let finPayments: any[] = []; let finExpenses: any[] = []; if (tenantId) { const [eR, pR, xR] = await Promise.all([ supabase.from('fin_employees').select('*').eq('tenant_id', tenantId).order('name'), supabase.from('fin_payments').select('*').eq('tenant_id', tenantId).order('paid_at', { ascending: false }), supabase.from('fin_expenses').select('*').eq('tenant_id', tenantId).order('due_date'), ]); finEmployees = eR.data || []; finPayments = pR.data || []; finExpenses = xR.data || []; } const data = { version: '2.0', exportedAt: new Date().toISOString(), menu, pizzaFlavors, pizzaCrusts, stock, stockLog, printerConfig, pizzariaConfig, orders, waiters, finEmployees, finPayments, finExpenses }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url); const totalItems = menu.reduce((acc: number, cat: any) => acc + (cat.items?.length ?? 0) + (cat.subcategories || []).reduce((s: number, sub: any) => s + (sub.items?.length ?? 0), 0), 0); toast.success('Backup completo exportado!', { description: `${menu.length} categorias · ${totalItems} produtos · ${orders.length} pedidos · ${waiters.length} garçons · ${finEmployees.length} colaboradores` }); } catch { toast.error('Erro ao exportar dados.'); } }} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
