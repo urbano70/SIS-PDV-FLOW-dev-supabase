@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
+import { supabase } from '../lib/supabase';
 import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
@@ -120,6 +121,7 @@ interface DashboardProps {
   onLogout?: () => void;
   plan?: string;
   ownerCreatedAt?: string;
+  tenantId?: string;
 }
 
 // ── ESC/POS builder ──────────────────────────────────────────────────────────
@@ -701,6 +703,7 @@ export default function Dashboard({
   onLogout,
   plan = 'free',
   ownerCreatedAt,
+  tenantId = '',
 }: DashboardProps) {
   const { updateTableStatusLocal, logout, clockOffset, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
@@ -4524,7 +4527,7 @@ export default function Dashboard({
                     <input ref={importFileRef} type="file" accept=".json" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { try { const parsed = JSON.parse(ev.target?.result as string); if (!parsed.menu && !parsed.stock) { toast.error('Arquivo inválido.', { description: 'O arquivo não contém dados de cardápio ou estoque.' }); return; } setPendingImport({ menu: parsed.menu ?? [], stock: parsed.stock ?? [], printerConfig: parsed.printerConfig ?? null, fileName: file.name }); } catch { toast.error('Erro ao ler o arquivo.', { description: 'Verifique se é um JSON válido exportado pelo sistema.' }); } }; reader.readAsText(file); e.target.value = ''; }} />
 
                     <div className="grid grid-cols-3 gap-1.5">
-                      <button onClick={() => { try { const data = { menu, stock, printerConfig, exportedAt: new Date().toISOString(), version: '1.0' }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url); const totalItems = menu.reduce((acc, cat) => acc + (cat.items?.length ?? 0), 0); toast.success('Backup exportado!', { description: `${menu.length} categorias · ${totalItems} produtos · ${stock.length} insumos` }); } catch { toast.error('Erro ao exportar dados.'); } }} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
+                      <button onClick={async () => { try { let finEmployees: any[] = []; let finPayments: any[] = []; let finExpenses: any[] = []; if (tenantId) { const [eR, pR, xR] = await Promise.all([ supabase.from('fin_employees').select('*').eq('tenant_id', tenantId).order('name'), supabase.from('fin_payments').select('*').eq('tenant_id', tenantId).order('paid_at', { ascending: false }), supabase.from('fin_expenses').select('*').eq('tenant_id', tenantId).order('due_date'), ]); finEmployees = eR.data || []; finPayments = pR.data || []; finExpenses = xR.data || []; } const data = { version: '2.0', exportedAt: new Date().toISOString(), menu, pizzaFlavors, pizzaCrusts, stock, stockLog, printerConfig, pizzariaConfig, orders, waiters, finEmployees, finPayments, finExpenses }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `fechaconta_backup_${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url); const totalItems = menu.reduce((acc: number, cat: any) => acc + (cat.items?.length ?? 0) + (cat.subcategories || []).reduce((s: number, sub: any) => s + (sub.items?.length ?? 0), 0), 0); toast.success('Backup completo exportado!', { description: `${menu.length} categorias · ${totalItems} produtos · ${orders.length} pedidos · ${waiters.length} garçons · ${finEmployees.length} colaboradores` }); } catch { toast.error('Erro ao exportar dados.'); } }} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-colors">
                         <Download size={10} /><span className="text-[7px] font-bold uppercase">Exportar</span>
                       </button>
                       <button onClick={() => importFileRef.current?.click()} className="flex items-center justify-center space-x-1 py-1.5 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">

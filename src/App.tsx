@@ -236,6 +236,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
               onLogout={() => navigate('/portal')}
               plan={ownerUser?.user_metadata?.plan || 'free'}
               ownerCreatedAt={ownerUser?.created_at}
+              tenantId={ownerUser?.id || ''}
             />
           }
         />
