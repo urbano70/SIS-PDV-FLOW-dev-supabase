@@ -1081,26 +1081,59 @@ async function startServer() {
       io.emit("update_pizza_crusts", pizzaCrusts);
     }));
 
-    socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock }) => {
+    socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock, pizzaFlavors: impFlavors, pizzaCrusts: impCrusts, pizzariaConfig: impPizConfig, stockLog: impStockLog }) => {
       if (importedMenu && Array.isArray(importedMenu)) {
         menu = importedMenu;
         io.emit("update_menu", menu);
         if (db) {
-          try {
-            await db.from('menu').delete().neq('id', '');
-          } catch {}
+          try { await db.from('menu').delete().neq('id', ''); } catch {}
           saveMenuToSupabase();
         }
       }
       if (importedStock && Array.isArray(importedStock)) {
         stock = importedStock;
         io.emit("update_stock", stock);
-        stockLog = [];
+        if (impStockLog && Array.isArray(impStockLog)) {
+          stockLog = impStockLog;
+        } else {
+          stockLog = [];
+        }
         io.emit("update_stock_log", stockLog);
+      }
+      if (impFlavors && Array.isArray(impFlavors)) {
+        pizzaFlavors = impFlavors;
+        io.emit("update_pizza_flavors", pizzaFlavors);
+        if (db) {
+          try {
+            await db.from('pizza_flavors').delete().neq('id', '');
+            for (const f of pizzaFlavors) {
+              await db.from('pizza_flavors').upsert({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false });
+            }
+          } catch {}
+        }
+      }
+      if (impCrusts && Array.isArray(impCrusts)) {
+        pizzaCrusts = impCrusts;
+        io.emit("update_pizza_crusts", pizzaCrusts);
+        if (db) {
+          try {
+            await db.from('pizza_crusts').delete().neq('id', '');
+            for (const c of pizzaCrusts) {
+              await db.from('pizza_crusts').upsert({ id: c, name: c });
+            }
+          } catch {}
+        }
+      }
+      if (impPizConfig && typeof impPizConfig === 'object') {
+        pizzariaConfig = { ...pizzariaConfig, ...impPizConfig, kdsEnabled: false };
+        io.emit("update_pizzaria_config", pizzariaConfig);
+        saveToSupabase('config', pizzariaConfig, 'pizzaria').catch(() => {});
       }
       socket.emit("import_complete", {
         menuCategories: importedMenu?.length ?? 0,
         stockItems: importedStock?.length ?? 0,
+        flavors: impFlavors?.length ?? 0,
+        crusts: impCrusts?.length ?? 0,
       });
     }));
 
