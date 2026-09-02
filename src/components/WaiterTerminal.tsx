@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -152,6 +152,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
   
+  // Sync guests from current order
+  useEffect(() => {
+    if (currentOrder?.guests && currentOrder.guests.length > 0) {
+      setGuestList(currentOrder.guests);
+    }
+  }, [currentOrder?.id]);
+
   // Keep activeCategory valid when menu changes
   useEffect(() => {
     const visible = menu.filter(c => c.visible !== false);
@@ -173,6 +180,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
+
+  // Guest mode state
+  const [guestModeActive, setGuestModeActive] = useState(false);
+  const [guestList, setGuestList] = useState<string[]>([]);
+  const [newGuestName, setNewGuestName] = useState('');
+  const [selectedGuestForItem, setSelectedGuestForItem] = useState<string>('');
+  const [guestFilterForPayment, setGuestFilterForPayment] = useState<string>('');
 
   const getMaxFlavors = (itemName: string) => {
     const name = itemName.toUpperCase();
@@ -220,7 +234,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       observations: (pizza.observations || '').trim(),
       price: pizza.price * qty,
       quantity: qty,
-      ingredients: pizza.ingredients
+      ingredients: pizza.ingredients,
+      guestName: guestModeActive && pizza.guestName ? pizza.guestName : undefined,
     };
 
     // Merge existing items in cart if identical
@@ -260,12 +275,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       ...selectedQuantityItem,
       type: selectedQuantityItem.type || category?.type,
       observations: itemObservations,
-      quantity: itemQuantity
+      quantity: itemQuantity,
+      guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
 
     addToCart(itemToAdd);
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
+    setSelectedGuestForItem('');
   };
 
   const confirmFlavorSelection = () => {
@@ -276,7 +293,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const confirmPizzaSelection = () => {
     const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
     const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
-    
+
     const itemWithDetails = {
       ...selectedPizzaItem,
       name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrust ? ` + ${selectedCrust}` : ''}`,
@@ -284,10 +301,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrust,
-      observations: pizzaObservations
+      observations: pizzaObservations,
+      guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
 
     addToCart(itemWithDetails);
+    setSelectedGuestForItem('');
   };
 
   const submitOrder = async () => {
@@ -334,8 +353,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         isComanda: isComandaSelected,
         items: cart,
         observations: cartObservations.trim(),
-        waiterName
+        waiterName,
+        guests: guestModeActive && guestList.length > 0 ? guestList : undefined,
       });
+    }
+    if (guestModeActive && guestList.length > 0 && activeOrder) {
+      socket.emit('set_order_guests', { orderId: activeOrder.id, guests: guestList });
     }
 
     toast.success('Pedido enviado com sucesso!');
@@ -519,6 +542,77 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
             </div>
 
+            {/* Guest Mode Section */}
+            <div className="mb-3 shrink-0">
+              <button
+                onClick={() => setGuestModeActive(v => !v)}
+                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border-2 font-bold text-sm transition-all ${
+                  guestModeActive
+                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                    : 'bg-white border-[#141414]/15 text-[#141414]'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Users size={16} />
+                  <span>Modo Convidados</span>
+                  {guestModeActive && guestList.length > 0 && (
+                    <span className="bg-white/25 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{guestList.length}</span>
+                  )}
+                </div>
+                <span className="text-[10px] uppercase opacity-60">{guestModeActive ? 'Ativo' : 'Inativo'}</span>
+              </button>
+              {guestModeActive && (
+                <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {guestList.map(g => (
+                      <span key={g} className="flex items-center gap-1 bg-indigo-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                        {g}
+                        <button onClick={() => setGuestList(prev => prev.filter(x => x !== g))} className="opacity-70 hover:opacity-100">
+                          <X size={11} />
+                        </button>
+                      </span>
+                    ))}
+                    {guestList.length === 0 && (
+                      <p className="text-xs text-indigo-500 italic">Nenhum convidado adicionado.</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={newGuestName}
+                      onChange={e => setNewGuestName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && newGuestName.trim()) {
+                          const name = newGuestName.trim();
+                          if (!guestList.includes(name)) {
+                            const updated = [...guestList, name];
+                            setGuestList(updated);
+                            if (currentOrder) socket.emit('set_order_guests', { orderId: currentOrder.id, guests: updated });
+                          }
+                          setNewGuestName('');
+                        }
+                      }}
+                      placeholder="Nome do convidado..."
+                      className="flex-1 text-sm px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      onClick={() => {
+                        const name = newGuestName.trim();
+                        if (name && !guestList.includes(name)) {
+                          const updated = [...guestList, name];
+                          setGuestList(updated);
+                          if (currentOrder) socket.emit('set_order_guests', { orderId: currentOrder.id, guests: updated });
+                        }
+                        setNewGuestName('');
+                      }}
+                      className="bg-indigo-600 text-white px-3 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+                    >
+                      <UserPlus size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto min-h-0">
             {tableData?.status !== 'free' && currentOrder ? (
@@ -580,6 +674,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             )}
                             <span>•</span>
                             <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
+                            {(item as any).guestName && (
+                              <span className="flex items-center gap-0.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold text-[9px]">
+                                <Users size={8} />
+                                {(item as any).guestName}
+                              </span>
+                            )}
                           </div>
                           {item.removed && (
                             <p className="text-[10px] text-red-600 font-bold mt-1">
@@ -925,13 +1025,35 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     
                     <div className="space-y-2">
                       <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações</label>
-                      <textarea 
+                      <textarea
                         value={pizzaObservations}
                         onChange={(e) => setPizzaObservations(e.target.value)}
                         placeholder="Ex: Sem cebola, bem passado..."
-                        className="w-full h-32 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                        className="w-full h-24 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                       />
                     </div>
+                    {guestModeActive && guestList.length > 0 && (
+                      <div className="space-y-2">
+                        <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Vincular a Convidado</label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => setSelectedGuestForItem('')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!selectedGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}
+                          >
+                            Nenhum
+                          </button>
+                          {guestList.map(g => (
+                            <button
+                              key={g}
+                              onClick={() => setSelectedGuestForItem(g)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${selectedGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}
+                            >
+                              {g}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -992,7 +1114,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
-                  <textarea 
+                  <textarea
                     value={itemObservations}
                     onChange={(e) => setItemObservations(e.target.value)}
                     placeholder="Ex: Sem cebola, gelo e limão..."
@@ -1000,6 +1122,29 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     rows={2}
                   />
                 </div>
+
+                {guestModeActive && guestList.length > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Vincular a Convidado</label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setSelectedGuestForItem('')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!selectedGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}
+                      >
+                        Nenhum
+                      </button>
+                      {guestList.map(g => (
+                        <button
+                          key={g}
+                          onClick={() => setSelectedGuestForItem(g)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${selectedGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="pt-4 border-t border-[#141414]/10">
                   <div className="flex justify-between items-center mb-6">

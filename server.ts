@@ -1181,6 +1181,15 @@ async function startServer() {
       }
     });
 
+    socket.on("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
+      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      if (order && Array.isArray(guests)) {
+        (order as any).guests = guests;
+        io.emit("update_orders", orders);
+        await saveToSupabase('orders', order, String(order.id));
+      }
+    });
+
     socket.on("remove_item", async ({ orderId, itemId, quantity, reason, removedBy }) => {
       const waiterId = (socket as any).waiterId;
       const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;

@@ -22,6 +22,7 @@ export interface PizzaItem {
   deliveredAt?: string; // ISO string when item was marked as delivered
   deliveredBy?: string; // Waiter who marked as delivered
   kitchenStatus?: 'waiting' | 'preparing' | 'oven' | 'ready';
+  guestName?: string; // Guest name when guest mode is active
 }
 
 export interface DeliveryRecord {
@@ -63,6 +64,7 @@ export interface Order {
   partialPayments?: { amount: number, method: string, timestamp: string }[];
   paymentLog?: { amount: number, method: string, timestamp: string, type: 'partial' | 'items', payer?: string }[];
   deliveryLog?: DeliveryRecord[];
+  guests?: string[];
 }
 
 export interface Table {
