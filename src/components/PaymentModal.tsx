@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { PizzaItem, Order } from '../types';
-import { X, Check, CreditCard, Banknote, QrCode, Wallet } from 'lucide-react';
+import { X, Check, CreditCard, Banknote, QrCode, Wallet, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
@@ -47,6 +47,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [cashReceivedStr, setCashReceivedStr] = useState('');
+  const [guestFilter, setGuestFilter] = useState<string>('');
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
   const [splitPeople, setSplitPeople] = useState(2);
@@ -706,6 +707,43 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   )}
                 </div>
 
+                {/* Guest Filter */}
+                {(() => {
+                  const guests = order.guests || [];
+                  const guestNames = guests.length > 0 ? guests : Array.from(new Set(activeItems.map((i: any) => i.guestName).filter(Boolean)));
+                  if (guestNames.length === 0) return null;
+                  return (
+                    <div className="shrink-0 flex flex-wrap gap-2 pb-1">
+                      <button
+                        onClick={() => {
+                          setGuestFilter('');
+                          const allSelected: Record<string, number> = {};
+                          activeItems.forEach(i => { allSelected[i.id] = i.quantity || 1; });
+                          setSelectedItems(allSelected);
+                        }}
+                        className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${!guestFilter ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}
+                      >
+                        <Users size={12} /> Todos
+                      </button>
+                      {guestNames.map(g => (
+                        <button
+                          key={g}
+                          onClick={() => {
+                            setGuestFilter(g === guestFilter ? '' : g);
+                            const filtered = activeItems.filter((i: any) => i.guestName === g);
+                            const sel: Record<string, number> = {};
+                            filtered.forEach(i => { sel[i.id] = i.quantity || 1; });
+                            setSelectedItems(sel);
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${guestFilter === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 <div className="flex-1 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
                   {isSplitPayment ? (
                     <div className="col-span-full bg-blue-50 border border-blue-100 rounded-3xl p-8 text-center space-y-6">
@@ -730,7 +768,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         R$ {splitAmount.toFixed(2)}
                       </div>
                     </div>
-                  ) : activeItems.map(item => {
+                  ) : activeItems.filter((item: any) => !guestFilter || item.guestName === guestFilter).map(item => {
                     const isSelected = selectedItems[item.id] !== undefined;
                     const selectedQty = selectedItems[item.id] || 0;
                     const unitPrice = calculateItemPrice(item) / (item.quantity || 1);
@@ -759,6 +797,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                 {item.name}
                               </p>
                               <p className="text-[9px] opacity-50 uppercase tracking-tighter">Garçom: {item.waiterName}</p>
+                              {(item as any).guestName && (
+                                <span className="inline-flex items-center gap-0.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold text-[9px] mt-0.5">
+                                  <Users size={8} />{(item as any).guestName}
+                                </span>
+                              )}
                               {item.observations && <p className="text-[9px] text-blue-700 italic font-bold">Obs: {item.observations}</p>}
                               {item.discount ? (
                                 <div className="flex items-center space-x-2 mt-0.5">
