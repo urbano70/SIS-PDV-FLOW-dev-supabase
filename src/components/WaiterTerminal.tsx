@@ -152,11 +152,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
   
-  // Sync guests from current order
+  // Sync guests from current order (clear when switching to a table with no guests)
   useEffect(() => {
-    if (currentOrder?.guests && currentOrder.guests.length > 0) {
-      setGuestList(currentOrder.guests);
-    }
+    setGuestList(currentOrder?.guests ?? []);
   }, [currentOrder?.id]);
 
   // Keep activeCategory valid when menu changes

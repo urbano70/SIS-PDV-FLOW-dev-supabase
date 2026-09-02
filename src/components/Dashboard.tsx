@@ -322,7 +322,7 @@ const OrderDetails = ({
   const [assignGuestInput, setAssignGuestInput] = useState('');
 
   React.useEffect(() => {
-    if (activeOrder?.guests && activeOrder.guests.length > 0) setGuestList(activeOrder.guests);
+    setGuestList(activeOrder?.guests ?? []);
   }, [activeOrder?.id]);
 
   const addGuestToList = (name: string) => {
