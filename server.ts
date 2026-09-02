@@ -1190,6 +1190,18 @@ async function startServer() {
       }
     });
 
+    socket.on("set_item_guest", async ({ orderId, itemId, guestName }: { orderId: any, itemId: string, guestName: string | null }) => {
+      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      if (order) {
+        const item = (order.items || []).find((i: any) => i.id === itemId);
+        if (item) {
+          (item as any).guestName = guestName || undefined;
+          io.emit("update_orders", orders);
+          await saveToSupabase('orders', order, String(order.id));
+        }
+      }
+    });
+
     socket.on("remove_item", async ({ orderId, itemId, quantity, reason, removedBy }) => {
       const waiterId = (socket as any).waiterId;
       const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;

@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
@@ -315,11 +315,40 @@ const OrderDetails = ({
     return Math.max(0, finalOrderTotal - existingPartialPaid);
   }, [activeOrder]);
 
+  const [guestModeActive, setGuestModeActive] = useState(false);
+  const [guestList, setGuestList] = useState<string[]>([]);
+  const [newGuestName, setNewGuestName] = useState('');
+  const [assigningGuestToItemId, setAssigningGuestToItemId] = useState<string | null>(null);
+  const [assignGuestInput, setAssignGuestInput] = useState('');
+
+  React.useEffect(() => {
+    if (activeOrder?.guests && activeOrder.guests.length > 0) setGuestList(activeOrder.guests);
+  }, [activeOrder?.id]);
+
+  const addGuestToList = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || guestList.includes(trimmed)) return trimmed || null;
+    const updated = [...guestList, trimmed];
+    setGuestList(updated);
+    if (activeOrder) socket.emit('set_order_guests', { orderId: activeOrder.id, guests: updated });
+    return trimmed;
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-end mb-3 shrink-0">
         <div className="flex items-center space-x-2 shrink-0">
-          <button 
+          <button
+            onClick={() => setGuestModeActive(v => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+              guestModeActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
+            }`}
+            title="Modo Convidados"
+          >
+            <Users size={11} />
+            {guestModeActive ? 'Convidados ✓' : 'Convidados'}
+          </button>
+          <button
             onClick={() => hasItems && setIsLinkModalOpen(true)}
             disabled={!hasItems}
             className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
@@ -506,6 +535,41 @@ const OrderDetails = ({
         </div>
       </div>
       
+      {/* Guest mode panel */}
+      {guestModeActive && (
+        <div className="mx-6 mb-3 bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2 shrink-0">
+          <p className="text-[10px] font-bold uppercase text-indigo-600 tracking-widest">Convidados</p>
+          <div className="flex flex-wrap gap-1.5">
+            {guestList.map(g => (
+              <span key={g} className="flex items-center gap-1 bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                {g}
+                <button onClick={() => {
+                  const updated = guestList.filter(x => x !== g);
+                  setGuestList(updated);
+                  if (activeOrder) socket.emit('set_order_guests', { orderId: activeOrder.id, guests: updated });
+                }} className="opacity-70 hover:opacity-100"><X size={9} /></button>
+              </span>
+            ))}
+            {guestList.length === 0 && <p className="text-[10px] text-indigo-400 italic">Nenhum convidado ainda.</p>}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={newGuestName}
+              onChange={e => setNewGuestName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { addGuestToList(newGuestName); setNewGuestName(''); } }}
+              placeholder="Nome do convidado..."
+              className="flex-1 text-xs px-2 py-1.5 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              onClick={() => { addGuestToList(newGuestName); setNewGuestName(''); }}
+              className="bg-indigo-600 text-white px-2 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-700 flex items-center gap-1"
+            >
+              <UserPlus size={12} /> Add
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-6 pt-0 scrollbar-hide">
         {activeOrder ? (
           <div className="space-y-4">
@@ -551,6 +615,52 @@ const OrderDetails = ({
                     )}
                     {item.observations && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
                     {item.waiterName && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
+                    {guestModeActive && !item.removed && !item.paid && (
+                      assigningGuestToItemId === item.id ? (
+                        <div className="flex items-center gap-1 mt-1" onClick={e => e.stopPropagation()}>
+                          <select
+                            autoFocus
+                            value={assignGuestInput}
+                            onChange={e => setAssignGuestInput(e.target.value)}
+                            className="text-[10px] border border-indigo-300 rounded px-1 py-0.5 bg-white text-indigo-700 font-bold focus:outline-none"
+                          >
+                            <option value="">Nenhum</option>
+                            {guestList.map(g => <option key={g} value={g}>{g}</option>)}
+                            <option value="__new__">+ Novo...</option>
+                          </select>
+                          {assignGuestInput === '__new__' ? (
+                            <input
+                              autoFocus
+                              placeholder="Nome..."
+                              className="text-[10px] border border-indigo-300 rounded px-1 py-0.5 w-20 focus:outline-none"
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  const val = (e.target as HTMLInputElement).value.trim();
+                                  if (val) { addGuestToList(val); socket.emit('set_item_guest', { orderId: activeOrder.id, itemId: item.id, guestName: val }); }
+                                  setAssigningGuestToItemId(null); setAssignGuestInput('');
+                                }
+                              }}
+                            />
+                          ) : (
+                            <button onClick={() => { socket.emit('set_item_guest', { orderId: activeOrder.id, itemId: item.id, guestName: assignGuestInput || null }); setAssigningGuestToItemId(null); setAssignGuestInput(''); }}
+                              className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold">OK</button>
+                          )}
+                          <button onClick={() => { setAssigningGuestToItemId(null); setAssignGuestInput(''); }} className="text-red-400"><X size={9} /></button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setAssigningGuestToItemId(item.id); setAssignGuestInput(item.guestName || ''); }}
+                          className={`mt-0.5 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-bold text-[9px] self-start transition-colors ${item.guestName ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-gray-100 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600'}`}
+                        >
+                          <Users size={8} />{item.guestName || 'Vincular'}
+                        </button>
+                      )
+                    )}
+                    {(!guestModeActive || item.removed || item.paid) && item.guestName && (
+                      <span className="mt-0.5 flex items-center gap-0.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold text-[9px] self-start">
+                        <Users size={8} />{item.guestName}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`font-mono font-bold whitespace-nowrap ${item.paid ? 'text-green-700' : ''}`}>
@@ -752,6 +862,8 @@ export default function Dashboard({
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
+  const [admGuestForItem, setAdmGuestForItem] = useState('');
+  const [admModalNewGuest, setAdmModalNewGuest] = useState('');
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -1589,6 +1701,28 @@ export default function Dashboard({
     check(comandas, true);
   }, [orders, tables, comandas]);
 
+  // Current active order for the selected table/comanda (used by item modals)
+  const admCurrentOrder = React.useMemo(() => {
+    const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
+    if (!targetId) return null;
+    return orders.filter(o =>
+      o.status !== 'finalizada' &&
+      o.tableId && String(o.tableId) === String(targetId) &&
+      !!o.isComanda === !!isComandaSelected
+    ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0] || null;
+  }, [orders, selectedTableId, selectedComandaId, isComandaSelected]);
+  const admGuestList = admCurrentOrder?.guests || [];
+
+  const addAdmGuestToList = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const base = admCurrentOrder?.guests || [];
+    if (base.includes(trimmed)) return trimmed;
+    const updated = [...base, trimmed];
+    if (admCurrentOrder) socket.emit('set_order_guests', { orderId: admCurrentOrder.id, guests: updated });
+    return trimmed;
+  };
+
   const getLastActivityMs = (id: number, isComanda: boolean): number | null => {
     if (!isCashRegisterOpen) return null;
     const list = isComanda ? comandas : tables;
@@ -1741,7 +1875,8 @@ export default function Dashboard({
       observations: item.observations || '',
       price: item.price,
       waiterName: 'ADM',
-      ingredients: item.ingredients
+      ingredients: item.ingredients,
+      guestName: item.guestName || admGuestForItem || undefined,
     };
 
     if (activeOrder) {
@@ -1756,11 +1891,14 @@ export default function Dashboard({
         isComanda: isComandaSelected,
         items: [newItem],
         waiterId: 'ADM',
-        waiterName: 'ADM'
+        waiterName: 'ADM',
+        guests: admGuestForItem ? [admGuestForItem] : undefined,
       });
     }
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
+    setAdmGuestForItem('');
+    setAdmModalNewGuest('');
     toast.success('Item adicionado pelo ADM');
   };
 
@@ -1786,13 +1924,14 @@ export default function Dashboard({
       price: selectedQuantityItem.price * itemQuantity,
       quantity: itemQuantity,
       waiterName: 'ADM',
-      ingredients: selectedQuantityItem.ingredients
+      ingredients: selectedQuantityItem.ingredients,
+      guestName: admGuestForItem || undefined,
     };
 
-    const activeOrder = orders.filter(o => 
-      targetId && o.tableId && 
-      String(o.tableId) === String(targetId) && 
-      !!o.isComanda === !!isComandaSelected && 
+    const activeOrder = orders.filter(o =>
+      targetId && o.tableId &&
+      String(o.tableId) === String(targetId) &&
+      !!o.isComanda === !!isComandaSelected &&
       o.status !== 'finalizada'
     ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
 
@@ -1808,11 +1947,14 @@ export default function Dashboard({
         isComanda: isComandaSelected,
         items: [newItem],
         waiterId: 'ADM',
-        waiterName: 'ADM'
+        waiterName: 'ADM',
+        guests: admGuestForItem ? [admGuestForItem] : undefined,
       });
     }
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
+    setAdmGuestForItem('');
+    setAdmModalNewGuest('');
     toast.success('Item adicionado pelo ADM');
   };
 
@@ -1835,11 +1977,14 @@ export default function Dashboard({
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrust,
-      observations: pizzaObservations
+      observations: pizzaObservations,
+      guestName: admGuestForItem || undefined,
     };
 
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
     handleAddItem(targetId!, itemWithDetails);
+    setAdmGuestForItem('');
+    setAdmModalNewGuest('');
   };
 
   const safeWaiters = Array.isArray(waiters) ? waiters : [];
@@ -5524,10 +5669,21 @@ export default function Dashboard({
               exit={{ opacity: 0, scale: 0.9 }}
               className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl border-2 border-[#141414] flex flex-col h-[85vh]"
             >
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="font-serif italic text-2xl">Adicionar Ítem</h3>
                 <button onClick={() => setIsAddItemModalOpen(false)}><X size={24} /></button>
               </div>
+
+              {/* Guest picker */}
+              {admGuestList.length > 0 && (
+                <div className="mb-4 flex items-center gap-2 flex-wrap bg-indigo-50 border border-indigo-200 rounded-xl px-3 py-2">
+                  <span className="text-[10px] font-bold text-indigo-600 uppercase shrink-0">Convidado:</span>
+                  <button onClick={() => setAdmGuestForItem('')} className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${!admGuestForItem ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-300 text-indigo-700'}`}>Nenhum</button>
+                  {admGuestList.map(g => (
+                    <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-300 text-indigo-700'}`}>{g}</button>
+                  ))}
+                </div>
+              )}
 
               {/* Search and Categories */}
               <div className="space-y-4 mb-6">
@@ -5707,12 +5863,26 @@ export default function Dashboard({
                     
                     <div className="space-y-2">
                       <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações</label>
-                      <textarea 
+                      <textarea
                         value={pizzaObservations}
                         onChange={(e) => setPizzaObservations(e.target.value)}
                         placeholder="Ex: Sem cebola, bem passado..."
-                        className="w-full h-32 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                        className="w-full h-24 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                       />
+                    </div>
+                    {/* Guest selector for pizza */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Vincular a Convidado</label>
+                      <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setAdmGuestForItem('')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!admGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}>Nenhum</button>
+                        {admGuestList.map(g => (
+                          <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}>{g}</button>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input value={admModalNewGuest} onChange={e => setAdmModalNewGuest(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && admModalNewGuest.trim()) { const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); } }} placeholder="Novo convidado..." className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50" />
+                        <button onClick={() => { if (!admModalNewGuest.trim()) return; const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); }} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><UserPlus size={12} /> Add</button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -5774,13 +5944,28 @@ export default function Dashboard({
 
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
-                  <textarea 
+                  <textarea
                     value={itemObservations}
                     onChange={(e) => setItemObservations(e.target.value)}
                     placeholder="Ex: Sem cebola, gelo e limão..."
                     className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                     rows={2}
                   />
+                </div>
+
+                {/* Guest selector */}
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Vincular a Convidado</label>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => setAdmGuestForItem('')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!admGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}>Nenhum</button>
+                    {admGuestList.map(g => (
+                      <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}>{g}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input value={admModalNewGuest} onChange={e => setAdmModalNewGuest(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && admModalNewGuest.trim()) { const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); } }} placeholder="Novo convidado..." className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50" />
+                    <button onClick={() => { if (!admModalNewGuest.trim()) return; const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); }} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><UserPlus size={12} /> Add</button>
+                  </div>
                 </div>
 
                 <div className="pt-4 border-t border-[#141414]/10">
