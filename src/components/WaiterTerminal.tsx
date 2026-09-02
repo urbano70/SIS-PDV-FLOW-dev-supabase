@@ -187,6 +187,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [newGuestName, setNewGuestName] = useState('');
   const [selectedGuestForItem, setSelectedGuestForItem] = useState<string>('');
   const [guestFilterForPayment, setGuestFilterForPayment] = useState<string>('');
+  // Inline new guest input inside item modals
+  const [modalNewGuest, setModalNewGuest] = useState('');
+  // Item-level guest assignment (for already-added items)
+  const [assigningGuestToItemId, setAssigningGuestToItemId] = useState<string | null>(null);
+  const [assignGuestInput, setAssignGuestInput] = useState('');
+
+  const addGuestToList = (name: string, orderId?: number | string) => {
+    const trimmed = name.trim();
+    if (!trimmed || guestList.includes(trimmed)) return trimmed ? trimmed : null;
+    const updated = [...guestList, trimmed];
+    setGuestList(updated);
+    if (orderId) socket.emit('set_order_guests', { orderId, guests: updated });
+    else if (currentOrder) socket.emit('set_order_guests', { orderId: currentOrder.id, guests: updated });
+    return trimmed;
+  };
 
   const getMaxFlavors = (itemName: string) => {
     const name = itemName.toUpperCase();
@@ -283,6 +298,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     setSelectedGuestForItem('');
+    setModalNewGuest('');
   };
 
   const confirmFlavorSelection = () => {
@@ -307,6 +323,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
     addToCart(itemWithDetails);
     setSelectedGuestForItem('');
+    setModalNewGuest('');
   };
 
   const submitOrder = async () => {
@@ -674,10 +691,63 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             )}
                             <span>•</span>
                             <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
-                            {(item as any).guestName && (
-                              <span className="flex items-center gap-0.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold text-[9px]">
-                                <Users size={8} />
-                                {(item as any).guestName}
+                            {!item.removed && !item.paid && guestModeActive && (
+                              assigningGuestToItemId === item.id ? (
+                                <div className="flex items-center gap-1 ml-1" onClick={e => e.stopPropagation()}>
+                                  <select
+                                    autoFocus
+                                    value={assignGuestInput}
+                                    onChange={e => setAssignGuestInput(e.target.value)}
+                                    className="text-[10px] border border-indigo-300 rounded px-1 py-0.5 bg-white text-indigo-700 font-bold focus:outline-none"
+                                  >
+                                    <option value="">Nenhum</option>
+                                    {guestList.map(g => <option key={g} value={g}>{g}</option>)}
+                                    <option value="__new__">+ Novo...</option>
+                                  </select>
+                                  {assignGuestInput === '__new__' ? (
+                                    <input
+                                      autoFocus
+                                      placeholder="Nome..."
+                                      className="text-[10px] border border-indigo-300 rounded px-1 py-0.5 w-20 focus:outline-none"
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') {
+                                          const val = (e.target as HTMLInputElement).value.trim();
+                                          if (val) {
+                                            addGuestToList(val);
+                                            socket.emit('set_item_guest', { orderId: currentOrder!.id, itemId: item.id, guestName: val });
+                                          }
+                                          setAssigningGuestToItemId(null);
+                                          setAssignGuestInput('');
+                                        }
+                                      }}
+                                    />
+                                  ) : (
+                                    <button
+                                      onClick={() => {
+                                        socket.emit('set_item_guest', { orderId: currentOrder!.id, itemId: item.id, guestName: assignGuestInput || null });
+                                        setAssigningGuestToItemId(null);
+                                        setAssignGuestInput('');
+                                      }}
+                                      className="text-[9px] bg-indigo-600 text-white px-1.5 py-0.5 rounded font-bold"
+                                    >
+                                      OK
+                                    </button>
+                                  )}
+                                  <button onClick={() => { setAssigningGuestToItemId(null); setAssignGuestInput(''); }} className="text-red-400"><X size={10} /></button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setAssigningGuestToItemId(item.id); setAssignGuestInput((item as any).guestName || ''); }}
+                                  className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-bold text-[9px] ml-1 transition-colors ${(item as any).guestName ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-gray-100 text-gray-500 hover:bg-indigo-50 hover:text-indigo-600'}`}
+                                >
+                                  <Users size={8} />
+                                  {(item as any).guestName || 'Vincular'}
+                                </button>
+                              )
+                            )}
+                            {(item.removed || item.paid) && (item as any).guestName && (
+                              <span className="flex items-center gap-0.5 bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-bold text-[9px] ml-1">
+                                <Users size={8} />{(item as any).guestName}
                               </span>
                             )}
                           </div>
@@ -1032,7 +1102,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                         className="w-full h-24 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                       />
                     </div>
-                    {guestModeActive && guestList.length > 0 && (
+                    {guestModeActive && (
                       <div className="space-y-2">
                         <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Vincular a Convidado</label>
                         <div className="flex flex-wrap gap-2">
@@ -1051,6 +1121,32 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               {g}
                             </button>
                           ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            value={modalNewGuest}
+                            onChange={e => setModalNewGuest(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && modalNewGuest.trim()) {
+                                const name = addGuestToList(modalNewGuest) || modalNewGuest.trim();
+                                setSelectedGuestForItem(name);
+                                setModalNewGuest('');
+                              }
+                            }}
+                            placeholder="Novo convidado..."
+                            className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50"
+                          />
+                          <button
+                            onClick={() => {
+                              if (!modalNewGuest.trim()) return;
+                              const name = addGuestToList(modalNewGuest) || modalNewGuest.trim();
+                              setSelectedGuestForItem(name);
+                              setModalNewGuest('');
+                            }}
+                            className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                          >
+                            <UserPlus size={13} /> Adicionar
+                          </button>
                         </div>
                       </div>
                     )}
@@ -1123,7 +1219,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   />
                 </div>
 
-                {guestModeActive && guestList.length > 0 && (
+                {guestModeActive && (
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Vincular a Convidado</label>
                     <div className="flex flex-wrap gap-2">
@@ -1142,6 +1238,32 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           {g}
                         </button>
                       ))}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <input
+                        value={modalNewGuest}
+                        onChange={e => setModalNewGuest(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && modalNewGuest.trim()) {
+                            const name = addGuestToList(modalNewGuest) || modalNewGuest.trim();
+                            setSelectedGuestForItem(name);
+                            setModalNewGuest('');
+                          }
+                        }}
+                        placeholder="Novo convidado..."
+                        className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50"
+                      />
+                      <button
+                        onClick={() => {
+                          if (!modalNewGuest.trim()) return;
+                          const name = addGuestToList(modalNewGuest) || modalNewGuest.trim();
+                          setSelectedGuestForItem(name);
+                          setModalNewGuest('');
+                        }}
+                        className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                      >
+                        <UserPlus size={13} /> Adicionar
+                      </button>
                     </div>
                   </div>
                 )}
