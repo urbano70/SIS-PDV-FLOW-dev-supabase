@@ -148,6 +148,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         initialSelected[i.id] = i.quantity || 1;
       });
       setSelectedItems(initialSelected);
+      setGuestFilter('');
       setPayments({
         'Crédito': { method: 'Crédito', enabled: false, amount: 0 },
         'Débito': { method: 'Débito', enabled: false, amount: 0 },
