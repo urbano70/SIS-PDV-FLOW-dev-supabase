@@ -321,9 +321,10 @@ const OrderDetails = ({
   const [assigningGuestToItemId, setAssigningGuestToItemId] = useState<string | null>(null);
   const [assignGuestInput, setAssignGuestInput] = useState('');
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     setGuestList(activeOrder?.guests ?? []);
-  }, [activeOrder?.id]);
+  }, [activeOrder?.id, JSON.stringify(activeOrder?.guests)]);
 
   const addGuestToList = (name: string) => {
     const trimmed = name.trim();
