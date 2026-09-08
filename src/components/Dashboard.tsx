@@ -2632,6 +2632,7 @@ export default function Dashboard({
                         className="h-full flex flex-col min-h-0"
                       >
                         <OrderDetails
+                          key={isComandaSelected ? `comanda-${selectedComandaId}` : `table-${selectedTableId}`}
                           isComandaSelected={isComandaSelected}
                           selectedComandaId={selectedComandaId}
                           selectedTableId={selectedTableId}
