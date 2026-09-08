@@ -152,10 +152,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
   
-  // Sync guests from current order (clear when switching to a table with no guests)
+  // Sync guests from current order — re-runs when id changes OR when guest list content changes
+  // (e.g. ADM added guests to the same order from another panel)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setGuestList(currentOrder?.guests ?? []);
-  }, [currentOrder?.id]);
+  }, [currentOrder?.id, JSON.stringify(currentOrder?.guests)]);
 
   // Keep activeCategory valid when menu changes
   useEffect(() => {
