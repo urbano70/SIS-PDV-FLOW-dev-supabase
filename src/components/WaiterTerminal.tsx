@@ -161,12 +161,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // When guests content changes on the same order (e.g. ADM added from another panel): re-sync
+  // When guests content changes on the same order (e.g. ADM added from another panel, or order cleared after baixa): re-sync
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const guests = currentOrder?.guests ?? [];
     setGuestList(guests);
-    if (guests.length > 0) setGuestModeActive(true);
+    setGuestModeActive(guests.length > 0);
   }, [JSON.stringify(currentOrder?.guests)]);
 
   // Keep activeCategory valid when menu changes

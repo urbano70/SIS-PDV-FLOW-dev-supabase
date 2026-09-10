@@ -321,13 +321,12 @@ const OrderDetails = ({
   const [assigningGuestToItemId, setAssigningGuestToItemId] = useState<string | null>(null);
   const [assignGuestInput, setAssignGuestInput] = useState('');
 
-  // Sync guest list and auto-enable mode when table already has guests
-  // (also re-syncs when ADM changes guests from another panel on the same order)
+  // Sync guest list and auto-enable/disable mode (also handles baixa clearing guests)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     const guests = activeOrder?.guests ?? [];
     setGuestList(guests);
-    if (guests.length > 0) setGuestModeActive(true);
+    setGuestModeActive(guests.length > 0);
   }, [activeOrder?.id, JSON.stringify(activeOrder?.guests)]);
 
   const addGuestToList = (name: string) => {
