@@ -594,7 +594,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     {guestList.map(g => (
                       <span key={g} className="flex items-center gap-1 bg-indigo-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
                         {g}
-                        <button onClick={() => setGuestList(prev => prev.filter(x => x !== g))} className="opacity-70 hover:opacity-100">
+                        <button onClick={() => {
+                            const updated = guestList.filter(x => x !== g);
+                            setGuestList(updated);
+                            if (currentOrder) socket.emit('set_order_guests', { orderId: currentOrder.id, guests: updated });
+                            if (updated.length === 0) setGuestModeActive(false);
+                          }} className="opacity-70 hover:opacity-100">
                           <X size={11} />
                         </button>
                       </span>

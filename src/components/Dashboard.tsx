@@ -552,6 +552,7 @@ const OrderDetails = ({
                   const updated = guestList.filter(x => x !== g);
                   setGuestList(updated);
                   if (activeOrder) socket.emit('set_order_guests', { orderId: activeOrder.id, guests: updated });
+                  if (updated.length === 0) setGuestModeActive(false);
                 }} className="opacity-70 hover:opacity-100"><X size={9} /></button>
               </span>
             ))}
