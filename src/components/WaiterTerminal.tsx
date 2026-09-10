@@ -152,18 +152,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return m > 0 ? `${h}h ${m}m` : `${h}h`;
   };
   
-  // When table selection changes: reset guest UI state and sync list from server
+  // When table selection changes: sync guest list and auto-enable mode if table already has guests
   useEffect(() => {
-    setGuestModeActive(false);
+    const guests = currentOrder?.guests ?? [];
+    setGuestList(guests);
+    setGuestModeActive(guests.length > 0);
     setSelectedGuestForItem('');
-    setGuestList(currentOrder?.guests ?? []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
   // When guests content changes on the same order (e.g. ADM added from another panel): re-sync
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setGuestList(currentOrder?.guests ?? []);
+    const guests = currentOrder?.guests ?? [];
+    setGuestList(guests);
+    if (guests.length > 0) setGuestModeActive(true);
   }, [JSON.stringify(currentOrder?.guests)]);
 
   // Keep activeCategory valid when menu changes
