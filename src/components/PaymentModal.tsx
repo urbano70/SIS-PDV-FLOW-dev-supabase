@@ -25,10 +25,14 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
 
-  // Dismiss mobile keyboard when confirmation popup appears
+  const confirmPopupRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss mobile keyboard when confirmation popup appears by focusing a non-input element
   useEffect(() => {
     if (isConfirming) {
+      // Blur first (works on Android), then focus the popup container (works on iOS)
       (document.activeElement as HTMLElement)?.blur();
+      setTimeout(() => confirmPopupRef.current?.focus(), 50);
     }
   }, [isConfirming]);
   const dinheiroCardRef = useRef<HTMLDivElement>(null);
@@ -1237,11 +1241,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
             className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40"
           >
             <motion.div
+              ref={confirmPopupRef}
+              tabIndex={-1}
               initial={{ scale: 0.93, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.93, opacity: 0 }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
-              className="bg-white p-8 rounded-3xl shadow-2xl max-w-xs w-full text-center space-y-6"
+              className="bg-white p-8 rounded-3xl shadow-2xl max-w-xs w-full text-center space-y-6 outline-none"
             >
               <h3 className="font-serif italic text-2xl">Finalizar?</h3>
               <p className="text-sm opacity-60">Deseja concluir o pagamento desta comanda?</p>
