@@ -26,8 +26,13 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   useEffect(() => { onCloseRef.current = onClose; });
 
   const confirmPopupRef = useRef<HTMLDivElement>(null);
+  const dinheiroCardRef = useRef<HTMLDivElement>(null);
+  const [step, setStep] = useState<'selection' | 'methods'>('selection');
+  const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // Dismiss mobile keyboard when confirmation popup appears by focusing a non-input element
+  // (must be declared AFTER isConfirming useState to avoid TDZ error)
   useEffect(() => {
     if (isConfirming) {
       // Blur first (works on Android), then focus the popup container (works on iOS)
@@ -35,10 +40,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       setTimeout(() => confirmPopupRef.current?.focus(), 50);
     }
   }, [isConfirming]);
-  const dinheiroCardRef = useRef<HTMLDivElement>(null);
-  const [step, setStep] = useState<'selection' | 'methods'>('selection');
-  const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
-  const [isConfirming, setIsConfirming] = useState(false);
   const [isQuantitySelectOpen, setIsQuantitySelectOpen] = useState(false);
   const [itemToSelectQuantity, setItemToSelectQuantity] = useState<PizzaItem | null>(null);
   const [tempQuantity, setTempQuantity] = useState(1);
