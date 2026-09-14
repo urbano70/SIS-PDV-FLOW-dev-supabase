@@ -24,6 +24,13 @@ interface PaymentState {
 export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete, onApplyDiscount }: PaymentModalProps) {
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
+
+  // Dismiss mobile keyboard when confirmation popup appears
+  useEffect(() => {
+    if (isConfirming) {
+      (document.activeElement as HTMLElement)?.blur();
+    }
+  }, [isConfirming]);
   const dinheiroCardRef = useRef<HTMLDivElement>(null);
   const [step, setStep] = useState<'selection' | 'methods'>('selection');
   const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
