@@ -8,6 +8,7 @@ import os from "os";
 import net from "net";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
@@ -2107,6 +2108,112 @@ async function startServer() {
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ records: data || [] });
   });
+
+  // ── PDF Reservation API ────────────────────────────────────────────────────
+
+  /** Centralized template configuration (mirrors src/config/pdfTemplates.ts) */
+  const PDF_TEMPLATES: Record<string, {
+    file: string; page: number;
+    fields: { name: { centerX: number; y: number; maxWidth: number; maxFontSize: number; minFontSize: number; color: string; } };
+  }> = {
+    reservaPrincipal: {
+      file: 'templates/reserva.pdf',
+      page: 0,
+      fields: {
+        name: { centerX: 297, y: 395, maxWidth: 400, maxFontSize: 42, minFontSize: 18, color: '#1a1a1a' },
+      },
+    },
+  };
+
+  /** Finds the largest font size where the text fits within maxWidth */
+  function fitFontSize(
+    text: string,
+    widthFn: (t: string, s: number) => number,
+    maxWidth: number, maxFs: number, minFs: number,
+  ): number {
+    let fs = maxFs;
+    while (fs > minFs && widthFn(text, fs) > maxWidth) fs--;
+    return fs;
+  }
+
+  /** Converts a hex color string to pdf-lib rgb() values */
+  function hexToRgb(hex: string): ReturnType<typeof rgb> {
+    const h = hex.replace('#', '');
+    return rgb(
+      parseInt(h.substring(0, 2), 16) / 255,
+      parseInt(h.substring(2, 4), 16) / 255,
+      parseInt(h.substring(4, 6), 16) / 255,
+    );
+  }
+
+  app.post("/api/reservas/gerar-pdf", async (req, res) => {
+    try {
+      const { name, templateId = 'reservaPrincipal' } = req.body ?? {};
+
+      // Input validation
+      if (typeof name !== 'string' || !name.trim()) {
+        return res.status(400).json({ error: 'O campo nome é obrigatório.' });
+      }
+      const safeName = name.trim().slice(0, 100);
+      if (!/^[a-zA-ZÀ-ÿ0-9 \-'.]+$/u.test(safeName)) {
+        return res.status(400).json({ error: 'Nome contém caracteres inválidos.' });
+      }
+
+      const template = PDF_TEMPLATES[templateId as string];
+      if (!template) {
+        return res.status(400).json({ error: 'Template não encontrado.' });
+      }
+
+      // Resolve template file path — only from the public/ directory
+      const publicDir = path.resolve(process.cwd(), 'public');
+      const templatePath = path.join(publicDir, template.file);
+      if (!templatePath.startsWith(publicDir)) {
+        return res.status(400).json({ error: 'Template inválido.' });
+      }
+      if (!fs.existsSync(templatePath)) {
+        return res.status(404).json({ error: 'Arquivo de template não encontrado.' });
+      }
+
+      const existingBytes = fs.readFileSync(templatePath);
+      const pdfDoc = await PDFDocument.load(existingBytes);
+      const pages = pdfDoc.getPages();
+      const page = pages[template.page] ?? pages[0];
+
+      // Embed font (HelveticaBold — built-in, no TTF needed)
+      const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const fieldCfg = template.fields.name;
+
+      const fontSize = fitFontSize(
+        safeName,
+        (t, s) => font.widthOfTextAtSize(t, s),
+        fieldCfg.maxWidth,
+        fieldCfg.maxFontSize,
+        fieldCfg.minFontSize,
+      );
+
+      const textWidth = font.widthOfTextAtSize(safeName, fontSize);
+      const x = fieldCfg.centerX - textWidth / 2;
+
+      page.drawText(safeName, {
+        x,
+        y: fieldCfg.y,
+        size: fontSize,
+        font,
+        color: hexToRgb(fieldCfg.color),
+      });
+
+      const pdfBytes = await pdfDoc.save();
+
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="reserva.pdf"');
+      return res.end(Buffer.from(pdfBytes));
+    } catch (err) {
+      console.error('[/api/reservas/gerar-pdf]', err);
+      return res.status(500).json({ error: 'Não foi possível gerar a reserva. Tente novamente.' });
+    }
+  });
+
+  // ── End PDF Reservation API ────────────────────────────────────────────────
 
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
