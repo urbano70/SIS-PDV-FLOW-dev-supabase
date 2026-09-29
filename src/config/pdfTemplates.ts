@@ -68,8 +68,9 @@ export const PDF_TEMPLATES: Record<string, PdfTemplateConfig> = {
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#ffffff',
+        color: '#0a0a0a',
         rotateDeg: 0,
+        coverRect: { x: 146.8, y: 220.8, width: 301.7, height: 88.5, fillColor: '#ffffff' },
       },
       // ── Verso (parte superior, texto invertido 180°) ───────────────────
       {
@@ -80,8 +81,9 @@ export const PDF_TEMPLATES: Record<string, PdfTemplateConfig> = {
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#ffffff',
+        color: '#0a0a0a',
         rotateDeg: 180,
+        coverRect: { x: 146.8, y: 549.0, width: 301.7, height: 88.5, fillColor: '#ffffff' },
       },
     ],
     // Config panel uses this for the user-adjustable fields
@@ -93,7 +95,7 @@ export const PDF_TEMPLATES: Record<string, PdfTemplateConfig> = {
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#ffffff',
+        color: '#0a0a0a',
       },
     },
   },

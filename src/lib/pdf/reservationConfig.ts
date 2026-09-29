@@ -28,7 +28,7 @@ export const DEFAULT_CONFIG: ReservationConfig = {
     maxWidth: 280,
     maxFontSize: 52,
     minFontSize: 16,
-    color: '#ffffff',
+    color: '#0a0a0a',
   },
   hasCustomTemplate: false,
 };
