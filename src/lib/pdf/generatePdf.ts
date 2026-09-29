@@ -1,11 +1,10 @@
-/**
- * Client-side wrapper that calls the backend PDF generation API.
- * Returns a Blob URL for preview and a suggested filename for download.
- */
+import { ReservationFieldConfig } from './reservationConfig';
 
 export interface GeneratePdfParams {
   name: string;
   templateId?: string;
+  /** Optional field config override — sent when the user has customized settings */
+  fieldConfig?: ReservationFieldConfig;
 }
 
 export interface GeneratePdfResult {
@@ -16,12 +15,12 @@ export interface GeneratePdfResult {
 export async function generateReservationPdf(
   params: GeneratePdfParams,
 ): Promise<GeneratePdfResult> {
-  const { name, templateId = 'reservaPrincipal' } = params;
+  const { name, templateId = 'reservaPrincipal', fieldConfig } = params;
 
   const response = await fetch('/api/reservas/gerar-pdf', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name.trim(), templateId }),
+    body: JSON.stringify({ name: name.trim(), templateId, fieldConfig }),
   });
 
   if (!response.ok) {

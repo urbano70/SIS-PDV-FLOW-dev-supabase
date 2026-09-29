@@ -2146,9 +2146,37 @@ async function startServer() {
     );
   }
 
+  // Upload a custom template PDF (base64-encoded)
+  app.post("/api/reservas/upload-template", async (req, res) => {
+    try {
+      const { pdfBase64 } = req.body ?? {};
+      if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+        return res.status(400).json({ error: 'Dados do PDF ausentes.' });
+      }
+      // Validate it looks like a PDF (base64 of "%PDF-")
+      const headerBytes = Buffer.from(pdfBase64.slice(0, 8), 'base64').toString('ascii');
+      if (!headerBytes.startsWith('%PDF')) {
+        return res.status(400).json({ error: 'O arquivo enviado não é um PDF válido.' });
+      }
+      const maxBytes = 10 * 1024 * 1024; // 10 MB
+      const decoded = Buffer.from(pdfBase64, 'base64');
+      if (decoded.length > maxBytes) {
+        return res.status(400).json({ error: 'O arquivo excede o tamanho máximo de 10 MB.' });
+      }
+      const publicDir = path.resolve(process.cwd(), 'public');
+      const dest = path.join(publicDir, 'templates', 'reserva.pdf');
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, decoded);
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('[/api/reservas/upload-template]', err);
+      return res.status(500).json({ error: 'Não foi possível salvar o template.' });
+    }
+  });
+
   app.post("/api/reservas/gerar-pdf", async (req, res) => {
     try {
-      const { name, templateId = 'reservaPrincipal' } = req.body ?? {};
+      const { name, templateId = 'reservaPrincipal', fieldConfig } = req.body ?? {};
 
       // Input validation
       if (typeof name !== 'string' || !name.trim()) {
@@ -2181,7 +2209,19 @@ async function startServer() {
 
       // Embed font (HelveticaBold — built-in, no TTF needed)
       const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-      const fieldCfg = template.fields.name;
+
+      // Use fieldConfig from request body (user's saved settings) or fall back to template defaults
+      const defaultCfg = template.fields.name;
+      const fieldCfg = {
+        centerX:     (typeof fieldConfig?.centerX     === 'number') ? fieldConfig.centerX     : defaultCfg.centerX,
+        y:           (typeof fieldConfig?.y           === 'number') ? fieldConfig.y           : defaultCfg.y,
+        maxWidth:    (typeof fieldConfig?.maxWidth    === 'number') ? fieldConfig.maxWidth    : defaultCfg.maxWidth,
+        maxFontSize: (typeof fieldConfig?.maxFontSize === 'number') ? fieldConfig.maxFontSize : defaultCfg.maxFontSize,
+        minFontSize: (typeof fieldConfig?.minFontSize === 'number') ? fieldConfig.minFontSize : defaultCfg.minFontSize,
+        color:       (typeof fieldConfig?.color       === 'string' && /^#[0-9a-fA-F]{6}$/.test(fieldConfig.color))
+                       ? fieldConfig.color
+                       : defaultCfg.color,
+      };
 
       const fontSize = fitFontSize(
         safeName,
