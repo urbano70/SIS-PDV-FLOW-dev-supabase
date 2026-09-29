@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
+import { ReservationButton } from './reservation/ReservationButton';
 import { OrderTimer } from './OrderTimer';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
@@ -2390,6 +2391,7 @@ export default function Dashboard({
                     >
                       <History size={12} />
                     </button>
+                    <ReservationButton />
                   </div>
 
                   <div className="flex-1 min-h-0">
