@@ -2248,14 +2248,11 @@ async function startServer() {
         return fontCache[name];
       };
 
-      // Apply fieldConfig override from frontend (user's saved settings) to the FIRST name draw
-      const draws: PdfDrawOpServer[] = template.draws.map((draw, idx) => {
-        if (draw.valueKey !== 'name' || idx !== 0 || !fieldConfig) return draw;
+      // Apply fieldConfig override — only font size and color; position always from template
+      const draws: PdfDrawOpServer[] = template.draws.map((draw) => {
+        if (draw.valueKey !== 'name' || !fieldConfig) return draw;
         return {
           ...draw,
-          centerX:     typeof fieldConfig.centerX     === 'number' ? fieldConfig.centerX     : draw.centerX,
-          y:           typeof fieldConfig.y           === 'number' ? fieldConfig.y           : draw.y,
-          maxWidth:    typeof fieldConfig.maxWidth    === 'number' ? fieldConfig.maxWidth    : draw.maxWidth,
           maxFontSize: typeof fieldConfig.maxFontSize === 'number' ? fieldConfig.maxFontSize : draw.maxFontSize,
           minFontSize: typeof fieldConfig.minFontSize === 'number' ? fieldConfig.minFontSize : draw.minFontSize,
           color: (typeof fieldConfig.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(fieldConfig.color))

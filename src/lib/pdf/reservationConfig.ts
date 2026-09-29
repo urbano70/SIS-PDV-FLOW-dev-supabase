@@ -4,7 +4,7 @@
  * overrides the default hardcoded values in PDF_TEMPLATES.
  */
 
-const STORAGE_KEY = 'reservationConfig_v1';
+const STORAGE_KEY = 'reservationConfig_v2';
 
 export interface ReservationFieldConfig {
   centerX: number;
