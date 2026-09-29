@@ -2132,27 +2132,25 @@ async function startServer() {
       file: 'templates/reserva.pdf',
       page: 0,
       draws: [
-        // Frente — parte inferior, texto normal
+        // Frente — parte inferior, texto normal (sem coverRect: fundo transparente)
         {
           valueKey: 'name',
           centerX: 297.6, y: 257,
           maxWidth: 280, maxFontSize: 52, minFontSize: 16,
-          font: 'TimesRomanBoldItalic', color: '#0a0a0a',
+          font: 'TimesRomanBoldItalic', color: '#ffffff',
           rotateDeg: 0,
-          coverRect: { x: 146.8, y: 220.8, width: 301.7, height: 88.5, fillColor: '#ffffff' },
         },
-        // Verso — parte superior, texto invertido 180°
+        // Verso — parte superior, texto invertido 180° (sem coverRect: fundo transparente)
         {
           valueKey: 'name',
           centerX: 297.6, y: 601,
           maxWidth: 280, maxFontSize: 52, minFontSize: 16,
-          font: 'TimesRomanBoldItalic', color: '#0a0a0a',
+          font: 'TimesRomanBoldItalic', color: '#ffffff',
           rotateDeg: 180,
-          coverRect: { x: 146.8, y: 549.0, width: 301.7, height: 88.5, fillColor: '#ffffff' },
         },
       ],
       fields: {
-        name: { centerX: 297.6, y: 257, maxWidth: 280, maxFontSize: 52, minFontSize: 16, color: '#0a0a0a' },
+        name: { centerX: 297.6, y: 257, maxWidth: 280, maxFontSize: 52, minFontSize: 16, color: '#ffffff' },
       },
     },
   };
