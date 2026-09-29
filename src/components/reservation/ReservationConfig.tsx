@@ -134,30 +134,6 @@ export function ReservationConfig({ config, onSaved }: ReservationConfigProps) {
         />
       </Field>
 
-      {/* Position */}
-      <div className="bg-[#141414]/[0.03] rounded-2xl p-4 space-y-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-[#141414]/40">
-          Posição do nome no PDF
-        </p>
-        <p className="text-[10px] text-[#141414]/40 -mt-2 leading-snug">
-          O PDF usa origem no canto inferior esquerdo. Para A4 (595 × 842 pt):<br />
-          Centro horizontal = 297 · Centro vertical = 421
-        </p>
-
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Posição X (centro)" hint="Ponto central horizontal do texto">
-            <NumberInput value={field.centerX} onChange={v => updateField('centerX', v)} min={0} max={2000} />
-          </Field>
-          <Field label="Posição Y" hint="Distância do rodapé ao texto">
-            <NumberInput value={field.y} onChange={v => updateField('y', v)} min={0} max={2000} />
-          </Field>
-        </div>
-
-        <Field label="Largura máxima (pt)" hint="O nome não ultrapassará esta largura">
-          <NumberInput value={field.maxWidth} onChange={v => updateField('maxWidth', v)} min={50} max={2000} />
-        </Field>
-      </div>
-
       {/* Font size */}
       <div className="bg-[#141414]/[0.03] rounded-2xl p-4 space-y-4">
         <p className="text-[10px] font-bold uppercase tracking-widest text-[#141414]/40">
