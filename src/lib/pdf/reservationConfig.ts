@@ -23,12 +23,12 @@ export interface ReservationConfig {
 
 export const DEFAULT_CONFIG: ReservationConfig = {
   field: {
-    centerX: 297,
-    y: 395,
-    maxWidth: 400,
-    maxFontSize: 42,
-    minFontSize: 18,
-    color: '#1a1a1a',
+    centerX: 297.6,
+    y: 257,
+    maxWidth: 280,
+    maxFontSize: 52,
+    minFontSize: 16,
+    color: '#ffffff',
   },
   hasCustomTemplate: false,
 };

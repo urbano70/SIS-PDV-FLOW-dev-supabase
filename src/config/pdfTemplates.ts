@@ -63,27 +63,25 @@ export const PDF_TEMPLATES: Record<string, PdfTemplateConfig> = {
       {
         valueKey: 'name',
         centerX: 297.6,
-        y: 257,          // baseline ≈ centro da barra (265.1) - ajuste ascendente
+        y: 257,
         maxWidth: 280,
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#0a0a0a',
+        color: '#ffffff',
         rotateDeg: 0,
-        coverRect: { x: 146.8, y: 220.8, width: 301.7, height: 88.5, fillColor: '#ffffff' },
       },
       // ── Verso (parte superior, texto invertido 180°) ───────────────────
       {
         valueKey: 'name',
         centerX: 297.6,
-        y: 601,          // baseline ≈ centro da barra (593.2) + ajuste (invertido)
+        y: 601,
         maxWidth: 280,
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#0a0a0a',
+        color: '#ffffff',
         rotateDeg: 180,
-        coverRect: { x: 146.8, y: 549.0, width: 301.7, height: 88.5, fillColor: '#ffffff' },
       },
     ],
     // Config panel uses this for the user-adjustable fields
@@ -95,7 +93,7 @@ export const PDF_TEMPLATES: Record<string, PdfTemplateConfig> = {
         maxFontSize: 52,
         minFontSize: 16,
         font: 'TimesRomanBoldItalic',
-        color: '#0a0a0a',
+        color: '#ffffff',
       },
     },
   },
