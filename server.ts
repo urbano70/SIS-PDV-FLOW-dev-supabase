@@ -52,7 +52,7 @@ async function startServer() {
     process.exit(1);
   }
 
-  app.use(express.json());
+  app.use(express.json({ limit: '15mb' }));
 
   // In-memory state
   let waiters: any[] = [];
