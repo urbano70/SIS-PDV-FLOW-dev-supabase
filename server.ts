@@ -8,7 +8,7 @@ import os from "os";
 import net from "net";
 import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
@@ -2111,21 +2111,53 @@ async function startServer() {
 
   // ── PDF Reservation API ────────────────────────────────────────────────────
 
-  /** Centralized template configuration (mirrors src/config/pdfTemplates.ts) */
+  interface PdfDrawOpServer {
+    valueKey: string;
+    centerX: number; y: number;
+    maxWidth: number; maxFontSize: number; minFontSize: number;
+    font: string; color: string;
+    rotateDeg?: number;
+    coverRect?: { x: number; y: number; width: number; height: number; fillColor: string };
+  }
+
+  // Page: 595.5 × 842.2 pt (A4 portrait)
+  // Black bar bottom (frente): x=146.8 y=220.8 w=301.7 h=88.5 → center (297.6, 265.1)
+  // Black bar top   (verso):   x=146.8 y=549.0 w=301.7 h=88.5 → center (297.6, 593.2)
   const PDF_TEMPLATES: Record<string, {
     file: string; page: number;
-    fields: { name: { centerX: number; y: number; maxWidth: number; maxFontSize: number; minFontSize: number; color: string; } };
+    draws: PdfDrawOpServer[];
+    fields: { name: { centerX: number; y: number; maxWidth: number; maxFontSize: number; minFontSize: number; color: string } };
   }> = {
     reservaPrincipal: {
       file: 'templates/reserva.pdf',
       page: 0,
+      draws: [
+        // Frente — parte inferior, texto normal
+        {
+          valueKey: 'name',
+          centerX: 297.6, y: 257,
+          maxWidth: 280, maxFontSize: 52, minFontSize: 16,
+          font: 'TimesRomanBoldItalic', color: '#0a0a0a',
+          rotateDeg: 0,
+          coverRect: { x: 146.8, y: 220.8, width: 301.7, height: 88.5, fillColor: '#ffffff' },
+        },
+        // Verso — parte superior, texto invertido 180°
+        {
+          valueKey: 'name',
+          centerX: 297.6, y: 601,
+          maxWidth: 280, maxFontSize: 52, minFontSize: 16,
+          font: 'TimesRomanBoldItalic', color: '#0a0a0a',
+          rotateDeg: 180,
+          coverRect: { x: 146.8, y: 549.0, width: 301.7, height: 88.5, fillColor: '#ffffff' },
+        },
+      ],
       fields: {
-        name: { centerX: 297, y: 395, maxWidth: 400, maxFontSize: 42, minFontSize: 18, color: '#1a1a1a' },
+        name: { centerX: 297.6, y: 257, maxWidth: 280, maxFontSize: 52, minFontSize: 16, color: '#0a0a0a' },
       },
     },
   };
 
-  /** Finds the largest font size where the text fits within maxWidth */
+  /** Finds the largest font size where text fits within maxWidth */
   function fitFontSize(
     text: string,
     widthFn: (t: string, s: number) => number,
@@ -2136,7 +2168,7 @@ async function startServer() {
     return fs;
   }
 
-  /** Converts a hex color string to pdf-lib rgb() values */
+  /** Hex color string → pdf-lib rgb() */
   function hexToRgb(hex: string): ReturnType<typeof rgb> {
     const h = hex.replace('#', '');
     return rgb(
@@ -2146,6 +2178,19 @@ async function startServer() {
     );
   }
 
+  /** Resolves a font name string to a pdf-lib StandardFonts value */
+  function resolveFont(name: string): string {
+    const map: Record<string, string> = {
+      TimesRomanBoldItalic: StandardFonts.TimesRomanBoldItalic,
+      TimesRomanBold:       StandardFonts.TimesRomanBold,
+      TimesRoman:           StandardFonts.TimesRoman,
+      HelveticaBold:        StandardFonts.HelveticaBold,
+      Helvetica:            StandardFonts.Helvetica,
+      CourierBold:          StandardFonts.CourierBold,
+    };
+    return map[name] ?? StandardFonts.TimesRomanBoldItalic;
+  }
+
   // Upload a custom template PDF (base64-encoded)
   app.post("/api/reservas/upload-template", async (req, res) => {
     try {
@@ -2153,14 +2198,12 @@ async function startServer() {
       if (!pdfBase64 || typeof pdfBase64 !== 'string') {
         return res.status(400).json({ error: 'Dados do PDF ausentes.' });
       }
-      // Validate it looks like a PDF (base64 of "%PDF-")
       const headerBytes = Buffer.from(pdfBase64.slice(0, 8), 'base64').toString('ascii');
       if (!headerBytes.startsWith('%PDF')) {
         return res.status(400).json({ error: 'O arquivo enviado não é um PDF válido.' });
       }
-      const maxBytes = 10 * 1024 * 1024; // 10 MB
       const decoded = Buffer.from(pdfBase64, 'base64');
-      if (decoded.length > maxBytes) {
+      if (decoded.length > 10 * 1024 * 1024) {
         return res.status(400).json({ error: 'O arquivo excede o tamanho máximo de 10 MB.' });
       }
       const publicDir = path.resolve(process.cwd(), 'public');
@@ -2178,7 +2221,6 @@ async function startServer() {
     try {
       const { name, templateId = 'reservaPrincipal', fieldConfig } = req.body ?? {};
 
-      // Input validation
       if (typeof name !== 'string' || !name.trim()) {
         return res.status(400).json({ error: 'O campo nome é obrigatório.' });
       }
@@ -2188,62 +2230,89 @@ async function startServer() {
       }
 
       const template = PDF_TEMPLATES[templateId as string];
-      if (!template) {
-        return res.status(400).json({ error: 'Template não encontrado.' });
-      }
+      if (!template) return res.status(400).json({ error: 'Template não encontrado.' });
 
-      // Resolve template file path — only from the public/ directory
       const publicDir = path.resolve(process.cwd(), 'public');
       const templatePath = path.join(publicDir, template.file);
-      if (!templatePath.startsWith(publicDir)) {
-        return res.status(400).json({ error: 'Template inválido.' });
-      }
-      if (!fs.existsSync(templatePath)) {
-        return res.status(404).json({ error: 'Arquivo de template não encontrado.' });
-      }
+      if (!templatePath.startsWith(publicDir)) return res.status(400).json({ error: 'Template inválido.' });
+      if (!fs.existsSync(templatePath)) return res.status(404).json({ error: 'Arquivo de template não encontrado.' });
 
-      const existingBytes = fs.readFileSync(templatePath);
-      const pdfDoc = await PDFDocument.load(existingBytes);
+      const pdfDoc = await PDFDocument.load(fs.readFileSync(templatePath));
       const pages = pdfDoc.getPages();
       const page = pages[template.page] ?? pages[0];
 
-      // Embed font (HelveticaBold — built-in, no TTF needed)
-      const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
-      // Use fieldConfig from request body (user's saved settings) or fall back to template defaults
-      const defaultCfg = template.fields.name;
-      const fieldCfg = {
-        centerX:     (typeof fieldConfig?.centerX     === 'number') ? fieldConfig.centerX     : defaultCfg.centerX,
-        y:           (typeof fieldConfig?.y           === 'number') ? fieldConfig.y           : defaultCfg.y,
-        maxWidth:    (typeof fieldConfig?.maxWidth    === 'number') ? fieldConfig.maxWidth    : defaultCfg.maxWidth,
-        maxFontSize: (typeof fieldConfig?.maxFontSize === 'number') ? fieldConfig.maxFontSize : defaultCfg.maxFontSize,
-        minFontSize: (typeof fieldConfig?.minFontSize === 'number') ? fieldConfig.minFontSize : defaultCfg.minFontSize,
-        color:       (typeof fieldConfig?.color       === 'string' && /^#[0-9a-fA-F]{6}$/.test(fieldConfig.color))
-                       ? fieldConfig.color
-                       : defaultCfg.color,
+      // Cache for embedded fonts (avoid embedding the same font twice)
+      const fontCache: Record<string, Awaited<ReturnType<typeof pdfDoc.embedFont>>> = {};
+      const getFont = async (name: string) => {
+        if (!fontCache[name]) fontCache[name] = await pdfDoc.embedFont(resolveFont(name));
+        return fontCache[name];
       };
 
-      const fontSize = fitFontSize(
-        safeName,
-        (t, s) => font.widthOfTextAtSize(t, s),
-        fieldCfg.maxWidth,
-        fieldCfg.maxFontSize,
-        fieldCfg.minFontSize,
-      );
-
-      const textWidth = font.widthOfTextAtSize(safeName, fontSize);
-      const x = fieldCfg.centerX - textWidth / 2;
-
-      page.drawText(safeName, {
-        x,
-        y: fieldCfg.y,
-        size: fontSize,
-        font,
-        color: hexToRgb(fieldCfg.color),
+      // Apply fieldConfig override from frontend (user's saved settings) to the FIRST name draw
+      const draws: PdfDrawOpServer[] = template.draws.map((draw, idx) => {
+        if (draw.valueKey !== 'name' || idx !== 0 || !fieldConfig) return draw;
+        return {
+          ...draw,
+          centerX:     typeof fieldConfig.centerX     === 'number' ? fieldConfig.centerX     : draw.centerX,
+          y:           typeof fieldConfig.y           === 'number' ? fieldConfig.y           : draw.y,
+          maxWidth:    typeof fieldConfig.maxWidth    === 'number' ? fieldConfig.maxWidth    : draw.maxWidth,
+          maxFontSize: typeof fieldConfig.maxFontSize === 'number' ? fieldConfig.maxFontSize : draw.maxFontSize,
+          minFontSize: typeof fieldConfig.minFontSize === 'number' ? fieldConfig.minFontSize : draw.minFontSize,
+          color: (typeof fieldConfig.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(fieldConfig.color))
+                   ? fieldConfig.color : draw.color,
+        };
       });
 
-      const pdfBytes = await pdfDoc.save();
+      const values: Record<string, string> = { name: safeName };
 
+      for (const draw of draws) {
+        const text = values[draw.valueKey];
+        if (!text) continue;
+
+        const font = await getFont(draw.font);
+
+        // Cover the placeholder bar with a solid rectangle
+        if (draw.coverRect) {
+          const cr = draw.coverRect;
+          page.drawRectangle({
+            x: cr.x, y: cr.y, width: cr.width, height: cr.height,
+            color: hexToRgb(cr.fillColor),
+            borderWidth: 0,
+          });
+        }
+
+        const fontSize = fitFontSize(
+          text, (t, s) => font.widthOfTextAtSize(t, s),
+          draw.maxWidth, draw.maxFontSize, draw.minFontSize,
+        );
+        const textWidth = font.widthOfTextAtSize(text, fontSize);
+        const rotateDeg = draw.rotateDeg ?? 0;
+
+        let x: number;
+        let y: number;
+
+        if (rotateDeg === 0) {
+          // Normal: (x,y) = baseline-left
+          x = draw.centerX - textWidth / 2;
+          y = draw.y;
+        } else {
+          // 180° rotation: pdf-lib uses (x,y) as the anchor (bottom-left in local space).
+          // After 180° rotation the visual text extends LEFT from x, with cap-height going DOWN.
+          // To center visually at (centerX, y): anchor = (centerX + textWidth/2, y)
+          x = draw.centerX + textWidth / 2;
+          y = draw.y;
+        }
+
+        page.drawText(text, {
+          x, y,
+          size: fontSize,
+          font,
+          color: hexToRgb(draw.color),
+          rotate: rotateDeg !== 0 ? degrees(rotateDeg) : undefined,
+        });
+      }
+
+      const pdfBytes = await pdfDoc.save();
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'inline; filename="reserva.pdf"');
       return res.end(Buffer.from(pdfBytes));
