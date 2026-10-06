@@ -11,18 +11,22 @@ interface Props {
   newNotifications: OrderNotification[];
 }
 
-// ─── Toast individual com animação própria ─────────────────────────────────
+const TOAST_DURATION = 10000;
+const ANIM_MS = 380;
+
+// Raio e circunferência do anel de progresso
+const R = 7;
+const CIRC = 2 * Math.PI * R;
+
+// ─── Toast individual ──────────────────────────────────────────────────────
 interface ToastItemProps {
   notif: OrderNotification;
   onDismiss: (id: string) => void;
 }
 
-const TOAST_DURATION = 10000;
-const ANIM_MS = 380;
-
 function ToastItem({ notif, onDismiss }: ToastItemProps) {
-  const [visible, setVisible] = useState(false);   // controla enter
-  const [leaving, setLeaving] = useState(false);   // controla exit
+  const [visible, setVisible] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const dismissedRef = useRef(false);
 
   const dismiss = useCallback(() => {
@@ -33,26 +37,20 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
   }, [notif.id, onDismiss]);
 
   useEffect(() => {
-    // rAF duplo garante que o browser pintou o estado inicial (opacity 0)
-    // antes de transicionar para visible (opacity 1)
+    // rAF duplo: pinta estado inicial antes de transicionar
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => setVisible(true));
     });
-
     const autoTimer = setTimeout(dismiss, TOAST_DURATION);
-
-    return () => {
-      cancelAnimationFrame(raf);
-      clearTimeout(autoTimer);
-    };
+    return () => { cancelAnimationFrame(raf); clearTimeout(autoTimer); };
   }, [dismiss]);
 
   const opacity = leaving ? 0 : visible ? 1 : 0;
   const transform = leaving
-    ? 'translateY(10px) scale(0.95)'
+    ? 'translateX(-10px) scale(0.95)'
     : visible
-      ? 'translateY(0) scale(1)'
-      : 'translateY(14px) scale(0.94)';
+      ? 'translateX(0) scale(1)'
+      : 'translateX(-14px) scale(0.94)';
 
   return (
     <div
@@ -61,10 +59,40 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
         opacity,
         transform,
       }}
-      className="flex items-start gap-2.5 bg-[#141414]/70 backdrop-blur-sm text-[#E4E3E0] px-3.5 py-2.5 rounded-xl shadow-xl max-w-xs border border-white/10"
+      className="flex items-start gap-2.5 bg-[#141414]/70 backdrop-blur-sm text-[#E4E3E0] pl-2.5 pr-3 py-2.5 rounded-xl shadow-xl max-w-xs border border-white/10"
     >
-      <Bell size={12} className="shrink-0 mt-0.5 text-orange-400" />
+      {/* Anel de progresso temporizador */}
+      <div className="shrink-0 mt-0.5 relative flex items-center justify-center" style={{ width: 18, height: 18 }}>
+        <svg width="18" height="18" style={{ transform: 'rotate(-90deg)' }}>
+          {/* Trilha */}
+          <circle
+            cx="9" cy="9" r={R}
+            fill="none"
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth="2"
+          />
+          {/* Progresso — esvazia conforme o tempo passa */}
+          <circle
+            cx="9" cy="9" r={R}
+            fill="none"
+            stroke="#fb923c"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeDasharray={CIRC}
+            strokeDashoffset={0}
+            style={{
+              animation: visible && !leaving
+                ? `toast-countdown ${TOAST_DURATION}ms linear forwards`
+                : 'none',
+            }}
+          />
+        </svg>
+        {/* Ícone centralizado */}
+        <Bell size={9} className="absolute text-orange-400" />
+      </div>
+
       <span className="text-[10px] leading-snug flex-1">{notif.message}</span>
+
       <button
         onClick={dismiss}
         className="ml-auto shrink-0 opacity-40 hover:opacity-100 transition-opacity"
@@ -78,12 +106,10 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
 // ─── Bell + painel + fila de toasts ───────────────────────────────────────
 export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll, newNotifications }: Props) {
   const [open, setOpen] = useState(false);
-  // Fila de toasts com IDs únicos para evitar duplicatas
   const [queue, setQueue] = useState<OrderNotification[]>([]);
   const seenIdsRef = useRef<Set<string>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Enfileira novos toasts
   useEffect(() => {
     if (mode !== 'full' || newNotifications.length === 0) return;
     const fresh = newNotifications.filter(n => !seenIdsRef.current.has(n.id));
@@ -96,7 +122,6 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
     setQueue(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  // Fecha painel ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
@@ -154,9 +179,9 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
         )}
       </div>
 
-      {/* Toasts flutuantes */}
+      {/* Toasts — canto inferior ESQUERDO */}
       {mode === 'full' && queue.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-[400] flex flex-col-reverse gap-2 pointer-events-none">
+        <div className="fixed bottom-4 left-4 z-[400] flex flex-col-reverse gap-2 pointer-events-none">
           {queue.map(n => (
             <div key={n.id} className="pointer-events-auto">
               <ToastItem notif={n} onDismiss={removeToast} />
