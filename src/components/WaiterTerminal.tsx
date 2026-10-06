@@ -457,28 +457,31 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
-      {/* Fila de alertas Chama Garçom — mostra o mais antigo, badge com restantes */}
+      {/* Fila de alertas Chama Garçom — card flutuante no canto superior direito */}
       {callAlertQueue.length > 0 && (() => {
         const current = callAlertQueue[0];
         const remaining = callAlertQueue.length - 1;
         return (
-          <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-            <div className="bg-orange-500 text-white rounded-3xl px-8 py-8 flex flex-col items-center gap-4 shadow-2xl animate-bounce-once max-w-xs w-full text-center relative">
-              {remaining > 0 && (
-                <span className="absolute top-3 right-3 bg-white text-orange-500 text-[11px] font-black px-2 py-0.5 rounded-full">
-                  +{remaining} na fila
-                </span>
-              )}
-              <BellRing size={48} className="animate-pulse" />
-              <p className="text-sm font-semibold uppercase tracking-widest opacity-80">Atenção!</p>
-              <p className="text-5xl font-black leading-none">{current.tableId}</p>
-              <p className="text-lg font-bold">Mesa está chamando!</p>
-              <button
-                onClick={() => dismissCallAlert(current.id)}
-                className="mt-2 px-6 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-bold uppercase transition-colors"
-              >
-                OK, já vou!
-              </button>
+          <div className="fixed top-14 right-3 z-[600] animate-bounce-once">
+            <div className="bg-orange-500 text-white rounded-2xl px-4 py-3 flex items-center gap-3 shadow-2xl border border-orange-400/40 min-w-[180px]">
+              <BellRing size={22} className="animate-pulse shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 leading-none mb-0.5">Mesa chamando</p>
+                <p className="text-3xl font-black leading-none">{current.tableId}</p>
+              </div>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                {remaining > 0 && (
+                  <span className="bg-white text-orange-500 text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none">
+                    +{remaining}
+                  </span>
+                )}
+                <button
+                  onClick={() => dismissCallAlert(current.id)}
+                  className="bg-white/20 hover:bg-white/35 active:scale-95 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase transition-all"
+                >
+                  OK
+                </button>
+              </div>
             </div>
           </div>
         );
