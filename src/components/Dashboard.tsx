@@ -3,10 +3,12 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
+import { OrderNotificationBell } from './OrderNotificationBell';
+import { useOrderNotifications, loadNotificationMode, saveNotificationMode, type NotificationMode } from '../hooks/useOrderNotifications';
 import { OrderTimer } from './OrderTimer';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
@@ -823,6 +825,13 @@ export default function Dashboard({
 }: DashboardProps) {
   const { updateTableStatusLocal, logout, clockOffset, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
+
+  const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
+  const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
+  const { notifications, unreadCount, markAllRead, clearAll } = useOrderNotifications(orders, notificationMode);
+  const prevNotifCountRef = useRef(0);
+  const newNotifications = notifications.slice(0, Math.max(0, notifications.length - prevNotifCountRef.current));
+  useEffect(() => { prevNotifCountRef.current = notifications.length; }, [notifications]);
 
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
@@ -2303,6 +2312,14 @@ export default function Dashboard({
                 Instalar app
               </button>
             )}
+            <OrderNotificationBell
+              notifications={notifications}
+              unreadCount={unreadCount}
+              mode={notificationMode}
+              onMarkAllRead={markAllRead}
+              onClearAll={clearAll}
+              newNotifications={newNotifications}
+            />
             <button
               onClick={() => {
                 if (isCashRegisterOpen) {
@@ -4181,6 +4198,38 @@ export default function Dashboard({
                   <p className="text-[9px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
                 </div>
               </header>
+
+              {/* Card: Notificações de Lançamentos */}
+              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Bell className="text-[#141414]" size={12} />
+                  <h3 className="font-serif italic text-sm leading-none flex-1">Notificações de Lançamentos</h3>
+                </div>
+                <p className="text-[9px] opacity-50 mb-2">Exibe alertas em tempo real quando um garçom lança um item.</p>
+                <div className="flex flex-col gap-1.5">
+                  {([
+                    { value: 'full', label: 'Completo', desc: 'Badge + popup a cada lançamento' },
+                    { value: 'badge', label: 'Só badge', desc: 'Apenas o número no ícone' },
+                    { value: 'disabled', label: 'Desativado', desc: 'Sem notificações' },
+                  ] as { value: NotificationMode; label: string; desc: string }[]).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleNotificationModeChange(opt.value)}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
+                        notificationMode === opt.value
+                          ? 'bg-[#141414] text-white border-[#141414]'
+                          : 'bg-transparent border-[#141414]/10 hover:bg-[#141414]/5'
+                      }`}
+                    >
+                      <span className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 ${notificationMode === opt.value ? 'bg-white border-white' : 'border-[#141414]/30'}`} />
+                      <div>
+                        <p className="text-[10px] font-bold">{opt.label}</p>
+                        <p className={`text-[9px] ${notificationMode === opt.value ? 'opacity-70' : 'opacity-40'}`}>{opt.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Card: Estrutura do Salão */}
               <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
