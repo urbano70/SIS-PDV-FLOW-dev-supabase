@@ -88,7 +88,7 @@ export function ChamarGarcomPage() {
             <p className="text-base font-bold text-[#141414]">Garçom a caminho!</p>
             <p className="text-xs text-slate-400">Aguarde um momento, por favor.</p>
             <p className="text-[10px] text-slate-300 mt-1">
-              Você poderá chamar novamente em {rateLimitMinutes} {rateLimitMinutes === 1 ? 'minuto' : 'minutos'}.
+              Você poderá chamar novamente em alguns instantes.
             </p>
           </div>
         )}
