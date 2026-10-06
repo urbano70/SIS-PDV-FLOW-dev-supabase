@@ -11,64 +11,92 @@ interface Props {
   newNotifications: OrderNotification[];
 }
 
-interface ToastState {
+// ─── Toast individual com animação própria ─────────────────────────────────
+interface ToastItemProps {
   notif: OrderNotification;
-  phase: 'in' | 'visible' | 'out';
+  onDismiss: (id: string) => void;
 }
 
 const TOAST_DURATION = 10000;
-const ANIM_IN = 350;
-const ANIM_OUT = 400;
+const ANIM_MS = 380;
 
-export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll, newNotifications }: Props) {
-  const [open, setOpen] = useState(false);
-  const [toasts, setToasts] = useState<ToastState[]>([]);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+function ToastItem({ notif, onDismiss }: ToastItemProps) {
+  const [visible, setVisible] = useState(false);   // controla enter
+  const [leaving, setLeaving] = useState(false);   // controla exit
+  const dismissedRef = useRef(false);
 
-  const dismissToast = useCallback((id: string) => {
-    setToasts(prev => prev.map(t => t.notif.id === id ? { ...t, phase: 'out' } : t));
-    const removeTimer = setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.notif.id !== id));
-    }, ANIM_OUT);
-    timersRef.current.set(`remove-${id}`, removeTimer);
-  }, []);
+  const dismiss = useCallback(() => {
+    if (dismissedRef.current) return;
+    dismissedRef.current = true;
+    setLeaving(true);
+    setTimeout(() => onDismiss(notif.id), ANIM_MS);
+  }, [notif.id, onDismiss]);
 
-  // Show toast popups in 'full' mode
   useEffect(() => {
-    if (mode !== 'full' || newNotifications.length === 0) return;
-
-    const incoming = newNotifications.slice(0, 5);
-
-    incoming.forEach(n => {
-      // Start in 'in' phase
-      setToasts(prev => {
-        if (prev.find(t => t.notif.id === n.id)) return prev;
-        return [{ notif: n, phase: 'in' }, ...prev].slice(0, 5);
-      });
-
-      // Transition to 'visible' after enter animation
-      const visTimer = setTimeout(() => {
-        setToasts(prev => prev.map(t => t.notif.id === n.id ? { ...t, phase: 'visible' } : t));
-      }, ANIM_IN);
-      timersRef.current.set(`vis-${n.id}`, visTimer);
-
-      // Start exit animation after duration
-      const outTimer = setTimeout(() => dismissToast(n.id), ANIM_IN + TOAST_DURATION);
-      timersRef.current.set(`out-${n.id}`, outTimer);
+    // rAF duplo garante que o browser pintou o estado inicial (opacity 0)
+    // antes de transicionar para visible (opacity 1)
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setVisible(true));
     });
 
-    return () => {
-      incoming.forEach(n => {
-        ['vis', 'out', 'remove'].forEach(k => {
-          const t = timersRef.current.get(`${k}-${n.id}`);
-          if (t) clearTimeout(t);
-        });
-      });
-    };
-  }, [newNotifications, mode, dismissToast]);
+    const autoTimer = setTimeout(dismiss, TOAST_DURATION);
 
-  // Close panel on outside click
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(autoTimer);
+    };
+  }, [dismiss]);
+
+  const opacity = leaving ? 0 : visible ? 1 : 0;
+  const transform = leaving
+    ? 'translateY(10px) scale(0.95)'
+    : visible
+      ? 'translateY(0) scale(1)'
+      : 'translateY(14px) scale(0.94)';
+
+  return (
+    <div
+      style={{
+        transition: `opacity ${ANIM_MS}ms ease, transform ${ANIM_MS}ms cubic-bezier(0.34,1.4,0.64,1)`,
+        opacity,
+        transform,
+      }}
+      className="flex items-start gap-2.5 bg-[#141414]/70 backdrop-blur-sm text-[#E4E3E0] px-3.5 py-2.5 rounded-xl shadow-xl max-w-xs border border-white/10"
+    >
+      <Bell size={12} className="shrink-0 mt-0.5 text-orange-400" />
+      <span className="text-[10px] leading-snug flex-1">{notif.message}</span>
+      <button
+        onClick={dismiss}
+        className="ml-auto shrink-0 opacity-40 hover:opacity-100 transition-opacity"
+      >
+        <X size={11} />
+      </button>
+    </div>
+  );
+}
+
+// ─── Bell + painel + fila de toasts ───────────────────────────────────────
+export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll, newNotifications }: Props) {
+  const [open, setOpen] = useState(false);
+  // Fila de toasts com IDs únicos para evitar duplicatas
+  const [queue, setQueue] = useState<OrderNotification[]>([]);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Enfileira novos toasts
+  useEffect(() => {
+    if (mode !== 'full' || newNotifications.length === 0) return;
+    const fresh = newNotifications.filter(n => !seenIdsRef.current.has(n.id));
+    if (fresh.length === 0) return;
+    fresh.forEach(n => seenIdsRef.current.add(n.id));
+    setQueue(prev => [...fresh, ...prev].slice(0, 5));
+  }, [newNotifications, mode]);
+
+  const removeToast = useCallback((id: string) => {
+    setQueue(prev => prev.filter(n => n.id !== id));
+  }, []);
+
+  // Fecha painel ao clicar fora
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
@@ -86,7 +114,7 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
 
   return (
     <>
-      {/* Bell button */}
+      {/* Botão sino */}
       <div className="relative" ref={panelRef}>
         <button
           onClick={handleOpen}
@@ -101,7 +129,7 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
           )}
         </button>
 
-        {/* Dropdown panel */}
+        {/* Painel dropdown */}
         {open && (
           <div className="absolute right-0 top-full mt-1.5 w-72 bg-white rounded-xl border border-[#141414]/10 shadow-lg z-[300] overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 border-b border-[#141414]/10">
@@ -126,27 +154,12 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
         )}
       </div>
 
-      {/* Toast popups */}
-      {mode === 'full' && (
+      {/* Toasts flutuantes */}
+      {mode === 'full' && queue.length > 0 && (
         <div className="fixed bottom-4 right-4 z-[400] flex flex-col-reverse gap-2 pointer-events-none">
-          {toasts.map(({ notif: t, phase }) => (
-            <div
-              key={t.id}
-              className="pointer-events-auto flex items-start gap-2 bg-[#141414] text-[#E4E3E0] px-3 py-2.5 rounded-xl shadow-xl max-w-xs"
-              style={{
-                transition: `opacity ${phase === 'in' ? ANIM_IN : ANIM_OUT}ms ease, transform ${phase === 'in' ? ANIM_IN : ANIM_OUT}ms cubic-bezier(0.34,1.56,0.64,1)`,
-                opacity: phase === 'visible' ? 1 : 0,
-                transform: phase === 'visible' ? 'translateY(0) scale(1)' : 'translateY(12px) scale(0.96)',
-              }}
-            >
-              <Bell size={12} className="shrink-0 mt-0.5 text-orange-400" />
-              <span className="text-[10px] leading-snug flex-1">{t.message}</span>
-              <button
-                onClick={() => dismissToast(t.id)}
-                className="ml-auto shrink-0 opacity-40 hover:opacity-100 transition-opacity"
-              >
-                <X size={11} />
-              </button>
+          {queue.map(n => (
+            <div key={n.id} className="pointer-events-auto">
+              <ToastItem notif={n} onDismiss={removeToast} />
             </div>
           ))}
         </div>
