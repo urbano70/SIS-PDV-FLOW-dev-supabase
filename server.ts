@@ -1921,6 +1921,12 @@ async function startServer() {
       const id = Number(tableId);
       if (!id || isNaN(id)) return;
 
+      // Caixa deve estar aberto
+      if (!isCashRegisterOpen) {
+        socket.emit("call_waiter_result", { success: false, tableId: id });
+        return;
+      }
+
       // Rate limiting por mesa
       const limitMs = Math.max(1, Math.min(rateLimitMinutes ?? 3, 60)) * 60 * 1000;
       const now = Date.now();
