@@ -99,11 +99,17 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
 export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll }: Props) {
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<OrderNotification[]>([]);
-  // Rastreia IDs já processados diretamente — sem depender de diff de contagem
   const seenIdsRef = useRef<Set<string>>(new Set());
+  const initializedRef = useRef(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Na primeira execução, apenas semeia os IDs existentes sem gerar toasts
+    if (!initializedRef.current) {
+      notifications.forEach(n => seenIdsRef.current.add(n.id));
+      initializedRef.current = true;
+      return;
+    }
     if (mode === 'disabled') return;
     const fresh = notifications.filter(n => !seenIdsRef.current.has(n.id));
     if (fresh.length === 0) return;
