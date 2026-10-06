@@ -8,7 +8,6 @@ interface Props {
   mode: NotificationMode;
   onMarkAllRead: () => void;
   onClearAll: () => void;
-  newNotifications: OrderNotification[];
 }
 
 const TOAST_DURATION = 10000;
@@ -97,21 +96,22 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
 }
 
 // ─── Bell + painel + fila de toasts ───────────────────────────────────────
-export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll, newNotifications }: Props) {
+export function OrderNotificationBell({ notifications, unreadCount, mode, onMarkAllRead, onClearAll }: Props) {
   const [open, setOpen] = useState(false);
   const [queue, setQueue] = useState<OrderNotification[]>([]);
+  // Rastreia IDs já processados diretamente — sem depender de diff de contagem
   const seenIdsRef = useRef<Set<string>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (mode === 'disabled' || newNotifications.length === 0) return;
-    const fresh = newNotifications.filter(n => !seenIdsRef.current.has(n.id));
+    if (mode === 'disabled') return;
+    const fresh = notifications.filter(n => !seenIdsRef.current.has(n.id));
     if (fresh.length === 0) return;
     fresh.forEach(n => seenIdsRef.current.add(n.id));
     // Chamadas de garçom sempre aparecem como toast, independente do modo
     const toShow = mode === 'full' ? fresh : fresh.filter(n => n.type === 'call');
     if (toShow.length > 0) setQueue(prev => [...toShow, ...prev].slice(0, 5));
-  }, [newNotifications, mode]);
+  }, [notifications, mode]);
 
   const removeToast = useCallback((id: string) => {
     setQueue(prev => prev.filter(n => n.id !== id));
