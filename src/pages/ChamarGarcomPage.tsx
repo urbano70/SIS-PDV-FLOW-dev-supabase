@@ -9,6 +9,7 @@ export function ChamarGarcomPage() {
   const { tableId } = useParams<{ tableId: string }>();
   const [status, setStatus] = useState<Status>('idle');
   const [rateLimitMinutes, setRateLimitMinutes] = useState(3);
+  const rateLimitRef = useRef(3);
   const socketRef = useRef<Socket | null>(null);
 
   const tableNum = Number(tableId);
@@ -17,13 +18,18 @@ export function ChamarGarcomPage() {
     // Lê rate limit do QR (query param opcional)
     const params = new URLSearchParams(window.location.search);
     const rl = Number(params.get('rl'));
-    if (rl > 0) setRateLimitMinutes(rl);
+    if (rl > 0) { setRateLimitMinutes(rl); rateLimitRef.current = rl; }
 
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
 
     s.on('call_waiter_result', ({ success }: { success: boolean }) => {
-      setStatus(success ? 'success' : 'error');
+      if (success) {
+        setStatus('success');
+        setTimeout(() => setStatus('idle'), rateLimitRef.current * 60 * 1000);
+      } else {
+        setStatus('error');
+      }
     });
 
     return () => { s.disconnect(); };
@@ -81,6 +87,9 @@ export function ChamarGarcomPage() {
             <CheckCircle size={44} className="text-emerald-500" />
             <p className="text-base font-bold text-[#141414]">Garçom a caminho!</p>
             <p className="text-xs text-slate-400">Aguarde um momento, por favor.</p>
+            <p className="text-[10px] text-slate-300 mt-1">
+              Você poderá chamar novamente em {rateLimitMinutes} {rateLimitMinutes === 1 ? 'minuto' : 'minutos'}.
+            </p>
           </div>
         )}
 
