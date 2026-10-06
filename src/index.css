@@ -73,3 +73,9 @@
 .animate-fade-in-up {
   animation: fade-in-up 0.2s ease-out;
 }
+
+/* Anel de progresso dos toasts de notificação (R=7, circ≈43.9823) */
+@keyframes toast-countdown {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: 43.9823; }
+}
