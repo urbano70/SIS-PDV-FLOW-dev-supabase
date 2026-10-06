@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -24,6 +24,19 @@ interface WaiterTerminalProps {
 
 export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
+
+  // Alerta de "Chama Garçom"
+  const [waiterCallAlert, setWaiterCallAlert] = useState<{ tableId: number; timestamp: number } | null>(null);
+  useEffect(() => {
+    const handler = ({ tableId, timestamp }: { tableId: number; timestamp: number }) => {
+      setWaiterCallAlert({ tableId, timestamp });
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      try { new Audio('/sounds/call-waiter.mp3').play(); } catch {}
+      setTimeout(() => setWaiterCallAlert(null), 8000);
+    };
+    socket.on('waiter_called', handler);
+    return () => { socket.off('waiter_called', handler); };
+  }, []);
 
   // Client-side first-seen tracking — avoids relying on potentially stale DB timestamps.
   // Key = item.id, value = ms when THIS client first received the item.
@@ -438,6 +451,24 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
+      {/* Alerta Chama Garçom */}
+      {waiterCallAlert && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <div className="bg-orange-500 text-white rounded-3xl px-8 py-8 flex flex-col items-center gap-4 shadow-2xl animate-bounce-once max-w-xs w-full text-center">
+            <BellRing size={48} className="animate-pulse" />
+            <p className="text-sm font-semibold uppercase tracking-widest opacity-80">Atenção!</p>
+            <p className="text-5xl font-black leading-none">{waiterCallAlert.tableId}</p>
+            <p className="text-lg font-bold">Mesa está chamando!</p>
+            <button
+              onClick={() => setWaiterCallAlert(null)}
+              className="mt-2 px-6 py-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-sm font-bold uppercase transition-colors"
+            >
+              OK, já vou!
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="bg-[#141414] text-[#E4E3E0] p-3 flex justify-between items-center shrink-0">
         <h1 className="font-serif italic text-xl">Terminal Garçom</h1>
         <div className="flex items-center space-x-3">
