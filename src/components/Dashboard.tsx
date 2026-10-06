@@ -829,9 +829,6 @@ export default function Dashboard({
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
   const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode);
-  const prevNotifCountRef = useRef(0);
-  const newNotifications = notifications.slice(0, Math.max(0, notifications.length - prevNotifCountRef.current));
-  useEffect(() => { prevNotifCountRef.current = notifications.length; }, [notifications]);
 
   // Ouve chamadas de garçom via socket
   useEffect(() => {
@@ -2337,7 +2334,6 @@ export default function Dashboard({
               mode={notificationMode}
               onMarkAllRead={markAllRead}
               onClearAll={clearAll}
-              newNotifications={newNotifications}
             />
             <button
               onClick={() => {
