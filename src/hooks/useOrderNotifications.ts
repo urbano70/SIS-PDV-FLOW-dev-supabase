@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 export type NotificationMode = 'full' | 'badge' | 'disabled';
+export type NotificationType = 'order' | 'call';
 
 export interface OrderNotification {
   id: string;
   message: string;
   timestamp: number;
   read: boolean;
+  type: NotificationType;
+  tableId?: number;
 }
 
 const STORAGE_KEY = 'orderNotificationMode_v1';
@@ -31,7 +34,6 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode) {
 
   useEffect(() => {
     if (!initializedRef.current) {
-      // Seed known item IDs on first load — don't notify for existing items
       const ids = new Set<string>();
       orders.forEach((o: any) => (o.items || []).forEach((item: any) => {
         if (item.id) ids.add(String(item.id));
@@ -60,6 +62,7 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode) {
             message: `${waiter} lançou ${qty}x ${itemName} na ${table}`,
             timestamp: Date.now(),
             read: false,
+            type: 'order',
           });
         }
       });
@@ -73,6 +76,19 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode) {
     }
   }, [orders, mode]);
 
+  const addCallNotification = useCallback((tableId: number) => {
+    const notif: OrderNotification = {
+      id: `call-${tableId}-${Date.now()}`,
+      message: `Mesa ${tableId} está chamando`,
+      timestamp: Date.now(),
+      read: false,
+      type: 'call',
+      tableId,
+    };
+    setNotifications(prev => [notif, ...prev].slice(0, 100));
+    setUnreadCount(c => c + 1);
+  }, []);
+
   const markAllRead = useCallback(() => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     setUnreadCount(0);
@@ -83,5 +99,5 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode) {
     setUnreadCount(0);
   }, []);
 
-  return { notifications, unreadCount, markAllRead, clearAll };
+  return { notifications, unreadCount, markAllRead, clearAll, addCallNotification };
 }

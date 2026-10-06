@@ -61,6 +61,7 @@ async function startServer() {
   // Tracks when the current service shift started (cashier was last opened).
   // Sent to clients so they can cap stale timestamps without losing per-item accuracy.
   let shiftStartedAt: string = new Date().toISOString();
+  const callWaiterCooldown = new Map<number, number>(); // tableId → last call timestamp
   let tables: any[] = Array.from({ length: 40 }, (_, i) => ({
     id: i + 1,
     status: "free",
@@ -1914,6 +1915,35 @@ async function startServer() {
     });
 
     // Consolidated init_data is at the beginning of connection
+
+    // ── Chama Garçom ──────────────────────────────────────────────────────
+    socket.on("call_waiter", ({ tableId, rateLimitMinutes }: { tableId: number; rateLimitMinutes?: number }) => {
+      const id = Number(tableId);
+      if (!id || isNaN(id)) return;
+
+      // Validação: mesa deve estar ocupada
+      const table = tables.find((t: any) => t.id === id);
+      const isOccupied = table && table.status !== 'free';
+      if (!isOccupied) {
+        socket.emit("call_waiter_result", { success: false, tableId: id });
+        return;
+      }
+
+      // Rate limiting por mesa
+      const limitMs = Math.max(1, Math.min(rateLimitMinutes ?? 3, 60)) * 60 * 1000;
+      const now = Date.now();
+      const lastCall = callWaiterCooldown.get(id) ?? 0;
+      if (now - lastCall < limitMs) {
+        socket.emit("call_waiter_result", { success: false, tableId: id });
+        return;
+      }
+      callWaiterCooldown.set(id, now);
+
+      socket.emit("call_waiter_result", { success: true, tableId: id });
+      io.emit("waiter_called", { tableId: id, timestamp: now });
+    });
+    // ── End Chama Garçom ───────────────────────────────────────────────────
+
   });
 
   // API Routes

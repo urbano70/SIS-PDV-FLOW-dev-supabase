@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -828,10 +828,29 @@ export default function Dashboard({
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
-  const { notifications, unreadCount, markAllRead, clearAll } = useOrderNotifications(orders, notificationMode);
+  const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode);
   const prevNotifCountRef = useRef(0);
   const newNotifications = notifications.slice(0, Math.max(0, notifications.length - prevNotifCountRef.current));
   useEffect(() => { prevNotifCountRef.current = notifications.length; }, [notifications]);
+
+  // Ouve chamadas de garçom via socket
+  useEffect(() => {
+    const handler = ({ tableId }: { tableId: number }) => {
+      addCallNotification(tableId);
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      try { new Audio('/sounds/call-waiter.mp3').play(); } catch {}
+    };
+    socket.on('waiter_called', handler);
+    return () => { socket.off('waiter_called', handler); };
+  }, [addCallNotification]);
+
+  // Estado do modal Chama Garçom
+  const [callWaiterModal, setCallWaiterModal] = useState(false);
+  const [callWaiterTable, setCallWaiterTable] = useState(1);
+  const [callWaiterRateLimit, setCallWaiterRateLimit] = useState(3);
+  const callWaiterUrl = callWaiterModal
+    ? `${window.location.origin}/chamar/${callWaiterTable}?rl=${callWaiterRateLimit}`
+    : '';
 
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
@@ -4229,6 +4248,18 @@ export default function Dashboard({
                     </button>
                   ))}
                 </div>
+
+                {/* Botão Chama Garçom */}
+                <div className="mt-3 pt-3 border-t border-[#141414]/10">
+                  <p className="text-[9px] opacity-50 mb-1.5">Gere QR Codes para os clientes chamarem o garçom.</p>
+                  <button
+                    onClick={() => setCallWaiterModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide hover:bg-orange-600 transition-colors"
+                  >
+                    <BellRing size={11} />
+                    Configurar Chama Garçom
+                  </button>
+                </div>
               </div>
 
               {/* Card: Estrutura do Salão */}
@@ -6945,6 +6976,76 @@ export default function Dashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal: Chama Garçom — gerador de QR Code */}
+      {callWaiterModal && (
+        <div
+          className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/50"
+          onClick={e => { if (e.target === e.currentTarget) setCallWaiterModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-[#141414]/10">
+              <div className="flex items-center gap-2">
+                <BellRing size={14} className="text-orange-500" />
+                <h2 className="font-serif italic text-base">Chama Garçom</h2>
+              </div>
+              <button onClick={() => setCallWaiterModal(false)} className="p-1 rounded-lg text-[#141414]/30 hover:text-[#141414] hover:bg-[#141414]/10 transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex flex-col gap-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[9px] font-bold uppercase opacity-50 mb-1">Número da Mesa</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={callWaiterTable}
+                    onChange={e => setCallWaiterTable(Math.max(1, Number(e.target.value)))}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#141414]/20 text-sm font-bold text-center focus:outline-none focus:border-orange-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[9px] font-bold uppercase opacity-50 mb-1">Intervalo mínimo (min)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    value={callWaiterRateLimit}
+                    onChange={e => setCallWaiterRateLimit(Math.max(1, Number(e.target.value)))}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-[#141414]/20 text-sm font-bold text-center focus:outline-none focus:border-orange-400"
+                  />
+                </div>
+              </div>
+
+              {/* QR Code */}
+              <div className="flex flex-col items-center gap-3 py-2">
+                <div className="p-3 bg-white rounded-xl border border-[#141414]/10 shadow-sm">
+                  <QRCodeSVG value={callWaiterUrl} size={160} includeMargin />
+                </div>
+                <p className="text-[9px] text-center opacity-40 break-all px-2">{callWaiterUrl}</p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { navigator.clipboard.writeText(callWaiterUrl); toast.success('Link copiado!'); }}
+                  className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[10px] font-bold uppercase hover:bg-[#141414]/5 transition-colors"
+                >
+                  Copiar link
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 py-2 rounded-xl bg-[#141414] text-white text-[10px] font-bold uppercase hover:opacity-80 transition-opacity"
+                >
+                  Imprimir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

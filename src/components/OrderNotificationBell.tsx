@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Bell, X, Trash2 } from 'lucide-react';
+import { Bell, BellRing, X, Trash2 } from 'lucide-react';
 import type { OrderNotification, NotificationMode } from '../hooks/useOrderNotifications';
 
 interface Props {
@@ -13,8 +13,6 @@ interface Props {
 
 const TOAST_DURATION = 10000;
 const ANIM_MS = 380;
-
-// Raio e circunferência do anel de progresso
 const R = 7;
 const CIRC = 2 * Math.PI * R;
 
@@ -28,6 +26,7 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const dismissedRef = useRef(false);
+  const isCall = notif.type === 'call';
 
   const dismiss = useCallback(() => {
     if (dismissedRef.current) return;
@@ -37,7 +36,6 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
   }, [notif.id, onDismiss]);
 
   useEffect(() => {
-    // rAF duplo: pinta estado inicial antes de transicionar
     const raf = requestAnimationFrame(() => {
       requestAnimationFrame(() => setVisible(true));
     });
@@ -48,9 +46,7 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
   const opacity = leaving ? 0 : visible ? 1 : 0;
   const transform = leaving
     ? 'translateX(-10px) scale(0.95)'
-    : visible
-      ? 'translateX(0) scale(1)'
-      : 'translateX(-14px) scale(0.94)';
+    : visible ? 'translateX(0) scale(1)' : 'translateX(-14px) scale(0.94)';
 
   return (
     <div
@@ -59,44 +55,41 @@ function ToastItem({ notif, onDismiss }: ToastItemProps) {
         opacity,
         transform,
       }}
-      className="flex items-start gap-2.5 bg-[#141414]/70 backdrop-blur-sm text-[#E4E3E0] pl-2.5 pr-3 py-2.5 rounded-xl shadow-xl max-w-xs border border-white/10"
+      className={`flex items-start gap-2.5 pl-2.5 pr-3 py-2.5 rounded-xl shadow-xl max-w-xs border backdrop-blur-sm ${
+        isCall
+          ? 'bg-orange-500/90 text-white border-orange-400/40'
+          : 'bg-[#141414]/70 text-[#E4E3E0] border-white/10'
+      }`}
     >
-      {/* Anel de progresso temporizador */}
+      {/* Anel de progresso */}
       <div className="shrink-0 mt-0.5 relative flex items-center justify-center" style={{ width: 18, height: 18 }}>
         <svg width="18" height="18" style={{ transform: 'rotate(-90deg)' }}>
-          {/* Trilha */}
+          <circle cx="9" cy="9" r={R} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
           <circle
-            cx="9" cy="9" r={R}
-            fill="none"
-            stroke="rgba(255,255,255,0.15)"
-            strokeWidth="2"
-          />
-          {/* Progresso — esvazia conforme o tempo passa */}
-          <circle
-            cx="9" cy="9" r={R}
-            fill="none"
-            stroke="#fb923c"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeDasharray={CIRC}
-            strokeDashoffset={0}
-            style={{
-              animation: visible && !leaving
-                ? `toast-countdown ${TOAST_DURATION}ms linear forwards`
-                : 'none',
-            }}
+            cx="9" cy="9" r={R} fill="none"
+            stroke={isCall ? 'white' : '#fb923c'}
+            strokeWidth="2" strokeLinecap="round"
+            strokeDasharray={CIRC} strokeDashoffset={0}
+            style={{ animation: visible && !leaving ? `toast-countdown ${TOAST_DURATION}ms linear forwards` : 'none' }}
           />
         </svg>
-        {/* Ícone centralizado */}
-        <Bell size={9} className="absolute text-orange-400" />
+        {isCall
+          ? <BellRing size={9} className="absolute text-white" />
+          : <Bell size={9} className="absolute text-orange-300" />
+        }
       </div>
 
-      <span className="text-[10px] leading-snug flex-1">{notif.message}</span>
+      {/* Texto */}
+      {isCall ? (
+        <span className="text-[10px] leading-snug flex-1 font-bold">
+          Mesa <span className="text-xl font-black leading-none">{notif.tableId}</span>{' '}
+          está chamando!
+        </span>
+      ) : (
+        <span className="text-[10px] leading-snug flex-1">{notif.message}</span>
+      )}
 
-      <button
-        onClick={dismiss}
-        className="ml-auto shrink-0 opacity-40 hover:opacity-100 transition-opacity"
-      >
+      <button onClick={dismiss} className="ml-auto shrink-0 opacity-40 hover:opacity-100 transition-opacity">
         <X size={11} />
       </button>
     </div>
@@ -111,11 +104,13 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (mode !== 'full' || newNotifications.length === 0) return;
+    if (mode === 'disabled' || newNotifications.length === 0) return;
     const fresh = newNotifications.filter(n => !seenIdsRef.current.has(n.id));
     if (fresh.length === 0) return;
     fresh.forEach(n => seenIdsRef.current.add(n.id));
-    setQueue(prev => [...fresh, ...prev].slice(0, 5));
+    // Chamadas de garçom sempre aparecem como toast, independente do modo
+    const toShow = mode === 'full' ? fresh : fresh.filter(n => n.type === 'call');
+    if (toShow.length > 0) setQueue(prev => [...toShow, ...prev].slice(0, 5));
   }, [newNotifications, mode]);
 
   const removeToast = useCallback((id: string) => {
@@ -158,19 +153,33 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
         {open && (
           <div className="absolute right-0 top-full mt-1.5 w-72 bg-white rounded-xl border border-[#141414]/10 shadow-lg z-[300] overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 border-b border-[#141414]/10">
-              <span className="text-[10px] font-bold uppercase opacity-60">Lançamentos</span>
+              <span className="text-[10px] font-bold uppercase opacity-60">Notificações</span>
               <button onClick={onClearAll} title="Limpar" className="p-0.5 rounded text-[#141414]/30 hover:text-red-500 transition-colors">
                 <Trash2 size={11} />
               </button>
             </div>
             <div className="max-h-72 overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="text-[10px] text-center opacity-40 py-4">Nenhum lançamento</p>
+                <p className="text-[10px] text-center opacity-40 py-4">Nenhuma notificação</p>
               ) : (
                 notifications.map(n => (
-                  <div key={n.id} className={`px-3 py-2 border-b border-[#141414]/5 text-[10px] leading-snug ${n.read ? 'opacity-50' : ''}`}>
-                    <p className="font-medium">{n.message}</p>
-                    <p className="opacity-40 mt-0.5">{new Date(n.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</p>
+                  <div
+                    key={n.id}
+                    className={`px-3 py-2 border-b border-[#141414]/5 text-[10px] leading-snug ${n.read ? 'opacity-50' : ''} ${
+                      n.type === 'call' ? 'bg-orange-50 border-l-2 border-l-orange-400' : ''
+                    }`}
+                  >
+                    {n.type === 'call' ? (
+                      <p className="font-black text-orange-600 flex items-center gap-1.5">
+                        <BellRing size={10} />
+                        Mesa <span className="text-base leading-none">{n.tableId}</span> está chamando!
+                      </p>
+                    ) : (
+                      <p className="font-medium">{n.message}</p>
+                    )}
+                    <p className="opacity-40 mt-0.5">
+                      {new Date(n.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </p>
                   </div>
                 ))
               )}
@@ -179,8 +188,8 @@ export function OrderNotificationBell({ notifications, unreadCount, mode, onMark
         )}
       </div>
 
-      {/* Toasts — canto inferior ESQUERDO */}
-      {mode === 'full' && queue.length > 0 && (
+      {/* Toasts — canto inferior esquerdo */}
+      {queue.length > 0 && (
         <div className="fixed bottom-4 left-4 z-[400] flex flex-col-reverse gap-2 pointer-events-none">
           {queue.map(n => (
             <div key={n.id} className="pointer-events-auto">

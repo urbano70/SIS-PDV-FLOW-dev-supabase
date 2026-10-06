@@ -79,3 +79,14 @@
   from { stroke-dashoffset: 0; }
   to   { stroke-dashoffset: 43.9823; }
 }
+
+@keyframes bounce-once {
+  0%, 100% { transform: scale(1); }
+  15%       { transform: scale(1.08); }
+  30%       { transform: scale(0.96); }
+  45%       { transform: scale(1.04); }
+  60%       { transform: scale(0.98); }
+}
+.animate-bounce-once {
+  animation: bounce-once 0.6s ease-out;
+}
