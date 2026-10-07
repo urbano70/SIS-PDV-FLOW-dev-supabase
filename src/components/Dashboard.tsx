@@ -2859,14 +2859,12 @@ export default function Dashboard({
                               </div>
                               <button 
                                 onClick={async () => {
+                                  socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'inactive' });
+                                  toast.success('Garçom inativado');
                                   try {
                                     const { updateDocument } = await import('../lib/firebaseService');
                                     await updateDocument('waiters', waiter.id || waiter.cpf!, { status: 'inactive' });
-                                    socket.emit('toggle_waiter_status', { waiterId: waiter.id || waiter.cpf, status: 'inactive' });
-                                    toast.success('Garçom inativado');
-                                  } catch (error) {
-                                    toast.error('Erro ao inativar garçom');
-                                  }
+                                  } catch {}
                                 }}
                                 className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition-colors shrink-0"
                                 title="Inativar Garçom"
