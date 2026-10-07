@@ -1089,6 +1089,8 @@ export default function Dashboard({
   // Derive plan config — falls back to free
   const planKey = (plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG;
   const planCfg = PLAN_CONFIG[planKey];
+  // Admin pode sobrescrever o limite de garçons nas configurações (até 40)
+  const effectiveMaxWaiters = pizzariaConfig.maxWaiters ?? planCfg.maxWaiters;
 
   // Map internal type values to display labels
   const typeLabel = (type: string) => {
@@ -2034,8 +2036,8 @@ export default function Dashboard({
     const alreadyApproved = target?.status === 'approved';
     if (!alreadyApproved) {
       const approvedCount = waiters.filter(w => w.status === 'approved').length;
-      if (approvedCount >= planCfg.maxWaiters) {
-        toast.error(`Limite do plano atingido: máximo de ${planCfg.maxWaiters} garçom${planCfg.maxWaiters !== 1 ? 's' : ''} no Plano ${planKey.charAt(0).toUpperCase() + planKey.slice(1)}.`);
+      if (approvedCount >= effectiveMaxWaiters) {
+        toast.error(`Limite atingido: máximo de ${effectiveMaxWaiters} garçom${effectiveMaxWaiters !== 1 ? 's' : ''} configurado.`);
         return;
       }
     }
@@ -2753,12 +2755,12 @@ export default function Dashboard({
                     {/* Waiter plan limit badge */}
                     {(() => {
                       const approvedCount = waiters.filter(w => w.status === 'approved').length;
-                      const atLimit = approvedCount >= planCfg.maxWaiters;
+                      const atLimit = approvedCount >= effectiveMaxWaiters;
                       return (
                         <div className={`flex items-center justify-between mb-3 px-3 py-1.5 rounded-lg border text-[10px] font-bold ${atLimit ? 'bg-red-50 border-red-200 text-red-700' : 'bg-[#F5F5F3] border-[#141414]/10 text-[#141414]/60'}`}>
                           <span className="flex items-center gap-1.5">
                             <Users size={11} />
-                            Garçons ativos: {approvedCount} / {planCfg.maxWaiters}
+                            Garçons ativos: {approvedCount} / {effectiveMaxWaiters}
                           </span>
                           {atLimit && <Lock size={10} className="text-red-500" />}
                         </div>
@@ -4312,6 +4314,23 @@ export default function Dashboard({
                       onChange={(e) => !isCashRegisterOpen && !planCfg.tablesLocked && setLocalNumTables(Math.max(1, parseInt(e.target.value) || 1))}
                       className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed' : planCfg.tablesLocked ? 'bg-amber-50 text-amber-700 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
                     />
+                  </div>
+                  <div>
+                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">
+                      Limite de Garçons
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="40"
+                      value={effectiveMaxWaiters}
+                      onChange={(e) => {
+                        const v = Math.max(1, Math.min(40, parseInt(e.target.value) || 1));
+                        updatePizzeriaConfig({ ...pizzariaConfig, maxWaiters: v });
+                      }}
+                      className="w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]"
+                    />
+                    <p className="text-[8px] opacity-40 mt-0.5">Máx. 40 garçons</p>
                   </div>
                   <div className="flex flex-col justify-center">
                     <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
