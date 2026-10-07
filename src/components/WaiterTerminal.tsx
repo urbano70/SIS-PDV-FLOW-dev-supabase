@@ -107,7 +107,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   }, [pizzariaConfig?.enabled]);
 
   const itemShouldTrackTime = (item: any): boolean => {
-    if (item.type === 'pizzas' || item.type === 'lanches') return true;
+    if (item.type === 'pizzas' || item.type === 'lanches' || item.type === 'porcoes' || item.type === 'lacarte') return true;
     const cat = menu.find((c: any) => {
       if (c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name)) return true;
       return (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name));
