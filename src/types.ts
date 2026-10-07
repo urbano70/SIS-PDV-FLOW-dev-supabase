@@ -47,6 +47,7 @@ export interface PizzeriaConfig {
   numTables?: number;
   comandasEnabled?: boolean;
   numComandas?: number;
+  maxWaiters?: number;
 }
 
 export interface Order {
