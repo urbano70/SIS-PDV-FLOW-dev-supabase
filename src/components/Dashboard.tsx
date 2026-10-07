@@ -2477,7 +2477,7 @@ export default function Dashboard({
                               >
                                 <p className="text-[9px] uppercase tracking-widest font-bold leading-none">Mesa</p>
                                 <p className="text-xl font-black leading-none">{table.id}</p>
-                                <div className="flex items-center justify-center gap-0.5 h-6">
+                                <div className="flex flex-wrap items-center justify-center gap-[2px] min-h-5 overflow-hidden w-full">
                                   {(() => {
                                     const types = getTableItemTypes(table.id, false);
                                     return (<>
@@ -2554,7 +2554,7 @@ export default function Dashboard({
                               >
                                 <p className="text-[7px] uppercase tracking-widest opacity-55 font-bold leading-none">Com.</p>
                                 <p className="text-sm font-black leading-none">{comanda.id}</p>
-                                <div className="flex items-center justify-center gap-0.5 h-6">
+                                <div className="flex flex-wrap items-center justify-center gap-[2px] min-h-5 overflow-hidden w-full">
                                   {(() => {
                                     const types = getTableItemTypes(comanda.id, true);
                                     return (<>
