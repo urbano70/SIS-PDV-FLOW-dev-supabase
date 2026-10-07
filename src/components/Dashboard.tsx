@@ -915,7 +915,7 @@ export default function Dashboard({
   const [showItemSuggestions, setShowItemSuggestions] = useState(false);
   const [reportSelectedPaymentMethod, setReportSelectedPaymentMethod] = useState<string>('todos');
   const [reportSelectedWaiter, setReportSelectedWaiter] = useState<string>('todos');
-  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | 'table_sales' | null>(null);
+  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | 'table_sales' | 'delivery_time' | null>(null);
   const [reportSelectedTable, setReportSelectedTable] = useState<string>('todas');
   const [snoozeMap, setSnoozeMap] = useState<Record<string, number>>({});
   const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
@@ -3554,6 +3554,17 @@ export default function Dashboard({
                         <h4 className="font-bold text-[10px] uppercase mb-0.5">Por Mesa</h4>
                         <p className="text-[8px] opacity-50 leading-tight">Vendas detalhadas por mesa.</p>
                       </button>
+
+                      <button
+                        onClick={() => setCurrentReportView('delivery_time')}
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 bg-teal-50 text-teal-600 rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <Clock size={16} />
+                        </div>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Tempo de Pedido</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Pedido até entrega por item.</p>
+                      </button>
                     </div>
                   </div>
                 </>
@@ -3575,6 +3586,7 @@ export default function Dashboard({
                           {currentReportView === 'sales_by_payment' && 'Meios de Pagamento'}
                           {currentReportView === 'waiter_performance' && 'Performance Garçons'}
                           {currentReportView === 'table_sales' && 'Relatório por Mesas'}
+                          {currentReportView === 'delivery_time' && 'Tempo de Pedido'}
                         </h2>
                         <p className="text-[9px] opacity-60">Filtre para gerar o relatório.</p>
                       </div>
@@ -4115,6 +4127,135 @@ export default function Dashboard({
                           })()}
                         </div>
                       )}
+
+                        {currentReportView === 'delivery_time' && (
+                          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {(() => {
+                              // Collect all delivery records from all orders in date range
+                              const rows: {
+                                itemName: string;
+                                tableId: number | string;
+                                isComanda: boolean;
+                                orderedAt: string | null;
+                                deliveredAt: string;
+                                durationMinutes: number | null;
+                                launchedBy: string;
+                                deliveredBy: string;
+                              }[] = [];
+
+                              orders.forEach(o => {
+                                const orderDate = (o.timestamp || '').split('T')[0];
+                                if (orderDate < reportStartDate || orderDate > reportEndDate) return;
+                                (o.deliveryLog || []).forEach((d: any) => {
+                                  // find original item for launchedBy
+                                  const item = (o.items || []).find((i: any) => i.id === d.itemId || i.name === d.itemName);
+                                  rows.push({
+                                    itemName: d.itemName,
+                                    tableId: d.tableId ?? o.tableId,
+                                    isComanda: d.isComanda ?? o.isComanda ?? false,
+                                    orderedAt: d.orderedAt || item?.timestamp || null,
+                                    deliveredAt: d.deliveredAt,
+                                    durationMinutes: d.durationMinutes,
+                                    launchedBy: item?.waiterName || d.waiterName || '—',
+                                    deliveredBy: item?.deliveredBy || d.waiterName || '—',
+                                  });
+                                });
+                              });
+
+                              // Filter by waiter if selected
+                              const filtered = rows.filter(r =>
+                                reportSelectedWaiter === 'todos' ||
+                                r.launchedBy === reportSelectedWaiter ||
+                                r.deliveredBy === reportSelectedWaiter
+                              ).sort((a, b) => new Date(b.deliveredAt).getTime() - new Date(a.deliveredAt).getTime());
+
+                              if (filtered.length === 0) return (
+                                <div className="p-20 text-center bg-white rounded-3xl border border-dashed border-[#141414]/10">
+                                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Clock size={32} className="text-gray-300" />
+                                  </div>
+                                  <p className="text-gray-400 italic font-serif">Nenhuma entrega registrada no período.</p>
+                                </div>
+                              );
+
+                              const durations = filtered.map(r => r.durationMinutes).filter((d): d is number => d !== null);
+                              const avgMin = durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null;
+                              const maxMin = durations.length ? Math.max(...durations) : null;
+                              const minMin = durations.length ? Math.min(...durations) : null;
+
+                              return (
+                                <>
+                                  {/* Stats summary */}
+                                  <div className="grid grid-cols-3 gap-3">
+                                    <div className="bg-white border border-[#141414]/10 rounded-xl p-3 text-center">
+                                      <p className="text-[8px] uppercase font-bold opacity-40 mb-1">Entregas</p>
+                                      <p className="text-xl font-black">{filtered.length}</p>
+                                    </div>
+                                    <div className="bg-white border border-[#141414]/10 rounded-xl p-3 text-center">
+                                      <p className="text-[8px] uppercase font-bold opacity-40 mb-1">Tempo médio</p>
+                                      <p className={`text-xl font-black ${avgMin !== null && avgMin > 20 ? 'text-red-500' : avgMin !== null && avgMin > 10 ? 'text-amber-500' : 'text-emerald-600'}`}>
+                                        {avgMin !== null ? `${avgMin}min` : '—'}
+                                      </p>
+                                    </div>
+                                    <div className="bg-white border border-[#141414]/10 rounded-xl p-3 text-center">
+                                      <p className="text-[8px] uppercase font-bold opacity-40 mb-1">Máx / Mín</p>
+                                      <p className="text-sm font-black">
+                                        <span className="text-red-400">{maxMin !== null ? `${maxMin}m` : '—'}</span>
+                                        <span className="opacity-30 mx-1">/</span>
+                                        <span className="text-emerald-600">{minMin !== null ? `${minMin}m` : '—'}</span>
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* Table */}
+                                  <div className="bg-white border border-[#141414]/10 rounded-xl overflow-hidden shadow-sm">
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-[10px]">
+                                        <thead>
+                                          <tr className="bg-[#141414]/3 border-b border-[#141414]/10">
+                                            <th className="text-left p-2 font-bold uppercase opacity-50">Item</th>
+                                            <th className="text-center p-2 font-bold uppercase opacity-50">Mesa</th>
+                                            <th className="text-left p-2 font-bold uppercase opacity-50">Pedido em</th>
+                                            <th className="text-left p-2 font-bold uppercase opacity-50">Entregue em</th>
+                                            <th className="text-center p-2 font-bold uppercase opacity-50">Tempo</th>
+                                            <th className="text-left p-2 font-bold uppercase opacity-50">Lançado por</th>
+                                            <th className="text-left p-2 font-bold uppercase opacity-50">Entregue por</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {filtered.map((r, i) => {
+                                            const fmtTime = (iso: string | null) => {
+                                              if (!iso) return '—';
+                                              const d = new Date(iso);
+                                              return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' +
+                                                d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                                            };
+                                            const durColor = r.durationMinutes === null ? '' :
+                                              r.durationMinutes > 20 ? 'text-red-500 font-black' :
+                                              r.durationMinutes > 10 ? 'text-amber-500 font-bold' : 'text-emerald-600 font-bold';
+                                            return (
+                                              <tr key={i} className={`border-b border-[#141414]/5 ${i % 2 === 0 ? '' : 'bg-[#141414]/[0.015]'}`}>
+                                                <td className="p-2 font-semibold">{r.itemName}</td>
+                                                <td className="p-2 text-center font-bold">{r.isComanda ? `Com.${r.tableId}` : `Mesa ${r.tableId}`}</td>
+                                                <td className="p-2 opacity-70">{fmtTime(r.orderedAt)}</td>
+                                                <td className="p-2 opacity-70">{fmtTime(r.deliveredAt)}</td>
+                                                <td className={`p-2 text-center ${durColor}`}>
+                                                  {r.durationMinutes !== null ? `${r.durationMinutes}min` : '—'}
+                                                </td>
+                                                <td className="p-2 opacity-70">{r.launchedBy}</td>
+                                                <td className="p-2 opacity-70">{r.deliveredBy}</td>
+                                              </tr>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
 
                         {currentReportView === 'waiter_performance' && (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
