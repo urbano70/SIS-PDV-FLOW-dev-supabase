@@ -933,6 +933,7 @@ export default function Dashboard({
   // Estado local do card "Estrutura do Salão" (salvo só ao clicar em Salvar)
   const [localNumTables, setLocalNumTables] = useState<number>(pizzariaConfig.numTables ?? 10);
   const [localNumComandas, setLocalNumComandas] = useState<number>(pizzariaConfig.numComandas ?? 50);
+  const [localMaxWaiters, setLocalMaxWaiters] = useState<number>(pizzariaConfig.maxWaiters ?? 10);
   const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
 
@@ -940,7 +941,8 @@ export default function Dashboard({
   useEffect(() => {
     setLocalNumTables(pizzariaConfig.numTables ?? 10);
     setLocalNumComandas(pizzariaConfig.numComandas ?? 50);
-  }, [pizzariaConfig.numTables, pizzariaConfig.numComandas]);
+    setLocalMaxWaiters(pizzariaConfig.maxWaiters ?? 10);
+  }, [pizzariaConfig.numTables, pizzariaConfig.numComandas, pizzariaConfig.maxWaiters]);
 
   useEffect(() => {
     setLocalLogoUrl(printerConfig.logoUrl || '');
@@ -949,11 +951,12 @@ export default function Dashboard({
   const salonDirty =
     localNumTables !== (pizzariaConfig.numTables ?? 10) ||
     localNumComandas !== (pizzariaConfig.numComandas ?? 50) ||
+    localMaxWaiters !== (pizzariaConfig.maxWaiters ?? 10) ||
     localLogoUrl !== (printerConfig.logoUrl || '');
 
   const saveSalonConfig = async () => {
     setSavingConfig(true);
-    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas) });
+    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas), maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)) });
     (setPrinterConfig as any)((prev: any) => {
       const updated = { ...prev, logoUrl: localLogoUrl };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
@@ -4323,12 +4326,10 @@ export default function Dashboard({
                       type="number"
                       min="1"
                       max="40"
-                      value={effectiveMaxWaiters}
-                      onChange={(e) => {
-                        const v = Math.max(1, Math.min(40, parseInt(e.target.value) || 1));
-                        updatePizzeriaConfig({ ...pizzariaConfig, maxWaiters: v });
-                      }}
-                      className="w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]"
+                      value={localMaxWaiters}
+                      disabled={isCashRegisterOpen}
+                      onChange={(e) => !isCashRegisterOpen && setLocalMaxWaiters(Math.max(1, Math.min(40, parseInt(e.target.value) || 1)))}
+                      className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
                     />
                     <p className="text-[8px] opacity-40 mt-0.5">Máx. 40 garçons</p>
                   </div>
