@@ -114,6 +114,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     });
     if (!cat) return false;
     if (cat.trackTime) return true;
+    if (cat.type === 'pizzas' || cat.type === 'lanches' || cat.type === 'porcoes' || cat.type === 'lacarte') return true;
     const sub = (cat.subcategories || []).find((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name));
     return !!sub?.trackTime;
   };
