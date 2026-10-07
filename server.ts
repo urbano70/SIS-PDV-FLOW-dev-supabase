@@ -905,10 +905,11 @@ async function startServer() {
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
-      const slug = (categoryData.name as string).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+      const validTypes = ['lanches', 'pizzas', 'bebidas', 'porcoes', 'lacarte'];
+      const type = validTypes.includes(categoryData.type) ? categoryData.type : 'lanches';
       const newCategory = {
         name: categoryData.name,
-        type: slug || 'outros',
+        type,
         visible: true,
         trackTime: false,
         items: [],

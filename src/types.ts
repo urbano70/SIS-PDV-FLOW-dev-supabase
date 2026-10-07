@@ -2,7 +2,7 @@ export interface PizzaItem {
   id: string;
   menuItemId?: string;
   name: string;
-  type?: 'pizzas' | 'lanches' | 'bebidas' | 'porcoes';
+  type?: 'pizzas' | 'lanches' | 'bebidas' | 'porcoes' | 'lacarte';
   flavors: string[];
   size: 'P' | 'M' | 'G';
   crust?: string;
