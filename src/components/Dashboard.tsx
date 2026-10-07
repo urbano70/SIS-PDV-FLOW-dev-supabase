@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Sandwich, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -1097,9 +1097,10 @@ export default function Dashboard({
 
   // Map internal type values to display labels
   const typeLabel = (type: string) => {
-    if (type === 'pizzas') return 'Pratos/Porções';
+    if (type === 'pizzas') return 'Pizzas';
     if (type === 'lanches') return 'Lanches';
     if (type === 'bebidas') return 'Bebidas';
+    if (type === 'porcoes') return 'Porções';
     return type;
   };
 
@@ -1800,7 +1801,7 @@ export default function Dashboard({
     return nowAdjusted > (snoozeMap[key] ?? 0);
   };
 
-  const getTableItemTypes = (id: number, isComanda: boolean): { hasLanche: boolean; hasPizza: boolean } => {
+  const getTableItemTypes = (id: number, isComanda: boolean): { hasLanche: boolean; hasPizza: boolean; hasPorcao: boolean } => {
     const tableOrders = orders.filter((o: any) =>
       String(o.tableId) === String(id) &&
       !!o.isComanda === isComanda &&
@@ -1812,6 +1813,7 @@ export default function Dashboard({
     return {
       hasLanche: allItems.some((i: any) => i.type === 'lanches'),
       hasPizza: allItems.some((i: any) => i.type === 'pizzas'),
+      hasPorcao: allItems.some((i: any) => i.type === 'porcoes'),
     };
   };
 
@@ -2476,10 +2478,10 @@ export default function Dashboard({
                                 <div className="flex items-center justify-center gap-0.5 h-6">
                                   {(() => {
                                     const types = getTableItemTypes(table.id, false);
-                                    const hasType = types.hasLanche || types.hasPizza;
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
-                                      {types.hasPizza && <Pizza size={22} className="opacity-80" />}
+                                      {types.hasLanche && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14c0-1.1.9-2 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1z"/><path d="M6 12c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M4 16h16"/><path d="M6 18h12a1 1 0 0 1 1 1v.5H5V19a1 1 0 0 1 1-1z"/><path d="M9 10h.01M12 9h.01M15 10h.01"/><path d="M7 12c.5-.8 1.5-1.5 3-1.5s2.5.7 3 1.5 1.5 1.5 3 1.5"/></svg>}
+                                      {types.hasPizza && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/><path d="M5.6 5.6 18.4 18.4M18.4 5.6 5.6 18.4"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="8" r="1.3"/><circle cx="8" cy="16" r="1.3"/><circle cx="16" cy="16" r="1"/><circle cx="12" cy="7" r="0.8"/></svg>}
+                                      {types.hasPorcao && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3c-.5 1.5-.5 3 0 4M12 3c-.5 1.5-.5 3 0 4M15 3c-.5 1.5-.5 3 0 4"/><path d="M5 10h14a1 1 0 0 1 1 1c0 3.9-3.1 7-7 7s-7-3.1-7-7a1 1 0 0 1 1-1z"/><path d="M3 21h18"/></svg>}
                                       {table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(table.id, false) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
@@ -2552,10 +2554,10 @@ export default function Dashboard({
                                 <div className="flex items-center justify-center gap-0.5 h-6">
                                   {(() => {
                                     const types = getTableItemTypes(comanda.id, true);
-                                    const hasType = types.hasLanche || types.hasPizza;
                                     return (<>
-                                      {types.hasLanche && <Sandwich size={22} className="opacity-80" />}
-                                      {types.hasPizza && <Pizza size={22} className="opacity-80" />}
+                                      {types.hasLanche && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14c0-1.1.9-2 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1z"/><path d="M6 12c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M4 16h16"/><path d="M6 18h12a1 1 0 0 1 1 1v.5H5V19a1 1 0 0 1 1-1z"/><path d="M9 10h.01M12 9h.01M15 10h.01"/><path d="M7 12c.5-.8 1.5-1.5 3-1.5s2.5.7 3 1.5 1.5 1.5 3 1.5"/></svg>}
+                                      {types.hasPizza && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/><path d="M5.6 5.6 18.4 18.4M18.4 5.6 5.6 18.4"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="8" r="1.3"/><circle cx="8" cy="16" r="1.3"/><circle cx="16" cy="16" r="1"/><circle cx="12" cy="7" r="0.8"/></svg>}
+                                      {types.hasPorcao && <svg viewBox="0 0 24 24" className="w-[14px] h-[14px] opacity-80 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3c-.5 1.5-.5 3 0 4M12 3c-.5 1.5-.5 3 0 4M15 3c-.5 1.5-.5 3 0 4"/><path d="M5 10h14a1 1 0 0 1 1 1c0 3.9-3.1 7-7 7s-7-3.1-7-7a1 1 0 0 1 1-1z"/><path d="M3 21h18"/></svg>}
                                       {comanda.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(comanda.id, true) && <Clock size={11} className="text-amber-400 animate-pulse" />}
                                     </>);
