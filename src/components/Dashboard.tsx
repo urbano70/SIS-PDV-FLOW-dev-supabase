@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
 import { useFirebase } from './FirebaseProvider';
+import { TesteDeForgo } from './TesteDeForgo';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -4257,6 +4258,9 @@ export default function Dashboard({
                   </button>
                 </div>
               </div>
+
+              {/* Card: Teste de Fogo */}
+              <TesteDeForgo />
 
               {/* Card: Estrutura do Salão */}
               <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
