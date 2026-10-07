@@ -667,6 +667,26 @@ async function startServer() {
       }
     }));
 
+    socket.on("remove_waiter", requireAdmin((waiterId: string) => {
+      const idx = waiters.findIndex((w) => w.id === waiterId || w.cpf === waiterId);
+      if (idx === -1) return;
+      const waiter = waiters[idx];
+      // Notifica o garçom para que encerre a sessão
+      const connectedSockets = io.sockets.sockets;
+      connectedSockets.forEach((s) => {
+        if (
+          (s as any).waiterId  === waiter.id  ||
+          (s as any).waiterId  === waiter.cpf ||
+          (s as any).waiterName === waiter.name
+        ) {
+          s.emit("waiter_status_changed", { status: "inactive" });
+        }
+      });
+      waiters.splice(idx, 1);
+      io.emit("update_waiters", waiters);
+      saveLocalBackup();
+    }));
+
     socket.on("admin_approve_waiter", requireAdmin((waiterId) => {
       const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
       if (waiter) {
