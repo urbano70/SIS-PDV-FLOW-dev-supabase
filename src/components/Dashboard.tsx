@@ -996,7 +996,7 @@ export default function Dashboard({
     );
     if (!order) return null;
     const pending = (order.items || []).filter(
-      (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches')
+      (i: any) => !i.removed && !i.paid && !i.deliveredAt && (i.type === 'pizzas' || i.type === 'lanches' || i.type === 'porcoes' || i.type === 'lacarte')
     );
     if (pending.length === 0) return null;
     const now = Date.now() - clockOffset;
