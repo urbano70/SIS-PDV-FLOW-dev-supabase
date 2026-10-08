@@ -112,6 +112,28 @@ async function startServer() {
     }
   };
 
+  // ── Write queue: debounced async writes, sem bloquear o event loop ────────
+  // Agrupa writes rápidos do mesmo registro (ex: vários itens na mesma order)
+  // num único upsert. O socket responde imediatamente; o write vai em background.
+  const _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const _writePayload = new Map<string, { collection: string; data: any; docId: string }>();
+
+  const enqueueWrite = (collection: string, data: any, docId: string, debounceMs = 80) => {
+    const key = `${collection}:${docId}`;
+    const existing = _writeTimers.get(key);
+    if (existing) clearTimeout(existing);
+    // Store reference — captures latest in-memory state when timer fires
+    _writePayload.set(key, { collection, data, docId });
+    _writeTimers.set(key, setTimeout(() => {
+      _writeTimers.delete(key);
+      const p = _writePayload.get(key);
+      if (p) {
+        _writePayload.delete(key);
+        saveToSupabase(p.collection, p.data, p.docId).catch(() => {});
+      }
+    }, debounceMs));
+  };
+
   const saveMenuToSupabase = () => {
     menu.forEach((cat: any, idx: number) => {
       saveToSupabase('menu', { ...cat, position: idx }, cat.name).catch(() => {});
@@ -558,7 +580,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
       io.emit("update_orders", orders);
-      await saveToSupabase('orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id));
     });
 
     socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
@@ -568,7 +590,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'oven';
       io.emit("update_orders", orders);
-      await saveToSupabase('orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id));
     });
 
     socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
@@ -578,7 +600,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
       io.emit("update_orders", orders);
-      await saveToSupabase('orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id));
     });
 
     socket.on("waiter_register", (waiterData) => {
@@ -1197,8 +1219,9 @@ async function startServer() {
         io.emit("update_orders", orders);
         io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
 
-        await saveToSupabase('orders', order, String(order.id));
-        
+        // Non-blocking: respond to socket immediately, persist in background
+        enqueueWrite('orders', order, String(order.id));
+
         // Update stock for the added item
         applyStockReduction([itemWithTimestamp]);
       }
@@ -1209,7 +1232,7 @@ async function startServer() {
       if (order && Array.isArray(guests)) {
         (order as any).guests = guests;
         io.emit("update_orders", orders);
-        await saveToSupabase('orders', order, String(order.id));
+        enqueueWrite('orders', order, String(order.id));
       }
     });
 
@@ -1220,7 +1243,7 @@ async function startServer() {
         if (item) {
           (item as any).guestName = guestName || undefined;
           io.emit("update_orders", orders);
-          await saveToSupabase('orders', order, String(order.id));
+          enqueueWrite('orders', order, String(order.id));
         }
       }
     });
@@ -1266,7 +1289,7 @@ async function startServer() {
             item.removedBy = removedBy || (waiter ? waiter.name : "Desconhecido"),
             item.removalReason = reason || "";
           }
-          await saveToSupabase('orders', order, String(order.id));
+          enqueueWrite('orders', order, String(order.id));
           io.emit("update_orders", orders);
         }
       }
