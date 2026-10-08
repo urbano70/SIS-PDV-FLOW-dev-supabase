@@ -1019,7 +1019,7 @@ export default function Dashboard({
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isAddCategoryPopupOpen, setIsAddCategoryPopupOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<{oldName: string, name: string, visible: boolean} | null>(null);
+  const [editingCategory, setEditingCategory] = useState<{oldName: string, name: string, visible: boolean, type: string} | null>(null);
   const [newCategoryData, setNewCategoryData] = useState({ name: '', type: 'lanches' });
   const [newProductCategory, setNewProductCategory] = useState<string | null>(null);
   const [newProductSubcategoryId, setNewProductSubcategoryId] = useState<string | null>(null);
@@ -3157,15 +3157,35 @@ export default function Dashboard({
                       <div className="bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
                         <div className="flex items-center gap-4">
                           {editingCategory?.oldName === category.name ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={editingCategory.name}
-                                onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
-                                className="bg-white border border-white/30 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-white text-[#141414]"
-                              />
-                              <button onClick={() => { socket.emit('update_category', { oldName: editingCategory.oldName, updatedData: { name: editingCategory.name } }); setEditingCategory(null); toast.success('Categoria atualizada!'); }} className="p-2 bg-green-500 text-white rounded-lg"><Save size={16} /></button>
-                              <button onClick={() => setEditingCategory(null)} className="p-2 bg-white/20 text-white rounded-lg"><X size={16} /></button>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  value={editingCategory.name}
+                                  onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                                  className="bg-white border border-white/30 rounded-lg px-3 py-1.5 font-bold outline-none focus:border-white text-[#141414]"
+                                />
+                                <button onClick={() => { socket.emit('update_category', { oldName: editingCategory.oldName, updatedData: { name: editingCategory.name, type: editingCategory.type } }); setEditingCategory(null); toast.success('Categoria atualizada!'); }} className="p-2 bg-green-500 text-white rounded-lg"><Save size={16} /></button>
+                                <button onClick={() => setEditingCategory(null)} className="p-2 bg-white/20 text-white rounded-lg"><X size={16} /></button>
+                              </div>
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <span className="text-[9px] text-white/50 font-bold uppercase mr-1">Tipo:</span>
+                                {[
+                                  { key: 'lanches', label: 'Lanche' },
+                                  { key: 'pizzas', label: 'Pizza' },
+                                  { key: 'bebidas', label: 'Bebida' },
+                                  { key: 'porcoes', label: 'Porção' },
+                                  { key: 'lacarte', label: 'À la carte' },
+                                ].map(opt => (
+                                  <button
+                                    key={opt.key}
+                                    onClick={() => setEditingCategory({ ...editingCategory, type: opt.key })}
+                                    className={`px-2 py-1 rounded-lg text-[9px] font-bold transition-all ${editingCategory.type === opt.key ? 'bg-white text-[#141414]' : 'bg-white/10 text-white/70 hover:bg-white/20'}`}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
                           ) : (
                             <>
@@ -3191,7 +3211,7 @@ export default function Dashboard({
                           >
                             <Clock size={16} />
                           </button>
-                          <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true })} className="p-2 rounded-xl border border-white/20 hover:bg-white/10 transition-all text-blue-300"><Edit size={16} /></button>
+                          <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true, type: category.type || 'lanches' })} className="p-2 rounded-xl border border-white/20 hover:bg-white/10 transition-all text-blue-300"><Edit size={16} /></button>
                           <button
                             onClick={() => { setNewSubcategoryData({ categoryName: category.name, name: '' }); setIsAddSubcategoryModalOpen(true); }}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/20 text-white text-xs font-bold hover:bg-white/10 transition-all"
@@ -3593,7 +3613,7 @@ export default function Dashboard({
                     </div>
                   </header>
 
-                  <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+                  <div className="sticky top-0 z-20 bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
                     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 items-end">
                       <div>
                         <label className="text-[8px] uppercase font-bold opacity-50 mb-1 block">Início</label>
