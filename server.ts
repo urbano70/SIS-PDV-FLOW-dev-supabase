@@ -709,6 +709,43 @@ async function startServer() {
       saveLocalBackup();
     }));
 
+    socket.on("cleanup_test_data", requireAdmin(async ({ deleteWaiters, deleteData }: { deleteWaiters: boolean; deleteData: boolean }) => {
+      const prefix = 'Garcom_Fogo_';
+      if (deleteWaiters) {
+        waiters = waiters.filter((w: any) => !w.name?.startsWith(prefix));
+        io.emit('update_waiters', waiters);
+        // Persist
+        db?.from('waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
+      }
+      if (deleteData) {
+        // Remove itens lançados por garçons de teste de pedidos mistos; exclui pedidos inteiramente do teste
+        orders = orders
+          .map((o: any) => ({
+            ...o,
+            items: (o.items || []).filter((i: any) => !i.waiterName?.startsWith(prefix)),
+          }))
+          .filter((o: any) => {
+            const isTestOrder = o.waiterName?.startsWith(prefix);
+            const hasRealItems = (o.items || []).some((i: any) => !i.waiterName?.startsWith(prefix));
+            return !isTestOrder || hasRealItems;
+          });
+        // Libera mesas sem pedido ativo
+        tables = tables.map((t: any) => {
+          const hasActive = orders.some((o: any) => String(o.tableId) === String(t.id) && o.status !== 'finalizada');
+          return hasActive ? t : { ...t, status: 'free', currentOrder: null };
+        });
+        comandas = comandas.map((c: any) => {
+          const hasActive = orders.some((o: any) => o.isComanda && String(o.tableId) === String(c.id) && o.status !== 'finalizada');
+          return hasActive ? c : { ...c, status: 'free', currentOrder: null };
+        });
+        io.emit('update_orders', orders);
+        io.emit('update_tables', tables);
+        io.emit('update_comandas', comandas);
+        // Persist orders (delete test orders from Supabase)
+        db?.from('orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
+      }
+    }));
+
     socket.on("admin_approve_waiter", requireAdmin((waiterId) => {
       const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
       if (waiter) {
@@ -2058,6 +2095,16 @@ async function startServer() {
 
       log("Configurando sistema de caixa...");
       await db.from('config').upsert({ id: 'app', data: { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' } });
+
+      log("Resetando estado em memória...");
+      orders = [];
+      tables = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+      comandas = Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+      isCashRegisterOpen = false;
+      io.emit('update_orders', orders);
+      io.emit('update_tables', tables);
+      io.emit('update_comandas', comandas);
+      io.emit('update_cash_register', isCashRegisterOpen);
 
       log("ConcluÃ­do!");
       res.json({ ok: true, steps });
