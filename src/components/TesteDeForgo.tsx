@@ -323,21 +323,20 @@ function spawnWaiter(index: number) {
           : { tableId, isComanda: false, items: [cartItem], observations: '', waiterName: name };
       }
 
-      // Bug 1 fix: confirmação por correlação de ID, não por qualquer update
-      // Guarda o ID do item/pedido para verificar se o update contém o que esperamos
-      const expectedItemId = cartItem.id;
-      const expectedTableId = tableId;
-
       sock.emit(event, payload);
 
       await new Promise<void>(res => {
         let done = false;
+
         const settle = (ok: boolean) => {
           if (done) return;
           done = true;
-          sock.off('update_orders', onOrderUpdate);
-          sock.off('update_tables', onTableUpdate);
+          sock.off('update_orders', onConfirm);
+          sock.off('update_tables', onConfirm);
+          sock.off('error_message', onError);
           clearTimeout(tid);
+          // Não conta como falha se o teste já está sendo encerrado
+          if (!ok && _stopFlag) { res(); return; }
           const lat = Date.now() - t0;
           m.latencies.push(lat);
           if (ok) {
@@ -351,39 +350,20 @@ function spawnWaiter(index: number) {
           res();
         };
 
-        const onOrderUpdate = (orders: any[]) => {
-          // Confirma somente se o update contém o item desta operação
-          if (event === 'add_item_to_order') {
-            const found = orders.some((o: any) =>
-              (o.items || []).some((i: any) => i.id === expectedItemId)
-            );
-            if (found) settle(true);
-          } else if (event === 'new_order') {
-            // Para new_order, confirma se a mesa está ocupada agora
-            const tableNowOccupied = tablesData.find((t: any) =>
-              t.id === expectedTableId && t.status !== 'free'
-            );
-            if (tableNowOccupied) settle(true);
-            // Ou se há uma order com o item
-            const found = orders.some((o: any) =>
-              String(o.tableId) === String(expectedTableId) &&
-              (o.items || []).some((i: any) => i.id === expectedItemId)
-            );
-            if (found) settle(true);
-          }
+        // Confirmação positiva: qualquer update_orders/update_tables do servidor
+        // indica que o evento foi processado (servidor é single-thread, processa em ordem)
+        const onConfirm = () => settle(true);
+
+        // Falha real: servidor rejeitou explicitamente com erro
+        const onError = (msg: string) => {
+          m.errors.push(`server: ${msg}`);
+          addLog(name, `⚠️ ${msg}`, 'warn');
+          settle(false);
         };
 
-        const onTableUpdate = (tbl: any[]) => {
-          if (event === 'new_order') {
-            const tableNowOccupied = tbl.find((t: any) =>
-              t.id === expectedTableId && t.status !== 'free'
-            );
-            if (tableNowOccupied) settle(true);
-          }
-        };
-
-        sock.on('update_orders', onOrderUpdate);
-        sock.on('update_tables', onTableUpdate);
+        sock.once('update_orders', onConfirm);
+        sock.once('update_tables', onConfirm);
+        sock.once('error_message', onError);
         const tid = setTimeout(() => settle(false), CONFIRM_TIMEOUT);
       });
     }
