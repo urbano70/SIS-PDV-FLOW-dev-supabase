@@ -23,12 +23,13 @@ interface Report {
   verdictMsg: string;
 }
 
-const TOTAL           = 25;
-const TABLES          = 40;
-const MIN_MS          = 500;
-const MAX_MS          = 3000;
-const CONFIRM_TIMEOUT = 5000;
-const FOGO_PREFIX     = 'Garcom_Fogo_';
+const TOTAL            = 25;
+const TABLES           = 40;
+const MIN_MS           = 500;
+const MAX_MS           = 3000;
+const CONFIRM_TIMEOUT  = 5000;
+const APPROVE_TIMEOUT  = 60000; // 60s máx para aprovação manual
+const FOGO_PREFIX      = 'Garcom_Fogo_';
 
 const rand  = (a: number, b: number) => Math.floor(Math.random() * (b - a + 1)) + a;
 const pick  = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -78,7 +79,6 @@ const _metrics = {
   activeCount: 0,
 };
 
-// Callbacks para notificar componentes montados
 let _notifyRender: (() => void) | null = null;
 
 function notifyAll() { _notifyRender?.(); }
@@ -157,11 +157,57 @@ async function startTest() {
 
   addLog('SISTEMA', `Iniciando Teste de Fogo — ${TOTAL} garçons, mesas 1–${TABLES}`, 'info');
 
+  // Bug 2 fix: aguarda caixa aberto antes de lançar garçons
+  addLog('SISTEMA', 'Aguardando caixa aberto…', 'info');
+  const cashOk = await waitForCashRegister();
+  if (!cashOk) {
+    addLog('SISTEMA', '⛔ Caixa não abriu em 30s — abortando.', 'warn');
+    _running = false;
+    notifyAll();
+    return;
+  }
+  addLog('SISTEMA', '✅ Caixa aberto — registrando garçons.', 'info');
+
   for (let i = 0; i < TOTAL; i++) {
     if (_stopFlag) break;
     await sleep(100);
     spawnWaiter(i);
   }
+}
+
+// Aguarda update_cash_register = true via socket principal (até 30s)
+function waitForCashRegister(): Promise<boolean> {
+  return new Promise(resolve => {
+    // Verifica estado atual via listener temporário
+    const tid = setTimeout(() => {
+      socket.off('update_cash_register', handler);
+      resolve(false);
+    }, 30000);
+
+    const handler = (isOpen: boolean) => {
+      if (isOpen) {
+        clearTimeout(tid);
+        socket.off('update_cash_register', handler);
+        resolve(true);
+      }
+    };
+
+    socket.on('update_cash_register', handler);
+
+    // Solicita estado imediato via re-conexão de dados
+    socket.emit('request_state');
+
+    // Se já estava aberto antes do listener, resolve pelo init_data
+    const initHandler = (data: any) => {
+      if (data?.isCashRegisterOpen) {
+        clearTimeout(tid);
+        socket.off('update_cash_register', handler);
+        socket.off('init_data', initHandler);
+        resolve(true);
+      }
+    };
+    socket.once('init_data', initHandler);
+  });
 }
 
 function spawnWaiter(index: number) {
@@ -199,6 +245,17 @@ function spawnWaiter(index: number) {
     sock.emit('waiter_register', { name, cpf, phone, password: 'teste123' });
     m.registered++;
     addLog(name, `📋 Cadastro enviado — aguardando aprovação ADM`, 'info');
+
+    // Bug 3 fix: timeout de aprovação — se não aprovado em 60s, desconta do activeCount
+    setTimeout(() => {
+      if (!active && !stopped) {
+        stopped = true;
+        m.errors.push(`Aprovação não recebida em ${APPROVE_TIMEOUT / 1000}s`);
+        addLog(name, `⏱ Timeout de aprovação — garçom ignorado`, 'warn');
+        m.activeCount--;
+        if (m.activeCount <= 0) finalize();
+      }
+    }, APPROVE_TIMEOUT);
   });
 
   sock.on('waiter_approved', ({ status }: { status: string }) => {
@@ -266,6 +323,11 @@ function spawnWaiter(index: number) {
           : { tableId, isComanda: false, items: [cartItem], observations: '', waiterName: name };
       }
 
+      // Bug 1 fix: confirmação por correlação de ID, não por qualquer update
+      // Guarda o ID do item/pedido para verificar se o update contém o que esperamos
+      const expectedItemId = cartItem.id;
+      const expectedTableId = tableId;
+
       sock.emit(event, payload);
 
       await new Promise<void>(res => {
@@ -273,8 +335,8 @@ function spawnWaiter(index: number) {
         const settle = (ok: boolean) => {
           if (done) return;
           done = true;
-          sock.off('update_orders', onConfirm);
-          sock.off('update_tables', onConfirm);
+          sock.off('update_orders', onOrderUpdate);
+          sock.off('update_tables', onTableUpdate);
           clearTimeout(tid);
           const lat = Date.now() - t0;
           m.latencies.push(lat);
@@ -288,9 +350,40 @@ function spawnWaiter(index: number) {
           }
           res();
         };
-        const onConfirm = () => settle(true);
-        sock.once('update_orders', onConfirm);
-        sock.once('update_tables', onConfirm);
+
+        const onOrderUpdate = (orders: any[]) => {
+          // Confirma somente se o update contém o item desta operação
+          if (event === 'add_item_to_order') {
+            const found = orders.some((o: any) =>
+              (o.items || []).some((i: any) => i.id === expectedItemId)
+            );
+            if (found) settle(true);
+          } else if (event === 'new_order') {
+            // Para new_order, confirma se a mesa está ocupada agora
+            const tableNowOccupied = tablesData.find((t: any) =>
+              t.id === expectedTableId && t.status !== 'free'
+            );
+            if (tableNowOccupied) settle(true);
+            // Ou se há uma order com o item
+            const found = orders.some((o: any) =>
+              String(o.tableId) === String(expectedTableId) &&
+              (o.items || []).some((i: any) => i.id === expectedItemId)
+            );
+            if (found) settle(true);
+          }
+        };
+
+        const onTableUpdate = (tbl: any[]) => {
+          if (event === 'new_order') {
+            const tableNowOccupied = tbl.find((t: any) =>
+              t.id === expectedTableId && t.status !== 'free'
+            );
+            if (tableNowOccupied) settle(true);
+          }
+        };
+
+        sock.on('update_orders', onOrderUpdate);
+        sock.on('update_tables', onTableUpdate);
         const tid = setTimeout(() => settle(false), CONFIRM_TIMEOUT);
       });
     }
