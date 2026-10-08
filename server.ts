@@ -112,30 +112,6 @@ async function startServer() {
     }
   };
 
-  // ── Throttled broadcast: agrupa emits rápidos num único envio ──────────────
-  // io.emit("update_orders") é caro: serializa o array inteiro para cada cliente.
-  // Com 25 garçons lançando simultaneamente, sem throttle são 25 broadcasts.
-  // Com throttle de 50ms, viram 1-2 broadcasts com o estado mais recente.
-  let _ordersThrottleTimer: ReturnType<typeof setTimeout> | null = null;
-  let _tablesThrottleTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const emitOrders = () => {
-    if (_ordersThrottleTimer) return;
-    _ordersThrottleTimer = setTimeout(() => {
-      _ordersThrottleTimer = null;
-      io.emit("update_orders", orders);
-    }, 50);
-  };
-
-  const emitTables = () => {
-    if (_tablesThrottleTimer) return;
-    _tablesThrottleTimer = setTimeout(() => {
-      _tablesThrottleTimer = null;
-      io.emit("update_tables", tables);
-      io.emit("update_comandas", comandas);
-    }, 50);
-  };
-
   // ── Write queue: debounced async writes, sem bloquear o event loop ────────
   // Agrupa writes rápidos do mesmo registro (ex: vários itens na mesma order)
   // num único upsert. O socket responde imediatamente; o write vai em background.
@@ -592,7 +568,7 @@ async function startServer() {
         waiterName,
       });
 
-      emitOrders();
+      io.emit("update_orders", orders);
 
       saveToSupabase('orders', order, String(orderId)).catch(() => {});
     });
@@ -603,7 +579,7 @@ async function startServer() {
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
-      emitOrders();
+      io.emit("update_orders", orders);
       enqueueWrite('orders', order, String(order.id));
     });
 
@@ -613,7 +589,7 @@ async function startServer() {
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'oven';
-      emitOrders();
+      io.emit("update_orders", orders);
       enqueueWrite('orders', order, String(order.id));
     });
 
@@ -623,7 +599,7 @@ async function startServer() {
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
-      emitOrders();
+      io.emit("update_orders", orders);
       enqueueWrite('orders', order, String(order.id));
     });
 
@@ -827,7 +803,7 @@ async function startServer() {
               ? `${existingOrder.observations} | ${orderData.observations}` 
               : orderData.observations;
           }
-          emitOrders();
+          io.emit("update_orders", orders);
           if (itemsWithWaiter.length > 0) {
             io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           }
@@ -851,11 +827,13 @@ async function startServer() {
       orders.push(newOrder);
 
       // Emit updates immediately for faster UI
-      emitOrders();
+      io.emit("update_orders", orders);
       if (isComanda) {
-        emitTables();
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
       } else {
-        emitTables();
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
       }
       io.emit("update_stock", stock);
       if ((newOrder.items || []).length > 0) {
@@ -882,7 +860,8 @@ async function startServer() {
               saveToSupabase(collName, c, c.id.toString());
             }
           });
-          emitTables();
+          io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
         } else {
           tables.forEach(t => {
             if (t.id === targetId || t.linkedTo === targetId) {
@@ -891,7 +870,8 @@ async function startServer() {
               saveToSupabase(collName, t, t.id.toString());
             }
           });
-          emitTables();
+          io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
         }
         
         console.log("Emitted final table updates for new order");
@@ -1240,7 +1220,7 @@ async function startServer() {
         order.items.push(itemWithTimestamp);
 
         // Emit immediately for fast UI
-        emitOrders();
+        io.emit("update_orders", orders);
         io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
 
         // Non-blocking: respond to socket immediately, persist in background
@@ -1255,7 +1235,7 @@ async function startServer() {
       const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order && Array.isArray(guests)) {
         (order as any).guests = guests;
-        emitOrders();
+        io.emit("update_orders", orders);
         enqueueWrite('orders', order, String(order.id));
       }
     });
@@ -1266,7 +1246,7 @@ async function startServer() {
         const item = (order.items || []).find((i: any) => i.id === itemId);
         if (item) {
           (item as any).guestName = guestName || undefined;
-          emitOrders();
+          io.emit("update_orders", orders);
           enqueueWrite('orders', order, String(order.id));
         }
       }
@@ -1314,7 +1294,7 @@ async function startServer() {
             item.removalReason = reason || "";
           }
           enqueueWrite('orders', order, String(order.id));
-          emitOrders();
+          io.emit("update_orders", orders);
         }
       }
     });
@@ -1432,8 +1412,9 @@ async function startServer() {
               }
             });
 
-            emitOrders();
-            emitTables();
+            io.emit("update_orders", orders);
+            io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
             await saveToSupabase('orders', order, String(order.id));
             for (const item of entitiesToUpdate) {
               await saveToSupabase(item.collection, item.entity, String(item.entity.id));
@@ -1460,8 +1441,9 @@ async function startServer() {
         }
 
         // Emit updates IMMEDIATELY for UI responsiveness
-        emitOrders();
-        emitTables();
+        io.emit("update_orders", orders);
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
         
         await saveToSupabase('orders', order, String(order.id));
       }
@@ -1543,8 +1525,9 @@ async function startServer() {
           if (tOrder) await saveToSupabase('orders', tOrder, tOrder.id.toString());
         }
 
-        emitTables();
-        emitOrders();
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
+        io.emit("update_orders", orders);
       }
     }));
 
@@ -1607,8 +1590,9 @@ async function startServer() {
           if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id);
         }
 
-        emitTables();
-        emitOrders();
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
+        io.emit("update_orders", orders);
       }
     });
 
@@ -1728,8 +1712,9 @@ async function startServer() {
       // Emit immediately with the correct in-memory state BEFORE async Firestore saves.
       // This prevents the Firestore onSnapshot (triggered by saveToSupabase) from racing
       // and emitting stale data that overwrites the correct state on clients.
-      emitOrders();
-      emitTables();
+      io.emit("update_orders", orders);
+      io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
       console.log(`[transfer_items] emitted updates â€" persisting to Firestore`);
 
       // Persist to Firestore (onSnapshot will re-emit after each save with the same correct data)
@@ -1759,7 +1744,7 @@ async function startServer() {
           order.discountType = discountType;
         }
         await saveToSupabase('orders', order, order.id);
-        emitOrders();
+        io.emit("update_orders", orders);
       }
     }));
 
@@ -1787,8 +1772,9 @@ async function startServer() {
         }
       });
 
-      emitOrders();
-      emitTables();
+      io.emit("update_orders", orders);
+      io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
 
       await saveToSupabase('orders', order, String(order.id));
       for (const item of entitiesToUpdate) {
@@ -1802,7 +1788,7 @@ async function startServer() {
       if (order) {
         order.status = status;
         await saveToSupabase('orders', order, order.id);
-        emitOrders();
+        io.emit("update_orders", orders);
       }
     });
 
@@ -1813,9 +1799,11 @@ async function startServer() {
         table.status = "bill_requested";
         await saveToSupabase(isComanda ? 'comandas' : 'tables', table, table.id.toString());
         if (isComanda) {
-          emitTables();
+          io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
         } else {
-          emitTables();
+          io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
         }
       }
     });
@@ -1870,8 +1858,9 @@ async function startServer() {
         }
 
         // Persist all freed entities
-        emitTables();
-        emitOrders();
+        io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
+        io.emit("update_orders", orders);
 
         for (const entity of entitiesToFree) {
           await saveToSupabase(isComanda ? 'comandas' : 'tables', entity, entity.id.toString());
@@ -1910,9 +1899,10 @@ async function startServer() {
 
       isCashRegisterOpen = false;
 
-      emitOrders();
+      io.emit("update_orders", orders);
       io.emit("update_stock_log", stockLog);
-      emitTables();
+      io.emit("update_tables", tables);
+        io.emit("update_comandas", comandas);
       io.emit("update_cash_register", false);
 
       // Persist reset to Supabase
