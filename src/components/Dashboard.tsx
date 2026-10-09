@@ -486,10 +486,16 @@ const OrderDetails = ({
             </button>
           ) : (
             <button
-              onClick={() => hasItems && pendingAmount > 0.01 && setIsPaymentModalOpen(true)}
-              disabled={!hasItems || pendingAmount <= 0.01}
+              onClick={() => {
+                if (currentItem?.status === 'linked') {
+                  toast.warning(`Mesa vinculada. Realize o pagamento na Mesa ${currentItem.linkedTo}.`);
+                  return;
+                }
+                hasItems && pendingAmount > 0.01 && setIsPaymentModalOpen(true);
+              }}
+              disabled={currentItem?.status !== 'linked' && (!hasItems || pendingAmount <= 0.01)}
               className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
-                hasItems && pendingAmount > 0.01
+                currentItem?.status === 'linked' || (hasItems && pendingAmount > 0.01)
                   ? 'bg-green-600 hover:bg-green-700 text-white'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
@@ -533,11 +539,15 @@ const OrderDetails = ({
               <History size={20} />
             </button>
             <span className={`text-xs px-2 py-1 rounded-full font-bold uppercase ${
-              currentItem?.status === 'free' ? 'bg-gray-100' : 'bg-[#141414] text-[#E4E3E0]'
+              currentItem?.status === 'free' ? 'bg-gray-100 text-[#141414]'
+              : currentItem?.status === 'linked' ? 'bg-blue-100 text-blue-700'
+              : 'bg-[#141414] text-[#E4E3E0]'
             }`}>
-              {currentItem?.status === 'occupied' ? 'ocupada' : 
-               currentItem?.status === 'free' ? 'livre' : 
-               currentItem?.status}
+              {currentItem?.status === 'occupied' ? 'ocupada'
+               : currentItem?.status === 'free' ? 'livre'
+               : currentItem?.status === 'linked' ? `Juntou c/ Mesa ${currentItem.linkedTo}`
+               : currentItem?.status === 'aguardando_baixa' ? 'Ag. Baixa'
+               : currentItem?.status}
             </span>
           </div>
         </div>
