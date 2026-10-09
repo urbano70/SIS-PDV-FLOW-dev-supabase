@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Flame, StopCircle, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Flame, StopCircle, CheckCircle, AlertTriangle, Trash2 } from 'lucide-react';
 import socket from '../lib/socket';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -64,11 +64,12 @@ function pickItem(menu: any[]): any | null {
 // ── Estado de módulo — sobrevive desmontagem do componente ────────────────────
 const _sockets:   Socket[]   = [];
 const _waiterIds: string[]   = [];
-let   _stopFlag   = false;
-let   _finalized  = false;
-let   _running    = false;
-let   _stopping   = false;
-let   _report:    Report | null = null;
+let   _stopFlag     = false;
+let   _finalized    = false;
+let   _running      = false;
+let   _stopping     = false;
+let   _report:      Report | null = null;
+let   _showCleanup  = false;
 let   _log:       LogLine[] = [];
 const _metrics = {
   registered: 0, approved: 0, inactivated: 0,
@@ -118,9 +119,10 @@ function finalize() {
   _finalized = true;
   _sockets.forEach(s => { try { s.disconnect(); } catch {} });
   _sockets.length = 0;
-  _report  = buildReport();
-  _running  = false;
-  _stopping = false;
+  _report     = buildReport();
+  _running    = false;
+  _stopping   = false;
+  _showCleanup = true;
   addLog('SISTEMA', 'Teste encerrado — relatório gerado.', 'info');
 }
 
@@ -140,13 +142,14 @@ async function stopTest() {
 }
 
 async function startTest() {
-  _stopFlag   = false;
-  _finalized  = false;
-  _log        = [];
-  _waiterIds.length  = 0;
-  _sockets.length    = 0;
-  _report     = null;
-  _stopping   = false;
+  _stopFlag    = false;
+  _finalized   = false;
+  _log         = [];
+  _waiterIds.length = 0;
+  _sockets.length   = 0;
+  _report      = null;
+  _stopping    = false;
+  _showCleanup = false;
   Object.assign(_metrics, {
     registered: 0, approved: 0, inactivated: 0,
     attempted: 0, ok: 0, failed: 0,
@@ -379,10 +382,25 @@ export function TesteDeForgo() {
     return () => { _notifyRender = null; };
   }, []);
 
-  const running  = _running;
-  const stopping = _stopping;
-  const log      = _log;
-  const report   = _report;
+  const running     = _running;
+  const stopping    = _stopping;
+  const log         = _log;
+  const report      = _report;
+  const showCleanup = _showCleanup;
+  const [cleanWaiters, setCleanWaiters] = useState(true);
+  const [cleanData,    setCleanData]    = useState(false);
+  const [cleaning,     setCleaning]     = useState(false);
+  const [cleaned,      setCleaned]      = useState(false);
+
+  const runCleanup = async () => {
+    setCleaning(true);
+    socket.emit('cleanup_test_data', { deleteWaiters: cleanWaiters, deleteData: cleanData });
+    await new Promise(r => setTimeout(r, 800));
+    _showCleanup = false;
+    setCleaning(false);
+    setCleaned(true);
+    notifyAll();
+  };
 
   const verdictColor = !report ? '' :
     report.verdict === 'excellent' ? 'text-emerald-600' :
@@ -460,6 +478,44 @@ export function TesteDeForgo() {
           {report.errors.length === 0 && (
             <p className="text-[9px] text-emerald-600 flex items-center gap-1"><CheckCircle size={9} /> Nenhum erro registrado.</p>
           )}
+        </div>
+      )}
+
+      {showCleanup && !cleaned && (
+        <div className="mt-3 pt-3 border-t border-[#141414]/10">
+          <p className="text-[10px] font-bold flex items-center gap-1 mb-2"><Trash2 size={10} className="text-red-500" /> Limpeza pós-teste</p>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={cleanWaiters} onChange={e => setCleanWaiters(e.target.checked)} className="rounded" />
+              <span className="text-[9px]">Excluir garçons do teste (<span className="font-mono">Garcom_Fogo_*</span>)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={cleanData} onChange={e => setCleanData(e.target.checked)} className="rounded" />
+              <span className="text-[9px]">Excluir pedidos e itens lançados pelo teste</span>
+            </label>
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={runCleanup}
+              disabled={cleaning || (!cleanWaiters && !cleanData)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-600 text-white text-[9px] font-bold hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              <Trash2 size={9} />
+              {cleaning ? 'Limpando…' : 'Confirmar limpeza'}
+            </button>
+            <button
+              onClick={() => { _showCleanup = false; notifyAll(); }}
+              className="px-3 py-1.5 rounded-lg bg-gray-100 text-[#141414] text-[9px] font-bold hover:bg-gray-200 transition-colors"
+            >
+              Manter dados
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cleaned && (
+        <div className="mt-2 text-[9px] text-emerald-600 flex items-center gap-1 font-bold">
+          <CheckCircle size={9} /> Limpeza concluída.
         </div>
       )}
 

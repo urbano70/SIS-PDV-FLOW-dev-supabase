@@ -600,10 +600,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <span className={`text-[9px] uppercase font-bold px-2 py-1 rounded-full ${
                   tableData?.status === 'free' ? 'bg-gray-100 text-gray-500'
                   : tableData?.status === 'aguardando_baixa' ? 'bg-purple-100 text-purple-700 animate-pulse'
+                  : tableData?.status === 'linked' ? 'bg-blue-100 text-blue-700'
                   : 'bg-amber-100 text-amber-700'
                 }`}>
                   {tableData?.status === 'free' ? 'Livre'
                     : tableData?.status === 'aguardando_baixa' ? 'Ag. Baixa no Caixa'
+                    : tableData?.status === 'linked' ? `Juntou c/ Mesa ${tableData.linkedTo}`
                     : 'Ocupada'}
                 </span>
                 {tableData && (() => {
@@ -925,7 +927,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </button>
                   {(pizzariaConfig?.waiterCanPay ?? true) && (
                     <button
-                      onClick={() => setIsPaymentModalOpen(true)}
+                      onClick={() => {
+                        if (tableData?.status === 'linked') {
+                          alert(`Esta mesa está vinculada. Realize o pagamento na Mesa ${tableData.linkedTo}.`);
+                          return;
+                        }
+                        setIsPaymentModalOpen(true);
+                      }}
                       disabled={!currentOrder || pendingAmount <= 0.01}
                       className="flex-1 py-4 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
                     >
