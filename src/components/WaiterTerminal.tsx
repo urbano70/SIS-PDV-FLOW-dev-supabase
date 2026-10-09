@@ -919,7 +919,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div className="flex space-x-3">
                   <button
                     onClick={() => setIsAddingItems(true)}
-                    disabled={!isCashRegisterOpen}
+                    disabled={!isCashRegisterOpen || tableData?.status === 'linked'}
                     className="flex-1 py-4 bg-[#141414] text-[#E4E3E0] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
                   >
                     <Plus size={20} />
@@ -929,12 +929,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     <button
                       onClick={() => {
                         if (tableData?.status === 'linked') {
-                          alert(`Esta mesa está vinculada. Realize o pagamento na Mesa ${tableData.linkedTo}.`);
+                          toast.warning(`Mesa vinculada. Realize o pagamento na Mesa ${tableData.linkedTo}.`);
                           return;
                         }
                         setIsPaymentModalOpen(true);
                       }}
-                      disabled={!currentOrder || pendingAmount <= 0.01}
+                      disabled={tableData?.status !== 'linked' && (!currentOrder || pendingAmount <= 0.01)}
                       className="flex-1 py-4 bg-[#141414] rounded-3xl font-bold text-base flex items-center justify-center space-x-2 active:scale-95 transition-transform disabled:opacity-40"
                     >
                       <Wallet size={20} className="text-green-400" />
