@@ -5720,6 +5720,93 @@ export default function Dashboard({
                     );
                   }
 
+                  const reprintOrder = (order: any) => {
+                    const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
+                    const tid = isComandaSelected ? selectedComandaId : selectedTableId;
+                    const waiterName = waiters.find((w: any) => String(w.id) === String(order.waiterId))?.name || 'N/A';
+                    const activeItems = (order.items || []).filter((i: any) => !i.removed);
+                    const total = activeItems.reduce((acc: number, i: any) => {
+                      let price = i.price;
+                      if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
+                      return acc + price;
+                    }, 0);
+                    let finalTotal = total;
+                    if (order.discount) { if (order.discountType === 'percentage') finalTotal *= (1 - order.discount / 100); else finalTotal = Math.max(0, finalTotal - order.discount); }
+                    const totalPaid = (order.paymentLog || []).reduce((acc: number, p: any) => acc + p.amount, 0);
+
+                    const receiptPrinterName = printerConfig.receipts;
+                    const printer = receiptPrinterName ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName) : null;
+                    const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
+
+                    if (printer?.ip) {
+                      const lineLen = is50mm ? 32 : 48;
+                      const b: number[] = [];
+                      const push = (...bytes: number[]) => b.push(...bytes);
+                      const lf = () => push(0x0A);
+                      const text = (s: string) => push(...escStr(s));
+                      const ln = () => { text('-'.repeat(lineLen)); lf(); };
+                      const center = () => push(0x1B, 0x61, 0x01);
+                      const left = () => push(0x1B, 0x61, 0x00);
+                      const bold = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
+                      push(0x1B, 0x40);
+                      center(); bold(true); text((printerConfig.establishmentName || 'ESTABELECIMENTO').toUpperCase()); lf(); bold(false);
+                      if (printerConfig.address) { text(printerConfig.address); lf(); }
+                      lf(); bold(true); text('*** REIMPRESSAO ***'); lf(); bold(false); ln(); left();
+                      text(`${tableType}: ${tid}`); lf();
+                      text(`Garcom: ${waiterName}`); lf();
+                      text(`Pedido: #${order.id}`); lf();
+                      text(`Data: ${new Date(order.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`); lf();
+                      ln();
+                      activeItems.forEach((item: any) => {
+                        const label = `${item.quantity || 1}x ${item.name}`;
+                        let price = item.price;
+                        if (item.discount) { if (item.discountType === 'percentage') price *= (1 - item.discount / 100); else price = Math.max(0, price - item.discount); }
+                        const priceStr = `R$ ${price.toFixed(2)}`;
+                        const spaces = Math.max(1, lineLen - label.length - priceStr.length);
+                        if (printerConfig.boldItems) bold(true);
+                        text(label + ' '.repeat(spaces) + priceStr); lf();
+                        if (printerConfig.boldItems) bold(false);
+                      });
+                      ln(); bold(true);
+                      const totLabel = 'TOTAL:'; const totVal = `R$ ${finalTotal.toFixed(2)}`;
+                      text(totLabel + ' '.repeat(Math.max(1, lineLen - totLabel.length - totVal.length)) + totVal); lf();
+                      bold(false);
+                      if (order.paymentLog?.length > 0) {
+                        ln(); text('Pagamentos:'); lf();
+                        (order.paymentLog || []).forEach((p: any) => { text(`  ${p.method}: R$ ${p.amount.toFixed(2)}`); lf(); });
+                        if (totalPaid > 0) { text(`Pago: R$ ${totalPaid.toFixed(2)}`); lf(); }
+                      }
+                      if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
+                      push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10);
+                      socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                      toast.success('Reimpressão enviada', { description: `Pedido #${order.id} · ${tableType} ${tid}` });
+                    } else {
+                      const _pw = is50mm ? '192px' : '304px';
+                      const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
+                      const printWindow = window.open('', '_blank');
+                      if (printWindow) {
+                        const html = `<html><head><title>Reimpressao ${tableType} ${tid}</title>
+                          <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
+                          .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
+                          @media print{body{width:100%;margin:0}}</style></head><body>
+                          <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>
+                          ${printerConfig.address ? printerConfig.address + '<br/>' : ''}
+                          <b>*** REIMPRESSAO ***</b></div>
+                          <div class="sep"></div>
+                          <div>${tableType}: ${tid}<br/>Garcom: ${waiterName}<br/>Pedido: #${order.id}<br/>${new Date(order.timestamp).toLocaleString('pt-BR')}</div>
+                          <div class="sep"></div>
+                          ${activeItems.map((i: any) => { let price = i.price; if (i.discount) { if (i.discountType==='percentage') price *= (1-i.discount/100); else price=Math.max(0,price-i.discount);} return `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${price.toFixed(2)}</span></div>`; }).join('')}
+                          <div class="sep"></div>
+                          <div style="text-align:right"><b>TOTAL: R$ ${finalTotal.toFixed(2)}</b></div>
+                          ${order.paymentLog?.length > 0 ? `<div class="sep"></div><div><b>Pagamentos:</b><br/>${(order.paymentLog||[]).map((p: any)=>`${p.method}: R$ ${p.amount.toFixed(2)}`).join('<br/>')}</div>` : ''}
+                          <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
+                          <script>window.onload=()=>{window.print();window.close()}</script></body></html>`;
+                        printWindow.document.write(html);
+                        printWindow.document.close();
+                      }
+                    }
+                  };
+
                   return tableHistory.map(order => (
                     <div key={order.id} className="border border-[#141414]/10 rounded-2xl p-6 space-y-4">
                       <div className="flex justify-between items-start">
@@ -5727,11 +5814,21 @@ export default function Dashboard({
                           <p className="text-[10px] uppercase font-bold opacity-30">Pedido #{order.id}</p>
                           <p className="text-xs font-mono opacity-50">{new Date(order.timestamp).toLocaleTimeString()}</p>
                         </div>
-                        <span className={`px-2 py-1 rounded-full text-[8px] uppercase font-bold ${
-                          order.status === 'finalizada' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {order.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => reprintOrder(order)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-[#141414] text-[9px] font-bold uppercase transition-colors"
+                            title="Reimprimir pedido"
+                          >
+                            <Printer size={10} />
+                            Reimprimir
+                          </button>
+                          <span className={`px-2 py-1 rounded-full text-[8px] uppercase font-bold ${
+                            order.status === 'finalizada' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {order.status}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="space-y-1.5">
