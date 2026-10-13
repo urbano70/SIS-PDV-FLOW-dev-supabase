@@ -22,6 +22,7 @@ import UserPanel from './pages/UserPanel';
 import FinanceiroDashboard from './pages/FinanceiroDashboard';
 import AttendancePage from './pages/AttendancePage';
 import { ChamarGarcomPage } from './pages/ChamarGarcomPage';
+import { ClientePage } from './pages/ClientePage';
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -386,6 +387,7 @@ export default function App() {
         <Route path="/waiter" element={<WaiterRoute />} />
         <Route path="/presenca/:token" element={<AttendancePage />} />
         <Route path="/chamar/:tableId" element={<ChamarGarcomPage />} />
+        <Route path="/mesa/:mesaId" element={<ClientePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

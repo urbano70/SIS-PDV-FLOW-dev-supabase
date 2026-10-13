@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -4943,6 +4943,66 @@ export default function Dashboard({
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  {/* QR Code do Cliente por Mesa */}
+                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Smartphone className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">QR Code das Mesas</h3>
+                    </div>
+                    <p className="text-[8px] opacity-40 mb-3">Imprima e cole na mesa. O cliente acessa o menu ao escanear.</p>
+
+                    {/* Timeout de inatividade */}
+                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#141414]/8">
+                      <div>
+                        <p className="text-[8px] font-bold leading-none">Expirar sessão por inatividade</p>
+                        <p className="text-[6px] opacity-40 mt-0.5">
+                          {((pizzariaConfig as any).clientSessionTimeoutMin ?? 0) > 0
+                            ? `Expira após ${(pizzariaConfig as any).clientSessionTimeoutMin} min sem pedido`
+                            : 'Sessão expira somente ao dar baixa na mesa'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                        <input
+                          type="number"
+                          min={0}
+                          max={240}
+                          value={(pizzariaConfig as any).clientSessionTimeoutMin ?? 0}
+                          onChange={e => updatePizzeriaConfig({ ...pizzariaConfig, clientSessionTimeoutMin: Number(e.target.value) })}
+                          className="w-12 text-center text-[9px] font-bold border border-[#141414]/20 rounded-md px-1 py-1"
+                        />
+                        <span className="text-[8px] opacity-40">min</span>
+                      </div>
+                    </div>
+
+                    {/* Grid de QR Codes */}
+                    {(() => {
+                      const numMesas = pizzariaConfig.numTables ?? 10;
+                      const baseUrl = window.location.origin;
+                      return (
+                        <div className="grid grid-cols-4 gap-2">
+                          {Array.from({ length: numMesas }, (_, i) => i + 1).map(num => (
+                            <div key={num} className="flex flex-col items-center gap-1 p-2 rounded-xl border border-[#141414]/8 hover:border-[#141414]/20 transition-colors">
+                              <QRCodeSVG value={`${baseUrl}/mesa/${num}`} size={56} fgColor="#141414" bgColor="#ffffff" />
+                              <p className="text-[8px] font-bold">Mesa {num}</p>
+                              <button
+                                onClick={() => {
+                                  const w = window.open('', '_blank');
+                                  if (w) {
+                                    w.document.write(`<html><head><title>QR Mesa ${num}</title><style>body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}.card{border:2px solid #141414;border-radius:16px;padding:24px;text-align:center;max-width:200px}h2{font-size:18px;margin:12px 0 4px}p{font-size:11px;opacity:.4;margin:0}@media print{body{margin:0}}</style></head><body><div class="card"><img src="${`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`${baseUrl}/mesa/${num}`)}`}" width="160" height="160"/><h2>Mesa ${num}</h2><p>Escaneie para acessar o menu</p></div><script>window.onload=()=>window.print()</script></body></html>`);
+                                    w.document.close();
+                                  }
+                                }}
+                                className="text-[7px] font-bold text-blue-600 hover:text-blue-800 underline"
+                              >
+                                Imprimir
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Dados */}
