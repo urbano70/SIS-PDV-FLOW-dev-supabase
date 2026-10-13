@@ -2470,19 +2470,19 @@ export default function Dashboard({
                                     setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
                                   }
                                 }}
-                                className={`relative aspect-square rounded-lg border-2 transition-all duration-200 w-full shadow-sm flex flex-col items-center justify-center gap-0.5 ${
+                                className={`relative aspect-square rounded-lg border-2 transition-all duration-300 w-full flex flex-col items-center justify-center gap-0.5 hover:scale-[1.06] hover:-translate-y-0.5 ${
                                   selectedTableId === table.id && !isComandaSelected ? 'ring-2 ring-offset-1 ring-[#141414]/40' : ''
                                 } ${(() => {
                                   const pc = getPizzeriaTableColor(table.id, false);
-                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-green-100';
-                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-yellow-100';
-                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-orange-100';
-                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-red-100';
-                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35';
-                                  if (table.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-[#141414]/20';
-                                  if (table.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-purple-100';
-                                  if (table.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700';
-                                  return 'border-yellow-500 bg-yellow-50 animate-pulse';
+                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-md shadow-green-300/60 hover:shadow-lg hover:shadow-green-400/70';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-md shadow-yellow-300/60 hover:shadow-lg hover:shadow-yellow-400/70';
+                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-md shadow-orange-300/60 hover:shadow-lg hover:shadow-orange-400/70';
+                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-md shadow-red-300/60 hover:shadow-lg hover:shadow-red-500/70';
+                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
+                                  if (table.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
+                                  if (table.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-md shadow-purple-300/60 hover:shadow-lg hover:shadow-purple-500/70';
+                                  if (table.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700 shadow-sm shadow-blue-200/60 hover:shadow-md hover:shadow-blue-400/50';
+                                  return 'border-yellow-500 bg-yellow-50 animate-pulse shadow-sm hover:shadow-md hover:shadow-yellow-400/50';
                                 })()}`}
                               >
                                 <p className="text-[9px] uppercase tracking-widest font-bold leading-none">Mesa</p>
@@ -2547,19 +2547,19 @@ export default function Dashboard({
                                     setInactivityPopup({ tableId: comanda.id, isComanda: true, minutes: getInactivityMinutes(comanda.id, true) });
                                   }
                                 }}
-                                className={`relative aspect-square rounded-lg border-2 transition-all duration-200 w-full shadow-sm flex flex-col items-center justify-center gap-0.5 ${
+                                className={`relative aspect-square rounded-lg border-2 transition-all duration-300 w-full flex flex-col items-center justify-center gap-0.5 hover:scale-[1.06] hover:-translate-y-0.5 ${
                                   selectedComandaId === comanda.id && isComandaSelected ? 'ring-2 ring-offset-1 ring-[#141414]/40' : ''
                                 } ${(() => {
                                   const pc = getPizzeriaTableColor(comanda.id, true);
-                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-green-100';
-                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-yellow-100';
-                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-orange-100';
-                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-red-100';
-                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35';
-                                  if (comanda.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-[#141414]/20';
-                                  if (comanda.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-purple-100';
-                                  if (comanda.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700';
-                                  return 'border-yellow-500 bg-yellow-50 animate-pulse';
+                                  if (pc === 'green') return 'border-green-500 bg-gradient-to-b from-green-400 to-green-500 text-white shadow-md shadow-green-300/60 hover:shadow-lg hover:shadow-green-400/70';
+                                  if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-md shadow-yellow-300/60 hover:shadow-lg hover:shadow-yellow-400/70';
+                                  if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-md shadow-orange-300/60 hover:shadow-lg hover:shadow-orange-400/70';
+                                  if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-md shadow-red-300/60 hover:shadow-lg hover:shadow-red-500/70';
+                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
+                                  if (comanda.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
+                                  if (comanda.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-md shadow-purple-300/60 hover:shadow-lg hover:shadow-purple-500/70';
+                                  if (comanda.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700 shadow-sm shadow-blue-200/60 hover:shadow-md hover:shadow-blue-400/50';
+                                  return 'border-yellow-500 bg-yellow-50 animate-pulse shadow-sm hover:shadow-md hover:shadow-yellow-400/50';
                                 })()}`}
                               >
                                 <p className="text-[7px] uppercase tracking-widest opacity-55 font-bold leading-none">Com.</p>
