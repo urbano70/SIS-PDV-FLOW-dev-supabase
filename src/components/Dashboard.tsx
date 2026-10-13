@@ -4928,6 +4928,20 @@ export default function Dashboard({
                           <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
                         </button>
                       </div>
+
+                      {/* Garçom pode cancelar item */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <X size={10} className="opacity-50" />
+                          <div>
+                            <p className="text-[8px] font-bold leading-none">Garçom pode cancelar item</p>
+                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanCancelItem ?? false) ? 'Garçom pode remover itens do pedido.' : 'Somente o caixa pode cancelar itens.'}</p>
+                          </div>
+                        </div>
+                        <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanCancelItem: !(pizzariaConfig.waiterCanCancelItem ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'translate-x-4' : ''}`} />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -5725,6 +5739,7 @@ export default function Dashboard({
                     const tid = isComandaSelected ? selectedComandaId : selectedTableId;
                     const waiterName = waiters.find((w: any) => String(w.id) === String(order.waiterId))?.name || 'N/A';
                     const activeItems = (order.items || []).filter((i: any) => !i.removed);
+                    const cancelledItems = (order.items || []).filter((i: any) => i.removed);
                     const total = activeItems.reduce((acc: number, i: any) => {
                       let price = i.price;
                       if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
@@ -5767,6 +5782,14 @@ export default function Dashboard({
                         text(label + ' '.repeat(spaces) + priceStr); lf();
                         if (printerConfig.boldItems) bold(false);
                       });
+                      if (cancelledItems.length > 0) {
+                        ln(); bold(true); text('ITENS CANCELADOS:'); lf(); bold(false);
+                        cancelledItems.forEach((item: any) => {
+                          text(`  [CANCELADO] ${item.quantity || 1}x ${item.name}`); lf();
+                          if (item.removedBy) { text(`    Por: ${item.removedBy}`); lf(); }
+                          if (item.removalReason) { text(`    Motivo: ${item.removalReason}`); lf(); }
+                        });
+                      }
                       ln(); bold(true);
                       const totLabel = 'TOTAL:'; const totVal = `R$ ${finalTotal.toFixed(2)}`;
                       text(totLabel + ' '.repeat(Math.max(1, lineLen - totLabel.length - totVal.length)) + totVal); lf();
@@ -5796,6 +5819,7 @@ export default function Dashboard({
                           <div>${tableType}: ${tid}<br/>Garcom: ${waiterName}<br/>Pedido: #${order.id}<br/>${new Date(order.timestamp).toLocaleString('pt-BR')}</div>
                           <div class="sep"></div>
                           ${activeItems.map((i: any) => { let price = i.price; if (i.discount) { if (i.discountType==='percentage') price *= (1-i.discount/100); else price=Math.max(0,price-i.discount);} return `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${price.toFixed(2)}</span></div>`; }).join('')}
+                          ${cancelledItems.length > 0 ? `<div class="sep"></div><div style="color:#cc0000"><b>ITENS CANCELADOS:</b><br/>${cancelledItems.map((i: any)=>`<span style="text-decoration:line-through">${i.quantity||1}x ${i.name}</span>${i.removedBy ? ` — Por: ${i.removedBy}` : ''}${i.removalReason ? ` (${i.removalReason})` : ''}`).join('<br/>')}</div>` : ''}
                           <div class="sep"></div>
                           <div style="text-align:right"><b>TOTAL: R$ ${finalTotal.toFixed(2)}</b></div>
                           ${order.paymentLog?.length > 0 ? `<div class="sep"></div><div><b>Pagamentos:</b><br/>${(order.paymentLog||[]).map((p: any)=>`${p.method}: R$ ${p.amount.toFixed(2)}`).join('<br/>')}</div>` : ''}

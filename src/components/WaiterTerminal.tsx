@@ -838,6 +838,19 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           <span className={`font-mono font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
                             R$ {item.price.toFixed(2)}
                           </span>
+                          {(pizzariaConfig?.waiterCanCancelItem ?? false) && !item.removed && !item.paid && (
+                            <button
+                              onClick={() => {
+                                if (confirm(`Cancelar "${item.name}"?`)) {
+                                  socket.emit('remove_item', { orderId: currentOrder?.id, itemId: item.id, removedBy: 'Garçom' });
+                                }
+                              }}
+                              className="flex items-center gap-1 text-[9px] font-bold text-red-500 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-lg transition-colors active:scale-95"
+                            >
+                              <X size={9} />
+                              Cancelar
+                            </button>
+                          )}
                         </div>
                       </div>
                       );
