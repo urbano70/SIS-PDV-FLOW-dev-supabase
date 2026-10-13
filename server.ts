@@ -487,6 +487,8 @@ async function startServer() {
       socket.emit("printer_agent_accepted");
       socket.emit("printer_agent_paired"); // auto-emparelha sem código
       io.emit("printer_agent_status", { online: true });
+      // Solicita scan automático logo após conexão (agente também envia cache imediato)
+      setTimeout(() => { if (printerAgentSocket) printerAgentSocket.emit("scan_printers_request"); }, 500);
       console.log(`[agent] Agente de impressão conectado e emparelhado: ${socket.id}`);
     });
 

@@ -256,8 +256,15 @@ function startAgent({ serverUrl, agentSecret = '' }) {
 
     serverSocket.on('printer_agent_accepted', () => {
       agentStatus = 'online';
-      statusMsg = 'Agente conectado e pronto. Acesse o Dashboard → Impressoras para buscar impressoras.';
+      statusMsg = 'Agente conectado. Enviando impressoras disponíveis...';
       console.log('[agente] Conectado e pronto para uso.');
+      // Envia cache imediatamente se existir
+      if (scanResults.length > 0) {
+        console.log(`[agente] Enviando ${scanResults.length} impressora(s) do cache ao servidor.`);
+        serverSocket.emit('scan_printers_result', { printers: scanResults, cached: true });
+      }
+      // Executa scan completo e envia resultado atualizado
+      runLocalScan(false);
     });
 
     serverSocket.on('printer_agent_rejected', (reason) => {

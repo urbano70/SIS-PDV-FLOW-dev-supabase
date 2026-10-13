@@ -1560,7 +1560,10 @@ export default function Dashboard({
 
   // Status do agente de impressão local
   useEffect(() => {
-    const handleAgentStatus = (data: { online: boolean }) => setPrinterAgentOnline(data.online);
+    const handleAgentStatus = (data: { online: boolean }) => {
+      setPrinterAgentOnline(data.online);
+      if (data.online) { setScanRunning(true); setScanPrinters([]); }
+    };
     const handleInitData = (data: any) => {
       if (typeof data?.printerAgentOnline === 'boolean') setPrinterAgentOnline(data.printerAgentOnline);
     };
@@ -4580,9 +4583,18 @@ export default function Dashboard({
                       <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
                         Instale e execute o agente no PC com as impressoras. Ele conecta automaticamente.
                       </p>
+                    ) : scanRunning ? (
+                      <p className="text-[8px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 leading-relaxed flex items-center gap-1.5">
+                        <span className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                        Buscando impressoras na rede e no Windows...
+                      </p>
+                    ) : scanPrinters.length > 0 ? (
+                      <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                        {scanPrinters.length} impressora(s) encontrada(s). Clique em "Adicionar" para cadastrar.
+                      </p>
                     ) : (
                       <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                        Agente conectado! Clique em "Buscar impressoras" para listar as disponíveis.
+                        Agente conectado. Buscando impressoras automaticamente...
                       </p>
                     )}
                     <a href="/download/fechaconta-agente.exe" download
@@ -4591,11 +4603,57 @@ export default function Dashboard({
                     </a>
                     {printerAgentOnline && (
                       <button
-                        onClick={() => { setScanPrinters([]); setScanRunning(true); setScanModalOpen(true); socket.emit('scan_printers_request'); }}
+                        onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
                         className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                       >
-                        <Search size={9} /> Buscar impressoras disponíveis
+                        <Search size={9} /> {scanPrinters.length > 0 ? 'Buscar novamente' : 'Buscar impressoras disponíveis'}
                       </button>
+                    )}
+                    {/* ── Impressoras descobertas (inline) ── */}
+                    {scanPrinters.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-[#141414]/8">
+                        <p className="text-[7px] font-black uppercase tracking-wider opacity-40">Impressoras descobertas</p>
+                        {scanPrinters.map((p, i) => {
+                          const extractedIp = p.portName?.match(/(\d{1,3}(?:\.\d{1,3}){3})/)?.[1] || '';
+                          const displayName = p.localName || p.ip || '';
+                          const displaySub = p.localName
+                            ? (extractedIp ? `${extractedIp} · ${p.status || 'Pronta'}` : `${p.portName || '—'} · ${p.status || 'Pronta'}`)
+                            : `${p.ip} · Porta ${p.port}`;
+                          const alreadyAdded = (printerConfig.registeredPrinters || []).some((r: any) =>
+                            r.name === displayName || (p.ip && r.ip === p.ip)
+                          );
+                          return (
+                            <div key={i} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all ${alreadyAdded ? 'bg-green-50 border-green-200' : 'bg-white border-[#141414]/8'}`}>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-bold text-[8px] leading-tight truncate">{displayName}</p>
+                                <p className="text-[7px] opacity-40 truncate">{displaySub}</p>
+                              </div>
+                              {alreadyAdded ? (
+                                <span className="shrink-0 text-[7px] font-bold text-green-600 flex items-center gap-0.5">
+                                  <CheckCircle size={9} /> OK
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    const ip = p.ip || extractedIp;
+                                    const entry = { name: displayName, ip, port: p.port || 9100, localName: p.localName, portName: p.portName };
+                                    (setPrinterConfig as any)((prev: any) => {
+                                      const updated = { ...prev, registeredPrinters: [...(prev.registeredPrinters || []), entry] };
+                                      localStorage.setItem('printerConfig', JSON.stringify(updated));
+                                      return updated;
+                                    });
+                                    setScanAssigning(entry);
+                                    setScanModalOpen(true);
+                                  }}
+                                  className="shrink-0 text-[7px] font-bold bg-[#141414] text-white px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
+                                >
+                                  Adicionar
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
 
