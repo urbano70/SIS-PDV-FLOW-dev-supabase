@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -1064,6 +1064,8 @@ export default function Dashboard({
   const [seedSteps, setSeedSteps] = useState<string[]>([]);
   const [isSeedComplete, setIsSeedComplete] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [qrMesaModal, setQrMesaModal] = useState<{ num: number } | null>(null);
+  const [qrMesaSelected, setQrMesaSelected] = useState<number>(1);
 
   const handleSeedDatabase = async () => {
     setIsSeedModalOpen(true);
@@ -4391,67 +4393,27 @@ export default function Dashboard({
               className="flex-1 min-h-0 overflow-y-auto scrollbar-hide"
             >
               <div className="pt-2 pb-6">
-              <header className="flex items-center justify-between mb-3">
+              <header className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="font-serif italic text-xl mb-0.5">Configurações</h2>
-                  <p className="text-[9px] opacity-60 leading-none">Gerenciamento de periféricos e comportamento do sistema.</p>
+                  <p className="text-[9px] opacity-50 leading-none uppercase tracking-widest font-bold">Estabelecimento · Periféricos · Sistema</p>
                 </div>
               </header>
 
-              {/* Card: Notificações de Lançamentos */}
-              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
-                <div className="flex items-center space-x-2 mb-2">
-                  <Bell className="text-[#141414]" size={12} />
-                  <h3 className="font-serif italic text-sm leading-none flex-1">Notificações de Lançamentos</h3>
-                </div>
-                <p className="text-[9px] opacity-50 mb-2">Exibe alertas em tempo real quando um garçom lança um item.</p>
-                <div className="flex flex-col gap-1.5">
-                  {([
-                    { value: 'full', label: 'Completo', desc: 'Badge + popup a cada lançamento' },
-                    { value: 'badge', label: 'Só badge', desc: 'Apenas o número no ícone' },
-                    { value: 'disabled', label: 'Desativado', desc: 'Sem notificações' },
-                  ] as { value: NotificationMode; label: string; desc: string }[]).map(opt => (
-                    <button
-                      key={opt.value}
-                      onClick={() => handleNotificationModeChange(opt.value)}
-                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
-                        notificationMode === opt.value
-                          ? 'bg-[#141414] text-white border-[#141414]'
-                          : 'bg-transparent border-[#141414]/10 hover:bg-[#141414]/5'
-                      }`}
-                    >
-                      <span className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 ${notificationMode === opt.value ? 'bg-white border-white' : 'border-[#141414]/30'}`} />
-                      <div>
-                        <p className="text-[10px] font-bold">{opt.label}</p>
-                        <p className={`text-[9px] ${notificationMode === opt.value ? 'opacity-70' : 'opacity-40'}`}>{opt.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                {/* Botão Chama Garçom */}
-                <div className="mt-3 pt-3 border-t border-[#141414]/10">
-                  <p className="text-[9px] opacity-50 mb-1.5">Gere QR Codes para os clientes chamarem o garçom.</p>
-                  <button
-                    onClick={() => setCallWaiterModal(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold uppercase tracking-wide hover:bg-orange-600 transition-colors"
-                  >
-                    <BellRing size={11} />
-                    Configurar Chama Garçom
-                  </button>
-                </div>
+              {/* ── Seção 1: Salão & Comportamento ── */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[7.5px] font-black uppercase tracking-widest opacity-30">Salão &amp; Comportamento</span>
+                <div className="flex-1 border-t border-[#141414]/8" />
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 mb-4">
 
-              {/* Card: Teste de Fogo */}
-              <TesteDeForgo />
-
-              {/* Card: Estrutura do Salão */}
-              <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mb-2.5 max-w-md">
-                <div className="flex items-center space-x-2 mb-2 shrink-0">
-                  <LayoutDashboard className="text-[#141414]" size={12} />
+              {/* Card: Estrutura do Salão — movido para o topo do grid */}
+              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <LayoutDashboard className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Estrutura do Salão</h3>
                   {salonDirty && !isCashRegisterOpen && (
-                    <span className="text-[8px] text-amber-600 font-bold uppercase">alterações não salvas</span>
+                    <span className="text-[7px] text-amber-600 font-bold uppercase">não salvo</span>
                   )}
                   <button
                     onClick={saveSalonConfig}
@@ -4469,28 +4431,22 @@ export default function Dashboard({
                 {isCashRegisterOpen && (
                   <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1 mb-2">
                     <Lock size={9} className="text-red-500 shrink-0" />
-                    <span className="text-[8px] text-red-700 font-bold uppercase">
-                      Caixa aberto — feche o caixa para alterar a estrutura do salão
-                    </span>
+                    <span className="text-[8px] text-red-700 font-bold">Feche o caixa para alterar</span>
                   </div>
                 )}
                 {!isCashRegisterOpen && (planCfg.tablesLocked || planCfg.comandasLocked) && (
                   <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mb-2">
                     <Lock size={9} className="text-amber-600 shrink-0" />
-                    <span className="text-[8px] text-amber-700 font-bold uppercase">
-                      Plano {planKey.charAt(0).toUpperCase() + planKey.slice(1)} — algumas configurações estão bloqueadas
-                    </span>
+                    <span className="text-[8px] text-amber-700 font-bold">Plano {planKey.charAt(0).toUpperCase() + planKey.slice(1)} — limite do plano</span>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1 flex items-center gap-1">
                       Nº de Mesas {planCfg.tablesLocked && <Lock size={7} className="text-amber-500" />}
                     </label>
                     <input
-                      type="number"
-                      min="1"
-                      max="500"
+                      type="number" min="1" max="500"
                       value={planCfg.tablesLocked ? planCfg.maxTables : localNumTables}
                       readOnly={isCashRegisterOpen || planCfg.tablesLocked}
                       disabled={isCashRegisterOpen || planCfg.tablesLocked}
@@ -4499,47 +4455,36 @@ export default function Dashboard({
                     />
                   </div>
                   <div>
-                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">
-                      Limite de Garçons
-                    </label>
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">Máx. Garçons</label>
                     <input
-                      type="number"
-                      min="1"
-                      max="40"
+                      type="number" min="1" max="40"
                       value={localMaxWaiters}
                       disabled={isCashRegisterOpen}
                       onChange={(e) => !isCashRegisterOpen && setLocalMaxWaiters(Math.max(1, Math.min(40, parseInt(e.target.value) || 1)))}
                       className={`w-full border-none rounded-lg py-1.5 px-2 font-bold text-[10px] outline-none ${isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed' : 'bg-[#141414]/5 focus:ring-1 focus:ring-[#141414]'}`}
                     />
-                    <p className="text-[8px] opacity-40 mt-0.5">Máx. 40 garçons</p>
                   </div>
-                  <div className="flex flex-col justify-center">
-                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1 flex items-center gap-1">
+                  <div>
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1 flex items-center gap-1">
                       Comandas {planCfg.comandasLocked && <Lock size={7} className="text-amber-500" />}
                     </label>
                     <button
                       disabled={isCashRegisterOpen || planCfg.comandasLocked}
                       onClick={() => !isCashRegisterOpen && !planCfg.comandasLocked && updatePizzeriaConfig({ ...pizzariaConfig, comandasEnabled: !(pizzariaConfig.comandasEnabled ?? true) })}
-                      className={`px-3 py-1.5 rounded-lg font-bold text-[8px] uppercase transition-all ${
-                        isCashRegisterOpen
-                          ? 'bg-red-50 text-red-400 cursor-not-allowed'
-                          : planCfg.comandasLocked
-                          ? 'bg-[#141414]/10 text-[#141414]/30 cursor-not-allowed'
-                          : (pizzariaConfig.comandasEnabled ?? true) ? 'bg-[#141414] text-white' : 'bg-[#141414]/10 text-[#141414]/50'
+                      className={`w-full px-3 py-1.5 rounded-lg font-bold text-[8px] uppercase transition-all text-center ${
+                        isCashRegisterOpen ? 'bg-red-50 text-red-400 cursor-not-allowed'
+                        : planCfg.comandasLocked ? 'bg-[#141414]/10 text-[#141414]/30 cursor-not-allowed'
+                        : (pizzariaConfig.comandasEnabled ?? true) ? 'bg-green-500 text-white' : 'bg-[#141414]/10 text-[#141414]/50'
                       }`}
                     >
-                      {planCfg.comandasLocked
-                        ? (planCfg.comandasEnabled ? 'Ativo' : 'Inativo')
-                        : (pizzariaConfig.comandasEnabled ?? true) ? 'Ativo' : 'Inativo'}
+                      {planCfg.comandasLocked ? (planCfg.comandasEnabled ? 'Ativo' : 'Inativo') : (pizzariaConfig.comandasEnabled ?? true) ? 'Ativo' : 'Inativo'}
                     </button>
                   </div>
                   {(pizzariaConfig.comandasEnabled ?? true) && (
                     <div>
-                      <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">Nº de Comandas <span className="normal-case font-normal">(máx. 50)</span></label>
+                      <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">Nº Comandas</label>
                       <input
-                        type="number"
-                        min="1"
-                        max="50"
+                        type="number" min="1" max="50"
                         value={localNumComandas}
                         readOnly={isCashRegisterOpen}
                         disabled={isCashRegisterOpen}
@@ -4548,11 +4493,10 @@ export default function Dashboard({
                       />
                     </div>
                   )}
-                  <div>
-                    <label className="block text-[8px] font-bold uppercase opacity-50 mb-1">URL da Logo</label>
+                  <div className="col-span-2">
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">URL da Logo</label>
                     <input
-                      type="url"
-                      value={localLogoUrl}
+                      type="url" value={localLogoUrl}
                       onChange={(e) => setLocalLogoUrl(e.target.value)}
                       placeholder="https://..."
                       className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
@@ -4561,7 +4505,159 @@ export default function Dashboard({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+              {/* Card: Notificações de Lançamentos (movido para o grid) */}
+              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <Bell className="text-[#141414]" size={13} />
+                  <h3 className="font-serif italic text-sm leading-none flex-1">Notificações</h3>
+                </div>
+                <p className="text-[8px] opacity-40 mb-2.5 leading-relaxed">Alertas em tempo real quando um garçom lança um item.</p>
+                <div className="flex flex-col gap-1.5 mb-3">
+                  {([
+                    { value: 'full', label: 'Completo', desc: 'Badge + popup a cada lançamento' },
+                    { value: 'badge', label: 'Só badge', desc: 'Apenas o número no ícone' },
+                    { value: 'disabled', label: 'Desativado', desc: 'Sem notificações' },
+                  ] as { value: NotificationMode; label: string; desc: string }[]).map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleNotificationModeChange(opt.value)}
+                      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
+                        notificationMode === opt.value
+                          ? 'bg-[#141414] text-white border-[#141414]'
+                          : 'bg-transparent border-[#141414]/10 hover:bg-[#141414]/5'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full border-2 shrink-0 ${notificationMode === opt.value ? 'bg-white border-white' : 'border-[#141414]/30'}`} />
+                      <div>
+                        <p className="text-[9px] font-bold">{opt.label}</p>
+                        <p className={`text-[8px] ${notificationMode === opt.value ? 'opacity-70' : 'opacity-40'}`}>{opt.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-[#141414]/8 pt-2.5">
+                  <p className="text-[7.5px] font-black uppercase opacity-30 tracking-wider mb-1.5">Chama Garçom</p>
+                  <p className="text-[8px] opacity-40 mb-2 leading-relaxed">QR Code fixo por mesa para clientes chamarem o garçom diretamente.</p>
+                  <button
+                    onClick={() => setCallWaiterModal(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 text-white text-[9px] font-bold uppercase tracking-wide hover:bg-orange-600 transition-colors"
+                  >
+                    <BellRing size={10} /> Configurar Chama Garçom
+                  </button>
+                </div>
+              </div>
+
+              {/* Card: TesteDeForgo + Funcionamento unificado */}
+              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Settings className="text-[#141414]" size={13} />
+                  <h3 className="font-serif italic text-sm leading-none">Funcionamento</h3>
+                </div>
+
+                {/* Modo Pizzaria */}
+                <div className="rounded-xl border border-[#141414]/8 bg-[#fafafa] p-2.5 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <Pizza size={10} className="opacity-50" />
+                      <div>
+                        <p className="text-[8px] font-bold leading-none flex items-center gap-1">Modo Pizzaria {planCfg.pizzaLocked && <Lock size={7} className="text-amber-500" />}</p>
+                        <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{pizzariaConfig.enabled ? 'Cardápio pizza + alertas de tempo.' : 'Modo restaurante/lanchonete.'}</p>
+                      </div>
+                    </div>
+                    <button disabled={planCfg.pizzaLocked} onClick={() => !planCfg.pizzaLocked && updatePizzeriaConfig({ ...pizzariaConfig, enabled: !pizzariaConfig.enabled })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.pizzaLocked ? 'bg-[#141414]/10 cursor-not-allowed' : pizzariaConfig.enabled ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${!planCfg.pizzaLocked && pizzariaConfig.enabled ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  {pizzariaConfig.enabled && (
+                    <div className="bg-white rounded-lg p-2 border border-[#141414]/8 space-y-1.5">
+                      <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo</p>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {([
+                          { label: '🟡 Amarelo', val: localYellow, set: setLocalYellow, cls: 'bg-yellow-50 border-yellow-200 focus:ring-yellow-400' },
+                          { label: '🟠 Laranja', val: localOrange, set: setLocalOrange, cls: 'bg-orange-50 border-orange-200 focus:ring-orange-400' },
+                          { label: '🔴 Vermelho', val: localRed, set: setLocalRed, cls: 'bg-red-50 border-red-200 focus:ring-red-400' },
+                        ]).map(({ label, val, set, cls }) => (
+                          <div key={label}>
+                            <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">{label}</label>
+                            <input type="number" min={1} value={val} onChange={(e) => set(Math.max(1, Number(e.target.value)))} className={`w-full border rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 outline-none ${cls}`} />
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">⏰ Inatividade (min)</label>
+                        <input type="number" min={1} value={localInactivity} onChange={(e) => setLocalInactivity(Math.max(1, Number(e.target.value)))} className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-amber-400 outline-none" />
+                      </div>
+                      <button onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed, inactivityMinutes: localInactivity }); toast.success('Alertas salvos!'); }} className="w-full bg-[#141414] text-[#E4E3E0] py-1 rounded-lg font-bold hover:opacity-90 transition-opacity text-[7px] uppercase">
+                        Salvar Alertas
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  {/* KDS */}
+                  <div className="flex items-center justify-between rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <Monitor size={10} className="opacity-50" />
+                      <div>
+                        <p className="text-[8px] font-bold leading-none flex items-center gap-1">KDS — Cozinha Digital {planCfg.kdsLocked && <Lock size={7} className="text-amber-500" />}</p>
+                        <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? false) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
+                      </div>
+                    </div>
+                    <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? false) ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  {(pizzariaConfig.kdsEnabled ?? false) && (
+                    <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
+                      <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
+                      <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
+                      <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/app/kitchen`)} className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700">Copiar</button>
+                    </div>
+                  )}
+                  {/* Garçom pode pagar */}
+                  <div className="flex items-center justify-between rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <Wallet size={10} className="opacity-50" />
+                      <div>
+                        <p className="text-[8px] font-bold leading-none">Garçom pode pagar</p>
+                        <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanPay ?? true) ? 'Botão "Pagar" visível no app.' : 'Somente pelo caixa.'}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanPay: !(pizzariaConfig.waiterCanPay ?? true) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanPay ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  {/* Garçom pode cancelar item */}
+                  <div className="flex items-center justify-between rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <X size={10} className="opacity-50" />
+                      <div>
+                        <p className="text-[8px] font-bold leading-none">Garçom pode cancelar item</p>
+                        <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanCancelItem ?? false) ? 'Pode remover itens do pedido.' : 'Somente o caixa cancela.'}</p>
+                      </div>
+                    </div>
+                    <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanCancelItem: !(pizzariaConfig.waiterCanCancelItem ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* TesteDeForgo inline */}
+                <div className="border-t border-[#141414]/8 pt-2">
+                  <TesteDeForgo />
+                </div>
+              </div>
+
+              </div>{/* fim grid Seção 1 */}
+
+              {/* ── Seção 2: Impressão ── */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[7.5px] font-black uppercase tracking-widest opacity-30">Impressão</span>
+                <div className="flex-1 border-t border-[#141414]/8" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 mb-4">
+
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
                 <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
@@ -4901,107 +4997,8 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                {/* ── Coluna 3: Sistema & Dados ───────────────────────────────── */}
+                {/* ── Coluna 3: QR Code Mesas & Dados ─────────────────────────── */}
                 <div className="space-y-2.5">
-
-                  {/* Funcionamento */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Settings className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Funcionamento</h3>
-                    </div>
-
-                    {/* Modo Pizzaria */}
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <Pizza size={10} className="opacity-50" />
-                        <div>
-                          <p className="text-[8px] font-bold leading-none flex items-center gap-1">Modo Pizzaria {planCfg.pizzaLocked && <Lock size={7} className="text-amber-500" />}</p>
-                          <p className="text-[6px] opacity-40 leading-tight mt-0.5">{pizzariaConfig.enabled ? 'Cardápio pizza + alertas de tempo.' : 'Desativado — modo restaurante/lanchonete.'}</p>
-                        </div>
-                      </div>
-                      <button disabled={planCfg.pizzaLocked} onClick={() => !planCfg.pizzaLocked && updatePizzeriaConfig({ ...pizzariaConfig, enabled: !pizzariaConfig.enabled })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.pizzaLocked ? 'bg-[#141414]/10 cursor-not-allowed' : pizzariaConfig.enabled ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
-                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${!planCfg.pizzaLocked && pizzariaConfig.enabled ? 'translate-x-4' : ''}`} />
-                      </button>
-                    </div>
-
-                    {/* Timers — só quando pizza ligado */}
-                    {pizzariaConfig.enabled && (
-                      <div className="bg-[#141414]/3 rounded-lg p-2 mb-1.5 space-y-1.5">
-                        <p className="text-[7px] uppercase font-bold opacity-40 leading-none">Alertas de tempo</p>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {([
-                            { label: '🟡 Amarelo', val: localYellow, set: setLocalYellow, cls: 'bg-yellow-50 border-yellow-200 focus:ring-yellow-400' },
-                            { label: '🟠 Laranja', val: localOrange, set: setLocalOrange, cls: 'bg-orange-50 border-orange-200 focus:ring-orange-400' },
-                            { label: '🔴 Vermelho', val: localRed, set: setLocalRed, cls: 'bg-red-50 border-red-200 focus:ring-red-400' },
-                          ]).map(({ label, val, set, cls }) => (
-                            <div key={label}>
-                              <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">{label}</label>
-                              <input type="number" min={1} value={val} onChange={(e) => set(Math.max(1, Number(e.target.value)))} className={`w-full border rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 outline-none ${cls}`} />
-                            </div>
-                          ))}
-                        </div>
-                        <div>
-                          <label className="text-[6px] uppercase font-bold opacity-45 mb-0.5 block leading-none">⏰ Inatividade (min)</label>
-                          <input type="number" min={1} value={localInactivity} onChange={(e) => setLocalInactivity(Math.max(1, Number(e.target.value)))} className="w-full bg-amber-50 border border-amber-200 rounded-lg py-1 px-1.5 font-bold text-[8px] focus:ring-1 focus:ring-amber-400 outline-none" />
-                        </div>
-                        <button onClick={() => { updatePizzeriaConfig({ ...pizzariaConfig, yellowMinutes: localYellow, orangeMinutes: localOrange, redMinutes: localRed, inactivityMinutes: localInactivity }); toast.success('Alertas salvos!'); }} className="w-full bg-[#141414] text-[#E4E3E0] py-1 rounded-lg font-bold hover:opacity-90 transition-opacity text-[7px] uppercase">
-                          Salvar Alertas
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="border-t border-[#141414]/5 pt-1.5 space-y-1.5">
-                      {/* KDS */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Monitor size={10} className="opacity-50" />
-                          <div>
-                            <p className="text-[8px] font-bold leading-none flex items-center gap-1">KDS {planCfg.kdsLocked && <Lock size={7} className="text-amber-500" />}</p>
-                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? false) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
-                          </div>
-                        </div>
-                        <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
-                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? false) ? 'translate-x-4' : ''}`} />
-                        </button>
-                      </div>
-                      {(pizzariaConfig.kdsEnabled ?? false) && (
-                        <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1">
-                          <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
-                          <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
-                          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/app/kitchen`)} className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700">Copiar</button>
-                        </div>
-                      )}
-
-                      {/* Garçom pode pagar */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <Wallet size={10} className="opacity-50" />
-                          <div>
-                            <p className="text-[8px] font-bold leading-none">Garçom pode pagar</p>
-                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanPay ?? true) ? 'Botão "Pagar" visível no app.' : 'Pagamento somente pelo caixa.'}</p>
-                          </div>
-                        </div>
-                        <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanPay: !(pizzariaConfig.waiterCanPay ?? true) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanPay ?? true) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
-                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanPay ?? true) ? 'translate-x-4' : ''}`} />
-                        </button>
-                      </div>
-
-                      {/* Garçom pode cancelar item */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <X size={10} className="opacity-50" />
-                          <div>
-                            <p className="text-[8px] font-bold leading-none">Garçom pode cancelar item</p>
-                            <p className="text-[6px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.waiterCanCancelItem ?? false) ? 'Garçom pode remover itens do pedido.' : 'Somente o caixa pode cancelar itens.'}</p>
-                          </div>
-                        </div>
-                        <button onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, waiterCanCancelItem: !(pizzariaConfig.waiterCanCancelItem ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
-                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.waiterCanCancelItem ?? false) ? 'translate-x-4' : ''}`} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
 
                   {/* QR Code do Cliente por Mesa */}
                   <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
@@ -5034,33 +5031,27 @@ export default function Dashboard({
                       </div>
                     </div>
 
-                    {/* Grid de QR Codes */}
-                    {(() => {
-                      const numMesas = pizzariaConfig.numTables ?? 10;
-                      const baseUrl = window.location.origin;
-                      return (
-                        <div className="grid grid-cols-4 gap-2">
-                          {Array.from({ length: numMesas }, (_, i) => i + 1).map(num => (
-                            <div key={num} className="flex flex-col items-center gap-1 p-2 rounded-xl border border-[#141414]/8 hover:border-[#141414]/20 transition-colors">
-                              <QRCodeSVG value={`${baseUrl}/mesa/${num}`} size={56} fgColor="#141414" bgColor="#ffffff" />
-                              <p className="text-[8px] font-bold">Mesa {num}</p>
-                              <button
-                                onClick={() => {
-                                  const w = window.open('', '_blank');
-                                  if (w) {
-                                    w.document.write(`<html><head><title>QR Mesa ${num}</title><style>body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}.card{border:2px solid #141414;border-radius:16px;padding:24px;text-align:center;max-width:200px}h2{font-size:18px;margin:12px 0 4px}p{font-size:11px;opacity:.4;margin:0}@media print{body{margin:0}}</style></head><body><div class="card"><img src="${`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(`${baseUrl}/mesa/${num}`)}`}" width="160" height="160"/><h2>Mesa ${num}</h2><p>Escaneie para acessar o menu</p></div><script>window.onload=()=>window.print()</script></body></html>`);
-                                    w.document.close();
-                                  }
-                                }}
-                                className="text-[7px] font-bold text-blue-600 hover:text-blue-800 underline"
-                              >
-                                Imprimir
-                              </button>
-                            </div>
+                    {/* Seletor de mesa */}
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        <label className="text-[7px] font-black uppercase opacity-40 tracking-wider block mb-1">Número da mesa</label>
+                        <select
+                          value={qrMesaSelected}
+                          onChange={e => setQrMesaSelected(Number(e.target.value))}
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-1 focus:ring-[#141414] outline-none"
+                        >
+                          {Array.from({ length: pizzariaConfig.numTables ?? 10 }, (_, i) => i + 1).map(n => (
+                            <option key={n} value={n}>Mesa {n}</option>
                           ))}
-                        </div>
-                      );
-                    })()}
+                        </select>
+                      </div>
+                      <button
+                        onClick={() => setQrMesaModal({ num: qrMesaSelected })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] text-[#E4E3E0] rounded-lg text-[9px] font-bold uppercase hover:opacity-80 transition-opacity shrink-0"
+                      >
+                        <QrCode size={10} /> Gerar QR Code
+                      </button>
+                    </div>
                   </div>
 
                   {/* Dados */}
@@ -7432,6 +7423,61 @@ export default function Dashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal: QR Code da Mesa */}
+      {qrMesaModal && (() => {
+        const num = qrMesaModal.num;
+        const baseUrl = window.location.origin;
+        const url = `${baseUrl}/mesa/${num}`;
+        const printUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+        return (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setQrMesaModal(null); }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
+              <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-[#141414]/10">
+                <div className="flex items-center gap-2">
+                  <QrCode size={14} className="text-[#141414]" />
+                  <h2 className="font-serif italic text-base">QR Code — Mesa {num}</h2>
+                </div>
+                <button onClick={() => setQrMesaModal(null)} className="p-1 rounded-lg text-[#141414]/30 hover:text-[#141414] hover:bg-[#141414]/10 transition-colors"><X size={14} /></button>
+              </div>
+              <div className="px-5 py-6 flex flex-col items-center gap-4">
+                <div className="p-3 bg-white border-2 border-[#141414]/10 rounded-2xl shadow-inner">
+                  <QRCodeSVG value={url} size={160} fgColor="#141414" bgColor="#ffffff" includeMargin />
+                </div>
+                <div className="text-center">
+                  <p className="font-bold text-sm">Mesa {num}</p>
+                  <p className="text-[9px] opacity-40 font-mono break-all mt-0.5">{url}</p>
+                </div>
+                <div className="flex gap-2 w-full">
+                  <button
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = printUrl;
+                      a.download = `qr-mesa-${num}.png`;
+                      a.click();
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border-2 border-[#141414]/15 text-[#141414] text-[10px] font-bold uppercase hover:bg-[#141414]/5 transition-colors"
+                  >
+                    <Download size={11} /> Baixar
+                  </button>
+                  <button
+                    onClick={() => {
+                      const w = window.open('', '_blank');
+                      if (w) {
+                        w.document.write(`<html><head><title>QR Mesa ${num}</title><style>*{box-sizing:border-box}body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}.card{border:2px solid #141414;border-radius:20px;padding:28px 24px;text-align:center}h2{font-size:20px;margin:14px 0 4px;font-weight:700}p{font-size:12px;opacity:.4;margin:0}@media print{body{margin:0}.card{border-color:#000}}</style></head><body><div class="card"><img src="${printUrl}" width="180" height="180"/><h2>Mesa ${num}</h2><p>Escaneie para acessar o menu</p></div><script>window.onload=()=>{window.focus();window.print()}<\/script></body></html>`);
+                        w.document.close();
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-[#141414] text-[#E4E3E0] text-[10px] font-bold uppercase hover:opacity-80 transition-opacity"
+                  >
+                    <Printer size={11} /> Imprimir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: Chama Garçom — gerador de QR Code */}
       {callWaiterModal && (
