@@ -4880,7 +4880,8 @@ export default function Dashboard({
                   </button>
                 </div>
 
-                {/* ── Coluna 2: Comprovante ───────────────────────────────────── */}
+                {/* ── Coluna 2: Comprovante + QR Code ────────────────────────── */}
+                <div className="flex flex-col gap-2.5">
                 <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-2">
                   <div className="flex items-center gap-2 mb-0.5">
                     <FileText className="text-[#141414]" size={12} />
@@ -4944,6 +4945,12 @@ export default function Dashboard({
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
+                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Negrito</span>
+                      <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
+                        <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.boldItems ? 'bg-white shadow-sm' : 'opacity-40'}`} style={{ fontWeight: 900 }}>N</button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
                       <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Vias</span>
                       <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
                         {[1, 2].map((n) => (
@@ -4957,10 +4964,6 @@ export default function Dashboard({
                   <div>
                     <span className="text-[7px] uppercase font-bold opacity-45 leading-none block mb-1">Exibir no Cupom</span>
                     <div className="flex flex-wrap gap-1.5">
-                      <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.boldItems ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <span className="text-[7px] font-bold uppercase leading-none">B</span>
-                        <span className="text-[5.5px] opacity-60 leading-none">Negrito</span>
-                      </button>
                       <button onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
                         <Users size={9} />
                         <span className="text-[5.5px] opacity-60 leading-none">Garçom</span>
@@ -5018,16 +5021,6 @@ export default function Dashboard({
                   </div>
                 </div>
 
-              </div>
-              )}
-
-              {/* ── Aba: Dados ── */}
-              {settingsTab === 'data' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
-
-                {/* ── Coluna 1: QR Code Mesas & Dados ─────────────────────────── */}
-                <div className="space-y-2.5">
-
                   {/* QR Code do Cliente por Mesa */}
                   <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
@@ -5081,6 +5074,15 @@ export default function Dashboard({
                       </button>
                     </div>
                   </div>
+                </div>{/* fim col2 flex */}
+
+              </div>
+              )}
+
+              {/* ── Aba: Dados ── */}
+              {settingsTab === 'data' && (
+              <div className="flex justify-center mb-4">
+              <div className="w-full max-w-xl">
 
                   {/* Dados */}
                   <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
