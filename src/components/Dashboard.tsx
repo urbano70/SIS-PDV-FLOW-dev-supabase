@@ -1066,6 +1066,7 @@ export default function Dashboard({
   const [isSeeding, setIsSeeding] = useState(false);
   const [qrMesaModal, setQrMesaModal] = useState<{ num: number } | null>(null);
   const [qrMesaSelected, setQrMesaSelected] = useState<number>(1);
+  const [settingsTab, setSettingsTab] = useState<'salon' | 'operation' | 'print' | 'data'>('salon');
 
   const handleSeedDatabase = async () => {
     setIsSeedModalOpen(true);
@@ -4400,12 +4401,27 @@ export default function Dashboard({
                 </div>
               </header>
 
-              {/* ── Seção 1: Salão & Comportamento ── */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[7.5px] font-black uppercase tracking-widest opacity-30">Salão &amp; Comportamento</span>
-                <div className="flex-1 border-t border-[#141414]/8" />
+              {/* ── Abas de Configurações ── */}
+              <div className="flex gap-1 mb-4 border-b border-[#141414]/10 pb-0">
+                {([
+                  { key: 'salon', label: 'Salão' },
+                  { key: 'operation', label: 'Operação' },
+                  { key: 'print', label: 'Impressão' },
+                  { key: 'data', label: 'Dados' },
+                ] as const).map(tab => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setSettingsTab(tab.key)}
+                    className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-t-lg transition-colors border-b-2 -mb-px ${settingsTab === tab.key ? 'border-[#141414] text-[#141414] bg-white' : 'border-transparent text-[#141414]/40 hover:text-[#141414]/70 hover:bg-[#141414]/4'}`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 mb-4">
+
+              {/* ── Aba: Salão ── */}
+              {settingsTab === 'salon' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
 
               {/* Card: Estrutura do Salão — movido para o topo do grid */}
               <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
@@ -4546,6 +4562,13 @@ export default function Dashboard({
                   </button>
                 </div>
               </div>
+              </div>
+              )}
+
+              {/* ── Aba: Operação ── */}
+              {settingsTab === 'operation' && (
+              <div className="flex justify-center mb-4">
+              <div className="w-full max-w-xl">
 
               {/* Card: TesteDeForgo + Funcionamento unificado */}
               <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
@@ -4649,15 +4672,13 @@ export default function Dashboard({
                 </div>
               </div>
 
-              </div>{/* fim grid Seção 1 */}
-
-              {/* ── Seção 2: Impressão ── */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[7.5px] font-black uppercase tracking-widest opacity-30">Impressão</span>
-                <div className="flex-1 border-t border-[#141414]/8" />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5 mb-4">
+              </div>
+              )}
 
+              {/* ── Aba: Impressão ── */}
+              {settingsTab === 'print' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
                 <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
@@ -4997,7 +5018,14 @@ export default function Dashboard({
                   </div>
                 </div>
 
-                {/* ── Coluna 3: QR Code Mesas & Dados ─────────────────────────── */}
+              </div>
+              )}
+
+              {/* ── Aba: Dados ── */}
+              {settingsTab === 'data' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
+
+                {/* ── Coluna 1: QR Code Mesas & Dados ─────────────────────────── */}
                 <div className="space-y-2.5">
 
                   {/* QR Code do Cliente por Mesa */}
@@ -5121,6 +5149,8 @@ export default function Dashboard({
 
                 </div>
               </div>
+              )}
+
               </div>
               </motion.div>
             )}
