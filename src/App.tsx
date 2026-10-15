@@ -66,16 +66,18 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   });
 
   // Sync establishment name from Supabase user_metadata → printerConfig
+  // Só aplica se o localStorage ainda estiver com o valor padrão (nunca sobrescreve configuração do usuário)
   useEffect(() => {
     const name = ownerUser?.user_metadata?.establishment_name;
     if (!name) return;
     setPrinterConfig((prev: any) => {
-      if (prev.establishmentName === name) return prev;
+      const isDefault = prev.establishmentName === defaultPrinterConfig.establishmentName;
+      if (!isDefault) return prev; // usuário já customizou — não sobrescrever
       const updated = { ...prev, establishmentName: name };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
       return updated;
     });
-  }, [ownerUser]);
+  }, [ownerUser?.id]); // depende apenas do ID, não do objeto inteiro
 
   useEffect(() => {
     if (waiters.length === 0) return;
