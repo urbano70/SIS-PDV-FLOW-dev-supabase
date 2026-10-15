@@ -260,7 +260,123 @@ async function startServer() {
     }
   };
 
-  loadFromSupabase();
+  loadFromSupabase().then(() => seedBebidasSubcategories());
+
+  // ── Seed: subcategorias de bebidas ──────────────────────────────────────────
+  const seedBebidasSubcategories = async () => {
+    const SUBCATS: { name: string; items: { name: string; price: number }[] }[] = [
+      { name: 'Vinhos', items: [
+        { name: 'Pérgola Tinto Suave — Garrafa', price: 65 },
+        { name: 'Pérgola Tinto Suave — Taça', price: 18 },
+      ]},
+      { name: 'Doses e Destilados', items: [
+        { name: 'Dose Black Label', price: 24 },
+        { name: 'Dose Campari', price: 18 },
+        { name: 'Dose Velho Barreiro', price: 8 },
+        { name: 'Dose Vodka', price: 12 },
+        { name: 'Dose Jack Daniels', price: 0 },
+        { name: 'Dose Old Parr', price: 26 },
+        { name: 'Dose Red Label', price: 22 },
+        { name: 'Red Bull Energético', price: 17 },
+      ]},
+      { name: 'Refrigerantes', items: [
+        { name: 'Coca-Cola 1 L', price: 12 },
+        { name: 'Coca-Cola KS', price: 7 },
+        { name: 'Coca-Cola Lata', price: 8 },
+        { name: 'Coca-Cola Lata Zero', price: 8 },
+        { name: 'Fanta 1 L', price: 12 },
+        { name: 'Fanta Laranja KS', price: 7 },
+        { name: 'Fanta Laranja Lata', price: 7 },
+        { name: 'Fanta Uva Lata', price: 7 },
+        { name: 'Guaraná Antarctica Lata', price: 7 },
+        { name: 'H2O 500 ml', price: 10 },
+        { name: 'Schweppes Lata', price: 7 },
+        { name: 'Sprite Lata', price: 7 },
+        { name: 'Torre de Refrigerante 1,5 L', price: 18 },
+      ]},
+      { name: 'Sucos — Copos', items: [
+        { name: 'Abacaxi', price: 15 },
+        { name: 'Abacaxi com Hortelã', price: 15 },
+        { name: 'Acerola', price: 15 },
+        { name: 'Cupuaçu', price: 16 },
+        { name: 'Laranja', price: 18 },
+        { name: 'Maracujá', price: 16 },
+        { name: 'Morango', price: 15 },
+      ]},
+      { name: 'Sucos — Jarras', items: [
+        { name: 'Abacaxi', price: 24 },
+        { name: 'Abacaxi com Hortelã', price: 24 },
+        { name: 'Acerola', price: 24 },
+        { name: 'Cupuaçu', price: 26 },
+        { name: 'Laranja', price: 33 },
+        { name: 'Morango', price: 24 },
+        { name: 'Maracujá', price: 26 },
+      ]},
+      { name: 'Outros Sucos', items: [
+        { name: 'Suco Kapo', price: 7 },
+      ]},
+      { name: 'Cervejas', items: [
+        { name: 'Antarctica Original', price: 18 },
+        { name: 'Brahma', price: 14 },
+        { name: 'Brahma Zero Lata', price: 7 },
+        { name: 'CDB', price: 3 },
+        { name: 'Corona 600 ml', price: 22 },
+        { name: 'Heineken', price: 22 },
+        { name: 'Skol', price: 14 },
+      ]},
+      { name: 'Cervejas Long Neck', items: [
+        { name: 'Budweiser', price: 11 },
+        { name: 'Budweiser Zero', price: 11 },
+        { name: 'Corona Extra Long', price: 12 },
+        { name: 'Heineken Long Neck', price: 12 },
+        { name: 'Stella Gold', price: 12 },
+      ]},
+      { name: 'Chopp', items: [
+        { name: 'Caneca Cozumel 340 ml', price: 12 },
+        { name: 'Chopp 1,5 L', price: 42 },
+        { name: 'Chopp 1 L', price: 30 },
+        { name: 'Chopp 2,5 L', price: 80 },
+        { name: 'Chopp Caneca 340 ml', price: 10 },
+        { name: 'Tulipinha Chopp 250 ml', price: 9 },
+        { name: 'Tulipinha Chopp Cozumel 250 ml', price: 10 },
+      ]},
+      { name: 'Águas', items: [
+        { name: 'Água com Gás', price: 6 },
+        { name: 'Água sem Gás', price: 5 },
+        { name: 'Água Tônica', price: 7 },
+      ]},
+      { name: 'Outros Itens', items: [
+        { name: 'Embalagem Grande', price: 5 },
+        { name: 'Embalagem Pequena', price: 3 },
+        { name: 'Meio Rodízio — 5 a 10 anos', price: 31 },
+        { name: 'Play Kids', price: 12 },
+        { name: 'Rodízio', price: 65 },
+      ]},
+    ];
+
+    const bebidasIdx = menu.findIndex((c: any) => c.type === 'bebidas' || c.name?.toLowerCase().includes('bebida'));
+    if (bebidasIdx === -1) { console.log('[seed-bebidas] Categoria bebidas não encontrada'); return; }
+
+    const cat = menu[bebidasIdx];
+    const existingSubNames = (cat.subcategories || []).map((s: any) => s.name);
+    const toAdd = SUBCATS.filter(s => !existingSubNames.includes(s.name));
+    if (toAdd.length === 0) { console.log('[seed-bebidas] Todas as subcategorias já existem, nada a fazer.'); return; }
+
+    const newSubs = toAdd.map((s, pos) => ({
+      id: randomUUID(),
+      name: s.name,
+      position: (cat.subcategories || []).length + pos,
+      visible: true,
+      trackTime: false,
+      items: s.items.map(item => ({ id: randomUUID(), name: item.name, price: item.price, visible: true })),
+    }));
+
+    menu[bebidasIdx] = { ...cat, subcategories: [...(cat.subcategories || []), ...newSubs] };
+    const { error } = await db.from('menu').upsert({ id: cat.name, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: menu[bebidasIdx].items || [], subcategories: menu[bebidasIdx].subcategories });
+    if (error) { console.error('[seed-bebidas] Erro ao salvar:', error.message); return; }
+    io.emit('update_menu', menu);
+    console.log(`[seed-bebidas] ${newSubs.length} subcategorias adicionadas à categoria bebidas.`);
+  };
 
   // Daily order counter state
   const COUNTER_FILE = path.join(os.tmpdir(), 'sistema-pdv-flow-order-counter.json');
