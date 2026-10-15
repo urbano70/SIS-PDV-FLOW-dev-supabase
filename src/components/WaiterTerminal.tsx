@@ -1,12 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing, Bluetooth, BluetoothSearching, Printer, BluetoothOff } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
+import {
+  isBTAvailable, requestBTPrinter, connectBTPrinter, printBT, disconnectBT,
+  buildOrderTicket, buildReceiptTicket, getConnectedDevice, type BTPrinterDevice,
+} from '../lib/bluetoothPrinter';
 
 interface WaiterTerminalProps {
   tables: Table[];
@@ -211,6 +215,91 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
 
+  // ── Bluetooth printer state ───────────────────────────────────────────────
+  const [btDevice, setBtDevice] = useState<BTPrinterDevice | null>(() => {
+    try { const s = localStorage.getItem('bt_printer'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [btConnected, setBtConnected] = useState(false);
+  const [btConnecting, setBtConnecting] = useState(false);
+  const [btPrinting, setBtPrinting] = useState(false);
+  const [btAutoPrint, setBtAutoPrint] = useState(() => {
+    try { return localStorage.getItem('bt_auto_print') === 'true'; } catch { return false; }
+  });
+  const [btModalOpen, setBtModalOpen] = useState(false);
+
+  const saveBtDevice = (d: BTPrinterDevice | null) => {
+    setBtDevice(d);
+    try { d ? localStorage.setItem('bt_printer', JSON.stringify(d)) : localStorage.removeItem('bt_printer'); } catch {}
+  };
+
+  const handleBtConnect = async () => {
+    setBtConnecting(true);
+    try {
+      const dev = await requestBTPrinter();
+      saveBtDevice(dev);
+      await connectBTPrinter();
+      setBtConnected(true);
+      toast.success(`Impressora "${dev.name}" conectada!`);
+    } catch (e: any) {
+      toast.error('Falha ao conectar: ' + (e?.message || 'Erro desconhecido'));
+    } finally {
+      setBtConnecting(false);
+    }
+  };
+
+  const handleBtReconnect = async () => {
+    const raw = getConnectedDevice();
+    if (!raw) { handleBtConnect(); return; }
+    setBtConnecting(true);
+    try {
+      await connectBTPrinter(raw);
+      setBtConnected(true);
+      toast.success('Impressora reconectada!');
+    } catch {
+      toast.error('Não foi possível reconectar. Tente selecionar novamente.');
+      setBtConnected(false);
+    } finally {
+      setBtConnecting(false);
+    }
+  };
+
+  const handleBtDisconnect = () => {
+    disconnectBT();
+    setBtConnected(false);
+    saveBtDevice(null);
+    toast('Impressora desconectada.');
+  };
+
+  const doPrint = async (data: Uint8Array, label: string) => {
+    if (!btConnected) {
+      toast.error('Impressora não conectada.');
+      return;
+    }
+    setBtPrinting(true);
+    try {
+      await printBT(data);
+      toast.success(`${label} impresso!`);
+    } catch (e: any) {
+      setBtConnected(false);
+      toast.error('Erro ao imprimir: ' + (e?.message || 'Tente reconectar'));
+    } finally {
+      setBtPrinting(false);
+    }
+  };
+
+  const printOrder = (order: any) => {
+    const data = buildOrderTicket(
+      { ...order, items: order.items || [] },
+      printerConfig?.establishmentName || 'ESTABELECIMENTO'
+    );
+    doPrint(data, 'Pedido');
+  };
+
+  const printReceipt = (order: any) => {
+    const data = buildReceiptTicket({ ...order, items: order.items || [] }, printerConfig);
+    doPrint(data, 'Comprovante');
+  };
+
   // Guest mode state
   const [guestModeActive, setGuestModeActive] = useState(false);
   const [guestList, setGuestList] = useState<string[]>([]);
@@ -410,6 +499,22 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
     toast.success('Pedido enviado com sucesso!');
 
+    // Auto-print via Bluetooth if enabled and connected
+    if (btAutoPrint && btConnected) {
+      const ticket = buildOrderTicket(
+        {
+          id: activeOrder?.id || '',
+          tableId: selectedId ?? undefined,
+          isComanda: isComandaSelected,
+          waiterName,
+          observations: cartObservations.trim(),
+          items: cart.map(i => ({ name: i.name, price: i.price, quantity: (i as any).quantity || 1, obs: (i as any).obs })),
+        },
+        printerConfig?.establishmentName || 'ESTABELECIMENTO'
+      );
+      doPrint(ticket, 'Pedido');
+    }
+
     setCart([]);
     setCartObservations('');
     setIsAddingItems(false);
@@ -417,6 +522,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const handlePaymentComplete = (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     if (!currentOrder) return;
+    // Auto-print receipt via Bluetooth
+    if (btAutoPrint && btConnected) {
+      printReceipt(currentOrder);
+    }
     socket.emit('pay_items', {
       orderId: currentOrder.id,
       selectedItems,
@@ -490,7 +599,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
       <header className="bg-[#141414] text-[#E4E3E0] p-3 flex justify-between items-center shrink-0">
         <h1 className="font-serif italic text-xl">Terminal Garçom</h1>
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
           {canInstall && (
             <button
               onClick={install}
@@ -499,6 +608,16 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             >
               <Download size={12} />
               Instalar app
+            </button>
+          )}
+          {isBTAvailable() && (
+            <button
+              onClick={() => setBtModalOpen(true)}
+              title="Impressora Bluetooth"
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors ${btConnected ? 'bg-blue-500 text-white' : 'bg-white/10 text-[#E4E3E0]/70 hover:bg-white/20'}`}
+            >
+              {btConnected ? <Bluetooth size={12} /> : <BluetoothOff size={12} />}
+              {btConnected ? 'BT' : 'BT'}
             </button>
           )}
           <div className="flex items-center space-x-2">
@@ -954,6 +1073,27 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       <span className="text-green-400">Pagar</span>
                     </button>
                   )}
+                </div>
+              )}
+              {/* Print buttons — only when BT connected and order exists */}
+              {btConnected && currentOrder && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => printOrder(currentOrder)}
+                    disabled={btPrinting}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    <Printer size={14} />
+                    {btPrinting ? 'Imprimindo...' : 'Imprimir Pedido'}
+                  </button>
+                  <button
+                    onClick={() => printReceipt(currentOrder)}
+                    disabled={btPrinting}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold text-xs uppercase active:scale-95 transition-transform disabled:opacity-50"
+                  >
+                    <Printer size={14} />
+                    {btPrinting ? 'Imprimindo...' : 'Comprovante'}
+                  </button>
                 </div>
               )}
             </div>{/* end sticky footer */}
@@ -1488,7 +1628,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
       {/* Payment Modal */}
       {currentOrder && (
-        <PaymentModal 
+        <PaymentModal
           isOpen={isPaymentModalOpen}
           onClose={() => setIsPaymentModalOpen(false)}
           order={currentOrder}
@@ -1496,6 +1636,109 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           onApplyDiscount={handleApplyDiscount}
         />
       )}
+
+      {/* Bluetooth Printer Modal */}
+      <AnimatePresence>
+        {btModalOpen && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[500] flex items-end justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setBtModalOpen(false)}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
+              transition={{ type: 'spring', damping: 28 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white rounded-3xl w-full max-w-sm p-6 space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Bluetooth size={18} className="text-blue-500" />
+                  <h2 className="font-bold text-base">Impressora Bluetooth</h2>
+                </div>
+                <button onClick={() => setBtModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full"><X size={16} /></button>
+              </div>
+
+              {!isBTAvailable() ? (
+                <p className="text-sm text-red-500 bg-red-50 rounded-xl p-3">Web Bluetooth não disponível neste dispositivo ou browser. Use Chrome/Edge no Android ou desktop.</p>
+              ) : (
+                <>
+                  {/* Status */}
+                  <div className={`flex items-center gap-3 rounded-2xl p-3 ${btConnected ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 border border-gray-200'}`}>
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${btConnected ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-black uppercase tracking-wider opacity-50">Status</p>
+                      <p className="text-sm font-bold truncate">{btConnected ? btDevice?.name || 'Conectado' : btDevice?.name ? `${btDevice.name} (desconectado)` : 'Nenhuma impressora'}</p>
+                    </div>
+                  </div>
+
+                  {/* Connect / Reconnect / Disconnect */}
+                  <div className="flex flex-col gap-2">
+                    {!btConnected ? (
+                      <>
+                        <button
+                          onClick={handleBtConnect}
+                          disabled={btConnecting}
+                          className="w-full py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform disabled:opacity-50"
+                        >
+                          {btConnecting ? <BluetoothSearching size={16} className="animate-pulse" /> : <Bluetooth size={16} />}
+                          {btConnecting ? 'Procurando...' : 'Selecionar Impressora'}
+                        </button>
+                        {btDevice && (
+                          <button
+                            onClick={handleBtReconnect}
+                            disabled={btConnecting}
+                            className="w-full py-2.5 border border-blue-300 text-blue-600 rounded-2xl font-bold text-sm disabled:opacity-50"
+                          >
+                            Reconectar "{btDevice.name}"
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <button
+                        onClick={handleBtDisconnect}
+                        className="w-full py-2.5 border border-red-200 text-red-500 rounded-2xl font-bold text-sm"
+                      >
+                        Desconectar
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Auto-print toggle */}
+                  <div className="flex items-center justify-between rounded-2xl border border-gray-200 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-bold">Impressão automática</p>
+                      <p className="text-[10px] opacity-50 leading-tight">Imprime ao enviar pedido e ao registrar pagamento</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const next = !btAutoPrint;
+                        setBtAutoPrint(next);
+                        try { localStorage.setItem('bt_auto_print', String(next)); } catch {}
+                      }}
+                      className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ml-3 ${btAutoPrint ? 'bg-blue-500' : 'bg-gray-200'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${btAutoPrint ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+
+                  {/* Manual print buttons */}
+                  {btConnected && currentOrder && (
+                    <div className="flex gap-2">
+                      <button onClick={() => { printOrder(currentOrder); setBtModalOpen(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Pedido</button>
+                      <button onClick={() => { printReceipt(currentOrder); setBtModalOpen(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Comprovante</button>
+                    </div>
+                  )}
+
+                  <p className="text-[9px] opacity-40 text-center leading-relaxed">
+                    Requer impressora BLE (Bluetooth Low Energy). Funciona em Chrome/Edge. Safari iOS não suporta Web Bluetooth.
+                  </p>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
