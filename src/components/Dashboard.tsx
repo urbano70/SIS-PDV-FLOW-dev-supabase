@@ -243,21 +243,20 @@ function buildEscPosKitchenTicket(
     if (idx > 0) line();
 
     const qty = item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ';
-    const price = item.price != null ? ' R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
+    const priceStr = item.price != null ? 'R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
     const itemName = item.name || '';
     const firstLine = qty + itemName;
-    // Double-height (sem bold) para o nome do item
+    // Nome em double-height
     push(0x1D, 0x21, 0x10);
-    const dhLen = Math.floor(lineLen / 2); // double-width ocupa o dobro de espaço visual
-    if (price && firstLine.length + price.length <= dhLen) {
-      const pad = dhLen - firstLine.length - price.length;
-      text(firstLine + ' '.repeat(pad) + price); lf();
-    } else {
-      const wrapped = wordWrap(firstLine, dhLen);
-      wrapped.forEach(l => { text(l); lf(); });
-      if (price) { text(price.trim()); lf(); }
-    }
+    const dhLen = Math.floor(lineLen / 2);
+    wordWrap(firstLine, dhLen).forEach(l => { text(l); lf(); });
     push(0x1D, 0x21, 0x00);
+    // Preço em tamanho normal, alinhado à direita
+    if (priceStr) {
+      push(0x1B, 0x61, 0x02); // align right
+      text(priceStr); lf();
+      push(0x1B, 0x61, 0x00); // align left
+    }
 
     // Sabores
     if (item.flavors && item.flavors.length > 1) {
