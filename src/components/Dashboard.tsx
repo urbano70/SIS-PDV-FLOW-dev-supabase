@@ -283,7 +283,7 @@ function buildEscPosKitchenTicket(
   push(0x1B, 0x61, 0x00); // align left
   line();
   text('Garcom: ' + waiterName); lf();
-  lf(); // espaço antes do corte
+  lf(); lf(); lf(); lf(); // avança papel para garçom ficar visível acima do corte
 
   // Corte parcial
   push(0x1D, 0x56, 0x41, 0x03);
