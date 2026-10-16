@@ -129,21 +129,13 @@ interface DashboardProps {
 }
 
 // ── ESC/POS builder ──────────────────────────────────────────────────────────
-const CP850: Record<string, number> = {
-  'á':0xA0,'é':0x82,'í':0xA1,'ó':0xA2,'ú':0xA3,
-  'â':0x83,'ê':0x88,'ô':0x93,'û':0x96,
-  'ã':0xC6,'õ':0xE4,'ç':0x87,'à':0x85,'ü':0x81,
-  'Á':0xB5,'É':0x90,'Í':0xD6,'Ó':0xE0,'Ú':0xE9,
-  'Â':0xB6,'Ê':0xD2,'Ô':0xE2,'Û':0xEA,
-  'Ã':0xC7,'Õ':0xE5,'Ç':0x80,'À':0xB7,
-};
-
+// Latin-1 / Windows-1252: byte = Unicode code point for U+0000–U+00FF
+// Covers all Portuguese accented characters without a lookup table.
 function escStr(s: string): number[] {
   const out: number[] = [];
   for (const ch of s) {
-    const mapped = CP850[ch];
-    if (mapped) out.push(mapped);
-    else { const c = ch.charCodeAt(0); out.push(c < 128 ? c : 0x3F); }
+    const cp = ch.codePointAt(0)!;
+    out.push(cp < 256 ? cp : 0x3F);
   }
   return out;
 }
@@ -1188,7 +1180,7 @@ export default function Dashboard({
     const line = () => { text('-'.repeat(lineLen)); lf(); };
     const now = new Date();
 
-    push(0x1B, 0x40, 0x1B, 0x74, 0x02); // init + CP850
+    push(0x1B, 0x40); // init
     push(0x1B, 0x61, 0x01); // center
     push(0x1B, 0x45, 0x01); text(printerConfig.establishmentName || 'FECHACONTA PDV'); lf();
     push(0x1B, 0x45, 0x00);
