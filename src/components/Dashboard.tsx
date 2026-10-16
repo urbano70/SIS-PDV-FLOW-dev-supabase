@@ -383,7 +383,7 @@ const OrderDetails = ({
 
               const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
 
-              if (printer?.ip) {
+              if (printer) {
                 const lineLen = is50mm ? 32 : 48;
                 const b: number[] = [];
                 const push = (...bytes: number[]) => b.push(...bytes);
@@ -429,7 +429,11 @@ const OrderDetails = ({
                 }
                 push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
 
-                socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                if (printer.ip) {
+                  socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                } else {
+                  socket.emit('print_escpos', { localName: printer.name, data: b });
+                }
                 toast.success(`Resumo enviado para ${receiptPrinterName}`, { description: `${tableType} ${tableId} · R$ ${total.toFixed(2)}` });
               } else {
                 const printWindow = window.open('', '_blank');
@@ -1481,12 +1485,17 @@ export default function Dashboard({
       if (shouldPrint && targetPrinterName && targetPrinterName !== 'none') {
         const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
 
-        if (printer?.ip) {
-          // ── Impressão direta ESC/POS via TCP ────────────────────────────────
+        if (printer) {
+          // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
           const data = buildEscPosKitchenTicket(
             item, tableType, String(targetId), targetPrinterName, printerConfig.paperWidth || '80mm'
           );
-          socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
+          if (printer.ip) {
+            socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
+          } else {
+            // USB: usa o agente com localName (nome da impressora no Windows)
+            socket.emit('print_escpos', { localName: printer.name, data });
+          }
         } else {
           // ── Fallback: diálogo de impressão do navegador ──────────────────────
           const printFrame = document.createElement('iframe');
