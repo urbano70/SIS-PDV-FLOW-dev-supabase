@@ -27,20 +27,6 @@ const DEFAULT_SERVER_URL = 'https://fechaconta.app';
 const args = process.argv.slice(2);
 const logFile = path.join(BASE_DIR, 'agente.log');
 
-// ── Auto-restart hidden (sem janela preta) ────────────────────────────────────
-// Na primeira execução (pkg + Windows + sem flag de fundo), re-lança sem console
-// e encerra imediatamente para fechar a janela preta.
-if (IS_PKG && process.platform === 'win32' && !process.env.FC_AGENT_HIDDEN) {
-  const { spawn } = require('child_process');
-  const child = spawn(process.execPath, process.argv.slice(2), {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-    env: { ...process.env, FC_AGENT_HIDDEN: '1' },
-  });
-  child.unref();
-  process.exit(0);
-}
 
 // Captura erros não tratados e grava em log ao lado do exe
 process.on('uncaughtException', (err) => {
@@ -234,38 +220,181 @@ function uninstallStartup() {
   console.log('[ok] Removido do startup.');
 }
 
-// ── Ícone de bandeja (system tray) ───────────────────────────────────────────
-function setupTrayIcon() {
+// ── Painel de status (WinForms via PowerShell) ───────────────────────────────
+function startGui() {
   if (process.platform !== 'win32') return;
+
   const pid = process.pid;
-  const lines = [
+  const statusFile = path.join(os.tmpdir(), `fc_agent_${pid}.json`);
+  const closeFile  = path.join(os.tmpdir(), `fc_agent_close_${pid}.flag`);
+
+  // Escreve status a cada segundo para o painel ler
+  function writeStatus() {
+    try {
+      fs.writeFileSync(statusFile, JSON.stringify({
+        status: agentStatus,
+        msg: statusMsg,
+        printers: scanResults.slice(0, 8).map(p => (p.localName || p.ip || '?') + (p.portName ? ' (' + p.portName + ')' : '')),
+        pid,
+        ts: Date.now(),
+      }), 'utf8');
+    } catch {}
+  }
+  writeStatus();
+  setInterval(writeStatus, 1000);
+
+  // Detecta sinal de encerramento do painel
+  setInterval(() => {
+    try {
+      if (fs.existsSync(closeFile)) {
+        try { fs.unlinkSync(closeFile); } catch {}
+        try { fs.unlinkSync(statusFile); } catch {}
+        process.exit(0);
+      }
+    } catch {}
+  }, 500);
+
+  // Script PowerShell — janela WinForms + ícone de bandeja
+  const sf = statusFile.replace(/\\/g, '\\\\');
+  const cf = closeFile.replace(/\\/g, '\\\\');
+  const ps = [
     'Add-Type -AssemblyName System.Windows.Forms',
     'Add-Type -AssemblyName System.Drawing',
+    'Add-Type @"',
+    'using System; using System.Runtime.InteropServices;',
+    'public class WinApi {',
+    '  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);',
+    '  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc e, IntPtr l);',
+    '  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint p);',
+    '  public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lp);',
+    '}',
+    '"@ -Language CSharp',
+    '',
+    // Esconde a janela de console do agente (via EnumWindows pelo PID)
+    `$targetPid = ${pid}`,
+    '$foundHwnd = [IntPtr]::Zero',
+    '[WinApi]::EnumWindows({',
+    '  param($hwnd,$lp)',
+    '  $p = 0',
+    '  [WinApi]::GetWindowThreadProcessId($hwnd, [ref]$p) | Out-Null',
+    '  if ($p -eq $targetPid) { $script:foundHwnd = $hwnd }',
+    '  $true',
+    '}, [IntPtr]::Zero)',
+    'if ($foundHwnd -ne [IntPtr]::Zero) { [WinApi]::ShowWindow($foundHwnd, 0) | Out-Null }',
+    '',
+    // Formulário principal
+    '$form = New-Object System.Windows.Forms.Form',
+    '$form.Text = "FechaConta — Agente de Impressao"',
+    '$form.Size = New-Object System.Drawing.Size(400, 300)',
+    '$form.StartPosition = "CenterScreen"',
+    '$form.FormBorderStyle = "FixedSingle"',
+    '$form.MaximizeBox = $false',
+    '$form.BackColor = [System.Drawing.Color]::FromArgb(244,243,240)',
+    '',
+    // Label status
+    '$lblTitle = New-Object System.Windows.Forms.Label',
+    '$lblTitle.Text = "FechaConta — Agente de Impressao"',
+    '$lblTitle.Font = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)',
+    '$lblTitle.Location = New-Object System.Drawing.Point(16,14)',
+    '$lblTitle.Size = New-Object System.Drawing.Size(360,24)',
+    '$form.Controls.Add($lblTitle)',
+    '',
+    '$lblStatus = New-Object System.Windows.Forms.Label',
+    '$lblStatus.Text = "Conectando..."',
+    '$lblStatus.Font = New-Object System.Drawing.Font("Segoe UI", 9)',
+    '$lblStatus.ForeColor = [System.Drawing.Color]::DarkGray',
+    '$lblStatus.Location = New-Object System.Drawing.Point(16,42)',
+    '$lblStatus.Size = New-Object System.Drawing.Size(360,18)',
+    '$form.Controls.Add($lblStatus)',
+    '',
+    '$lblPrintersTitle = New-Object System.Windows.Forms.Label',
+    '$lblPrintersTitle.Text = "Impressoras encontradas:"',
+    '$lblPrintersTitle.Font = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Bold)',
+    '$lblPrintersTitle.Location = New-Object System.Drawing.Point(16,70)',
+    '$lblPrintersTitle.Size = New-Object System.Drawing.Size(200,16)',
+    '$form.Controls.Add($lblPrintersTitle)',
+    '',
+    '$listBox = New-Object System.Windows.Forms.ListBox',
+    '$listBox.Location = New-Object System.Drawing.Point(16,90)',
+    '$listBox.Size = New-Object System.Drawing.Size(362,120)',
+    '$listBox.Font = New-Object System.Drawing.Font("Courier New", 8)',
+    '$listBox.BorderStyle = "FixedSingle"',
+    '$form.Controls.Add($listBox)',
+    '',
+    // Botão fechar
+    '$btnClose = New-Object System.Windows.Forms.Button',
+    '$btnClose.Text = "Encerrar Agente"',
+    '$btnClose.Location = New-Object System.Drawing.Point(16,224)',
+    '$btnClose.Size = New-Object System.Drawing.Size(140,34)',
+    '$btnClose.BackColor = [System.Drawing.Color]::FromArgb(20,20,20)',
+    '$btnClose.ForeColor = [System.Drawing.Color]::White',
+    '$btnClose.FlatStyle = "Flat"',
+    '$btnClose.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)',
+    `$btnClose.add_Click({ [System.IO.File]::WriteAllText("${cf}", "close"); $tray.Visible = $false; $form.Close() })`,
+    '$form.Controls.Add($btnClose)',
+    '',
+    // Botão minimizar para bandeja
+    '$btnMin = New-Object System.Windows.Forms.Button',
+    '$btnMin.Text = "Minimizar para bandeja"',
+    '$btnMin.Location = New-Object System.Drawing.Point(166,224)',
+    '$btnMin.Size = New-Object System.Drawing.Size(150,34)',
+    '$btnMin.FlatStyle = "Flat"',
+    '$btnMin.Font = New-Object System.Drawing.Font("Segoe UI", 8)',
+    '$btnMin.add_Click({ $form.Hide() })',
+    '$form.Controls.Add($btnMin)',
+    '',
+    // Ícone de bandeja
     '$tray = New-Object System.Windows.Forms.NotifyIcon',
     '$tray.Icon = [System.Drawing.SystemIcons]::Print',
     '$tray.Visible = $true',
     '$tray.Text = "FechaConta - Agente de Impressao"',
-    '$menu = New-Object System.Windows.Forms.ContextMenuStrip',
-    `$item = $menu.Items.Add("Fechar Agente de Impressao")`,
-    '$item.add_Click({',
-    '  $tray.Visible = $false',
-    `  try { Stop-Process -Id ${pid} -Force } catch {}`,
-    '  [System.Environment]::Exit(0)',
+    '$trayMenu = New-Object System.Windows.Forms.ContextMenuStrip',
+    '$trayShow = $trayMenu.Items.Add("Abrir Painel")',
+    `$trayShow.add_Click({ $form.Show(); $form.WindowState = "Normal"; $form.Activate() })`,
+    '$traySair = $trayMenu.Items.Add("Encerrar Agente")',
+    `$traySair.add_Click({ [System.IO.File]::WriteAllText("${cf}", "close"); $tray.Visible = $false; $form.Close() })`,
+    '$tray.ContextMenuStrip = $trayMenu',
+    '$tray.add_DoubleClick({ $form.Show(); $form.WindowState = "Normal"; $form.Activate() })',
+    '',
+    // Fecha para bandeja ao minimizar
+    '$form.add_Resize({ if ($form.WindowState -eq "Minimized") { $form.Hide() } })',
+    '$form.add_FormClosing({ param($s,$e); if ($e.CloseReason -eq "UserClosing") { $e.Cancel = $true; $form.Hide() } })',
+    '',
+    // Timer de atualização
+    '$timer = New-Object System.Windows.Forms.Timer',
+    '$timer.Interval = 1000',
+    '$timer.add_Tick({',
+    '  try {',
+    `    $json = [System.IO.File]::ReadAllText("${sf}")`,
+    '    $data = $json | ConvertFrom-Json',
+    '    $s = $data.status',
+    '    $color = if ($s -eq "online") { [System.Drawing.Color]::DarkGreen } elseif ($s -eq "connecting") { [System.Drawing.Color]::DarkOrange } else { [System.Drawing.Color]::Red }',
+    '    $lblStatus.ForeColor = $color',
+    '    $lblStatus.Text = $data.msg',
+    '    $listBox.Items.Clear()',
+    '    foreach ($p in $data.printers) { $listBox.Items.Add($p) | Out-Null }',
+    '    if ($listBox.Items.Count -eq 0) { $listBox.Items.Add("Nenhuma impressora encontrada") | Out-Null }',
+    '    $tray.Text = "FechaConta [$s] — " + $listBox.Items.Count + " impressora(s)"',
+    '  } catch {}',
     '})',
-    '$tray.ContextMenuStrip = $menu',
+    '$timer.Start()',
+    '',
     '$tray.ShowBalloonTip(2000, "FechaConta", "Agente de impressao ativo", [System.Windows.Forms.ToolTipIcon]::Info)',
-    '[System.Windows.Forms.Application]::Run()',
-  ];
-  const tmpPs = path.join(os.tmpdir(), `fc_tray_${pid}.ps1`);
+    '[System.Windows.Forms.Application]::Run($form)',
+    '$timer.Stop()',
+    '$tray.Dispose()',
+  ].join('\r\n');
+
+  const tmpPs = path.join(os.tmpdir(), `fc_gui_${pid}.ps1`);
   try {
-    fs.writeFileSync(tmpPs, lines.join('\r\n'), 'utf8');
-    const { spawn } = require('child_process');
-    const child = spawn('powershell', [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', tmpPs,
-    ], { detached: true, stdio: 'ignore', windowsHide: true });
-    child.unref();
+    fs.writeFileSync(tmpPs, ps, 'utf8');
+    exec(
+      `powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${tmpPs}"`,
+      { windowsHide: true },
+      () => { try { fs.unlinkSync(tmpPs); } catch {} }
+    );
   } catch (e) {
-    console.error('[tray] Erro ao criar ícone de bandeja:', e.message);
+    console.error('[gui] Erro ao abrir painel:', e.message);
   }
 }
 
@@ -502,7 +631,8 @@ if (cachedPrinters && cachedPrinters.length > 0) {
 if (process.platform === 'win32') {
   installStartup();
   createDesktopShortcut(loadedConfig.serverUrl);
-  setupTrayIcon();
+  // Abre painel de status após 1s (dá tempo ao console aparecer para podermos escondê-lo)
+  setTimeout(startGui, 1000);
 }
 
 startAgent(loadedConfig);
