@@ -150,16 +150,45 @@ const TO_CP437 = new Map<number, number>([
   [0x00D9,0x55],[0x00DA,0x55],[0x00DB,0x55],               // Ù Ú Û → U
   [0x00E3,0x61],[0x00F5,0x6F],                             // ã→a  õ→o
   [0x00CC,0x69],[0x00CD,0x69],[0x00CE,0x69],[0x00CF,0x69], // ì í î ï → i
+  [0x00B0,0xF8],                                           // ° → CP437 degree sign
 ]);
+// Multi-char fallbacks for Unicode chars that need more than one ASCII byte
+const CP437_MULTI: [number, string][] = [
+  [0x2013, '-'],[0x2014, '-'],[0x2015, '-'],   // en dash, em dash, horizontal bar
+  [0x00BD, '1/2'],[0x00BC, '1/4'],[0x00BE, '3/4'], // fractions
+  [0x2018, "'"],[0x2019, "'"],[0x201C, '"'],[0x201D, '"'], // smart quotes
+  [0x2026, '...'],[0x2022, '*'],               // ellipsis, bullet
+  [0x00AB, '<'],[0x00BB, '>'],                 // guillemets
+  [0x00A0, ' '],[0x00AD, '-'],                 // nbsp, soft hyphen
+];
+const CP437_MULTI_MAP = new Map<number, string>(CP437_MULTI);
+
 function escStr(s: string): number[] {
   const out: number[] = [];
   for (const ch of s) {
     const cp = ch.codePointAt(0)!;
-    if (cp < 128) out.push(cp);
-    else if (TO_CP437.has(cp)) out.push(TO_CP437.get(cp)!);
-    else out.push(0x3F); // '?' para chars fora do mapa
+    if (cp < 128) { out.push(cp); continue; }
+    if (TO_CP437.has(cp)) { out.push(TO_CP437.get(cp)!); continue; }
+    if (CP437_MULTI_MAP.has(cp)) {
+      for (const c of CP437_MULTI_MAP.get(cp)!) out.push(c.charCodeAt(0));
+      continue;
+    }
+    out.push(0x3F);
   }
   return out;
+}
+
+function wordWrap(s: string, lineLen: number): string[] {
+  const words = s.split(' ');
+  const lines: string[] = [];
+  let cur = '';
+  for (const w of words) {
+    if (!cur) { cur = w; continue; }
+    if (cur.length + 1 + w.length <= lineLen) { cur += ' ' + w; }
+    else { lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 function buildEscPosKitchenTicket(
@@ -208,25 +237,36 @@ function buildEscPosKitchenTicket(
   itemList.forEach((item, idx) => {
     if (idx > 0) line();
 
-    // Item — double height
-    push(0x1D, 0x21, 0x10, 0x1B, 0x45, 0x01);
-    text((item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ') + item.name.toUpperCase()); lf();
-    push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+    const qty = item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ';
+    const price = item.price != null ? ' R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
+    const nameUpper = item.name ? item.name.toUpperCase() : '';
+    const firstLine = qty + nameUpper;
+    // If name+price fits on one line use it, otherwise wrap name then price on next line
+    if (price && firstLine.length + price.length <= lineLen) {
+      const pad = lineLen - firstLine.length - price.length;
+      text(firstLine + ' '.repeat(pad) + price); lf();
+    } else {
+      const wrapped = wordWrap(firstLine, lineLen);
+      wrapped.forEach(l => { text(l); lf(); });
+      if (price) { text(price.trim()); lf(); }
+    }
 
     // Sabores
     if (item.flavors && item.flavors.length > 1) {
-      push(0x1B, 0x45, 0x01); text('SABORES: ' + item.flavors.join(' / ').toUpperCase()); lf();
-      push(0x1B, 0x45, 0x00);
+      wordWrap('SABORES: ' + item.flavors.join(' / ').toUpperCase(), lineLen)
+        .forEach(l => { text(l); lf(); });
     }
 
     // Borda
-    if (item.crust) { text('BORDA: ' + item.crust.toUpperCase()); lf(); }
+    if (item.crust) {
+      wordWrap('BORDA: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+    }
 
     // Observação — fundo preto
     if (item.observations) {
-      push(0x1D, 0x42, 0x01, 0x1B, 0x45, 0x01);
-      text('OBS: ' + item.observations.toUpperCase()); lf();
-      push(0x1D, 0x42, 0x00, 0x1B, 0x45, 0x00);
+      push(0x1D, 0x42, 0x01);
+      wordWrap('OBS: ' + item.observations.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+      push(0x1D, 0x42, 0x00);
     }
   });
 
