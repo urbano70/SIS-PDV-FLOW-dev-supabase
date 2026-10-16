@@ -129,28 +129,28 @@ interface DashboardProps {
 }
 
 // ── ESC/POS builder ──────────────────────────────────────────────────────────
-// Mapa Unicode → CP437. Impressoras térmicas baratas usam CP437 por padrão
-// (bytes 0x80–0xFF = pseudo-gráficos, NÃO Latin-1). Chars ausentes do CP437
-// ficam com o acento retirado para manter legibilidade.
+// Mapa Unicode → CP850. ESC t 2 ativa CP850 na impressora, que suporta
+// todos os chars acentuados do português incluindo ã/Ã e maiúsculas acentuadas.
 const TO_CP437 = new Map<number, number>([
+  // CP850 — coincide com CP437 nos bytes abaixo
   [0x00C7,0x80],[0x00FC,0x81],[0x00E9,0x82],[0x00E2,0x83],
   [0x00E4,0x84],[0x00E0,0x85],[0x00E5,0x86],[0x00E7,0x87],
   [0x00EA,0x88],[0x00EB,0x89],[0x00E8,0x8A],[0x00EF,0x8B],
   [0x00EE,0x8C],[0x00EC,0x8D],[0x00C4,0x8E],[0x00C5,0x8F],
   [0x00C9,0x90],[0x00E6,0x91],[0x00C6,0x92],[0x00F4,0x93],
   [0x00F6,0x94],[0x00F2,0x95],[0x00FB,0x96],[0x00F9,0x97],
-  [0x00FF,0x98],[0x00D6,0x99],[0x00DC,0x9A],[0x00F3,0xA2],
-  [0x00FA,0xA3],[0x00F1,0xA4],[0x00D1,0xA5],[0x00E1,0xA0],
-  [0x00ED,0xA1],[0x00F3,0xA2],[0x00FA,0xA3],
-  // Chars ausentes no CP437 — retira acento para manter legibilidade
-  [0x00C0,0x41],[0x00C1,0x41],[0x00C2,0x41],[0x00C3,0x41], // À Á Â Ã → A
-  [0x00C8,0x45],[0x00CA,0x45],[0x00CB,0x45],               // È Ê Ë → E
-  [0x00CC,0x49],[0x00CD,0x49],[0x00CE,0x49],[0x00CF,0x49], // Ì Í Î Ï → I
-  [0x00D2,0x4F],[0x00D3,0x4F],[0x00D4,0x4F],[0x00D5,0x4F], // Ò Ó Ô Õ → O
-  [0x00D9,0x55],[0x00DA,0x55],[0x00DB,0x55],               // Ù Ú Û → U
-  [0x00E3,0x61],[0x00F5,0x6F],                             // ã→a  õ→o
-  [0x00CC,0x69],[0x00CD,0x69],[0x00CE,0x69],[0x00CF,0x69], // ì í î ï → i
-  [0x00B0,0xF8],                                           // ° → CP437 degree sign
+  [0x00FF,0x98],[0x00D6,0x99],[0x00DC,0x9A],
+  [0x00E1,0xA0],[0x00ED,0xA1],[0x00F3,0xA2],[0x00FA,0xA3],
+  [0x00F1,0xA4],[0x00D1,0xA5],
+  // CP850 extras relevantes para português
+  [0x00C1,0xB5],[0x00C2,0xB6],[0x00C0,0xB7],               // Á Â À
+  [0x00C3,0xC7],[0x00E3,0xC6],                             // Ã ã
+  [0x00D5,0xE4],[0x00F5,0xE5],                             // Õ õ
+  [0x00C8,0xD4],[0x00CA,0xD2],                             // È Ê
+  [0x00CC,0xDE],[0x00CD,0xD6],                             // Ì Í
+  [0x00D2,0xE3],[0x00D3,0xE0],[0x00D4,0xE2],               // Ò Ó Ô
+  [0x00D9,0xEB],[0x00DA,0xE9],[0x00DB,0xEA],               // Ù Ú Û
+  [0x00B0,0xF8],                                           // °
 ]);
 // Multi-char fallbacks for Unicode chars that need more than one ASCII byte
 const CP437_MULTI: [number, string][] = [
@@ -213,8 +213,8 @@ function buildEscPosKitchenTicket(
   const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const waiterName = itemList[0]?.waiterName || 'SISTEMA';
 
-  // Init (Windows-1252 default)
-  push(0x1B, 0x40);
+  // Init + seleciona CP850 (suporta ã/Ã e maiúsculas acentuadas do português)
+  push(0x1B, 0x40, 0x1B, 0x74, 0x02);
 
   // Header — centered
   push(0x1B, 0x61, 0x01);
@@ -239,17 +239,20 @@ function buildEscPosKitchenTicket(
 
     const qty = item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ';
     const price = item.price != null ? ' R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
-    const nameUpper = item.name ? item.name.toUpperCase() : '';
-    const firstLine = qty + nameUpper;
-    // If name+price fits on one line use it, otherwise wrap name then price on next line
-    if (price && firstLine.length + price.length <= lineLen) {
-      const pad = lineLen - firstLine.length - price.length;
+    const itemName = item.name || '';
+    const firstLine = qty + itemName;
+    // Double-height (sem bold) para o nome do item
+    push(0x1D, 0x21, 0x10);
+    const dhLen = Math.floor(lineLen / 2); // double-width ocupa o dobro de espaço visual
+    if (price && firstLine.length + price.length <= dhLen) {
+      const pad = dhLen - firstLine.length - price.length;
       text(firstLine + ' '.repeat(pad) + price); lf();
     } else {
-      const wrapped = wordWrap(firstLine, lineLen);
+      const wrapped = wordWrap(firstLine, dhLen);
       wrapped.forEach(l => { text(l); lf(); });
       if (price) { text(price.trim()); lf(); }
     }
+    push(0x1D, 0x21, 0x00);
 
     // Sabores
     if (item.flavors && item.flavors.length > 1) {
@@ -271,7 +274,7 @@ function buildEscPosKitchenTicket(
   });
 
   line();
-  text('Garcom: ' + waiterName); lf(); lf();
+  text('Garcom: ' + waiterName); lf();
 
   // Corte parcial
   push(0x1D, 0x56, 0x41, 0x03);
