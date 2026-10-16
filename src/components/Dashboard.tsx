@@ -6022,7 +6022,7 @@ export default function Dashboard({
                     const printer = receiptPrinterName ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName) : null;
                     const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
 
-                    if (printer?.ip) {
+                    if (printer) {
                       const lineLen = is50mm ? 32 : 48;
                       const b: number[] = [];
                       const push = (...bytes: number[]) => b.push(...bytes);
@@ -6070,33 +6070,14 @@ export default function Dashboard({
                       }
                       if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
                       push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10);
-                      socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                      if (printer.ip) {
+                        socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                      } else {
+                        socket.emit('print_escpos', { localName: printer.name, data: b });
+                      }
                       toast.success('Reimpressão enviada', { description: `Pedido #${order.id} · ${tableType} ${tid}` });
                     } else {
-                      const _pw = is50mm ? '192px' : '304px';
-                      const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
-                      const printWindow = window.open('', '_blank');
-                      if (printWindow) {
-                        const html = `<html><head><title>Reimpressao ${tableType} ${tid}</title>
-                          <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
-                          .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
-                          @media print{body{width:100%;margin:0}}</style></head><body>
-                          <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>
-                          ${printerConfig.address ? printerConfig.address + '<br/>' : ''}
-                          <b>*** REIMPRESSAO ***</b></div>
-                          <div class="sep"></div>
-                          <div>${tableType}: ${tid}<br/>Garcom: ${waiterName}<br/>Pedido: #${order.id}<br/>${new Date(order.timestamp).toLocaleString('pt-BR')}</div>
-                          <div class="sep"></div>
-                          ${activeItems.map((i: any) => { let price = i.price; if (i.discount) { if (i.discountType==='percentage') price *= (1-i.discount/100); else price=Math.max(0,price-i.discount);} return `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${price.toFixed(2)}</span></div>`; }).join('')}
-                          ${cancelledItems.length > 0 ? `<div class="sep"></div><div style="color:#cc0000"><b>ITENS CANCELADOS:</b><br/>${cancelledItems.map((i: any)=>`<span style="text-decoration:line-through">${i.quantity||1}x ${i.name}</span>${i.removedBy ? ` — Por: ${i.removedBy}` : ''}${i.removalReason ? ` (${i.removalReason})` : ''}`).join('<br/>')}</div>` : ''}
-                          <div class="sep"></div>
-                          <div style="text-align:right"><b>TOTAL: R$ ${finalTotal.toFixed(2)}</b></div>
-                          ${order.paymentLog?.length > 0 ? `<div class="sep"></div><div><b>Pagamentos:</b><br/>${(order.paymentLog||[]).map((p: any)=>`${p.method}: R$ ${p.amount.toFixed(2)}`).join('<br/>')}</div>` : ''}
-                          <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
-                          <script>window.onload=()=>{window.print();window.close()}</script></body></html>`;
-                        printWindow.document.write(html);
-                        printWindow.document.close();
-                      }
+                      toast.error('Nenhuma impressora de caixa configurada.', { description: 'Configure a impressora de comprovantes nas configurações.' });
                     }
                   };
 
