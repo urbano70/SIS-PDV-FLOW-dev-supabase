@@ -149,14 +149,15 @@ function escStr(s: string): number[] {
 }
 
 function buildEscPosKitchenTicket(
-  item: any,
+  items: any | any[],
   tableType: string,
   targetId: string | number,
   printerName: string,
   paperWidth: string
 ): number[] {
-  const wide = paperWidth !== '50mm';
-  const lineLen = wide ? 42 : 24;
+  const itemList: any[] = Array.isArray(items) ? items : [items];
+  const wide = paperWidth === '80mm';
+  const lineLen = wide ? 42 : 28;
   const b: number[] = [];
 
   const push = (...bytes: number[]) => b.push(...bytes);
@@ -167,9 +168,10 @@ function buildEscPosKitchenTicket(
   const now = new Date();
   const dateStr = now.toLocaleDateString('pt-BR');
   const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const waiterName = itemList[0]?.waiterName || 'SISTEMA';
 
-  // Init + code page CP850
-  push(0x1B, 0x40, 0x1B, 0x74, 0x02);
+  // Init (Windows-1252 default)
+  push(0x1B, 0x40);
 
   // Header — centered
   push(0x1B, 0x61, 0x01);
@@ -185,33 +187,37 @@ function buildEscPosKitchenTicket(
   push(0x1B, 0x45, 0x01); text(dateStr + '  ' + timeStr); lf();
   push(0x1B, 0x45, 0x00);
 
-  // Separator
   push(0x1B, 0x61, 0x00);
   line();
 
-  // Item — double height
-  push(0x1D, 0x21, 0x10, 0x1B, 0x45, 0x01);
-  text((item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ') + item.name.toUpperCase()); lf();
-  push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+  // Itens — separados por linha tracejada
+  itemList.forEach((item, idx) => {
+    if (idx > 0) line();
 
-  // Sabores
-  if (item.flavors && item.flavors.length > 1) {
-    push(0x1B, 0x45, 0x01); text('SABORES: ' + item.flavors.join(' / ').toUpperCase()); lf();
-    push(0x1B, 0x45, 0x00);
-  }
+    // Item — double height
+    push(0x1D, 0x21, 0x10, 0x1B, 0x45, 0x01);
+    text((item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ') + item.name.toUpperCase()); lf();
+    push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
 
-  // Borda
-  if (item.crust) { text('BORDA: ' + item.crust.toUpperCase()); lf(); }
+    // Sabores
+    if (item.flavors && item.flavors.length > 1) {
+      push(0x1B, 0x45, 0x01); text('SABORES: ' + item.flavors.join(' / ').toUpperCase()); lf();
+      push(0x1B, 0x45, 0x00);
+    }
 
-  // Observação — fundo preto
-  if (item.observations) {
-    push(0x1D, 0x42, 0x01, 0x1B, 0x45, 0x01);
-    text('OBS: ' + item.observations.toUpperCase()); lf();
-    push(0x1D, 0x42, 0x00, 0x1B, 0x45, 0x00);
-  }
+    // Borda
+    if (item.crust) { text('BORDA: ' + item.crust.toUpperCase()); lf(); }
+
+    // Observação — fundo preto
+    if (item.observations) {
+      push(0x1D, 0x42, 0x01, 0x1B, 0x45, 0x01);
+      text('OBS: ' + item.observations.toUpperCase()); lf();
+      push(0x1D, 0x42, 0x00, 0x1B, 0x45, 0x00);
+    }
+  });
 
   line();
-  text('Operador: ' + (item.waiterName || 'SISTEMA')); lf(); lf();
+  text('Garcom: ' + waiterName); lf(); lf();
 
   // Corte parcial
   push(0x1D, 0x56, 0x41, 0x03);
@@ -1467,56 +1473,74 @@ export default function Dashboard({
 
     if (!targetId) return;
 
+    // Agrupa itens por impressora-destino para emitir uma via por setor
+    const groups = new Map<string, { printerName: string; paperWidth: string; items: any[] }>();
+
     orderItems.forEach(item => {
       let targetPrinterName = '';
       let shouldPrint = false;
+      let sectorPaperWidth = '80mm';
 
       if (item.type === 'pizzas') {
         targetPrinterName = printerConfig.pizzas || printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintPizzas ?? true;
+        sectorPaperWidth = (printerConfig as any).pizzasPaperWidth || printerConfig.paperWidth || '80mm';
       } else if (item.type === 'bebidas') {
         targetPrinterName = printerConfig.drinks || printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintDrinks ?? false;
+        sectorPaperWidth = (printerConfig as any).drinksPaperWidth || printerConfig.paperWidth || '80mm';
       } else if (item.type === 'lanches') {
         targetPrinterName = printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintKitchen ?? true;
+        sectorPaperWidth = (printerConfig as any).kitchenPaperWidth || printerConfig.paperWidth || '80mm';
       }
 
       if (shouldPrint && targetPrinterName && targetPrinterName !== 'none') {
-        const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
+        const key = targetPrinterName;
+        if (!groups.has(key)) groups.set(key, { printerName: targetPrinterName, paperWidth: sectorPaperWidth, items: [] });
+        groups.get(key)!.items.push(item);
+      }
+    });
 
-        if (printer) {
-          // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
-          const data = buildEscPosKitchenTicket(
-            item, tableType, String(targetId), targetPrinterName, printerConfig.paperWidth || '80mm'
-          );
-          if (printer.ip) {
-            socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
-          } else {
-            // USB: usa o agente com localName (nome da impressora no Windows)
-            socket.emit('print_escpos', { localName: printer.name, data });
-          }
+    groups.forEach(({ printerName, paperWidth, items }) => {
+      const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === printerName);
+
+      if (printer) {
+        // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
+        const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth);
+        if (printer.ip) {
+          socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
         } else {
-          // ── Fallback: diálogo de impressão do navegador ──────────────────────
-          const printFrame = document.createElement('iframe');
-          printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-          document.body.appendChild(printFrame);
+          socket.emit('print_escpos', { localName: printer.name, data });
+        }
+      } else {
+        // ── Fallback: diálogo de impressão do navegador ──────────────────────
+        const printFrame = document.createElement('iframe');
+        printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+        document.body.appendChild(printFrame);
 
-          const now = new Date();
-          const dateStr = now.toLocaleDateString('pt-BR');
-          const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-          const _pw   = (printerConfig.paperWidth || '80mm') === '50mm' ? '192px' : '304px';
-          const _tblFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '24px' : '36px';
-          const _itemFs = (printerConfig.paperWidth || '80mm') === '50mm' ? '14px' : '20px';
-          const _obsFs  = (printerConfig.paperWidth || '80mm') === '50mm' ? '11px' : '16px';
-          const html = `<html><head><style>
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('pt-BR');
+        const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const _pw   = paperWidth === '48mm' ? '181px' : '304px';
+        const _tblFs = paperWidth === '48mm' ? '20px' : '32px';
+        const _itemFs = paperWidth === '48mm' ? '13px' : '18px';
+        const _obsFs  = paperWidth === '48mm' ? '10px' : '14px';
+        const itemsHtml = items.map(item => `
+          <div class="item-detail">${item.quantity || 1}x ${item.name}</div>
+          ${item.flavors && item.flavors.length > 1 ? `<div style="font-size:${_obsFs};font-weight:bold">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
+          ${item.crust ? `<div style="font-size:${_obsFs}">BORDA: ${item.crust}</div>` : ''}
+          ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+        `).join(`<div class="sep"></div>`);
+        const html = `<html><head><style>
             @page{size:${_pw} auto;margin:4mm}
             *{box-sizing:border-box}
             body{font-family:monospace;padding:4px;width:${_pw};margin:0;color:#000}
             .header{text-align:center;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px}
             .table-info{font-size:${_tblFs};font-weight:bold;margin:4px 0;border:3px solid #000;padding:6px;text-align:center}
-            .item-detail{font-size:${_itemFs};font-weight:bold;text-transform:uppercase;margin-bottom:8px}
+            .item-detail{font-size:${_itemFs};font-weight:bold;text-transform:uppercase;margin-bottom:4px}
             .observation{background:#000;color:#fff;padding:6px;font-weight:bold;font-size:${_obsFs};margin-top:4px}
+            .sep{border-top:1px dashed #000;margin:6px 0}
             .footer{font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px;line-height:1.4}
           </style></head><body>
             <div class="header">
@@ -1526,21 +1550,25 @@ export default function Dashboard({
             </div>
             <div class="item-detail">${item.quantity || 1}x ${item.name}</div>
             ${item.flavors && item.flavors.length > 1 ? `<div style="font-size:${_obsFs};font-weight:bold">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
-            ${item.crust ? `<div style="font-size:${_obsFs}">BORDA: ${item.crust}</div>` : ''}
-            ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-            <div class="footer"><div>Operador: ${item.waiterName || 'SISTEMA'}</div></div>
+          </style></head><body>
+            <div class="header">
+              <div style="font-size:11px;font-weight:bold">VIA PRODUCAO: ${printerName.toUpperCase()}</div>
+              <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
+              <div style="font-size:11px;font-weight:bold;margin-top:4px">${dateStr} &nbsp; ${timeStr}</div>
+            </div>
+            ${itemsHtml}
+            <div class="footer" style="font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px"><div>Garcom: ${items[0]?.waiterName || 'SISTEMA'}</div></div>
           </body></html>`;
 
-          if (printFrame.contentWindow) {
-            printFrame.contentWindow.document.open();
-            printFrame.contentWindow.document.write(html);
-            printFrame.contentWindow.document.close();
-            setTimeout(() => {
-              printFrame.contentWindow?.focus();
-              printFrame.contentWindow?.print();
-              document.body.removeChild(printFrame);
-            }, 300);
-          }
+        if (printFrame.contentWindow) {
+          printFrame.contentWindow.document.open();
+          printFrame.contentWindow.document.write(html);
+          printFrame.contentWindow.document.close();
+          setTimeout(() => {
+            printFrame.contentWindow?.focus();
+            printFrame.contentWindow?.print();
+            document.body.removeChild(printFrame);
+          }, 300);
         }
       }
     });
@@ -4850,11 +4878,11 @@ export default function Dashboard({
                     </div>
                     <div className="space-y-1.5">
                       {([
-                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   label: pizzariaConfig.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={10} /> },
-                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   label: 'Bebidas',  icon: <Beer size={10} /> },
-                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  label: 'Lanches',  icon: <ChefHat size={10} /> },
-                        { key: 'receipts', autoKey: 'autoPrintReceipts', label: 'Recibos',  icon: <FileText size={10} /> },
-                      ] as const).map(({ key, autoKey, label, icon }) => (
+                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   pwKey: 'pizzasPaperWidth', label: pizzariaConfig.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={10} /> },
+                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   pwKey: 'drinksPaperWidth',  label: 'Bebidas',  icon: <Beer size={10} /> },
+                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  pwKey: 'kitchenPaperWidth', label: 'Lanches',  icon: <ChefHat size={10} /> },
+                        { key: 'receipts', autoKey: 'autoPrintReceipts', pwKey: null,                label: 'Recibos',  icon: <FileText size={10} /> },
+                      ] as const).map(({ key, autoKey, pwKey, label, icon }) => (
                         <div key={key} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
                           <div className="flex items-center gap-2 mb-1.5">
                             <span className="opacity-50">{icon}</span>
@@ -4868,16 +4896,29 @@ export default function Dashboard({
                               Auto
                             </button>
                           </div>
-                          <select
-                            value={(printerConfig as any)[key] || 'none'}
-                            onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, [key]: v })); }}
-                            className="w-full bg-white border border-[#141414]/10 rounded-md py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
-                          >
-                            <option value="none">— Sem impressora —</option>
-                            {(printerConfig.registeredPrinters || []).filter((p: any) => p.name).map((p: any, i: number) => (
-                              <option key={i} value={p.name}>{p.name}</option>
-                            ))}
-                          </select>
+                          <div className="flex gap-1.5">
+                            <select
+                              value={(printerConfig as any)[key] || 'none'}
+                              onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, [key]: v })); }}
+                              className="flex-1 bg-white border border-[#141414]/10 rounded-md py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                            >
+                              <option value="none">— Sem impressora —</option>
+                              {(printerConfig.registeredPrinters || []).filter((p: any) => p.name).map((p: any, i: number) => (
+                                <option key={i} value={p.name}>{p.name}</option>
+                              ))}
+                            </select>
+                            {pwKey && (
+                              <div className="flex bg-[#141414]/5 rounded-md overflow-hidden border border-[#141414]/10">
+                                {(['80mm', '48mm'] as const).map(pw => (
+                                  <button
+                                    key={pw}
+                                    onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [pwKey]: pw }))}
+                                    className={`px-1.5 py-1 text-[7px] font-bold transition-all ${((printerConfig as any)[pwKey] || '80mm') === pw ? 'bg-white shadow-sm text-[#141414]' : 'opacity-35'}`}
+                                  >{pw}</button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
