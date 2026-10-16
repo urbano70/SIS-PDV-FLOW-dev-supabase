@@ -269,11 +269,8 @@ function buildEscPosKitchenTicket(
       wordWrap('BORDA: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
-    // Observação — fundo preto
     if (item.observations) {
-      push(0x1D, 0x42, 0x01);
       wordWrap('OBS: ' + item.observations.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
-      push(0x1D, 0x42, 0x00);
     }
   });
 
