@@ -92,26 +92,15 @@ const ESC = 0x1b;
 const GS  = 0x1d;
 const LF  = 0x0a;
 
-// CP850 mapping for Portuguese accented characters
-// ESC/POS printers use CP850 (multilingual Latin), not UTF-8
-const CP850: Record<string, number> = {
-  'À':0xB7,'Á':0xB5,'Â':0xB6,'Ã':0xC7,'Ä':0x8E,'Å':0x8F,'Æ':0x92,'Ç':0x80,
-  'È':0xD4,'É':0x90,'Ê':0xD2,'Ë':0xD3,'Ì':0xDE,'Í':0xD6,'Î':0xD7,'Ï':0xD8,
-  'Ñ':0xA5,'Ò':0xE3,'Ó':0xE0,'Ô':0xE2,'Õ':0xE5,'Ö':0x99,'Ø':0x9D,'Ù':0xEB,
-  'Ú':0xE9,'Û':0xEA,'Ü':0x9A,'ß':0xE1,'à':0x85,'á':0xA0,'â':0x83,'ã':0xC6,
-  'ä':0x84,'å':0x86,'æ':0x91,'ç':0x87,'è':0x8A,'é':0x82,'ê':0x88,'ë':0x89,
-  'ì':0x8D,'í':0xA1,'î':0x8C,'ï':0x8B,'ñ':0xA4,'ò':0x95,'ó':0xA2,'ô':0x93,
-  'õ':0xE4,'ö':0x94,'ø':0x9B,'ù':0x97,'ú':0xA3,'û':0x96,'ü':0x81,'ÿ':0x98,
-};
-
+// Latin-1 / Windows-1252 encoding.
+// Most thermal printers use Windows-1252 (or a Latin-1-compatible page) as default.
+// In Windows-1252, the byte value equals the Unicode code point for U+0000–U+00FF,
+// which covers all Portuguese accented characters natively — no lookup table needed.
 function encode(text: string): Uint8Array {
   const bytes: number[] = [];
   for (const ch of text) {
-    if (ch.charCodeAt(0) < 128) {
-      bytes.push(ch.charCodeAt(0));
-    } else {
-      bytes.push(CP850[ch] ?? 0x3F); // '?' for unmapped chars
-    }
+    const cp = ch.codePointAt(0)!;
+    bytes.push(cp < 256 ? cp : 0x3F); // Latin-1: byte = code point; '?' for others
   }
   return new Uint8Array(bytes);
 }
@@ -124,7 +113,7 @@ function concat(...arrays: Uint8Array[]): Uint8Array {
   return out;
 }
 
-const INIT      = new Uint8Array([ESC, 0x40, ESC, 0x74, 0x02]); // init + select CP850
+const INIT      = new Uint8Array([ESC, 0x40]); // init printer (Windows-1252 default)
 const BOLD_ON   = new Uint8Array([ESC, 0x45, 0x01]);
 const BOLD_OFF  = new Uint8Array([ESC, 0x45, 0x00]);
 const CENTER    = new Uint8Array([ESC, 0x61, 0x01]);
