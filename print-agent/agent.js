@@ -27,6 +27,21 @@ const DEFAULT_SERVER_URL = 'https://fechaconta.app';
 const args = process.argv.slice(2);
 const logFile = path.join(BASE_DIR, 'agente.log');
 
+// ── Auto-restart hidden (sem janela preta) ────────────────────────────────────
+// Na primeira execução (pkg + Windows + sem flag de fundo), re-lança sem console
+// e encerra imediatamente para fechar a janela preta.
+if (IS_PKG && process.platform === 'win32' && !process.env.FC_AGENT_HIDDEN) {
+  const { spawn } = require('child_process');
+  const child = spawn(process.execPath, process.argv.slice(2), {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+    env: { ...process.env, FC_AGENT_HIDDEN: '1' },
+  });
+  child.unref();
+  process.exit(0);
+}
+
 // Captura erros não tratados e grava em log ao lado do exe
 process.on('uncaughtException', (err) => {
   try { fs.appendFileSync(logFile, `[${new Date().toISOString()}] ERRO: ${err.stack}\n`); } catch {}
@@ -217,6 +232,41 @@ function uninstallStartup() {
   try { execSync(`reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "${APP_NAME}" /f`, { stdio: 'pipe' }); }
   catch { console.log('[info] Startup não encontrado.'); }
   console.log('[ok] Removido do startup.');
+}
+
+// ── Ícone de bandeja (system tray) ───────────────────────────────────────────
+function setupTrayIcon() {
+  if (process.platform !== 'win32') return;
+  const pid = process.pid;
+  const lines = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    'Add-Type -AssemblyName System.Drawing',
+    '$tray = New-Object System.Windows.Forms.NotifyIcon',
+    '$tray.Icon = [System.Drawing.SystemIcons]::Print',
+    '$tray.Visible = $true',
+    '$tray.Text = "FechaConta - Agente de Impressao"',
+    '$menu = New-Object System.Windows.Forms.ContextMenuStrip',
+    `$item = $menu.Items.Add("Fechar Agente de Impressao")`,
+    '$item.add_Click({',
+    '  $tray.Visible = $false',
+    `  try { Stop-Process -Id ${pid} -Force } catch {}`,
+    '  [System.Environment]::Exit(0)',
+    '})',
+    '$tray.ContextMenuStrip = $menu',
+    '$tray.ShowBalloonTip(2000, "FechaConta", "Agente de impressao ativo", [System.Windows.Forms.ToolTipIcon]::Info)',
+    '[System.Windows.Forms.Application]::Run()',
+  ];
+  const tmpPs = path.join(os.tmpdir(), `fc_tray_${pid}.ps1`);
+  try {
+    fs.writeFileSync(tmpPs, lines.join('\r\n'), 'utf8');
+    const { spawn } = require('child_process');
+    const child = spawn('powershell', [
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', tmpPs,
+    ], { detached: true, stdio: 'ignore', windowsHide: true });
+    child.unref();
+  } catch (e) {
+    console.error('[tray] Erro ao criar ícone de bandeja:', e.message);
+  }
 }
 
 function createDesktopShortcut(serverUrl) {
@@ -452,6 +502,7 @@ if (cachedPrinters && cachedPrinters.length > 0) {
 if (process.platform === 'win32') {
   installStartup();
   createDesktopShortcut(loadedConfig.serverUrl);
+  setupTrayIcon();
 }
 
 startAgent(loadedConfig);
