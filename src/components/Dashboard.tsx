@@ -278,8 +278,12 @@ function buildEscPosKitchenTicket(
     }
   });
 
+  // Garçom — garante tamanho normal e alinhamento esquerdo antes de imprimir
+  push(0x1D, 0x21, 0x00); // normal size
+  push(0x1B, 0x61, 0x00); // align left
   line();
   text('Garcom: ' + waiterName); lf();
+  lf(); // espaço antes do corte
 
   // Corte parcial
   push(0x1D, 0x56, 0x41, 0x03);
