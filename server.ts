@@ -2101,6 +2101,11 @@ async function startServer() {
       }
     });
 
+    // Cliente pede status atual do agente (ex: após reconexão do socket)
+    socket.on("request_agent_status", () => {
+      socket.emit("printer_agent_status", { online: !!(printerAgentSocket?.connected) });
+    });
+
     // Scan de impressoras — Dashboard pede, servidor repassa ao agente
     socket.on("scan_printers_request", () => {
       if (printerAgentSocket?.connected) {
