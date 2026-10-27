@@ -218,7 +218,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
-  const [drinkCups, setDrinkCups] = useState(1);
+  const [drinkCups, setDrinkCups] = useState(0);
   const [drinkIce, setDrinkIce] = useState(false);
   const [drinkLemon, setDrinkLemon] = useState(false);
 
@@ -378,7 +378,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedQuantityItem(pizza);
       setItemQuantity(1);
       setItemObservations('');
-      setDrinkCups(1);
+      setDrinkCups(0);
       setDrinkIce(false);
       setDrinkLemon(false);
       setIsQuantityModalOpen(true);
@@ -440,7 +440,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       type: selectedQuantityItem.type || category?.type,
       observations: [
         itemObservations,
-        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkCups > 1 ? `${drinkCups} copos` : '',
+        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkCups > 0 ? `${drinkCups} copo${drinkCups > 1 ? 's' : ''}` : '',
         (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkIce ? 'Com gelo' : '',
         (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkLemon ? 'Com limão' : '',
       ].filter(Boolean).join(' · '),
@@ -1515,7 +1515,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       <span className="text-sm font-bold">Copos</span>
                       <div className="flex items-center gap-3">
                         <button
-                          onClick={() => setDrinkCups(Math.max(1, drinkCups - 1))}
+                          onClick={() => setDrinkCups(Math.max(0, drinkCups - 1))}
                           className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
                         >-</button>
                         <span className="text-lg font-bold w-6 text-center">{drinkCups}</span>
