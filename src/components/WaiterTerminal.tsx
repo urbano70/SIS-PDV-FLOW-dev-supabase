@@ -19,6 +19,7 @@ interface WaiterTerminalProps {
   menu: MenuCategory[];
   pizzaFlavors: any[];
   pizzaCrusts: string[];
+  pizzaSizes?: any[];
   isCashRegisterOpen: boolean;
   printerConfig: any;
   pizzariaConfig: PizzeriaConfig;
@@ -26,7 +27,7 @@ interface WaiterTerminalProps {
   clockOffset?: number;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, pizzaSizes = [], isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
 
   // Fila de alertas "Chama Garçom" — suporta múltiplas mesas simultâneas
@@ -209,6 +210,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [maxFlavors, setMaxFlavors] = useState(1);
   const [selectionStep, setSelectionStep] = useState<'flavors' | 'crust'>('flavors');
   const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
+  const [pizzaHasBorder, setPizzaHasBorder] = useState(false);
   const [pizzaObservations, setPizzaObservations] = useState('');
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
@@ -323,24 +325,40 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const getMaxFlavors = (itemName: string) => {
+    // Tenta usar pizzaSizes pelo nome do item
+    const match = pizzaSizes.find((s: any) => itemName.toLowerCase().includes(s.name.toLowerCase()));
+    if (match) return match.maxFlavors;
+    // Fallback por palavras-chave
     const name = itemName.toUpperCase();
-    if (name.includes('METRO') && !name.includes('MEIO')) return 4;
-    if (name.includes('GRANDE') || name.includes('GG') || name.includes('MEIO METRO')) return 3;
-    if (name.includes('MINI') || name.includes('PEQUENA') || name.includes('MÉDIA')) return 2;
+    if (name.includes('METRO') && !name.includes('MEIO')) return 6;
+    if (name.includes('MEIO METRO')) return 4;
+    if (name.includes('GRANDE') || name.includes('GG')) return 4;
+    if (name.includes('MÉDIA') || name.includes('MEDIA')) return 2;
+    if (name.includes('PEQUENA') || name.includes('MINI')) return 2;
     return 1;
   };
 
   const addToCart = (pizza: any) => {
-    // Check if it's a pizza category
-    const category = menu.find(cat => cat.items?.some(i => i.id === pizza.id || i.name === pizza.name));
+    // Busca categoria incluindo subcategorias
+    const category = menu.find(cat =>
+      cat.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name) ||
+      (cat.subcategories || []).some((sub: any) => sub.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name))
+    );
+    const fromSubcat = category && (category.subcategories || []).find((sub: any) =>
+      sub.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name)
+    );
     const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
     const isSnackOrDrink = !isPizza;
 
     if (isPizza && !isFlavorModalOpen) {
+      const hasBorder = fromSubcat
+        ? fromSubcat.name.toLowerCase().includes('com')
+        : pizza.name.toLowerCase().includes('com borda');
       setSelectedPizzaItem(pizza);
       setMaxFlavors(getMaxFlavors(pizza.name));
       setSelectedFlavors([]);
       setSelectedCrust(null);
+      setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
       setSelectionStep('flavors');
       setIsFlavorModalOpen(true);
@@ -422,6 +440,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const confirmFlavorSelection = () => {
     if (selectedFlavors.length === 0) return;
+    // Se for sem borda, finaliza direto sem etapa de borda
+    if (!pizzaHasBorder) { confirmPizzaSelection(); return; }
     setSelectionStep('crust');
   };
 
@@ -1256,9 +1276,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div>
                   <h3 className="text-xl font-bold">{selectedPizzaItem?.name}</h3>
                   <p className="text-sm opacity-60">
-                    {selectionStep === 'flavors' 
-                      ? `Selecione até ${maxFlavors} sabores` 
-                      : 'Escolha a borda (opcional)'}
+                    {selectionStep === 'flavors'
+                      ? `Selecione até ${maxFlavors} sabores`
+                      : 'Escolha a borda'}
                   </p>
                 </div>
                 <button 
