@@ -48,20 +48,47 @@ const PIZZA_DEFAULT_MENU: MenuCategory[] = [
   {
     name: 'Pizzas',
     type: 'pizzas',
-    items: [
-      { id: 'pz1', name: 'Pizza Margherita', price: 45.00, ingredients: 'Molho de tomate, mussarela, manjericão' },
-      { id: 'pz2', name: 'Pizza Calabresa', price: 48.00, ingredients: 'Molho de tomate, calabresa, cebola' },
-      { id: 'pz3', name: 'Pizza Frango com Catupiry', price: 52.00, ingredients: 'Molho de tomate, frango, catupiry' },
+    visible: true,
+    items: [],
+    subcategories: [
+      {
+        id: 'com-borda',
+        name: 'Com Borda',
+        position: 0,
+        visible: true,
+        items: [
+          { id: 'pcb1', name: 'Mini com Borda',       price: 0, ingredients: '4 fatias · 20cm · 1 sabor' },
+          { id: 'pcb2', name: 'Média com Borda',      price: 0, ingredients: '6 fatias · 30cm · até 2 sabores' },
+          { id: 'pcb3', name: 'Grande com Borda',     price: 0, ingredients: '8 fatias · 35cm · até 4 sabores' },
+          { id: 'pcb4', name: 'GG com Borda',         price: 0, ingredients: '12 fatias · 40cm · até 4 sabores' },
+          { id: 'pcb5', name: 'Metro com Borda',      price: 0, ingredients: '24 fatias · 100x25cm · até 6 sabores' },
+        ],
+      },
+      {
+        id: 'sem-borda',
+        name: 'Sem Borda',
+        position: 1,
+        visible: true,
+        items: [
+          { id: 'psb1', name: 'Mini sem Borda',       price: 0, ingredients: '4 fatias · 20cm · 1 sabor' },
+          { id: 'psb2', name: 'Média sem Borda',      price: 0, ingredients: '6 fatias · 30cm · até 2 sabores' },
+          { id: 'psb3', name: 'Grande sem Borda',     price: 0, ingredients: '8 fatias · 35cm · até 4 sabores' },
+          { id: 'psb4', name: 'GG sem Borda',         price: 0, ingredients: '12 fatias · 40cm · até 4 sabores' },
+          { id: 'psb5', name: 'Metro sem Borda',      price: 0, ingredients: '24 fatias · 100x25cm · até 6 sabores' },
+        ],
+      },
     ],
-  },
+  } as any,
   {
     name: 'Bebidas',
     type: 'bebidas',
+    visible: true,
     items: [
       { id: 'pb1', name: 'Coca-cola Lata', price: 6.00, ingredients: '' },
       { id: 'pb2', name: 'Água sem gás', price: 6.00, ingredients: '' },
       { id: 'pb3', name: 'Suco de Laranja', price: 10.00, ingredients: '' },
     ],
+    subcategories: [],
   },
 ];
 

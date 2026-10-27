@@ -1126,13 +1126,31 @@ async function startServer() {
     socket.on("add_category", requireAdmin((categoryData) => {
       const validTypes = ['lanches', 'pizzas', 'bebidas', 'porcoes', 'lacarte'];
       const type = validTypes.includes(categoryData.type) ? categoryData.type : 'lanches';
+
+      // Se for pizza, monta automaticamente subcategorias Com/Sem Borda com os tamanhos cadastrados
+      let subcategories: any[] = [];
+      if (type === 'pizzas') {
+        const makeItems = (withBorder: boolean) =>
+          pizzaSizes.map((s, i) => ({
+            id: `${withBorder ? 'cb' : 'sb'}${i + 1}_${Date.now()}`,
+            name: `${s.name} ${withBorder ? 'com Borda' : 'sem Borda'}`,
+            price: 0,
+            ingredients: `${s.slices} fatias · ${s.dim} · ${s.people} · ${s.detail}`,
+            visible: true,
+          }));
+        subcategories = [
+          { id: randomUUID(), name: 'Com Borda', position: 0, visible: true, items: makeItems(true) },
+          { id: randomUUID(), name: 'Sem Borda', position: 1, visible: true, items: makeItems(false) },
+        ];
+      }
+
       const newCategory = {
         name: categoryData.name,
         type,
         visible: true,
         trackTime: false,
         items: [],
-        subcategories: [],
+        subcategories,
       };
       menu.push(newCategory);
       io.emit("update_menu", menu);
