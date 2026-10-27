@@ -386,6 +386,7 @@ const OrderDetails = ({
   }, [orders, currentItem, targetId, isComandaSelected]);
   const waiter = waiters.find((w: any) => String(w.id) === String(activeOrder?.waiterId));
   const hasItems = activeOrder && activeOrder.items && activeOrder.items.filter((i: any) => !i.removed).length > 0;
+  const allItemsRemoved = activeOrder && activeOrder.items && activeOrder.items.length > 0 && activeOrder.items.every((i: any) => i.removed || i.paid) && activeOrder.status !== 'finalizada';
 
   const pendingAmount = React.useMemo(() => {
     if (!activeOrder || !activeOrder.items) return 0;
@@ -602,6 +603,20 @@ const OrderDetails = ({
             >
               <Wallet size={10} />
               <span>Pagar</span>
+            </button>
+          )}
+          {allItemsRemoved && (
+            <button
+              onClick={() => {
+                socket.emit('update_order_status', { orderId: activeOrder.id, status: 'aguardando_baixa' });
+                setTimeout(() => {
+                  socket.emit('confirm_baixa', { orderId: activeOrder.id });
+                  toast.success('Mesa liberada!');
+                }, 300);
+              }}
+              className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
+            >
+              <span>Liberar Mesa</span>
             </button>
           )}
         </div>
@@ -6860,14 +6875,22 @@ export default function Dashboard({
                 className="w-full h-24 p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                 autoFocus
               />
+              {itemToRemove?.item?.quantity > 1 && (
+                <button
+                  onClick={() => setRemovalQuantity(itemToRemove.item.quantity)}
+                  className="w-full py-2 rounded-xl border border-red-200 text-red-600 font-bold text-sm hover:bg-red-50 transition-colors"
+                >
+                  Remover Todos ({itemToRemove.item.quantity} unidades)
+                </button>
+              )}
               <div className="flex space-x-2">
-                <button 
+                <button
                   onClick={() => setIsRemovalModalOpen(false)}
                   className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={confirmRemoval}
                   disabled={!removalReason.trim()}
                   className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
