@@ -2012,20 +2012,35 @@ export default function Dashboard({
       o.status !== 'finalizada'
     ).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
     
-    // Check if it's a pizza
-    const category = menu.find(cat => cat.items?.some(i => i.id === item.id || i.name === item.name));
+    // Check if it's a pizza — also look inside subcategories
+    const category = menu.find(cat =>
+      cat.items?.some((i: any) => i.id === item.id || i.name === item.name) ||
+      (cat.subcategories || []).some((sub: any) => sub.items?.some((i: any) => i.id === item.id || i.name === item.name))
+    );
+    const fromSubcat = category && (category.subcategories || []).find((sub: any) =>
+      sub.items?.some((i: any) => i.id === item.id || i.name === item.name)
+    );
     const isPizza = category?.type === 'pizzas' || item.type === 'pizzas';
     const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || category?.type === 'porcoes' || category?.type === 'lacarte' || item.type === 'lanches' || item.type === 'bebidas' || item.type === 'porcoes' || item.type === 'lacarte';
-    
+
     if (isPizza && !isFlavorModalOpen) {
+      // Determina borda pelo nome da subcategoria (Com Borda → true, Sem Borda → false)
+      const hasBorder = fromSubcat
+        ? fromSubcat.name.toLowerCase().includes('com')
+        : false;
+      // Tenta pré-selecionar tamanho pelo nome do item clicado
+      const sizeMatch = pizzaSizes.find((s: any) =>
+        item.name.toLowerCase().includes(s.name.toLowerCase())
+      );
       setSelectedPizzaItem(item);
       setSelectedFlavors([]);
       setSelectedCrust(null);
-      setSelectedPizzaSize(null);
-      setPizzaHasBorder(false);
+      setSelectedPizzaSize(sizeMatch ? sizeMatch.name : null);
+      setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
-      setMaxFlavors(1);
-      setSelectionStep('border_choice');
+      setMaxFlavors(sizeMatch ? sizeMatch.maxFlavors : 1);
+      // Se vier de subcategoria conhecida, pula a etapa de escolha de borda
+      setSelectionStep(fromSubcat ? 'build' : 'border_choice');
       setIsFlavorModalOpen(true);
       setIsAddItemModalOpen(false);
       return;
@@ -2148,11 +2163,20 @@ export default function Dashboard({
     if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
     const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
     const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
-    // try to find the matching menu item for the selected size to get the correct price
+    // find the matching menu item for price — check subcategories first, then direct items
     const pizzaCat = menu.find((c: any) => c.type === 'pizzas');
-    const matchedSizeItem = pizzaCat?.items?.find((i: any) =>
-      i.name.toUpperCase().includes(selectedPizzaSize.toUpperCase())
-    ) || selectedPizzaItem;
+    const allPizzaItems = [
+      ...(pizzaCat?.items || []),
+      ...(pizzaCat?.subcategories || []).flatMap((s: any) => s.items || []),
+    ];
+    const hasBorder = !!selectedCrust || pizzaHasBorder;
+    const matchedSizeItem =
+      allPizzaItems.find((i: any) =>
+        i.name.toLowerCase().includes(selectedPizzaSize.toLowerCase()) &&
+        (hasBorder ? i.name.toLowerCase().includes('com') : i.name.toLowerCase().includes('sem'))
+      ) ||
+      allPizzaItems.find((i: any) => i.name.toLowerCase().includes(selectedPizzaSize.toLowerCase())) ||
+      selectedPizzaItem;
 
     const itemWithDetails = {
       ...matchedSizeItem,
