@@ -328,6 +328,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
       menu={menu}
       pizzaFlavors={pizzaFlavors}
       pizzaCrusts={pizzaCrusts}
+      pizzaSizes={pizzaSizes}
       isCashRegisterOpen={isCashRegisterOpen}
       printerConfig={printerConfig}
       pizzariaConfig={pizzariaConfig}
