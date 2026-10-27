@@ -32,6 +32,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products'>('overview');
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
+  const [pizzaSizes, setPizzaSizes] = useState<any[]>([]);
 
   const defaultPrinterConfig = {
     pizzas: 'none',
@@ -138,10 +139,12 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     socket.on('init_data', (data) => {
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
+      if (data.pizzaSizes) setPizzaSizes(data.pizzaSizes);
     });
 
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
+    socket.on('update_pizza_sizes', setPizzaSizes);
 
     socket.on('waiter_approved', (data) => {
       if (data?.status === 'inactive') {
@@ -179,6 +182,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       socket.off('error_message');
       socket.off('update_pizza_flavors');
       socket.off('update_pizza_crusts');
+      socket.off('update_pizza_sizes');
     };
   }, []);
 
@@ -229,6 +233,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
               menu={menu}
               pizzaFlavors={pizzaFlavors}
               pizzaCrusts={pizzaCrusts}
+              pizzaSizes={pizzaSizes}
               activeTab={dashboardTab}
               setActiveTab={setDashboardTab}
               isCashRegisterOpen={isCashRegisterOpen}
@@ -275,6 +280,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   const [isApproved, setIsApproved] = useState(false);
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
+  const [pizzaSizes, setPizzaSizes] = useState<any[]>([]);
 
   const defaultPrinterConfig = {
     pizzas: 'none', drinks: 'none', kitchen: 'none', kitchenLabel: 'Cozinha Geral',
@@ -296,9 +302,11 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
     socket.on('init_data', (d: any) => {
       if (d.pizzaFlavors) setPizzaFlavors(d.pizzaFlavors);
       if (d.pizzaCrusts) setPizzaCrusts(d.pizzaCrusts);
+      if (d.pizzaSizes) setPizzaSizes(d.pizzaSizes);
     });
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
+    socket.on('update_pizza_sizes', setPizzaSizes);
     socket.on('waiter_approved', (d: any) => {
       if (d?.status === 'approved') setIsApproved(true);
       else setIsApproved(false);
@@ -307,6 +315,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
       socket.off('init_data');
       socket.off('update_pizza_flavors');
       socket.off('update_pizza_crusts');
+      socket.off('update_pizza_sizes');
       socket.off('waiter_approved');
     };
   }, []);

@@ -114,6 +114,7 @@ interface DashboardProps {
   menu: MenuCategory[];
   pizzaFlavors: any[];
   pizzaCrusts: string[];
+  pizzaSizes: any[];
   activeTab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products';
   setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products') => void;
   isCashRegisterOpen: boolean;
@@ -893,6 +894,7 @@ export default function Dashboard({
   menu,
   pizzaFlavors,
   pizzaCrusts,
+  pizzaSizes,
   activeTab,
   setActiveTab,
   isCashRegisterOpen,
@@ -974,6 +976,14 @@ export default function Dashboard({
   const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
   const [selectedPizzaSize, setSelectedPizzaSize] = useState<string | null>(null);
   const [pizzaObservations, setPizzaObservations] = useState('');
+  const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
+  const [editingSize, setEditingSize] = useState<any>(null);
+  const [editingSizeIndex, setEditingSizeIndex] = useState<number>(-1);
+  const [sizeForm, setSizeForm] = useState({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '' });
+  const [isCrustModalOpen, setIsCrustModalOpen] = useState(false);
+  const [editingCrustName, setEditingCrustName] = useState('');
+  const [editingCrustOriginal, setEditingCrustOriginal] = useState('');
+  const [newCrustName, setNewCrustName] = useState('');
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -3227,6 +3237,15 @@ export default function Dashboard({
                         >
                           Bordas
                         </button>
+                        <button
+                          onClick={() => {
+                            const element = document.getElementById(`category-tamanhos`);
+                            element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className="px-4 py-2 rounded-lg text-[10px] font-bold uppercase hover:bg-[#141414] hover:text-[#E4E3E0] transition-all whitespace-nowrap"
+                        >
+                          Tamanhos
+                        </button>
                       </>
                     )}
                   </div>
@@ -3508,14 +3527,8 @@ export default function Dashboard({
                         {pizzaCrusts.length} itens
                       </span>
                     </div>
-                    <button 
-                      onClick={() => {
-                        const name = prompt('Nome da nova borda:');
-                        if (name) {
-                          socket.emit('add_pizza_crust', name);
-                          toast.success('Borda adicionada com sucesso!');
-                        }
-                      }}
+                    <button
+                      onClick={() => { setNewCrustName(''); setIsCrustModalOpen(true); setEditingCrustOriginal(''); setEditingCrustName(''); }}
                       className="flex items-center space-x-2 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform"
                     >
                       <PlusCircle size={16} />
@@ -3529,25 +3542,57 @@ export default function Dashboard({
                           <p className="font-bold text-lg">{crust}</p>
                         </div>
                         <div className="flex items-center space-x-4">
-                          <button 
-                            onClick={() => {
-                              const newName = prompt('Novo nome da borda:', crust);
-                              if (newName && newName !== crust) {
-                                socket.emit('update_pizza_crust', { oldName: crust, newName });
-                                toast.success('Borda atualizada com sucesso!');
-                              }
-                            }}
+                          <button
+                            onClick={() => { setEditingCrustOriginal(crust); setEditingCrustName(crust); setIsCrustModalOpen(true); }}
                             className="p-3 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all"
                           >
                             <Edit size={18} />
                           </button>
-                          <button 
-                            onClick={() => {
-                              if (confirm(`Deseja realmente excluir a borda ${crust}?`)) {
-                                socket.emit('delete_pizza_crust', crust);
-                                toast.success('Borda excluída com sucesso!');
-                              }
-                            }}
+                          <button
+                            onClick={() => { socket.emit('delete_pizza_crust', crust); toast.success('Borda excluída com sucesso!'); }}
+                            className="p-3 rounded-xl border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pizza Sizes Section */}
+                <div id="category-tamanhos" className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
+                  <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center">
+                    <div className="flex items-center space-x-4">
+                      <h3 className="font-serif italic text-xl">Tamanhos das Pizzas</h3>
+                      <span className="text-[10px] uppercase tracking-widest font-bold opacity-50 bg-white px-3 py-1 rounded-full border border-[#141414]/10">
+                        {pizzaSizes.length} itens
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { setSizeForm({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '' }); setEditingSize(null); setEditingSizeIndex(-1); setIsSizeModalOpen(true); }}
+                      className="flex items-center space-x-2 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform"
+                    >
+                      <PlusCircle size={16} />
+                      <span>Adicionar Tamanho</span>
+                    </button>
+                  </div>
+                  <div className="divide-y divide-[#141414]/5">
+                    {pizzaSizes.map((size, idx) => (
+                      <div key={idx} className="px-8 py-4 flex justify-between items-center hover:bg-gray-50/50 transition-colors">
+                        <div className="space-y-1">
+                          <p className="font-bold text-lg">{size.name}</p>
+                          <p className="text-sm opacity-50">{size.slices} fatias · {size.dim} · {size.people} · {size.detail}</p>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                          <button
+                            onClick={() => { setSizeForm({ name: size.name, slices: size.slices, dim: size.dim, people: size.people, maxFlavors: size.maxFlavors, detail: size.detail }); setEditingSize(size); setEditingSizeIndex(idx); setIsSizeModalOpen(true); }}
+                            className="p-3 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all"
+                          >
+                            <Edit size={18} />
+                          </button>
+                          <button
+                            onClick={() => { socket.emit('delete_pizza_size', idx); toast.success('Tamanho excluído!'); }}
                             className="p-3 rounded-xl border border-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"
                           >
                             <Trash2 size={18} />
@@ -6451,16 +6496,7 @@ export default function Dashboard({
       </AnimatePresence>
 
         {isFlavorModalOpen && (() => {
-          const PIZZA_SIZES = [
-            { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
-            { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-            { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-            { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-            { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-            { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-            { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
-          ];
-          const currentSize = PIZZA_SIZES.find(s => s.name === selectedPizzaSize);
+          const currentSize = pizzaSizes.find((s: any) => s.name === selectedPizzaSize);
           const canConfirm = !!selectedPizzaSize && selectedFlavors.length > 0;
 
           return (
@@ -6529,7 +6565,7 @@ export default function Dashboard({
                       <div className="space-y-2">
                         <p className="text-xs font-black uppercase tracking-wider opacity-40">Tamanho</p>
                         <div className="grid grid-cols-1 gap-2">
-                          {PIZZA_SIZES.map((size) => {
+                          {pizzaSizes.map((size: any) => {
                             const isSel = selectedPizzaSize === size.name;
                             return (
                               <button key={size.name}
@@ -7738,6 +7774,75 @@ export default function Dashboard({
                   Imprimir
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isCrustModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-[#E4E3E0] rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-bold mb-4">{editingCrustOriginal ? 'Editar Borda' : 'Nova Borda'}</h3>
+            <input
+              type="text"
+              value={editingCrustOriginal ? editingCrustName : newCrustName}
+              onChange={e => editingCrustOriginal ? setEditingCrustName(e.target.value) : setNewCrustName(e.target.value)}
+              placeholder="Nome da borda (ex: Catupiry)"
+              className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 mb-4 bg-white text-sm"
+              autoFocus
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setIsCrustModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-[#141414]/20 text-sm font-bold">Cancelar</button>
+              <button
+                onClick={() => {
+                  const val = editingCrustOriginal ? editingCrustName.trim() : newCrustName.trim();
+                  if (!val) return;
+                  if (editingCrustOriginal) {
+                    socket.emit('update_pizza_crust', { oldName: editingCrustOriginal, newName: val });
+                    toast.success('Borda atualizada!');
+                  } else {
+                    socket.emit('add_pizza_crust', val);
+                    toast.success('Borda adicionada!');
+                  }
+                  setIsCrustModalOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#141414] text-[#E4E3E0] text-sm font-bold"
+              >Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isSizeModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
+          <div className="bg-[#E4E3E0] rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+            <h3 className="text-lg font-bold mb-4">{editingSize ? 'Editar Tamanho' : 'Novo Tamanho'}</h3>
+            <div className="space-y-3 mb-4">
+              <input type="text" value={sizeForm.name} onChange={e => setSizeForm(f => ({...f, name: e.target.value}))} placeholder="Nome (ex: Grande)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" value={sizeForm.slices} onChange={e => setSizeForm(f => ({...f, slices: +e.target.value}))} placeholder="Fatias" className="border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+                <input type="number" value={sizeForm.maxFlavors} onChange={e => setSizeForm(f => ({...f, maxFlavors: +e.target.value}))} placeholder="Máx. sabores" className="border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+              </div>
+              <input type="text" value={sizeForm.dim} onChange={e => setSizeForm(f => ({...f, dim: e.target.value}))} placeholder="Dimensão (ex: 35cm)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+              <input type="text" value={sizeForm.people} onChange={e => setSizeForm(f => ({...f, people: e.target.value}))} placeholder="Pessoas (ex: 3-4 pessoas)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+              <input type="text" value={sizeForm.detail} onChange={e => setSizeForm(f => ({...f, detail: e.target.value}))} placeholder="Detalhe (ex: até 4 sabores)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setIsSizeModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-[#141414]/20 text-sm font-bold">Cancelar</button>
+              <button
+                onClick={() => {
+                  if (!sizeForm.name.trim()) return;
+                  if (editingSize) {
+                    socket.emit('update_pizza_size', { index: editingSizeIndex, updatedData: sizeForm });
+                    toast.success('Tamanho atualizado!');
+                  } else {
+                    socket.emit('add_pizza_size', sizeForm);
+                    toast.success('Tamanho adicionado!');
+                  }
+                  setIsSizeModalOpen(false);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#141414] text-[#E4E3E0] text-sm font-bold"
+              >Salvar</button>
             </div>
           </div>
         </div>
