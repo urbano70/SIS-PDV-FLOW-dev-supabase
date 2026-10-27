@@ -362,7 +362,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedCrust(null);
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
-      setSelectionStep('flavors');
+      setSelectionStep(hasBorder ? 'crust' : 'flavors');
       setIsFlavorModalOpen(true);
       return;
     }
@@ -442,9 +442,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const confirmFlavorSelection = () => {
     if (selectedFlavors.length === 0) return;
-    // Se for sem borda, finaliza direto sem etapa de borda
-    if (!pizzaHasBorder) { confirmPizzaSelection(); return; }
-    setSelectionStep('crust');
+    confirmPizzaSelection();
   };
 
   const confirmPizzaSelection = () => {
@@ -1279,9 +1277,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div>
                   <h3 className="text-xl font-bold">{selectedPizzaItem?.name}</h3>
                   <p className="text-sm opacity-60">
-                    {selectionStep === 'flavors'
-                      ? `Selecione até ${maxFlavors} sabores`
-                      : 'Escolha a borda'}
+                    {selectionStep === 'crust'
+                      ? 'Escolha a borda'
+                      : `Selecione até ${maxFlavors} sabores`}
                   </p>
                 </div>
                 <button 
@@ -1293,7 +1291,37 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
 
               <div className="flex-1 overflow-y-auto pr-2 mb-6">
-                {selectionStep === 'flavors' ? (
+                {selectionStep === 'crust' ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 gap-3">
+                      {pizzaCrusts.map((crust, idx) => {
+                        const isSelected = selectedCrust === crust;
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedCrust(isSelected ? null : crust)}
+                            className={`p-4 rounded-xl border transition-all text-left font-bold ${
+                              isSelected
+                                ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]'
+                                : 'border-[#141414]/10 hover:bg-white'
+                            }`}
+                          >
+                            {crust}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações da Borda</label>
+                      <textarea
+                        value={pizzaObservations}
+                        onChange={(e) => setPizzaObservations(e.target.value)}
+                        placeholder="Ex: Borda bem assada..."
+                        className="w-full h-20 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                      />
+                    </div>
+                  </div>
+                ) : (
                   <div className="grid grid-cols-1 gap-3">
                     {pizzaFlavors.map((flavor, idx) => {
                       const isSelected = selectedFlavors.some(f => f.name === flavor.name);
@@ -1320,39 +1348,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                         </button>
                       );
                     })}
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 gap-3">
-                      {pizzaCrusts.map((crust, idx) => {
-                        const isSelected = selectedCrust === crust;
-                        return (
-                          <button 
-                            key={idx}
-                            onClick={() => setSelectedCrust(isSelected ? null : crust)}
-                            className={`p-4 rounded-xl border transition-all text-left font-bold ${
-                              isSelected 
-                                ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
-                                : 'border-[#141414]/10 hover:bg-white'
-                            }`}
-                          >
-                            {crust}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações</label>
-                      <textarea
-                        value={pizzaObservations}
-                        onChange={(e) => setPizzaObservations(e.target.value)}
-                        placeholder="Ex: Sem cebola, bem passado..."
-                        className="w-full h-24 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                      />
-                    </div>
                     {guestModeActive && (
-                      <div className="space-y-2">
+                      <div className="space-y-2 mt-4">
                         <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Vincular a Convidado</label>
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -1404,22 +1401,22 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
 
               <div className="flex space-x-3">
-                {selectionStep === 'crust' && (
-                  <button 
-                    onClick={() => setSelectionStep('flavors')}
+                {selectionStep === 'flavors' && pizzaHasBorder && (
+                  <button
+                    onClick={() => setSelectionStep('crust')}
                     className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                   >
                     Voltar
                   </button>
                 )}
-                <button 
-                  onClick={selectionStep === 'flavors' ? confirmFlavorSelection : confirmPizzaSelection}
+                <button
+                  onClick={selectionStep === 'crust' ? () => setSelectionStep('flavors') : confirmFlavorSelection}
                   disabled={selectionStep === 'flavors' && selectedFlavors.length === 0}
                   className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors disabled:opacity-50"
                 >
-                  {selectionStep === 'flavors' 
-                    ? `Próximo (${selectedFlavors.length}/${maxFlavors})` 
-                    : 'Finalizar Item'}
+                  {selectionStep === 'crust'
+                    ? 'Próximo'
+                    : `Confirmar (${selectedFlavors.length}/${maxFlavors})`}
                 </button>
               </div>
             </motion.div>
