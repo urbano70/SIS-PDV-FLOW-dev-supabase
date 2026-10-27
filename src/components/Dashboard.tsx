@@ -6683,15 +6683,9 @@ export default function Dashboard({
                 <div className="flex gap-3">
                   <button
                     onClick={() => {
-                      if (selectionStep === 'border_choice') { setIsFlavorModalOpen(false); }
-                      else {
-                        // Se veio direto da subcategoria, fecha o modal; senão, volta para escolha de borda
-                        if (selectedPizzaItem?.name?.toLowerCase().includes(' com ') || selectedPizzaItem?.name?.toLowerCase().includes(' sem ')) {
-                          setIsFlavorModalOpen(false);
-                        } else {
-                          setSelectionStep('border_choice'); setSelectedPizzaSize(null); setSelectedFlavors([]); setSelectedCrust(null);
-                        }
-                      }
+                      // Sempre volta para o modal de adicionar item
+                      setIsFlavorModalOpen(false);
+                      setIsAddItemModalOpen(true);
                     }}
                     className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                   >
