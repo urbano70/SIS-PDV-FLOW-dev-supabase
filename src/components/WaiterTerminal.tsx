@@ -218,6 +218,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
+  const [drinkCups, setDrinkCups] = useState(1);
+  const [drinkIce, setDrinkIce] = useState(false);
+  const [drinkLemon, setDrinkLemon] = useState(false);
 
   // ── Bluetooth printer state ───────────────────────────────────────────────
   const [btDevice, setBtDevice] = useState<BTPrinterDevice | null>(() => {
@@ -375,6 +378,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedQuantityItem(pizza);
       setItemQuantity(1);
       setItemObservations('');
+      setDrinkCups(1);
+      setDrinkIce(false);
+      setDrinkLemon(false);
       setIsQuantityModalOpen(true);
       return;
     }
@@ -432,7 +438,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const itemToAdd = {
       ...selectedQuantityItem,
       type: selectedQuantityItem.type || category?.type,
-      observations: itemObservations,
+      observations: [
+        itemObservations,
+        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkCups > 1 ? `${drinkCups} copos` : '',
+        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkIce ? 'Com gelo' : '',
+        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkLemon ? 'Com limão' : '',
+      ].filter(Boolean).join(' · '),
       quantity: itemQuantity,
       guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
@@ -1496,6 +1507,40 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     rows={2}
                   />
                 </div>
+
+                {(selectedQuantityItem?.type === 'bebidas' || (menu.find(c => c.items?.some((i:any) => i.id === selectedQuantityItem?.id))?.type === 'bebidas')) && (
+                  <div className="space-y-3">
+                    <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Extras</label>
+                    <div className="flex items-center justify-between bg-gray-50 rounded-2xl px-4 py-3">
+                      <span className="text-sm font-bold">Copos</span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => setDrinkCups(Math.max(1, drinkCups - 1))}
+                          className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
+                        >-</button>
+                        <span className="text-lg font-bold w-6 text-center">{drinkCups}</span>
+                        <button
+                          onClick={() => setDrinkCups(drinkCups + 1)}
+                          className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
+                        >+</button>
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => setDrinkIce(!drinkIce)}
+                        className={`flex-1 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkIce ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                      >
+                        🧊 Gelo
+                      </button>
+                      <button
+                        onClick={() => setDrinkLemon(!drinkLemon)}
+                        className={`flex-1 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkLemon ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                      >
+                        🍋 Limão
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {guestModeActive && (
                   <div className="space-y-2">
