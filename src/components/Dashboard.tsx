@@ -1003,6 +1003,7 @@ export default function Dashboard({
   const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
   const [selectedPizzaSize, setSelectedPizzaSize] = useState<string | null>(null);
   const [pizzaObservations, setPizzaObservations] = useState('');
+  const [crustObservations, setCrustObservations] = useState('');
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
   const [editingSize, setEditingSize] = useState<any>(null);
   const [editingSizeIndex, setEditingSizeIndex] = useState<number>(-1);
@@ -2065,6 +2066,7 @@ export default function Dashboard({
       setSelectedPizzaSize(sizeMatch ? sizeMatch.name : null);
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
+      setCrustObservations('');
       setMaxFlavors(sizeMatch ? sizeMatch.maxFlavors : 1);
       // Se vier de subcategoria conhecida, pula a etapa de escolha de borda
       setSelectionStep(fromSubcat ? 'build' : 'border_choice');
@@ -2186,8 +2188,8 @@ export default function Dashboard({
   };
 
   const confirmPizzaSelection = () => {
-    if (!selectedPizzaSize) { toast.error('Selecione o tamanho'); return; }
     if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
+    if (!selectedPizzaSize && !selectedPizzaItem?.name) { toast.error('Selecione o tamanho'); return; }
     const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
     const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
     // find the matching menu item for price — check subcategories first, then direct items
@@ -2205,16 +2207,23 @@ export default function Dashboard({
       allPizzaItems.find((i: any) => i.name.toLowerCase().includes(selectedPizzaSize.toLowerCase())) ||
       selectedPizzaItem;
 
+    // Monta nome: usa nome do item (contém tamanho) ou selectedPizzaSize
+    const sizeLabel = selectedPizzaItem?.name
+      ? selectedPizzaItem.name.replace(/ com borda| sem borda/i, '').trim()
+      : `Pizza ${selectedPizzaSize}`;
+    const crustLabel = selectedCrust ? ` + Borda ${selectedCrust}` : '';
+    const obsAll = [pizzaObservations, crustObservations ? `Borda: ${crustObservations}` : ''].filter(Boolean).join(' | ');
+
     const itemWithDetails = {
       ...matchedSizeItem,
       id: Math.random().toString(36).substr(2, 9),
       menuItemId: matchedSizeItem?.id || selectedPizzaItem?.id,
-      name: `Pizza ${selectedPizzaSize} (${flavorNames})${selectedCrust ? ` + Borda ${selectedCrust}` : ''}`,
+      name: `${sizeLabel} (${flavorNames})${crustLabel}`,
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrust,
-      observations: pizzaObservations,
+      observations: obsAll,
       guestName: undefined,
     };
 
@@ -6470,7 +6479,12 @@ export default function Dashboard({
                         {visibleCats.map(cat => (
                           <button
                             key={cat.name}
-                            onClick={() => { setSelectedCategory(cat.name); setSelectedSubcategory(null); }}
+                            onClick={() => {
+                              const firstSub = (cat.subcategories || []).filter((s: any) => s.visible !== false)[0];
+                              setSelectedCategory(cat.name);
+                              // Para pizza, auto-seleciona primeira subcategoria (remove "Todos")
+                              setSelectedSubcategory(cat.type === 'pizzas' && firstSub ? firstSub.id : null);
+                            }}
                             className={`shrink-0 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
                               effectiveCat?.name === cat.name && !searchTerm
                                 ? 'bg-[#141414] text-[#E4E3E0] shadow-lg scale-[1.02]'
@@ -6483,14 +6497,17 @@ export default function Dashboard({
                       </div>
                       {subcats.length > 0 && !searchTerm && (
                         <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
-                          <button
-                            onClick={() => setSelectedSubcategory(null)}
-                            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
-                              selectedSubcategory === null ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10'
-                            }`}
-                          >
-                            Todos
-                          </button>
+                          {/* "Todos" oculto para pizza — subcategorias com/sem borda são mutuamente exclusivas */}
+                          {effectiveCat?.type !== 'pizzas' && (
+                            <button
+                              onClick={() => setSelectedSubcategory(null)}
+                              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                                selectedSubcategory === null ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10'
+                              }`}
+                            >
+                              Todos
+                            </button>
+                          )}
                           {subcats.map(sub => (
                             <button
                               key={sub.id}
@@ -6591,88 +6608,71 @@ export default function Dashboard({
                     </div>
                   )}
 
-                  {/* ── Step 2: Build (crust + size + flavors + obs) ── */}
+                  {/* ── Step 2: Build (borda + obs. borda → sabores → obs. geral) ── */}
                   {selectionStep === 'build' && (
                     <>
                       {/* Borda (se Com Borda) */}
                       {pizzaHasBorder && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-black uppercase tracking-wider opacity-40">Borda</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {pizzaCrusts.map((crust, idx) => {
-                              const isSel = selectedCrust === crust;
-                              return (
-                                <button key={idx} onClick={() => setSelectedCrust(isSel ? null : crust)}
-                                  className={`p-3 rounded-xl border transition-all text-left font-bold text-sm ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}>
-                                  {crust}
-                                </button>
-                              );
-                            })}
+                        <>
+                          <div className="space-y-2">
+                            <p className="text-xs font-black uppercase tracking-wider opacity-40">Escolha a Borda</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {pizzaCrusts.map((crust, idx) => {
+                                const isSel = selectedCrust === crust;
+                                return (
+                                  <button key={idx} onClick={() => setSelectedCrust(isSel ? null : crust)}
+                                    className={`p-3 rounded-xl border transition-all text-left font-bold text-sm ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}>
+                                    {crust}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
+                          <div className="space-y-2">
+                            <label className="text-xs font-black uppercase tracking-wider opacity-40">Observações da Borda</label>
+                            <textarea
+                              value={crustObservations}
+                              onChange={(e) => setCrustObservations(e.target.value)}
+                              placeholder="Ex: Borda bem assada, catupiry extra..."
+                              className="w-full h-16 p-3 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                            />
+                          </div>
+                        </>
                       )}
 
-                      {/* Tamanho */}
+                      {/* Sabores */}
                       <div className="space-y-2">
-                        <p className="text-xs font-black uppercase tracking-wider opacity-40">Tamanho</p>
-                        <div className="grid grid-cols-1 gap-2">
-                          {pizzaSizes.map((size: any) => {
-                            const isSel = selectedPizzaSize === size.name;
+                        <p className="text-xs font-black uppercase tracking-wider opacity-40">
+                          Sabores <span className="normal-case font-medium opacity-60">({selectedFlavors.length}/{maxFlavors})</span>
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {pizzaFlavors.map((flavor, idx) => {
+                            const isSel = selectedFlavors.some(f => f.name === flavor.name);
                             return (
-                              <button key={size.name}
+                              <button key={idx}
                                 onClick={() => {
-                                  setSelectedPizzaSize(size.name);
-                                  setMaxFlavors(size.maxFlavors);
-                                  setSelectedFlavors(prev => prev.slice(0, size.maxFlavors));
+                                  if (isSel) { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
+                                  else if (selectedFlavors.length < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
+                                  else { toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`); }
                                 }}
-                                className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
+                                className={`flex flex-col p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
                               >
-                                <div className="flex items-center gap-3">
-                                  <span className={`text-base font-black w-20 ${isSel ? 'text-white' : ''}`}>{size.name}</span>
-                                  <span className={`text-xs ${isSel ? 'opacity-70' : 'opacity-50'}`}>{size.slices} fatias · {size.dim} · {size.people}</span>
-                                </div>
-                                <span className={`text-xs font-bold ${isSel ? 'text-white/80' : 'text-[#141414]/40'}`}>{size.detail}</span>
+                                <p className="font-bold text-sm">{flavor.name}</p>
+                                <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
                               </button>
                             );
                           })}
                         </div>
                       </div>
 
-                      {/* Sabores — aparece após selecionar tamanho */}
-                      {selectedPizzaSize && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-black uppercase tracking-wider opacity-40">
-                            Sabores <span className="normal-case font-medium opacity-60">({selectedFlavors.length}/{maxFlavors})</span>
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {pizzaFlavors.map((flavor, idx) => {
-                              const isSel = selectedFlavors.some(f => f.name === flavor.name);
-                              return (
-                                <button key={idx}
-                                  onClick={() => {
-                                    if (isSel) { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
-                                    else if (selectedFlavors.length < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
-                                    else { toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`); }
-                                  }}
-                                  className={`flex flex-col p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
-                                >
-                                  <p className="font-bold text-sm">{flavor.name}</p>
-                                  <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Observações */}
+                      {/* Observações gerais */}
                       <div className="space-y-2">
                         <label className="text-xs font-black uppercase tracking-wider opacity-40">Observações</label>
                         <textarea
                           value={pizzaObservations}
                           onChange={(e) => setPizzaObservations(e.target.value)}
                           placeholder="Ex: Sem cebola, bem passado..."
-                          className="w-full h-20 p-3 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                          className="w-full h-16 p-3 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
                         />
                       </div>
                     </>
@@ -6684,7 +6684,14 @@ export default function Dashboard({
                   <button
                     onClick={() => {
                       if (selectionStep === 'border_choice') { setIsFlavorModalOpen(false); }
-                      else { setSelectionStep('border_choice'); setSelectedPizzaSize(null); setSelectedFlavors([]); setSelectedCrust(null); }
+                      else {
+                        // Se veio direto da subcategoria, fecha o modal; senão, volta para escolha de borda
+                        if (selectedPizzaItem?.name?.toLowerCase().includes(' com ') || selectedPizzaItem?.name?.toLowerCase().includes(' sem ')) {
+                          setIsFlavorModalOpen(false);
+                        } else {
+                          setSelectionStep('border_choice'); setSelectedPizzaSize(null); setSelectedFlavors([]); setSelectedCrust(null);
+                        }
+                      }
                     }}
                     className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                   >
