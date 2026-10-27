@@ -186,7 +186,7 @@ async function startServer() {
       } else {
         // Supabase menu vazio — semeia a partir das constantes
         await db.from('menu').upsert(
-          menu.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, items: cat.items || [] }))
+          menu.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [] }))
         );
         console.log('[supabase] Menu inicial semeado ao Supabase');
         io.emit('update_menu', menu);

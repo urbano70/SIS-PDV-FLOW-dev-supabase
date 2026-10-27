@@ -1,21 +1,39 @@
 export const MENU_CATEGORIES = [
   {
-    name: 'Pizzas com Borda',
+    name: 'Pizzas',
     type: 'pizzas',
-    items: [
-      { id: 'pcb1', name: 'PIZZAS MINI COM BORDA', price: 58.00, ingredients: '2 sabores, 4 fatias' },
-      { id: 'pcb2', name: 'PIZZAS MÉDIAS COM BORDA', price: 89.00, ingredients: '2 sabores, 8 fatias' },
-      { id: 'pcb3', name: 'PIZZAS GG COM BORDA', price: 89.00, ingredients: '40 cm, 3 sabores, 12 fatias' },
-      { id: 'pcb4', name: 'PIZZAS METRO COM BORDA', price: 38.00, ingredients: '20 x 1, 4 sabores, 24 fatias' },
-    ]
-  },
-  {
-    name: 'Pizzas sem Borda',
-    type: 'pizzas',
-    items: [
-      { id: 'psb1', name: 'PIZZAS PEQUENAS SEM BORDA', price: 65.00, ingredients: '2 sabores, 6 fatias' },
-      { id: 'psb2', name: 'PIZZAS GRANDES SEM BORDA', price: 95.00, ingredients: '35 cm, 3 sabores, 12 fatias' },
-      { id: 'psb3', name: 'PIZZAS MEIO METRO SEM BORDA', price: 145.00, ingredients: '20 x 50, 3 sabores, 12 fatias' },
+    items: [],
+    subcategories: [
+      {
+        id: 'com-borda',
+        name: 'Com Borda',
+        position: 0,
+        visible: true,
+        items: [
+          { id: 'pcb1', name: 'Mini com Borda',       price: 58.00,  ingredients: '4 fatias · 20cm · 1 sabor' },
+          { id: 'pcb2', name: 'Pequena com Borda',    price: 70.00,  ingredients: '4 fatias · 25cm · até 2 sabores' },
+          { id: 'pcb3', name: 'Média com Borda',      price: 89.00,  ingredients: '6 fatias · 30cm · até 2 sabores' },
+          { id: 'pcb4', name: 'Grande com Borda',     price: 105.00, ingredients: '8 fatias · 35cm · até 4 sabores' },
+          { id: 'pcb5', name: 'GG com Borda',         price: 89.00,  ingredients: '12 fatias · 40cm · até 4 sabores' },
+          { id: 'pcb6', name: 'Meio Metro com Borda', price: 145.00, ingredients: '16 fatias · 50x25cm · até 4 sabores' },
+          { id: 'pcb7', name: 'Metro com Borda',      price: 38.00,  ingredients: '24 fatias · 100x25cm · até 6 sabores' },
+        ]
+      },
+      {
+        id: 'sem-borda',
+        name: 'Sem Borda',
+        position: 1,
+        visible: true,
+        items: [
+          { id: 'psb1', name: 'Mini sem Borda',       price: 45.00,  ingredients: '4 fatias · 20cm · 1 sabor' },
+          { id: 'psb2', name: 'Pequena sem Borda',    price: 65.00,  ingredients: '4 fatias · 25cm · até 2 sabores' },
+          { id: 'psb3', name: 'Média sem Borda',      price: 80.00,  ingredients: '6 fatias · 30cm · até 2 sabores' },
+          { id: 'psb4', name: 'Grande sem Borda',     price: 95.00,  ingredients: '8 fatias · 35cm · até 4 sabores' },
+          { id: 'psb5', name: 'GG sem Borda',         price: 89.00,  ingredients: '12 fatias · 40cm · até 4 sabores' },
+          { id: 'psb6', name: 'Meio Metro sem Borda', price: 145.00, ingredients: '16 fatias · 50x25cm · até 4 sabores' },
+          { id: 'psb7', name: 'Metro sem Borda',      price: 38.00,  ingredients: '24 fatias · 100x25cm · até 6 sabores' },
+        ]
+      }
     ]
   },
   {
