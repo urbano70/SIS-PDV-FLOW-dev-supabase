@@ -6541,10 +6541,17 @@ export default function Dashboard({
                   const visibleCats = menu.filter(cat => cat.visible !== false);
                   const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
                   if (searchTerm.length > 0) {
-                    return visibleCats.flatMap(cat => [
+                    const normalize = (s: string) =>
+                      s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+                    const tokens = normalize(searchTerm).split(/\s+/).filter(Boolean);
+                    const allItems = visibleCats.flatMap(cat => [
                       ...cat.items,
                       ...(cat.subcategories || []).filter(s => s.visible !== false).flatMap(s => s.items),
-                    ]).filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()));
+                    ]);
+                    return allItems.filter(item => {
+                      const haystack = normalize(item.name + ' ' + (item.ingredients || ''));
+                      return tokens.every(tok => haystack.includes(tok));
+                    });
                   }
                   if (!effectiveCat) return [];
                   if (selectedSubcategory) {
