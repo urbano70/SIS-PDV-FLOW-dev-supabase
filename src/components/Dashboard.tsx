@@ -1004,6 +1004,8 @@ export default function Dashboard({
   const [selectedPizzaSize, setSelectedPizzaSize] = useState<string | null>(null);
   const [pizzaObservations, setPizzaObservations] = useState('');
   const [crustObservations, setCrustObservations] = useState('');
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const productsScrollRef = React.useRef<HTMLDivElement>(null);
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
   const [editingSize, setEditingSize] = useState<any>(null);
   const [editingSizeIndex, setEditingSizeIndex] = useState<number>(-1);
@@ -3251,20 +3253,22 @@ export default function Dashboard({
           )}
 
           {activeTab === 'products' && (
-            <motion.div 
+            <motion.div
               key="products"
+              ref={productsScrollRef}
+              onScroll={e => setShowScrollTop((e.target as HTMLElement).scrollTop > 300)}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className="flex-1 overflow-y-auto space-y-10 pr-2 scrollbar-hide pt-6"
             >
               <header className="sticky top-0 z-30 bg-[#F5F5F3]/90 backdrop-blur-md py-6 flex flex-col md:flex-row justify-between items-start md:items-center border-b border-[#141414]/5 space-y-4 md:space-y-0">
-                <div className="flex items-center space-x-6 w-full md:w-auto overflow-hidden">
-                  <div>
+                <div className="flex items-center space-x-6 w-full overflow-hidden">
+                  <div className="shrink-0">
                     <h2 className="font-serif italic text-3xl">Produtos</h2>
                     <p className="text-[10px] uppercase tracking-widest opacity-50">Cardápio Digital</p>
                   </div>
-                  <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide flex-1">
+                  <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide flex-1 items-center">
                     {displayMenu.map(category => (
                       <button
                         key={category.name}
@@ -3309,21 +3313,27 @@ export default function Dashboard({
                       </>
                     )}
                   </div>
-                </div>
-              </header>
-
-              <div className="space-y-8 pb-20">
-                {/* Add Category button */}
-                <div className="flex justify-end">
                   <button
                     onClick={() => setIsAddCategoryPopupOpen(true)}
-                    className="flex items-center gap-2 bg-[#141414] text-[#E4E3E0] px-5 py-2.5 rounded-2xl text-sm font-bold hover:scale-105 transition-transform shadow-md"
+                    className="shrink-0 flex items-center gap-1.5 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform shadow-md ml-2"
                   >
-                    <PlusCircle size={16} />
+                    <PlusCircle size={14} />
                     <span>Nova Categoria</span>
                   </button>
                 </div>
+              </header>
 
+              {showScrollTop && (
+                <button
+                  onClick={() => productsScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                  className="fixed bottom-8 right-8 z-40 bg-[#141414] text-[#E4E3E0] w-11 h-11 rounded-full flex items-center justify-center shadow-xl hover:scale-110 transition-transform"
+                  title="Voltar ao topo"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                </button>
+              )}
+
+              <div className="space-y-8 pb-20 relative">
                 {menu.map(category => {
                   const totalItems = category.items.length + (category.subcategories || []).reduce((sum, s) => sum + s.items.length, 0);
                   const renderItemRow = (item: MenuItem, catName: string, subId?: string) => (
