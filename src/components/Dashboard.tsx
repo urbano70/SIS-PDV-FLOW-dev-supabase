@@ -6506,7 +6506,7 @@ export default function Dashboard({
                         ))}
                       </div>
                       {subcats.length > 0 && !searchTerm && (
-                        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+                        <div className="flex flex-wrap gap-2 mb-4">
                           {/* "Todos" oculto para pizza — subcategorias com/sem borda são mutuamente exclusivas */}
                           {effectiveCat?.type !== 'pizzas' && (
                             <button
