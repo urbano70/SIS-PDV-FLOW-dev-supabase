@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -2688,7 +2688,7 @@ export default function Dashboard({
                                     return (<>
                                       {types.hasLanche && <Sandwich size={16} className="shrink-0 text-amber-500" />}
                                       {types.hasPizza && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-red-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 L22 21 H2 Z"/><path d="M2 21 Q12 23.5 22 21"/><circle cx="12" cy="11" r="1.1"/><circle cx="8" cy="16" r="0.9"/><circle cx="16" cy="16" r="0.9"/><circle cx="10" cy="13.5" r="0.7"/><circle cx="14" cy="13.5" r="0.7"/></svg>}
-                                      {types.hasPorcao && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-orange-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3c-.5 1.5-.5 3 0 4M12 3c-.5 1.5-.5 3 0 4M15 3c-.5 1.5-.5 3 0 4"/><path d="M5 10h14a1 1 0 0 1 1 1c0 3.9-3.1 7-7 7s-7-3.1-7-7a1 1 0 0 1 1-1z"/><path d="M3 21h18"/></svg>}
+                                      {types.hasPorcao && <Salad size={16} className="shrink-0 text-orange-500" />}
                                       {types.hasLaCarte && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="13" r="5"/><path d="M12 8V5"/><path d="M8 13H4M20 13h-4"/><path d="M9 5h6"/><path d="M7 19h10"/></svg>}
                                       {table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(table.id, false) && <Clock size={11} className="text-amber-400 animate-pulse" />}
@@ -2765,7 +2765,7 @@ export default function Dashboard({
                                     return (<>
                                       {types.hasLanche && <Sandwich size={16} className="shrink-0 text-amber-500" />}
                                       {types.hasPizza && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-red-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 L22 21 H2 Z"/><path d="M2 21 Q12 23.5 22 21"/><circle cx="12" cy="11" r="1.1"/><circle cx="8" cy="16" r="0.9"/><circle cx="16" cy="16" r="0.9"/><circle cx="10" cy="13.5" r="0.7"/><circle cx="14" cy="13.5" r="0.7"/></svg>}
-                                      {types.hasPorcao && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-orange-500" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3c-.5 1.5-.5 3 0 4M12 3c-.5 1.5-.5 3 0 4M15 3c-.5 1.5-.5 3 0 4"/><path d="M5 10h14a1 1 0 0 1 1 1c0 3.9-3.1 7-7 7s-7-3.1-7-7a1 1 0 0 1 1-1z"/><path d="M3 21h18"/></svg>}
+                                      {types.hasPorcao && <Salad size={16} className="shrink-0 text-orange-500" />}
                                       {types.hasLaCarte && <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="13" r="5"/><path d="M12 8V5"/><path d="M8 13H4M20 13h-4"/><path d="M9 5h6"/><path d="M7 19h10"/></svg>}
                                       {comanda.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(comanda.id, true) && <Clock size={11} className="text-amber-400 animate-pulse" />}
@@ -7682,7 +7682,7 @@ export default function Dashboard({
                   {([
                     { key: 'lanches',  label: 'Lanche',       icon: <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14c0-1.1.9-2 2-2h12a2 2 0 0 1 2 2v1a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1z"/><path d="M6 12c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M4 16h16"/><path d="M6 18h12a1 1 0 0 1 1 1v.5H5V19a1 1 0 0 1 1-1z"/><path d="M9 10h.01M12 9h.01M15 10h.01"/><path d="M7 12c.5-.8 1.5-1.5 3-1.5s2.5.7 3 1.5 1.5 1.5 3 1.5"/></svg> },
                     { key: 'pizzas',   label: 'Pizza',        icon: <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/><path d="M5.6 5.6 18.4 18.4M18.4 5.6 5.6 18.4"/><circle cx="8" cy="8" r="1"/><circle cx="16" cy="8" r="1.3"/><circle cx="8" cy="16" r="1.3"/><circle cx="16" cy="16" r="1"/></svg> },
-                    { key: 'porcoes',  label: 'Porção',       icon: <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3c-.5 1.5-.5 3 0 4M12 3c-.5 1.5-.5 3 0 4M15 3c-.5 1.5-.5 3 0 4"/><path d="M5 10h14a1 1 0 0 1 1 1c0 3.9-3.1 7-7 7s-7-3.1-7-7a1 1 0 0 1 1-1z"/><path d="M3 21h18"/></svg> },
+                    { key: 'porcoes',  label: 'Porção',       icon: <Salad size={16} /> },
                     { key: 'lacarte',  label: 'À la carte',   icon: <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="13" r="5"/><path d="M12 8V5"/><path d="M8 13H4M20 13h-4"/><path d="M9 5h6"/><path d="M7 19h10"/></svg> },
                     { key: 'bebidas',  label: 'Bebida',       icon: <Beer size={16} /> },
                   ] as { key: string; label: string; icon: React.ReactNode }[]).map(opt => (
