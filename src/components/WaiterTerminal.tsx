@@ -212,6 +212,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
   const [pizzaHasBorder, setPizzaHasBorder] = useState(false);
   const [pizzaObservations, setPizzaObservations] = useState('');
+  const [flavorObservations, setFlavorObservations] = useState('');
+  const [isFlavorObsOpen, setIsFlavorObsOpen] = useState(false);
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -362,6 +364,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedCrust(null);
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
+      setFlavorObservations('');
+      setIsFlavorObsOpen(false);
       setSelectionStep(hasBorder ? 'crust' : 'flavors');
       setIsFlavorModalOpen(true);
       return;
@@ -456,7 +460,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrust,
-      observations: pizzaObservations,
+      observations: [pizzaObservations, flavorObservations].filter(Boolean).join(' | '),
       guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
 
@@ -1400,6 +1404,34 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 )}
               </div>
 
+              {selectionStep === 'flavors' && (
+                <div className="mb-3">
+                  {isFlavorObsOpen ? (
+                    <div className="bg-white rounded-2xl border border-[#141414]/10 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold opacity-50 uppercase tracking-wider">Obs. dos Sabores</span>
+                        <button onClick={() => setIsFlavorObsOpen(false)} className="text-xs opacity-40 hover:opacity-70">✕</button>
+                      </div>
+                      <textarea
+                        autoFocus
+                        value={flavorObservations}
+                        onChange={e => setFlavorObservations(e.target.value)}
+                        placeholder="Ex: Sem cebola, mais molho..."
+                        rows={2}
+                        className="w-full p-2 bg-[#F5F4F1] rounded-xl border border-[#141414]/10 focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setIsFlavorObsOpen(true)}
+                      className="w-full py-2.5 rounded-2xl border border-dashed border-[#141414]/20 text-sm text-[#141414]/50 hover:border-[#141414]/40 hover:text-[#141414]/70 transition-all flex items-center justify-center gap-2"
+                    >
+                      <span className="text-base leading-none">＋</span>
+                      {flavorObservations ? `Obs: ${flavorObservations.slice(0, 30)}${flavorObservations.length > 30 ? '…' : ''}` : 'Adicionar observação'}
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="flex space-x-3">
                 {selectionStep === 'flavors' && pizzaHasBorder && (
                   <button
