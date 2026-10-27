@@ -969,8 +969,10 @@ export default function Dashboard({
   const [selectedPizzaItem, setSelectedPizzaItem] = useState<any>(null);
   const [selectedFlavors, setSelectedFlavors] = useState<any[]>([]);
   const [maxFlavors, setMaxFlavors] = useState(1);
-  const [selectionStep, setSelectionStep] = useState<'flavors' | 'crust'>('flavors');
+  const [selectionStep, setSelectionStep] = useState<'border_choice' | 'build'>('border_choice');
+  const [pizzaHasBorder, setPizzaHasBorder] = useState(false);
   const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
+  const [selectedPizzaSize, setSelectedPizzaSize] = useState<string | null>(null);
   const [pizzaObservations, setPizzaObservations] = useState('');
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
@@ -2007,11 +2009,13 @@ export default function Dashboard({
     
     if (isPizza && !isFlavorModalOpen) {
       setSelectedPizzaItem(item);
-      setMaxFlavors(getMaxFlavors(item.name));
       setSelectedFlavors([]);
       setSelectedCrust(null);
+      setSelectedPizzaSize(null);
+      setPizzaHasBorder(false);
       setPizzaObservations('');
-      setSelectionStep('flavors');
+      setMaxFlavors(1);
+      setSelectionStep('border_choice');
       setIsFlavorModalOpen(true);
       setIsAddItemModalOpen(false);
       return;
@@ -2126,28 +2130,35 @@ export default function Dashboard({
       toast.error('Selecione pelo menos um sabor');
       return;
     }
-    setSelectionStep('crust');
+    setSelectionStep('build');
   };
 
   const confirmPizzaSelection = () => {
+    if (!selectedPizzaSize) { toast.error('Selecione o tamanho'); return; }
+    if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
     const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
     const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
-    
+    // try to find the matching menu item for the selected size to get the correct price
+    const pizzaCat = menu.find((c: any) => c.type === 'pizzas');
+    const matchedSizeItem = pizzaCat?.items?.find((i: any) =>
+      i.name.toUpperCase().includes(selectedPizzaSize.toUpperCase())
+    ) || selectedPizzaItem;
+
     const itemWithDetails = {
-      ...selectedPizzaItem,
-      name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrust ? ` + ${selectedCrust}` : ''}`,
+      ...matchedSizeItem,
+      id: Math.random().toString(36).substr(2, 9),
+      menuItemId: matchedSizeItem?.id || selectedPizzaItem?.id,
+      name: `Pizza ${selectedPizzaSize} (${flavorNames})${selectedCrust ? ` + Borda ${selectedCrust}` : ''}`,
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrust,
       observations: pizzaObservations,
-      guestName: admGuestForItem || undefined,
+      guestName: undefined,
     };
 
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
     handleAddItem(targetId!, itemWithDetails);
-    setAdmGuestForItem('');
-    setAdmModalNewGuest('');
   };
 
   const safeWaiters = Array.isArray(waiters) ? waiters : [];
@@ -6439,131 +6450,173 @@ export default function Dashboard({
         )}
       </AnimatePresence>
 
-        {isFlavorModalOpen && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="bg-[#E4E3E0] rounded-3xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
-            >
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-xl font-bold">{selectedPizzaItem?.name}</h3>
-                  <p className="text-sm opacity-60">
-                    {selectionStep === 'flavors' 
-                      ? `Selecione até ${maxFlavors} sabores` 
-                      : 'Escolha a borda (opcional)'}
-                  </p>
+        {isFlavorModalOpen && (() => {
+          const PIZZA_SIZES = [
+            { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
+            { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+            { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+            { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+            { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+            { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+            { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
+          ];
+          const currentSize = PIZZA_SIZES.find(s => s.name === selectedPizzaSize);
+          const canConfirm = !!selectedPizzaSize && selectedFlavors.length > 0;
+
+          return (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className="bg-[#E4E3E0] rounded-3xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h3 className="text-xl font-bold">Pizza</h3>
+                    <p className="text-sm opacity-60">
+                      {selectionStep === 'border_choice' ? 'Como prefere a borda?' : 'Configure seu pedido'}
+                    </p>
+                  </div>
+                  <button onClick={() => setIsFlavorModalOpen(false)} className="p-2 hover:bg-black/5 rounded-full transition-colors">
+                    <X size={24} />
+                  </button>
                 </div>
-                <button 
-                  onClick={() => setIsFlavorModalOpen(false)}
-                  className="p-2 hover:bg-black/5 rounded-full transition-colors"
-                >
-                  <X size={24} />
-                </button>
-              </div>
 
-              <div className="flex-1 overflow-y-auto pr-2 mb-6">
-                {selectionStep === 'flavors' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {pizzaFlavors.map((flavor, idx) => {
-                      const isSelected = selectedFlavors.some(f => f.name === flavor.name);
-                      return (
-                        <button 
-                          key={idx}
-                          onClick={() => {
-                            if (isSelected) {
-                              setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
-                            } else if (selectedFlavors.length < maxFlavors) {
-                              setSelectedFlavors([...selectedFlavors, flavor]);
-                            } else {
-                              toast.error(`Limite de ${maxFlavors} sabores atingido`);
-                            }
-                          }}
-                          className={`flex flex-col p-4 rounded-xl border transition-all text-left ${
-                            isSelected 
-                              ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
-                              : 'border-[#141414]/10 hover:bg-gray-50'
-                          }`}
-                        >
-                          <p className="font-bold">{flavor.name}</p>
-                          <p className={`text-[10px] uppercase ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
-                            {flavor.ingredients}
+                <div className="flex-1 overflow-y-auto pr-1 space-y-5 mb-6">
+                  {/* ── Step 1: Borda ou Sem Borda ── */}
+                  {selectionStep === 'border_choice' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <button
+                        onClick={() => { setPizzaHasBorder(false); setSelectedCrust(null); setSelectionStep('build'); }}
+                        className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-[#141414]/10 hover:border-[#141414] hover:bg-white transition-all font-bold text-base"
+                      >
+                        <span className="text-3xl">🍕</span>
+                        Sem Borda
+                      </button>
+                      <button
+                        onClick={() => { setPizzaHasBorder(true); setSelectionStep('build'); }}
+                        className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-[#141414]/10 hover:border-[#141414] hover:bg-white transition-all font-bold text-base"
+                      >
+                        <span className="text-3xl">🧀</span>
+                        Com Borda
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── Step 2: Build (crust + size + flavors + obs) ── */}
+                  {selectionStep === 'build' && (
+                    <>
+                      {/* Borda (se Com Borda) */}
+                      {pizzaHasBorder && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-black uppercase tracking-wider opacity-40">Borda</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {pizzaCrusts.map((crust, idx) => {
+                              const isSel = selectedCrust === crust;
+                              return (
+                                <button key={idx} onClick={() => setSelectedCrust(isSel ? null : crust)}
+                                  className={`p-3 rounded-xl border transition-all text-left font-bold text-sm ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}>
+                                  {crust}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tamanho */}
+                      <div className="space-y-2">
+                        <p className="text-xs font-black uppercase tracking-wider opacity-40">Tamanho</p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {PIZZA_SIZES.map((size) => {
+                            const isSel = selectedPizzaSize === size.name;
+                            return (
+                              <button key={size.name}
+                                onClick={() => {
+                                  setSelectedPizzaSize(size.name);
+                                  setMaxFlavors(size.maxFlavors);
+                                  setSelectedFlavors(prev => prev.slice(0, size.maxFlavors));
+                                }}
+                                className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className={`text-base font-black w-20 ${isSel ? 'text-white' : ''}`}>{size.name}</span>
+                                  <span className={`text-xs ${isSel ? 'opacity-70' : 'opacity-50'}`}>{size.slices} fatias · {size.dim} · {size.people}</span>
+                                </div>
+                                <span className={`text-xs font-bold ${isSel ? 'text-white/80' : 'text-[#141414]/40'}`}>{size.detail}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Sabores — aparece após selecionar tamanho */}
+                      {selectedPizzaSize && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-black uppercase tracking-wider opacity-40">
+                            Sabores <span className="normal-case font-medium opacity-60">({selectedFlavors.length}/{maxFlavors})</span>
                           </p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {pizzaCrusts.map((crust, idx) => {
-                        const isSelected = selectedCrust === crust;
-                        return (
-                          <button 
-                            key={idx}
-                            onClick={() => setSelectedCrust(isSelected ? null : crust)}
-                            className={`p-4 rounded-xl border transition-all text-left font-bold ${
-                              isSelected 
-                                ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
-                                : 'border-[#141414]/10 hover:bg-gray-50'
-                            }`}
-                          >
-                            {crust}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Observações</label>
-                      <textarea
-                        value={pizzaObservations}
-                        onChange={(e) => setPizzaObservations(e.target.value)}
-                        placeholder="Ex: Sem cebola, bem passado..."
-                        className="w-full h-24 p-4 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                      />
-                    </div>
-                    {/* Guest selector for pizza */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold opacity-60 uppercase tracking-wider">Vincular a Convidado</label>
-                      <div className="flex flex-wrap gap-2">
-                        <button onClick={() => setAdmGuestForItem('')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!admGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}>Nenhum</button>
-                        {admGuestList.map(g => (
-                          <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}>{g}</button>
-                        ))}
-                      </div>
-                      <div className="flex gap-2">
-                        <input value={admModalNewGuest} onChange={e => setAdmModalNewGuest(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && admModalNewGuest.trim()) { const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); } }} placeholder="Novo convidado..." className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50" />
-                        <button onClick={() => { if (!admModalNewGuest.trim()) return; const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); }} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><UserPlus size={12} /> Add</button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {pizzaFlavors.map((flavor, idx) => {
+                              const isSel = selectedFlavors.some(f => f.name === flavor.name);
+                              return (
+                                <button key={idx}
+                                  onClick={() => {
+                                    if (isSel) { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
+                                    else if (selectedFlavors.length < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
+                                    else { toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`); }
+                                  }}
+                                  className={`flex flex-col p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
+                                >
+                                  <p className="font-bold text-sm">{flavor.name}</p>
+                                  <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
 
-              <div className="flex space-x-3">
-                {selectionStep === 'crust' && (
-                  <button 
-                    onClick={() => setSelectionStep('flavors')}
+                      {/* Observações */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-black uppercase tracking-wider opacity-40">Observações</label>
+                        <textarea
+                          value={pizzaObservations}
+                          onChange={(e) => setPizzaObservations(e.target.value)}
+                          placeholder="Ex: Sem cebola, bem passado..."
+                          className="w-full h-20 p-3 bg-white border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer buttons */}
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      if (selectionStep === 'border_choice') { setIsFlavorModalOpen(false); }
+                      else { setSelectionStep('border_choice'); setSelectedPizzaSize(null); setSelectedFlavors([]); setSelectedCrust(null); }
+                    }}
                     className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                   >
                     Voltar
                   </button>
-                )}
-                <button 
-                  onClick={selectionStep === 'flavors' ? confirmFlavorSelection : confirmPizzaSelection}
-                  disabled={selectionStep === 'flavors' && selectedFlavors.length === 0}
-                  className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors disabled:opacity-50"
-                >
-                  {selectionStep === 'flavors' 
-                    ? `Próximo (${selectedFlavors.length}/${maxFlavors})` 
-                    : 'Finalizar Item'}
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
+                  {selectionStep === 'build' && (
+                    <button
+                      onClick={confirmPizzaSelection}
+                      disabled={!canConfirm}
+                      className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors disabled:opacity-40"
+                    >
+                      Confirmar
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
 
         {/* Quantity Modal */}
         <AnimatePresence>
