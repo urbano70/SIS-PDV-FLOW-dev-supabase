@@ -344,10 +344,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       cat.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name) ||
       (cat.subcategories || []).some((sub: any) => sub.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name))
     );
-    const fromSubcat = category && (category.subcategories || []).find((sub: any) =>
-      sub.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name)
-    );
-    const isPizza = category?.type === 'pizzas' || pizza.type === 'pizzas';
+    const fromSubcat = pizza._subcategoryName
+      ? { name: pizza._subcategoryName }
+      : category && (category.subcategories || []).find((sub: any) =>
+          sub.items?.some((i: any) => i.id === pizza.id || i.name === pizza.name)
+        );
+    const isPizza = pizza.type === 'pizzas' || category?.type === 'pizzas';
     const isSnackOrDrink = !isPizza;
 
     if (isPizza && !isFlavorModalOpen) {
@@ -1187,12 +1189,13 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             <div className="flex-1 overflow-y-auto min-h-0 flex flex-col pb-2 divide-y divide-[#141414]/8">
               {(() => {
                 if (!selectedCat) return [] as any[];
+                const catType = selectedCat.type;
                 if (activeSubcategoryId) {
                   const sub = filteredSubcategories.find(s => s.id === activeSubcategoryId);
-                  return (sub?.items || []).map((i: any) => ({ ...i, _fromSubcategory: true }));
+                  return (sub?.items || []).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: sub?.name, type: catType }));
                 }
-                const direct = (selectedCat.items || []) as any[];
-                const subItems = filteredSubcategories.flatMap(s => s.items.map((i: any) => ({ ...i, _fromSubcategory: true })));
+                const direct = (selectedCat.items || []).map((i: any) => ({ ...i, type: catType })) as any[];
+                const subItems = filteredSubcategories.flatMap(s => s.items.map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: s.name, type: catType })));
                 return [...direct, ...subItems];
               })().map((item, idx) => (
                   <button
