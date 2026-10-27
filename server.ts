@@ -431,6 +431,15 @@ async function startServer() {
   let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
   let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
   let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
+  let pizzaSizes: { name: string; slices: number; dim: string; people: string; maxFlavors: number; detail: string }[] = [
+    { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
+    { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+    { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+    { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
+  ];
   let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true };
 
   // ── Sessões do cliente por mesa ────────────────────────────────
@@ -646,6 +655,7 @@ async function startServer() {
       menu,
       pizzaFlavors,
       pizzaCrusts,
+      pizzaSizes,
       isCashRegisterOpen,
       shiftStartedAt,
       pizzariaConfig,
@@ -665,6 +675,7 @@ async function startServer() {
         menu,
         pizzaFlavors,
         pizzaCrusts,
+        pizzaSizes,
         isCashRegisterOpen,
         shiftStartedAt,
         pizzariaConfig,
@@ -1310,6 +1321,30 @@ async function startServer() {
     socket.on("delete_pizza_crust", requireAdmin((crustName) => {
       pizzaCrusts = pizzaCrusts.filter(c => c !== crustName);
       io.emit("update_pizza_crusts", pizzaCrusts);
+    }));
+
+    socket.on("add_pizza_size", requireAdmin((sizeData) => {
+      pizzaSizes.push(sizeData);
+      io.emit("update_pizza_sizes", pizzaSizes);
+    }));
+
+    socket.on("update_pizza_size", requireAdmin(({ index, updatedData }) => {
+      if (index >= 0 && index < pizzaSizes.length) {
+        pizzaSizes[index] = { ...pizzaSizes[index], ...updatedData };
+        io.emit("update_pizza_sizes", pizzaSizes);
+      }
+    }));
+
+    socket.on("delete_pizza_size", requireAdmin((index) => {
+      if (index >= 0 && index < pizzaSizes.length) {
+        pizzaSizes.splice(index, 1);
+        io.emit("update_pizza_sizes", pizzaSizes);
+      }
+    }));
+
+    socket.on("reorder_pizza_sizes", requireAdmin((newOrder: typeof pizzaSizes) => {
+      pizzaSizes = newOrder;
+      io.emit("update_pizza_sizes", pizzaSizes);
     }));
 
     socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock, pizzaFlavors: impFlavors, pizzaCrusts: impCrusts, pizzariaConfig: impPizConfig, stockLog: impStockLog }) => {
