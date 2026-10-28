@@ -1,48 +1,18 @@
-# ──────────────────────────────────────────────────────────────────
-# Stage 1: Builder — compila server.ts e faz o vite build do frontend
-# ──────────────────────────────────────────────────────────────────
-FROM node:20-slim AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
-
 COPY package*.json ./
 RUN npm ci
-
-# Cache bust: altere este valor para forçar o Docker a re-copiar os arquivos
-ARG CACHEBUST=2026-06-15
-RUN echo "Build cache bust: $CACHEBUST"
-
 COPY . .
-
-# Variáveis embutidas pelo Vite no bundle durante o build.
-# Passe como build-args no EasyPanel ou via --build-arg no docker build.
-ARG GEMINI_API_KEY=""
-ARG FIREBASE_CONFIG=""
-ARG VITE_SUPABASE_URL=""
-ARG VITE_SUPABASE_ANON_KEY=""
-
-ENV GEMINI_API_KEY=$GEMINI_API_KEY
-ENV FIREBASE_CONFIG=$FIREBASE_CONFIG
-# VITE_* não precisam de ENV — o .env.production é lido pelo Vite durante o build
-
 RUN npm run build
 
-# ──────────────────────────────────────────────────────────────────
-# Stage 2: Runner — imagem mínima de produção
-# ──────────────────────────────────────────────────────────────────
-FROM node:20-slim AS runner
+FROM node:20-alpine
 WORKDIR /app
-
-ENV NODE_ENV=production
-
-# Instala somente dependências de produção (sem devDependencies)
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-# Artefatos do build
-COPY --from=builder /app/server.js   ./
-COPY --from=builder /app/dist        ./dist
-COPY --from=builder /app/print-agent ./print-agent
-
+RUN apk add --no-cache curl
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/server.js ./
+COPY --from=builder /app/dist ./dist
 EXPOSE 3001
-
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:3001/health || exit 1
 CMD ["node", "server.js"]

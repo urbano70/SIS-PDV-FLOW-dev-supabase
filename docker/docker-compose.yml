@@ -1,0 +1,221 @@
+version: '3.8'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SIS-PDV-FLOW — Multi-tenant stack (5 clientes)
+# Cada cliente: 1 container Node.js + 1 banco PostgreSQL isolado
+# ─────────────────────────────────────────────────────────────────────────────
+
+networks:
+  pdv-net:
+    driver: bridge
+
+volumes:
+  pg-data-1: {}
+  pg-data-2: {}
+  pg-data-3: {}
+  pg-data-4: {}
+  pg-data-5: {}
+
+services:
+
+  # ── NGINX — reverse proxy por subdomínio ──────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: pdv-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks: [pdv-net]
+    depends_on:
+      - pdv-1
+      - pdv-2
+      - pdv-3
+      - pdv-4
+      - pdv-5
+
+  # ── CLIENTE 1 ──────────────────────────────────────────────────────────────
+  postgres-1:
+    image: postgres:16-alpine
+    container_name: pdv-db-1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ${DB_PASSWORD_1:-pdv_secret_1}
+    volumes:
+      - pg-data-1:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [pdv-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdv -d pdv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pdv-1:
+    image: ${PDV_IMAGE:-sis-pdv-flow:latest}
+    container_name: pdv-app-1
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdv:${DB_PASSWORD_1:-pdv_secret_1}@postgres-1:5432/pdv
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      ALLOWED_ORIGINS: https://${DOMAIN_1:-cliente1.pdv.com.br}
+      NODE_ENV: production
+    networks: [pdv-net]
+    depends_on:
+      postgres-1:
+        condition: service_healthy
+
+  # ── CLIENTE 2 ──────────────────────────────────────────────────────────────
+  postgres-2:
+    image: postgres:16-alpine
+    container_name: pdv-db-2
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ${DB_PASSWORD_2:-pdv_secret_2}
+    volumes:
+      - pg-data-2:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [pdv-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdv -d pdv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pdv-2:
+    image: ${PDV_IMAGE:-sis-pdv-flow:latest}
+    container_name: pdv-app-2
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdv:${DB_PASSWORD_2:-pdv_secret_2}@postgres-2:5432/pdv
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      ALLOWED_ORIGINS: https://${DOMAIN_2:-cliente2.pdv.com.br}
+      NODE_ENV: production
+    networks: [pdv-net]
+    depends_on:
+      postgres-2:
+        condition: service_healthy
+
+  # ── CLIENTE 3 ──────────────────────────────────────────────────────────────
+  postgres-3:
+    image: postgres:16-alpine
+    container_name: pdv-db-3
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ${DB_PASSWORD_3:-pdv_secret_3}
+    volumes:
+      - pg-data-3:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [pdv-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdv -d pdv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pdv-3:
+    image: ${PDV_IMAGE:-sis-pdv-flow:latest}
+    container_name: pdv-app-3
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdv:${DB_PASSWORD_3:-pdv_secret_3}@postgres-3:5432/pdv
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      ALLOWED_ORIGINS: https://${DOMAIN_3:-cliente3.pdv.com.br}
+      NODE_ENV: production
+    networks: [pdv-net]
+    depends_on:
+      postgres-3:
+        condition: service_healthy
+
+  # ── CLIENTE 4 ──────────────────────────────────────────────────────────────
+  postgres-4:
+    image: postgres:16-alpine
+    container_name: pdv-db-4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ${DB_PASSWORD_4:-pdv_secret_4}
+    volumes:
+      - pg-data-4:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [pdv-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdv -d pdv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pdv-4:
+    image: ${PDV_IMAGE:-sis-pdv-flow:latest}
+    container_name: pdv-app-4
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdv:${DB_PASSWORD_4:-pdv_secret_4}@postgres-4:5432/pdv
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      ALLOWED_ORIGINS: https://${DOMAIN_4:-cliente4.pdv.com.br}
+      NODE_ENV: production
+    networks: [pdv-net]
+    depends_on:
+      postgres-4:
+        condition: service_healthy
+
+  # ── CLIENTE 5 ──────────────────────────────────────────────────────────────
+  postgres-5:
+    image: postgres:16-alpine
+    container_name: pdv-db-5
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ${DB_PASSWORD_5:-pdv_secret_5}
+    volumes:
+      - pg-data-5:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks: [pdv-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pdv -d pdv"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pdv-5:
+    image: ${PDV_IMAGE:-sis-pdv-flow:latest}
+    container_name: pdv-app-5
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://pdv:${DB_PASSWORD_5:-pdv_secret_5}@postgres-5:5432/pdv
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      ALLOWED_ORIGINS: https://${DOMAIN_5:-cliente5.pdv.com.br}
+      NODE_ENV: production
+    networks: [pdv-net]
+    depends_on:
+      postgres-5:
+        condition: service_healthy
+
+  # ── Watchtower — atualização automática dos containers ────────────────────
+  watchtower:
+    image: containrrr/watchtower
+    container_name: pdv-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+    networks: [pdv-net]
