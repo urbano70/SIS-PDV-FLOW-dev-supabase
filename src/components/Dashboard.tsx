@@ -1006,6 +1006,7 @@ export default function Dashboard({
   const [itemToRemove, setItemToRemove] = useState<{orderId: number | string, item: any} | null>(null);
   const [removalQuantity, setRemovalQuantity] = useState(1);
   const [removalReason, setRemovalReason] = useState('');
+  const [isRemoveAllTableItems, setIsRemoveAllTableItems] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
@@ -2022,7 +2023,7 @@ export default function Dashboard({
       itemId: itemToRemove.item.id,
       quantity: removalQuantity,
       removedBy: 'ADM',
-      reason: removalReason || 'Removido pelo Administrador'
+      reason: removalReason.trim()
     });
     
     setIsRemovalModalOpen(false);
@@ -2030,6 +2031,28 @@ export default function Dashboard({
     setRemovalQuantity(1);
     setRemovalReason('');
     toast.success('Item removido pelo ADM');
+  };
+
+  const confirmRemoveAllTableItems = () => {
+    if (!itemToRemove || !removalReason.trim()) return;
+    const order = orders.find((o: any) => String(o.id) === String(itemToRemove.orderId));
+    if (!order) return;
+    const activeItems = (order.items || []).filter((i: any) => !i.removed && !i.paid);
+    activeItems.forEach((item: any) => {
+      socket.emit('remove_item', {
+        orderId: order.id,
+        itemId: item.id,
+        quantity: item.quantity || 1,
+        removedBy: 'ADM',
+        reason: removalReason.trim()
+      });
+    });
+    setIsRemovalModalOpen(false);
+    setItemToRemove(null);
+    setRemovalQuantity(1);
+    setRemovalReason('');
+    setIsRemoveAllTableItems(false);
+    toast.success(`${activeItems.length} item(s) removido(s) da mesa`);
   };
 
   const getMaxFlavors = (itemName: string) => {
@@ -6260,6 +6283,11 @@ export default function Dashboard({
                                 {item.observations && (
                                   <p className="text-[10px] text-blue-600 mt-0.5">Obs: {item.observations}</p>
                                 )}
+                                {item.removed && item.removalReason && (
+                                  <p className="text-[10px] text-red-500 mt-0.5">
+                                    Motivo: {item.removalReason}{item.removedBy ? ` · por ${item.removedBy}` : ''}
+                                  </p>
+                                )}
                               </div>
                               <div className="flex flex-col items-end shrink-0">
                                 {item.discount && (
@@ -6883,21 +6911,54 @@ export default function Dashboard({
                   Remover Todos ({itemToRemove.item.quantity} unidades)
                 </button>
               )}
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setIsRemovalModalOpen(false)}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={confirmRemoval}
-                  disabled={!removalReason.trim()}
-                  className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confirmar
-                </button>
-              </div>
+              {isRemoveAllTableItems ? (
+                <div className="space-y-2 pt-2 border-t border-red-100">
+                  <p className="text-xs text-red-600 font-bold text-center">
+                    Remover TODOS os itens ativos da mesa?
+                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setIsRemoveAllTableItems(false)}
+                      className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
+                    >
+                      Voltar
+                    </button>
+                    <button
+                      onClick={confirmRemoveAllTableItems}
+                      disabled={!removalReason.trim()}
+                      className="flex-1 bg-red-700 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Remover Todos
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setIsRemovalModalOpen(false)}
+                      className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmRemoval}
+                      disabled={!removalReason.trim()}
+                      className="flex-1 bg-red-600 text-white py-3 rounded-xl font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Confirmar
+                    </button>
+                  </div>
+                  {itemToRemove && (orders.find((o: any) => String(o.id) === String(itemToRemove.orderId))?.items || []).filter((i: any) => !i.removed && !i.paid).length > 1 && (
+                    <button
+                      onClick={() => setIsRemoveAllTableItems(true)}
+                      className="w-full py-1.5 text-[10px] font-bold text-red-400 opacity-50 hover:opacity-100 transition-opacity uppercase tracking-wider"
+                    >
+                      Remover todos os itens da mesa
+                    </button>
+                  )}
+                </div>
+              )}
             </motion.div>
           </motion.div>
         )}
