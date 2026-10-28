@@ -10,17 +10,6 @@ import { randomUUID } from "crypto";
 import { createServer as createViteServer } from "vite";
 import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import {
-  pgPool, pgUpsertOrder, pgLoadOrders, pgDeleteAllOrders,
-  pgUpsertTable, pgLoadTables, pgResetTables, pgBulkUpsertTables,
-  pgUpsertComanda, pgLoadComandas, pgResetComandas, pgBulkUpsertComandas,
-  pgUpsertWaiter, pgLoadWaiters, pgDeleteAllWaiters,
-  pgUpsertMenu, pgLoadMenu, pgDeleteAllMenu, pgBulkUpsertMenu,
-  pgUpsertStock, pgLoadStock, pgDeleteStockByIds, pgDeleteAllStock,
-  pgUpsertConfig, pgLoadConfig,
-  pgUpsertPizzaFlavor, pgLoadPizzaFlavors, pgDeleteAllPizzaFlavors,
-  pgUpsertPizzaCrust, pgLoadPizzaCrusts, pgDeleteAllPizzaCrusts,
-} from "./src/db.ts";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 
@@ -45,25 +34,22 @@ async function startServer() {
 
   const PORT = 3001;
 
-  // ── PostgreSQL local — verifica conexão ──────────────────────────────────
+  // â"€â"€ Inicializa Supabase Admin (service_role â€" bypassa RLS) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  let db: SupabaseClient;
   try {
-    const client = await pgPool.connect();
-    client.release();
-    console.log('[pg] Pool conectado ao banco local');
+    const supabaseUrl     = process.env.SUPABASE_URL;
+    const supabaseKey     = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY sÃ£o obrigatÃ³rios');
+    }
+    db = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+      realtime: { transport: ws as any },
+    });
+    console.log('[supabase] Admin client inicializado');
   } catch (error) {
-    console.error('[pg] Falha ao conectar ao banco local:', error);
+    console.error('[supabase] Falha ao inicializar:', error);
     process.exit(1);
-  }
-
-  // ── Supabase — OPCIONAL, apenas para módulo financeiro (fin_*) ────────────
-  let finDb: SupabaseClient | null = null;
-  const supabaseUrl  = process.env.SUPABASE_URL;
-  const supabaseAnon = process.env.SUPABASE_ANON_KEY;
-  if (supabaseUrl && supabaseAnon) {
-    finDb = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
-    console.log('[supabase] Cliente financeiro (fin_*) inicializado');
-  } else {
-    console.log('[supabase] SUPABASE_URL/SUPABASE_ANON_KEY não configurados — módulo financeiro desabilitado');
   }
 
   app.use(express.json({ limit: '15mb' }));
@@ -106,22 +92,23 @@ async function startServer() {
   };
 
   const saveToSupabase = async (collection: string, data: any, docId?: string) => {
+    if (!db) return;
     try {
       const d = JSON.parse(JSON.stringify(data));
       switch (collection) {
-        case 'orders':       await pgUpsertOrder(orderToRow(d)); break;
-        case 'tables':       await pgUpsertTable(tableToRow(d)); break;
-        case 'comandas':     await pgUpsertComanda(tableToRow(d)); break;
-        case 'waiters':      await pgUpsertWaiter(d); break;
-        case 'menu':         await pgUpsertMenu({ ...d, position: d.position || 0 }, d.position || 0); break;
-        case 'stock':        await pgUpsertStock(stockToRow(d)); break;
-        case 'config':       await pgUpsertConfig(docId || d.id, d); break;
-        case 'pizzaFlavors': await pgUpsertPizzaFlavor(d); break;
-        case 'pizzaCrusts':  await pgUpsertPizzaCrust(d.name || docId); break;
-        default: console.warn(`[pg] coleção desconhecida: "${collection}"`);
+        case 'orders':   await db.from('orders').upsert(orderToRow(d)); break;
+        case 'tables':   await db.from('tables').upsert(tableToRow(d)); break;
+        case 'comandas': await db.from('comandas').upsert(tableToRow(d)); break;
+        case 'waiters':  await db.from('waiters').upsert(d); break;
+        case 'menu':     await db.from('menu').upsert({ id: docId || d.id, name: d.name, position: d.position || 0, items: d.items || [] }); break;
+        case 'stock':    await db.from('stock').upsert(stockToRow(d)); break;
+        case 'config':   await db.from('config').upsert({ id: docId, data: d }); break;
+        case 'pizzaFlavors': await db.from('pizza_flavors').upsert({ id: d.name, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false }); break;
+        case 'pizzaCrusts':  await db.from('pizza_crusts').upsert({ id: d.name || docId, name: d.name || docId }); break;
+        default: console.warn(`[supabase] coleÃ§Ã£o desconhecida: "${collection}"`);
       }
     } catch (e) {
-      console.error(`[pg] erro ao salvar em ${collection}:`, e);
+      console.error(`[supabase] erro ao salvar em ${collection}:`, e);
     }
   };
 
@@ -153,25 +140,26 @@ async function startServer() {
     });
   };
 
-  // ── Carga inicial do banco local (PostgreSQL) ──────────────────────────────
+  // â"€â"€ Carga inicial do Supabase â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const loadFromSupabase = async () => {
     try {
-      const [wRows, oRows, tRows, cRows, mRows, sRows, pfRows, pcRows, cfgApp, cfgPiz] = await Promise.all([
-        pgLoadWaiters(),
-        pgLoadOrders(),
-        pgLoadTables(),
-        pgLoadComandas(),
-        pgLoadMenu(),
-        pgLoadStock(),
-        pgLoadPizzaFlavors(),
-        pgLoadPizzaCrusts(),
-        pgLoadConfig('app'),
-        pgLoadConfig('pizzaria'),
+      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
+        db.from('waiters').select('*'),
+        db.from('orders').select('*'),
+        db.from('tables').select('*').order('id'),
+        db.from('comandas').select('*').order('id'),
+        db.from('config').select('data').eq('id', 'app').maybeSingle(),
+        db.from('menu').select('*').order('position'),
+        db.from('stock').select('*'),
+        db.from('pizza_flavors').select('*'),
+        db.from('pizza_crusts').select('*'),
+        db.from('config').select('data').eq('id', 'pizzaria').maybeSingle(),
       ]);
 
-      if (wRows.length) {
-        waiters = wRows;
+      if (wRes.data) {
+        waiters = wRes.data;
         io.emit('update_waiters', waiters);
+        // Retry pending logins
         io.sockets.sockets.forEach((s: any) => {
           if (s._pendingLogin && !s.waiterId) {
             const { name, password } = s._pendingLogin;
@@ -183,10 +171,12 @@ async function startServer() {
         });
       }
 
-      if (mRows.length) {
+      if (mRes.data?.length) {
+        // Re-hidrata o campo `type` (não persistido no schema Supabase) a partir
+        // das constantes ou do nome da categoria
         const typeMap: Record<string, string> = {};
         MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
-        menu = mRows.map((row: any) => ({
+        menu = mRes.data.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
           visible: row.visible !== false,
@@ -194,14 +184,16 @@ async function startServer() {
         }));
         io.emit('update_menu', menu);
       } else {
-        // Banco vazio — semeia menu inicial
-        await pgBulkUpsertMenu(menu);
-        console.log('[pg] Menu inicial semeado');
+        // Supabase menu vazio — semeia a partir das constantes
+        await db.from('menu').upsert(
+          menu.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [] }))
+        );
+        console.log('[supabase] Menu inicial semeado ao Supabase');
         io.emit('update_menu', menu);
       }
 
-      if (oRows.length) {
-        orders = oRows.map((r: any) => {
+      if (oRes.data) {
+        orders = oRes.data.map((r: any) => {
           const o = rowToOrder(r);
           if (o.items && menu.length > 0) {
             o.items = o.items.map((item: any) => {
@@ -217,8 +209,8 @@ async function startServer() {
         io.emit('update_orders', orders);
       }
 
-      if (tRows.length) {
-        tRows.map(rowToTable).forEach((dbTable: any) => {
+      if (tRes.data) {
+        tRes.data.map(rowToTable).forEach((dbTable: any) => {
           const idx = tables.findIndex(t => t.id === dbTable.id);
           if (idx !== -1) tables[idx] = { ...tables[idx], ...dbTable }; else tables.push(dbTable);
         });
@@ -226,8 +218,9 @@ async function startServer() {
         io.emit('update_tables', tables);
       }
 
-      if (cRows.length) {
-        cRows.map(rowToTable).forEach((dbC: any) => {
+      if (cRes.data) {
+        const dbComandas = cRes.data.map(rowToTable);
+        dbComandas.forEach((dbC: any) => {
           const idx = comandas.findIndex(c => c.id === dbC.id);
           if (idx !== -1) comandas[idx] = { ...comandas[idx], ...dbC }; else comandas.push(dbC);
         });
@@ -235,33 +228,35 @@ async function startServer() {
         io.emit('update_comandas', comandas);
       }
 
-      if (cfgApp) {
-        const cfg = cfgApp as any;
+      if (cfgRes.data?.data) {
+        const cfg = cfgRes.data.data as any;
         isCashRegisterOpen = cfg.isCashRegisterOpen || false;
         if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
+        // shiftStartedAt is NOT restored from DB — it always resets to server
+        // startup time so items from before this restart are excluded from inactivity.
         io.emit('update_cash_register', isCashRegisterOpen);
         io.emit('update_shift_started_at', shiftStartedAt);
       }
 
-      if (sRows.length) {
-        const allItems = sRows.map(rowToStock);
+      if (sRes.data) {
+        const allItems = sRes.data.map(rowToStock);
         if (menu.length > 0) {
           const trackedIds = new Set(menu.flatMap((c: any) => c.items || []).filter((i: any) => i.trackStock).map((i: any) => i.id));
           const orphanIds = allItems.filter((s: any) => !trackedIds.has(s.menuItemId)).map((s: any) => s.id);
-          if (orphanIds.length > 0) pgDeleteStockByIds(orphanIds).catch(() => {});
+          if (orphanIds.length > 0) (db.from('stock').delete().in('id', orphanIds) as any).catch(() => {});
           stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
         } else { stock = allItems; }
         io.emit('update_stock', stock);
       }
 
-      if (pfRows.length) { pizzaFlavors = pfRows.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.emit('update_pizza_flavors', pizzaFlavors); }
-      if (pcRows.length) { pizzaCrusts = pcRows.map((r: any) => r.name); io.emit('update_pizza_crusts', pizzaCrusts); }
-      if (cfgPiz) { pizzariaConfig = { ...pizzariaConfig, ...(cfgPiz as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
+      if (pfRes.data) { pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.emit('update_pizza_flavors', pizzaFlavors); }
+      if (pcRes.data) { pizzaCrusts = pcRes.data.map((r: any) => r.name); io.emit('update_pizza_crusts', pizzaCrusts); }
+      if (cfgPizRes.data?.data) { pizzariaConfig = { ...pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
 
-      console.log('[pg] Carga inicial concluída');
+      console.log('[supabase] Carga inicial concluÃ­da');
     } catch (e) {
-      console.error('[pg] Erro na carga inicial:', e);
+      console.error('[supabase] Erro na carga inicial:', e);
     }
   };
 
@@ -377,7 +372,8 @@ async function startServer() {
     }));
 
     menu[bebidasIdx] = { ...cat, subcategories: [...(cat.subcategories || []), ...newSubs] };
-    await pgUpsertMenu({ ...menu[bebidasIdx], position: bebidasIdx }, bebidasIdx);
+    const { error } = await db.from('menu').upsert({ id: cat.name, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: menu[bebidasIdx].items || [], subcategories: menu[bebidasIdx].subcategories });
+    if (error) { console.error('[seed-bebidas] Erro ao salvar:', error.message); return; }
     io.emit('update_menu', menu);
     console.log(`[seed-bebidas] ${newSubs.length} subcategorias adicionadas à categoria bebidas.`);
   };
@@ -663,7 +659,7 @@ async function startServer() {
       isCashRegisterOpen,
       shiftStartedAt,
       pizzariaConfig,
-      firebaseActive: true,
+      firebaseActive: !!db,
       printerAgentOnline: !!(printerAgentSocket?.connected),
       serverNow: new Date().toISOString(),
     });
@@ -683,7 +679,7 @@ async function startServer() {
         isCashRegisterOpen,
         shiftStartedAt,
         pizzariaConfig,
-        firebaseActive: true,
+        firebaseActive: !!db,
         printerAgentOnline: !!(printerAgentSocket?.connected),
         serverNow: new Date().toISOString(),
       });
@@ -871,7 +867,7 @@ async function startServer() {
         waiters = waiters.filter((w: any) => !w.name?.startsWith(prefix));
         io.emit('update_waiters', waiters);
         // Persist
-        pgPool.query("DELETE FROM waiters WHERE data->>'name' LIKE $1", [`${prefix}%`]).catch(() => {});
+        db?.from('waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
       }
       if (deleteData) {
         // Remove itens lançados por garçons de teste de pedidos mistos; exclui pedidos inteiramente do teste
@@ -898,7 +894,7 @@ async function startServer() {
         io.emit('update_tables', tables);
         io.emit('update_comandas', comandas);
         // Persist orders (delete test orders from Supabase)
-        pgPool.query("DELETE FROM orders WHERE waiter_name LIKE $1", [`${prefix}%`]).catch(() => {});
+        db?.from('orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
       }
     }));
 
@@ -1392,8 +1388,10 @@ async function startServer() {
       if (importedMenu && Array.isArray(importedMenu)) {
         menu = importedMenu;
         io.emit("update_menu", menu);
-        try { await pgDeleteAllMenu(); } catch {}
-        saveMenuToSupabase();
+        if (db) {
+          try { await db.from('menu').delete().neq('id', ''); } catch {}
+          saveMenuToSupabase();
+        }
       }
       if (importedStock && Array.isArray(importedStock)) {
         stock = importedStock;
@@ -1408,18 +1406,26 @@ async function startServer() {
       if (impFlavors && Array.isArray(impFlavors)) {
         pizzaFlavors = impFlavors;
         io.emit("update_pizza_flavors", pizzaFlavors);
-        try {
-          await pgDeleteAllPizzaFlavors();
-          for (const f of pizzaFlavors) await pgUpsertPizzaFlavor(f);
-        } catch {}
+        if (db) {
+          try {
+            await db.from('pizza_flavors').delete().neq('id', '');
+            for (const f of pizzaFlavors) {
+              await db.from('pizza_flavors').upsert({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false });
+            }
+          } catch {}
+        }
       }
       if (impCrusts && Array.isArray(impCrusts)) {
         pizzaCrusts = impCrusts;
         io.emit("update_pizza_crusts", pizzaCrusts);
-        try {
-          await pgDeleteAllPizzaCrusts();
-          for (const c of pizzaCrusts) await pgUpsertPizzaCrust(c);
-        } catch {}
+        if (db) {
+          try {
+            await db.from('pizza_crusts').delete().neq('id', '');
+            for (const c of pizzaCrusts) {
+              await db.from('pizza_crusts').upsert({ id: c, name: c });
+            }
+          } catch {}
+        }
       }
       if (impPizConfig && typeof impPizConfig === 'object') {
         pizzariaConfig = { ...pizzariaConfig, ...impPizConfig, kdsEnabled: false };
@@ -2158,10 +2164,10 @@ async function startServer() {
 
       // Persist reset to Supabase
       try {
-        await pgDeleteAllOrders();
-        await pgResetTables();
-        await pgResetComandas();
-        console.log('reset_system: banco local limpo com sucesso');
+        await db.from('orders').delete().neq('id', '');
+        await db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        await db.from('comandas').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        console.log('reset_system: Supabase cleared successfully');
       } catch (err) {
         console.error('reset_system: failed to clear Supabase', err);
       }
@@ -2294,38 +2300,45 @@ async function startServer() {
   });
 
   app.post("/api/seed", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Supabase nÃ£o inicializado" });
 
     const steps: string[] = [];
     const log = (msg: string) => { steps.push(msg); console.log("[seed]", msg); };
 
     try {
       log("Limpando tabelas antigas...");
-      await pgDeleteAllOrders();
-      await pgDeleteAllStock();
-      await pgDeleteAllPizzaFlavors();
-      await pgDeleteAllPizzaCrusts();
+      await db.from('orders').delete().neq('id', '');
+      await db.from('stock').delete().neq('id', '');
+      await db.from('pizza_flavors').delete().neq('id', '');
+      await db.from('pizza_crusts').delete().neq('id', '');
 
       log("Configurando 40 mesas...");
-      await pgBulkUpsertTables(
+      await db.from('tables').upsert(
         Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
       );
 
       log("Configurando 50 comandas...");
-      await pgBulkUpsertComandas(
+      await db.from('comandas').upsert(
         Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
       );
 
       log("Carregando categorias do menu...");
-      await pgBulkUpsertMenu(MENU_CATEGORIES as any[]);
+      await db.from('menu').upsert(
+        MENU_CATEGORIES.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, items: cat.items || [] }))
+      );
 
       log("Carregando sabores de pizza...");
-      for (const f of PIZZA_FLAVORS as any[]) await pgUpsertPizzaFlavor(f);
+      await db.from('pizza_flavors').upsert(
+        PIZZA_FLAVORS.map((f: any) => ({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false }))
+      );
 
       log("Carregando bordas...");
-      for (const c of PIZZA_CRUSTS as any[]) await pgUpsertPizzaCrust(c);
+      await db.from('pizza_crusts').upsert(
+        PIZZA_CRUSTS.map((c: any) => ({ id: c, name: c }))
+      );
 
       log("Configurando sistema de caixa...");
-      await pgUpsertConfig('app', { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' });
+      await db.from('config').upsert({ id: 'app', data: { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' } });
 
       log("Resetando estado em memória...");
       orders = [];
@@ -2376,12 +2389,12 @@ async function startServer() {
 
   // Gera ou retorna o token do dia para um tenant
   app.post("/api/attendance/token", express.json(), async (req, res) => {
-    if (!finDb) return res.status(503).json({ error: "Módulo financeiro não configurado" });
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
     const { tenantId } = req.body;
     if (!tenantId) return res.status(400).json({ error: "tenantId obrigatório" });
 
     const today = todayDateStr();
-    const { data: existing } = await finDb.from('fin_attendance_tokens').select('*').eq('tenant_id', tenantId).eq('date', today).single();
+    const { data: existing } = await db.from('fin_attendance_tokens').select('*').eq('tenant_id', tenantId).eq('date', today).single();
     if (existing) {
       return res.json({ token: existing.token, date: existing.date });
     }
@@ -2392,24 +2405,24 @@ async function startServer() {
       date: today,
       token: Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10),
     };
-    const { data, error } = await finDb.from('fin_attendance_tokens').insert(newToken).select().single();
+    const { data, error } = await db.from('fin_attendance_tokens').insert(newToken).select().single();
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ token: (data as any).token, date: (data as any).date });
   });
 
   // Página pública: info do token (data + lista de colaboradores do tenant)
   app.get("/api/attendance/:token", async (req, res) => {
-    if (!finDb) return res.status(503).json({ error: "Módulo financeiro não configurado" });
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
     const { token } = req.params;
 
-    const { data: tokenData } = await finDb.from('fin_attendance_tokens').select('*').eq('token', token).single();
+    const { data: tokenData } = await db.from('fin_attendance_tokens').select('*').eq('token', token).single();
     if (!tokenData) return res.status(404).json({ error: "QR Code inválido ou expirado." });
 
     const today = todayDateStr();
     if ((tokenData as any).date !== today) return res.status(410).json({ error: "QR Code expirado. Solicite um novo ao gestor." });
 
-    const { data: employees } = await finDb.from('fin_employees').select('id, name').eq('tenant_id', (tokenData as any).tenant_id).in('status', ['ativo', 'pago']).order('name');
-    const { data: records } = await finDb.from('fin_attendance_records').select('employee_id').eq('tenant_id', (tokenData as any).tenant_id).eq('date', today);
+    const { data: employees } = await db.from('fin_employees').select('id, name').eq('tenant_id', (tokenData as any).tenant_id).in('status', ['ativo', 'pago']).order('name');
+    const { data: records } = await db.from('fin_attendance_records').select('employee_id').eq('tenant_id', (tokenData as any).tenant_id).eq('date', today);
     const confirmedIds = new Set(((records || []) as any[]).map(r => r.employee_id));
 
     return res.json({
@@ -2420,18 +2433,18 @@ async function startServer() {
 
   // Confirmação pública de presença
   app.post("/api/attendance/:token/confirm", express.json(), async (req, res) => {
-    if (!finDb) return res.status(503).json({ error: "Módulo financeiro não configurado" });
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
     const { token } = req.params;
     const { employee_id } = req.body;
     if (!employee_id) return res.status(400).json({ error: "employee_id obrigatório" });
 
-    const { data: tokenData } = await finDb.from('fin_attendance_tokens').select('*').eq('token', token).single();
+    const { data: tokenData } = await db.from('fin_attendance_tokens').select('*').eq('token', token).single();
     if (!tokenData) return res.status(404).json({ error: "QR Code inválido." });
 
     const today = todayDateStr();
     if ((tokenData as any).date !== today) return res.status(410).json({ error: "QR Code expirado." });
 
-    const { data: emp } = await finDb.from('fin_employees').select('name').eq('id', employee_id).single();
+    const { data: emp } = await db.from('fin_employees').select('name').eq('id', employee_id).single();
     if (!emp) return res.status(404).json({ error: "Colaborador não encontrado." });
 
     const record = {
@@ -2444,7 +2457,7 @@ async function startServer() {
       token_id: (tokenData as any).id,
     };
 
-    const { error } = await finDb.from('fin_attendance_records').upsert(record);
+    const { error } = await db.from('fin_attendance_records').upsert(record);
     if (error) return res.status(500).json({ error: error.message });
 
     return res.json({ ok: true, name: (emp as any).name });
@@ -2452,11 +2465,11 @@ async function startServer() {
 
   // Registros de presença por tenant e período (usado pelo Dashboard)
   app.get("/api/attendance/records/:tenantId", async (req, res) => {
-    if (!finDb) return res.status(503).json({ error: "Módulo financeiro não configurado" });
+    if (!db) return res.status(503).json({ error: "DB não disponível" });
     const { tenantId } = req.params;
     const { from, to } = req.query as { from?: string; to?: string };
 
-    let q = finDb.from('fin_attendance_records').select('*').eq('tenant_id', tenantId).order('date', { ascending: false }).order('confirmed_at', { ascending: true });
+    let q = db.from('fin_attendance_records').select('*').eq('tenant_id', tenantId).order('date', { ascending: false }).order('confirmed_at', { ascending: true });
     if (from) q = q.gte('date', from);
     if (to) q = q.lte('date', to);
 
