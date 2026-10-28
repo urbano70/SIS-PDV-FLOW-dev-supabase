@@ -1,23 +1,39 @@
 #!/bin/bash
-# Backup diário de todos os bancos PostgreSQL dos clientes
-# Agendar via cron: 0 3 * * * /opt/pdv/docker/backup.sh
+# ================================================================
+# SIS-PDV — Backup automático dos bancos PostgreSQL
+#
+# Configurar no cron da VPS (backup às 3h da manhã):
+#   crontab -e
+#   0 3 * * * /opt/pdv/docker/backup.sh >> /var/log/pdv-backup.log 2>&1
+# ================================================================
 
-BACKUP_DIR="/opt/pdv/backups/$(date +%Y-%m-%d)"
+set -e
+
+BACKUP_DIR="/opt/pdv-backups/$(date +%Y-%m-%d)"
+CLIENTES=5
+LOG_PREFIX="[$(date '+%Y-%m-%d %H:%M:%S')]"
+
 mkdir -p "$BACKUP_DIR"
 
-for i in 1 2 3 4 5; do
-  CONTAINER="pdv-db-${i}"
-  FILE="${BACKUP_DIR}/cliente${i}.sql.gz"
+echo "$LOG_PREFIX Iniciando backup de $CLIENTES clientes..."
 
-  if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
-    docker exec "$CONTAINER" pg_dump -U pdv pdv | gzip > "$FILE"
-    echo "[$(date)] Backup cliente $i: $FILE"
-  else
-    echo "[$(date)] AVISO: container $CONTAINER não está rodando"
+for i in $(seq 1 $CLIENTES); do
+  CONTAINER="postgres-cliente-$i"
+
+  # Verificar se o container está rodando
+  if ! docker inspect "$CONTAINER" > /dev/null 2>&1; then
+    echo "$LOG_PREFIX ⚠️  Cliente $i: container $CONTAINER não encontrado — pulando"
+    continue
   fi
+
+  echo "$LOG_PREFIX Backup cliente $i..."
+  docker exec "$CONTAINER" pg_dump -U pdv pdv | gzip > "$BACKUP_DIR/cliente-$i.sql.gz"
+
+  SIZE=$(du -sh "$BACKUP_DIR/cliente-$i.sql.gz" | cut -f1)
+  echo "$LOG_PREFIX ✅ Cliente $i: $BACKUP_DIR/cliente-$i.sql.gz ($SIZE)"
 done
 
-# Remove backups com mais de 30 dias
-find /opt/pdv/backups -type d -mtime +30 -exec rm -rf {} + 2>/dev/null
+# Manter apenas os últimos 7 dias
+find /opt/pdv-backups -maxdepth 1 -type d -mtime +7 -exec rm -rf {} + 2>/dev/null || true
 
-echo "[$(date)] Backup concluído"
+echo "$LOG_PREFIX Backup concluído. Arquivos em: $BACKUP_DIR"
