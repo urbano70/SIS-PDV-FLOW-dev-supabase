@@ -1205,10 +1205,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 const catType = selectedCat.type;
                 if (activeSubcategoryId) {
                   const sub = filteredSubcategories.find(s => s.id === activeSubcategoryId);
-                  return (sub?.items || []).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: sub?.name, type: catType }));
+                  return (sub?.items || []).filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: sub?.name, type: catType }));
                 }
-                const direct = (selectedCat.items || []).map((i: any) => ({ ...i, type: catType })) as any[];
-                const subItems = filteredSubcategories.flatMap(s => s.items.map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: s.name, type: catType })));
+                const direct = (selectedCat.items || []).filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, type: catType })) as any[];
+                const subItems = filteredSubcategories.flatMap(s => s.items.filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: s.name, type: catType })));
                 return [...direct, ...subItems];
               })().map((item, idx) => (
                   <button
