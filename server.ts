@@ -1169,6 +1169,25 @@ async function startServer() {
       saveMenuToSupabase();
     }));
 
+    socket.on("toggle_item_visibility", requireAdmin(({ categoryName, subcategoryId, itemId, visible }) => {
+      menu = menu.map((cat: any) => {
+        if (cat.name !== categoryName) return cat;
+        if (subcategoryId) {
+          return {
+            ...cat,
+            subcategories: (cat.subcategories || []).map((sub: any) =>
+              sub.id === subcategoryId
+                ? { ...sub, items: sub.items.map((i: any) => i.id === itemId ? { ...i, visible } : i) }
+                : sub
+            ),
+          };
+        }
+        return { ...cat, items: (cat.items || []).map((i: any) => i.id === itemId ? { ...i, visible } : i) };
+      });
+      io.emit("update_menu", menu);
+      saveMenuToSupabase();
+    }));
+
     socket.on("delete_category", requireAdmin((categoryName) => {
       menu = menu.filter((cat: any) => cat.name !== categoryName);
       io.emit("update_menu", menu);
