@@ -3375,9 +3375,14 @@ export default function Dashboard({
                 {menu.map(category => {
                   const totalItems = category.items.length + (category.subcategories || []).reduce((sum, s) => sum + s.items.length, 0);
                   const renderItemRow = (item: MenuItem, catName: string, subId?: string) => (
-                    <div key={item.id} className="px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors">
+                    <div key={item.id} className={`px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors ${(item as any).visible === false ? 'opacity-40' : ''}`}>
                       <div className="space-y-1">
-                        <p className="font-bold text-base">{item.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-base">{item.name}</p>
+                          {(item as any).visible === false && (
+                            <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 bg-red-100 text-red-500 rounded-full">Oculto</span>
+                          )}
+                        </div>
                         <p className="text-sm opacity-60 max-w-xl">{item.ingredients}</p>
                       </div>
                       <div className="flex items-center space-x-3">
@@ -3395,6 +3400,13 @@ export default function Dashboard({
                             <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(item as any).trackStock ? 'translate-x-5' : 'translate-x-0.5'}`} />
                           </button>
                         </div>
+                        <button
+                          onClick={() => socket.emit('toggle_item_visibility', { categoryName: catName, subcategoryId: subId, itemId: item.id, visible: (item as any).visible === false })}
+                          title={(item as any).visible === false ? 'Exibir no cardápio' : 'Ocultar no cardápio'}
+                          className={`p-2.5 rounded-xl border border-[#141414]/10 transition-all ${(item as any).visible === false ? 'text-red-400 hover:bg-red-50' : 'text-gray-400 hover:bg-gray-100'}`}
+                        >
+                          {(item as any).visible === false ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                         <button
                           onClick={() => { setEditingProduct({ categoryName: catName, subcategoryId: subId, item: { ...item } }); setIsEditProductModalOpen(true); }}
                           className="p-2.5 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all text-blue-600"
