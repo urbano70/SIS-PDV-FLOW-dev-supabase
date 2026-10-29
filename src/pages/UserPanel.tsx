@@ -186,14 +186,14 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
 
-          {/* ── Coluna 1: Dados da Empresa ─────────────────────────────────── */}
+          {/* ── Coluna 1: Dados do Estabelecimento ────────────────────────── */}
           <div className="bg-white rounded-2xl border border-[#141414]/10 shadow-sm p-6 flex flex-col gap-4">
             <div className="flex items-center gap-3 border-b border-[#141414]/10 pb-4">
               <div className="w-10 h-10 bg-[#141414]/5 rounded-xl flex items-center justify-center">
                 <Building size={20} />
               </div>
               <div>
-                <h3 className="font-serif italic text-xl font-bold">Dados da Empresa</h3>
+                <h3 className="font-serif italic text-xl font-bold">Dados do Estabelecimento</h3>
                 <p className="text-xs text-[#141414]/50">Informações cadastrais</p>
               </div>
             </div>
@@ -239,7 +239,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
             {/* Botão editar */}
             <button onClick={() => setEditOpen(true)}
               className="mt-auto w-full flex items-center justify-center gap-2 py-3 border border-[#141414]/20 rounded-xl text-sm font-bold text-[#141414] hover:bg-[#141414]/5 transition-colors">
-              <Edit2 size={15} /> Editar dados da empresa
+              <Edit2 size={15} /> Editar dados do estabelecimento
             </button>
           </div>
 
@@ -284,13 +284,24 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                 </div>
 
                 {/* Abrir PDV */}
-                <button onClick={() => window.open('/app/dashboard', '_blank')}
-                  className="w-full bg-[#141414] text-[#E4E3E0] hover:opacity-90 transition-opacity py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-3 shadow-md group">
-                  <LayoutDashboard size={20} className="group-hover:scale-110 transition-transform" />
-                  <span>Abrir Painel de Gestão</span>
-                  <ExternalLink size={16} className="opacity-60" />
-                </button>
-                <p className="text-xs text-center text-[#141414]/40">Mesas, pedidos, cardápio, estoque e relatórios.</p>
+                {formData.establishment_name.trim() ? (
+                  <button onClick={() => window.open('/app/dashboard', '_blank')}
+                    className="w-full bg-[#141414] text-[#E4E3E0] hover:opacity-90 transition-opacity py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-3 shadow-md group">
+                    <LayoutDashboard size={20} className="group-hover:scale-110 transition-transform" />
+                    <span>Abrir seu PDV</span>
+                    <ExternalLink size={16} className="opacity-60" />
+                  </button>
+                ) : (
+                  <div className="w-full bg-[#141414]/10 text-[#141414]/30 py-4 px-6 rounded-xl font-bold flex items-center justify-center gap-3 border-2 border-dashed border-[#141414]/15 cursor-not-allowed select-none">
+                    <LayoutDashboard size={20} />
+                    <span>Abrir seu PDV</span>
+                  </div>
+                )}
+                <p className="text-xs text-center text-[#141414]/40">
+                  {formData.establishment_name.trim()
+                    ? 'Mesas, pedidos, cardápio, estoque e relatórios.'
+                    : 'Preencha os dados do estabelecimento para liberar o acesso.'}
+                </p>
 
                 {/* Link garçom */}
                 <div className="border-t border-[#141414]/10 pt-4">
@@ -373,7 +384,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
             {/* Modal header */}
             <div className="flex items-center justify-between p-6 border-b border-[#141414]/10 sticky top-0 bg-white z-10">
               <div>
-                <h3 className="font-serif italic text-2xl font-bold">Dados da Empresa</h3>
+                <h3 className="font-serif italic text-2xl font-bold">Dados do Estabelecimento</h3>
                 <p className="text-xs text-[#141414]/50 mt-0.5">Preencha as informações do seu estabelecimento</p>
               </div>
               <button onClick={() => setEditOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">

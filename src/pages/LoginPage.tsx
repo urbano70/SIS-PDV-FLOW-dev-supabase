@@ -10,9 +10,10 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isReset = searchParams.get('mode') === 'reset';
+  const planParam = searchParams.get('plan'); // 'free' | 'pro'
 
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'reset'>(
-    isReset ? 'reset' : 'login'
+    isReset ? 'reset' : planParam ? 'signup' : 'login'
   );
   const [email, setEmail] = useState(() => localStorage.getItem(REMEMBER_KEY) || '');
   const [password, setPassword] = useState(() => localStorage.getItem(REMEMBER_PWD_KEY) || '');
@@ -48,7 +49,7 @@ export default function LoginPage() {
         navigate('/portal');
 
       } else if (mode === 'signup') {
-        await signUpOwner(email, password, establishmentName);
+        await signUpOwner(email, password, establishmentName, planParam || 'free');
         setSuccessMsg('Verifique seu e-mail para confirmar o cadastro antes de entrar.');
 
       } else if (mode === 'forgot') {
