@@ -6281,6 +6281,18 @@ export default function Dashboard({
                         </div>
                       </div>
 
+                      {/* Convidados */}
+                      {order.guests && order.guests.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pb-3 border-b border-[#141414]/8">
+                          <span className="text-[9px] uppercase font-bold opacity-30 w-full">Convidados</span>
+                          {order.guests.map((guest: string, gi: number) => (
+                            <span key={gi} className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-semibold">
+                              {guest}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       <div className="space-y-1.5">
                         {(order.items || []).map((item, idx) => (
                           <div key={idx} className={`flex flex-col space-y-0.5 pb-1.5 border-b border-[#141414]/5 last:border-0 ${item.removed ? 'opacity-40' : ''}`}>
@@ -6289,6 +6301,9 @@ export default function Dashboard({
                                 <span className={item.removed ? 'line-through' : ''}>
                                   {item.quantity || 1}× {item.name}
                                 </span>
+                                {item.guestName && (
+                                  <span className="ml-1.5 text-[9px] bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded-full font-semibold">{item.guestName}</span>
+                                )}
                                 {item.waiterName && (
                                   <span className="ml-1.5 text-[9px] bg-[#141414]/8 px-1.5 py-0.5 rounded font-semibold opacity-60">{item.waiterName}</span>
                                 )}
