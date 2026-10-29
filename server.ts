@@ -67,27 +67,68 @@ async function startServer() {
 
   app.use(express.json({ limit: '15mb' }));
 
-  // In-memory state
-  let waiters: any[] = [];
-  let orders: any[] = [];
-  let isCashRegisterOpen = false;
-  // Tracks when the current service shift started (cashier was last opened).
-  // Sent to clients so they can cap stale timestamps without losing per-item accuracy.
-  let shiftStartedAt: string = new Date().toISOString();
-  const callWaiterCooldown = new Map<number, number>(); // tableId → last call timestamp
-  let tables: any[] = Array.from({ length: 40 }, (_, i) => ({
-    id: i + 1,
-    status: "free",
-    currentOrder: null,
-    linkedTo: null,
-  }));
+  // ── Per-tenant state ──────────────────────────────────────────────────────
+  interface TenantState {
+    orders: any[];
+    tables: any[];
+    comandas: any[];
+    waiters: any[];
+    menu: any[];
+    stock: any[];
+    stockLog: any[];
+    pizzaFlavors: any[];
+    pizzaCrusts: any[];
+    pizzaSizes: { name: string; slices: number; dim: string; people: string; maxFlavors: number; detail: string }[];
+    isCashRegisterOpen: boolean;
+    shiftStartedAt: string;
+    dailyCounter: number;
+    lastOrderDate: string;
+    pizzariaConfig: any;
+    printerAgentSocket: any;
+    loaded: boolean;
+  }
 
-  let comandas: any[] = Array.from({ length: 50 }, (_, i) => ({
-    id: i + 1,
-    status: "free",
-    currentOrder: null,
-    linkedTo: null,
-  }));
+  const DEFAULT_PIZZA_SIZES = [
+    { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
+    { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+    { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
+    { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
+    { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
+  ];
+
+  const tenants = new Map<string, TenantState>();
+
+  function defaultTenantState(): TenantState {
+    return {
+      orders: [],
+      tables: Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: "free", currentOrder: null, linkedTo: null })),
+      comandas: Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: "free", currentOrder: null, linkedTo: null })),
+      waiters: [],
+      menu: JSON.parse(JSON.stringify(MENU_CATEGORIES)),
+      stock: [],
+      stockLog: [],
+      pizzaFlavors: JSON.parse(JSON.stringify(PIZZA_FLAVORS)),
+      pizzaCrusts: JSON.parse(JSON.stringify(PIZZA_CRUSTS)),
+      pizzaSizes: JSON.parse(JSON.stringify(DEFAULT_PIZZA_SIZES)),
+      isCashRegisterOpen: false,
+      shiftStartedAt: new Date().toISOString(),
+      dailyCounter: 0,
+      lastOrderDate: '',
+      pizzariaConfig: { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true },
+      printerAgentSocket: null,
+      loaded: false,
+    };
+  }
+
+  function getState(tenantId: string): TenantState {
+    if (!tenants.has(tenantId)) tenants.set(tenantId, defaultTenantState());
+    return tenants.get(tenantId)!;
+  }
+
+  // callWaiterCooldown and clientSessions keyed by `${tenantId}:...`
+  const callWaiterCooldown = new Map<string, number>();
 
   // â"€â"€ Mappers: Supabase row â†" app object â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const rowToTable  = (r: any) => ({ id: r.id, status: r.status, currentOrder: r.current_order ?? null, linkedTo: r.linked_to ?? null });
@@ -98,28 +139,27 @@ async function startServer() {
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-  // Called when a new service shift starts (cashier opened or server startup with open cashier).
-  // Records shiftStartedAt so clients can cap stale timers without resetting individual items.
-  const markShiftStart = () => {
-    shiftStartedAt = new Date().toISOString();
+  const markShiftStart = (st: TenantState) => {
+    st.shiftStartedAt = new Date().toISOString();
   };
 
-  const saveToSupabase = async (collection: string, data: any, docId?: string) => {
+  const saveToSupabase = async (collection: string, data: any, docId?: string, tenantId?: string) => {
     if (USE_POSTGRES) { await pgSave(collection, data, docId); return; }
     if (!db) return;
+    const tid = tenantId || 'default';
     try {
       const d = JSON.parse(JSON.stringify(data));
       switch (collection) {
-        case 'orders':   await db.from('orders').upsert(orderToRow(d)); break;
-        case 'tables':   await db.from('tables').upsert(tableToRow(d)); break;
-        case 'comandas': await db.from('comandas').upsert(tableToRow(d)); break;
-        case 'waiters':  await db.from('waiters').upsert(d); break;
-        case 'menu':     await db.from('menu').upsert({ id: docId || d.id, name: d.name, position: d.position || 0, items: d.items || [] }); break;
-        case 'stock':    await db.from('stock').upsert(stockToRow(d)); break;
-        case 'config':   await db.from('config').upsert({ id: docId, data: d }); break;
-        case 'pizzaFlavors': await db.from('pizza_flavors').upsert({ id: d.name, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false }); break;
-        case 'pizzaCrusts':  await db.from('pizza_crusts').upsert({ id: d.name || docId, name: d.name || docId }); break;
-        default: console.warn(`[supabase] coleÃ§Ã£o desconhecida: "${collection}"`);
+        case 'orders':   await db.from('orders').upsert({ ...orderToRow(d), tenant_id: tid }); break;
+        case 'tables':   await db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }); break;
+        case 'comandas': await db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }); break;
+        case 'waiters':  await db.from('waiters').upsert({ ...d, tenant_id: tid }); break;
+        case 'menu':     await db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] }); break;
+        case 'stock':    await db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid }); break;
+        case 'config':   await db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid }); break;
+        case 'pizzaFlavors': await db.from('pizza_flavors').upsert({ id: `${tid}:${d.name}`, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false, tenant_id: tid }); break;
+        case 'pizzaCrusts':  await db.from('pizza_crusts').upsert({ id: `${tid}:${d.name || docId}`, name: d.name || docId, tenant_id: tid }); break;
+        default: console.warn(`[supabase] coleção desconhecida: "${collection}"`);
       }
     } catch (e) {
       console.error(`[supabase] erro ao salvar em ${collection}:`, e);
@@ -130,27 +170,27 @@ async function startServer() {
   // Agrupa writes rápidos do mesmo registro (ex: vários itens na mesma order)
   // num único upsert. O socket responde imediatamente; o write vai em background.
   const _writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const _writePayload = new Map<string, { collection: string; data: any; docId: string }>();
 
-  const enqueueWrite = (collection: string, data: any, docId: string, debounceMs = 80) => {
-    const key = `${collection}:${docId}`;
+  const _writePayload = new Map<string, { collection: string; data: any; docId: string; tenantId: string }>();
+
+  const enqueueWrite = (collection: string, data: any, docId: string, tenantId: string, debounceMs = 80) => {
+    const key = `${tenantId}:${collection}:${docId}`;
     const existing = _writeTimers.get(key);
     if (existing) clearTimeout(existing);
-    // Store reference — captures latest in-memory state when timer fires
-    _writePayload.set(key, { collection, data, docId });
+    _writePayload.set(key, { collection, data, docId, tenantId });
     _writeTimers.set(key, setTimeout(() => {
       _writeTimers.delete(key);
       const p = _writePayload.get(key);
       if (p) {
         _writePayload.delete(key);
-        saveToSupabase(p.collection, p.data, p.docId).catch(() => {});
+        saveToSupabase(p.collection, p.data, p.docId, p.tenantId).catch(() => {});
       }
     }, debounceMs));
   };
 
-  const saveMenuToSupabase = () => {
-    menu.forEach((cat: any, idx: number) => {
-      saveToSupabase('menu', { ...cat, position: idx }, cat.name).catch(() => {});
+  const saveMenuToSupabase = (st: TenantState, tenantId: string) => {
+    st.menu.forEach((cat: any, idx: number) => {
+      saveToSupabase('menu', { ...cat, position: idx }, cat.name, tenantId).catch(() => {});
     });
   };
 
@@ -160,32 +200,34 @@ async function startServer() {
     if (USE_POSTGRES) {
       const pgData = await pgLoad();
       if (!pgData) return;
+      const st = getState('default');
+      const room = 'tenant:default';
 
-      if (pgData.waiters?.length) { waiters = pgData.waiters; io.emit('update_waiters', waiters); }
+      if (pgData.waiters?.length) { st.waiters = pgData.waiters; io.to(room).emit('update_waiters', st.waiters); }
 
       const typeMap: Record<string, string> = {};
       MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
 
       if (pgData.menu?.length) {
-        menu = pgData.menu.map((row: any) => ({
+        st.menu = pgData.menu.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || 'lanches',
           visible: row.visible !== false,
           subcategories: row.subcategories || [],
         }));
-        io.emit('update_menu', menu);
+        io.to(room).emit('update_menu', st.menu);
       } else {
-        await pgSeedMenu(menu);
+        await pgSeedMenu(st.menu);
         console.log('[pg] Menu inicial semeado');
-        io.emit('update_menu', menu);
+        io.to(room).emit('update_menu', st.menu);
       }
 
       if (pgData.orders?.length) {
-        orders = pgData.orders.map((o: any) => {
-          if (o.items && menu.length > 0) {
+        st.orders = pgData.orders.map((o: any) => {
+          if (o.items && st.menu.length > 0) {
             o.items = o.items.map((item: any) => {
               if (item.type === 'pizzas') return item;
-              const cat = menu.find((c: any) =>
+              const cat = st.menu.find((c: any) =>
                 c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name) ||
                 (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name))
               );
@@ -194,168 +236,167 @@ async function startServer() {
           }
           return o;
         });
-        io.emit('update_orders', orders);
+        io.to(room).emit('update_orders', st.orders);
       }
 
       if (pgData.tables?.length) {
         pgData.tables.forEach((dbTable: any) => {
-          const idx = tables.findIndex(t => t.id === dbTable.id);
-          if (idx !== -1) tables[idx] = { ...tables[idx], ...dbTable }; else tables.push(dbTable);
+          const idx = st.tables.findIndex(t => t.id === dbTable.id);
+          if (idx !== -1) st.tables[idx] = { ...st.tables[idx], ...dbTable }; else st.tables.push(dbTable);
         });
-        tables.sort((a, b) => a.id - b.id);
-        io.emit('update_tables', tables);
+        st.tables.sort((a, b) => a.id - b.id);
+        io.to(room).emit('update_tables', st.tables);
       }
 
       if (pgData.comandas?.length) {
         pgData.comandas.forEach((dbC: any) => {
-          const idx = comandas.findIndex(c => c.id === dbC.id);
-          if (idx !== -1) comandas[idx] = { ...comandas[idx], ...dbC }; else comandas.push(dbC);
+          const idx = st.comandas.findIndex(c => c.id === dbC.id);
+          if (idx !== -1) st.comandas[idx] = { ...st.comandas[idx], ...dbC }; else st.comandas.push(dbC);
         });
-        comandas.sort((a, b) => a.id - b.id);
-        io.emit('update_comandas', comandas);
+        st.comandas.sort((a, b) => a.id - b.id);
+        io.to(room).emit('update_comandas', st.comandas);
       }
 
       if (pgData.configApp) {
         const cfg = pgData.configApp as any;
-        isCashRegisterOpen = cfg.isCashRegisterOpen || false;
-        if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
-        if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
-        io.emit('update_cash_register', isCashRegisterOpen);
-        io.emit('update_shift_started_at', shiftStartedAt);
+        st.isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
+        if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
+        io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
+        io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
       }
 
-      if (pgData.stock?.length) { stock = pgData.stock; io.emit('update_stock', stock); }
-      if (pgData.pizzaFlavors?.length) { pizzaFlavors = pgData.pizzaFlavors; io.emit('update_pizza_flavors', pizzaFlavors); }
-      if (pgData.pizzaCrusts?.length) { pizzaCrusts = pgData.pizzaCrusts; io.emit('update_pizza_crusts', pizzaCrusts); }
-      if (pgData.configPizzaria) { pizzariaConfig = { ...pizzariaConfig, ...(pgData.configPizzaria as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
+      if (pgData.stock?.length) { st.stock = pgData.stock; io.to(room).emit('update_stock', st.stock); }
+      if (pgData.pizzaFlavors?.length) { st.pizzaFlavors = pgData.pizzaFlavors; io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
+      if (pgData.pizzaCrusts?.length) { st.pizzaCrusts = pgData.pizzaCrusts; io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
+      if (pgData.configPizzaria) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(pgData.configPizzaria as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
 
+      st.loaded = true;
       console.log('[pg] Carga inicial concluída');
       return;
     }
 
-    // ── Supabase ──────────────────────────────────────────────────────────────
+    // Supabase: load for single default tenant on startup (backward-compat)
+    await loadTenantData('default');
+  };
+
+  const loadTenantData = async (tenantId: string) => {
+    if (!db) return;
+    const st = getState(tenantId);
+    const room = 'tenant:' + tenantId;
     try {
       const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
-        db.from('waiters').select('*'),
-        db.from('orders').select('*'),
-        db.from('tables').select('*').order('id'),
-        db.from('comandas').select('*').order('id'),
-        db.from('config').select('data').eq('id', 'app').maybeSingle(),
-        db.from('menu').select('*').order('position'),
-        db.from('stock').select('*'),
-        db.from('pizza_flavors').select('*'),
-        db.from('pizza_crusts').select('*'),
-        db.from('config').select('data').eq('id', 'pizzaria').maybeSingle(),
+        db.from('waiters').select('*').eq('tenant_id', tenantId),
+        db.from('orders').select('*').eq('tenant_id', tenantId),
+        db.from('tables').select('*').eq('tenant_id', tenantId).order('id'),
+        db.from('comandas').select('*').eq('tenant_id', tenantId).order('id'),
+        db.from('config').select('data').eq('id', `${tenantId}:app`).maybeSingle(),
+        db.from('menu').select('*').eq('tenant_id', tenantId).order('position'),
+        db.from('stock').select('*').eq('tenant_id', tenantId),
+        db.from('pizza_flavors').select('*').eq('tenant_id', tenantId),
+        db.from('pizza_crusts').select('*').eq('tenant_id', tenantId),
+        db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).maybeSingle(),
       ]);
 
       if (wRes.data) {
-        waiters = wRes.data;
-        io.emit('update_waiters', waiters);
-        // Retry pending logins
-        io.sockets.sockets.forEach((s: any) => {
-          if (s._pendingLogin && !s.waiterId) {
-            const { name, password } = s._pendingLogin;
-            const w = waiters.find((x: any) => x.name === name && x.password === password);
-            if (w) { w.socketId = s.id; s.waiterId = w.id; s.waiterName = w.name; s.waiterCpf = w.cpf; s.waiterUid = w.uid; s.emit('waiter_approved', { status: w.status }); }
-            else if (waiters.length > 0) s.emit('error_message', 'Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.');
-            delete s._pendingLogin;
-          }
-        });
+        st.waiters = wRes.data;
+        io.to(room).emit('update_waiters', st.waiters);
       }
 
+      const typeMap: Record<string, string> = {};
+      MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
+
       if (mRes.data?.length) {
-        // Re-hidrata o campo `type` (não persistido no schema Supabase) a partir
-        // das constantes ou do nome da categoria
-        const typeMap: Record<string, string> = {};
-        MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
-        menu = mRes.data.map((row: any) => ({
+        st.menu = mRes.data.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
           visible: row.visible !== false,
           subcategories: row.subcategories || [],
         }));
-        io.emit('update_menu', menu);
+        io.to(room).emit('update_menu', st.menu);
       } else {
-        // Supabase menu vazio — semeia a partir das constantes
         await db.from('menu').upsert(
-          menu.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [] }))
+          st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
         );
-        console.log('[supabase] Menu inicial semeado ao Supabase');
-        io.emit('update_menu', menu);
+        console.log(`[supabase][${tenantId}] Menu inicial semeado`);
+        io.to(room).emit('update_menu', st.menu);
       }
 
       if (oRes.data) {
-        orders = oRes.data.map((r: any) => {
+        st.orders = oRes.data.map((r: any) => {
           const o = rowToOrder(r);
-          if (o.items && menu.length > 0) {
+          if (o.items && st.menu.length > 0) {
             o.items = o.items.map((item: any) => {
               if (item.type === 'pizzas') return item;
               const cat = item.menuItemId
-                ? menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-                : menu.find((c: any) => c.items?.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+                ? st.menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+                : st.menu.find((c: any) => c.items?.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
               return cat?.type ? { ...item, type: cat.type } : item;
             });
           }
           return o;
         });
-        io.emit('update_orders', orders);
+        io.to(room).emit('update_orders', st.orders);
       }
 
-      if (tRes.data) {
+      if (tRes.data?.length) {
         tRes.data.map(rowToTable).forEach((dbTable: any) => {
-          const idx = tables.findIndex(t => t.id === dbTable.id);
-          if (idx !== -1) tables[idx] = { ...tables[idx], ...dbTable }; else tables.push(dbTable);
+          const idx = st.tables.findIndex(t => t.id === dbTable.id);
+          if (idx !== -1) st.tables[idx] = { ...st.tables[idx], ...dbTable }; else st.tables.push(dbTable);
         });
-        tables.sort((a, b) => a.id - b.id);
-        io.emit('update_tables', tables);
+        st.tables.sort((a, b) => a.id - b.id);
+        io.to(room).emit('update_tables', st.tables);
       }
 
-      if (cRes.data) {
-        const dbComandas = cRes.data.map(rowToTable);
-        dbComandas.forEach((dbC: any) => {
-          const idx = comandas.findIndex(c => c.id === dbC.id);
-          if (idx !== -1) comandas[idx] = { ...comandas[idx], ...dbC }; else comandas.push(dbC);
+      if (cRes.data?.length) {
+        cRes.data.map(rowToTable).forEach((dbC: any) => {
+          const idx = st.comandas.findIndex(c => c.id === dbC.id);
+          if (idx !== -1) st.comandas[idx] = { ...st.comandas[idx], ...dbC }; else st.comandas.push(dbC);
         });
-        comandas.sort((a, b) => a.id - b.id);
-        io.emit('update_comandas', comandas);
+        st.comandas.sort((a, b) => a.id - b.id);
+        io.to(room).emit('update_comandas', st.comandas);
       }
 
       if (cfgRes.data?.data) {
         const cfg = cfgRes.data.data as any;
-        isCashRegisterOpen = cfg.isCashRegisterOpen || false;
-        if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
-        if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
-        // shiftStartedAt is NOT restored from DB — it always resets to server
-        // startup time so items from before this restart are excluded from inactivity.
-        io.emit('update_cash_register', isCashRegisterOpen);
-        io.emit('update_shift_started_at', shiftStartedAt);
+        st.isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
+        if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
+        io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
+        io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
       }
 
       if (sRes.data) {
         const allItems = sRes.data.map(rowToStock);
-        if (menu.length > 0) {
-          const trackedIds = new Set(menu.flatMap((c: any) => c.items || []).filter((i: any) => i.trackStock).map((i: any) => i.id));
-          const orphanIds = allItems.filter((s: any) => !trackedIds.has(s.menuItemId)).map((s: any) => s.id);
-          if (orphanIds.length > 0) (db.from('stock').delete().in('id', orphanIds) as any).catch(() => {});
-          stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
-        } else { stock = allItems; }
-        io.emit('update_stock', stock);
+        if (st.menu.length > 0) {
+          const trackedIds = new Set(st.menu.flatMap((c: any) => c.items || []).filter((i: any) => i.trackStock).map((i: any) => i.id));
+          st.stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
+        } else { st.stock = allItems; }
+        io.to(room).emit('update_stock', st.stock);
       }
 
-      if (pfRes.data) { pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.emit('update_pizza_flavors', pizzaFlavors); }
-      if (pcRes.data) { pizzaCrusts = pcRes.data.map((r: any) => r.name); io.emit('update_pizza_crusts', pizzaCrusts); }
-      if (cfgPizRes.data?.data) { pizzariaConfig = { ...pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
+      if (pfRes.data) { st.pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
+      if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
+      if (cfgPizRes.data?.data) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
 
-      console.log('[supabase] Carga inicial concluÃ­da');
+      st.loaded = true;
+      console.log(`[supabase][${tenantId}] Carga concluída`);
     } catch (e) {
-      console.error('[supabase] Erro na carga inicial:', e);
+      console.error(`[supabase][${tenantId}] Erro na carga:`, e);
     }
   };
 
-  loadFromSupabase().then(() => seedBebidasSubcategories());
+  const loadTenantIfNeeded = async (tenantId: string) => {
+    const st = getState(tenantId);
+    if (!st.loaded && !USE_POSTGRES) await loadTenantData(tenantId);
+  };
+
+  loadFromSupabase().then(() => seedBebidasSubcategories('default'));
 
   // ── Seed: subcategorias de bebidas ──────────────────────────────────────────
-  const seedBebidasSubcategories = async () => {
+  const seedBebidasSubcategories = async (tenantId: string) => {
+    const st = getState(tenantId);
+    const menu = st.menu;
     const SUBCATS: { name: string; items: { name: string; price: number }[] }[] = [
       { name: 'Vinhos', items: [
         { name: 'Pérgola Tinto Suave — Garrafa', price: 65 },
@@ -463,11 +504,11 @@ async function startServer() {
       items: s.items.map(item => ({ id: randomUUID(), name: item.name, price: item.price, visible: true })),
     }));
 
-    menu[bebidasIdx] = { ...cat, subcategories: [...(cat.subcategories || []), ...newSubs] };
-    const { error } = await db.from('menu').upsert({ id: cat.name, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: menu[bebidasIdx].items || [], subcategories: menu[bebidasIdx].subcategories });
+    st.menu[bebidasIdx] = { ...cat, subcategories: [...(cat.subcategories || []), ...newSubs] };
+    const { error } = await db.from('menu').upsert({ id: `${tenantId}:${cat.name}`, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: st.menu[bebidasIdx].items || [], subcategories: st.menu[bebidasIdx].subcategories, tenant_id: tenantId });
     if (error) { console.error('[seed-bebidas] Erro ao salvar:', error.message); return; }
-    io.emit('update_menu', menu);
-    console.log(`[seed-bebidas] ${newSubs.length} subcategorias adicionadas à categoria bebidas.`);
+    io.to('tenant:' + tenantId).emit('update_menu', st.menu);
+    console.log(`[seed-bebidas][${tenantId}] ${newSubs.length} subcategorias adicionadas à categoria bebidas.`);
   };
 
   // Daily order counter state
@@ -481,58 +522,33 @@ async function startServer() {
     console.error("Error reading counter file", e);
   }
 
-  let dailyCounter = counterData.dailyCounter;
-  let lastOrderDate = counterData.lastOrderDate;
+  // Legacy counter kept for PostgreSQL single-instance mode
+  let _pgDailyCounter = counterData.dailyCounter;
+  let _pgLastOrderDate = counterData.lastOrderDate;
 
-  const saveCounter = () => {
+  const saveCounter = (st: TenantState) => {
     try {
-      fs.writeFileSync(COUNTER_FILE, JSON.stringify({ dailyCounter, lastOrderDate }));
+      fs.writeFileSync(COUNTER_FILE, JSON.stringify({ dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }));
     } catch (e) {
       console.error("Error saving counter file", e);
     }
   };
 
-  const generateOrderId = () => {
+  const generateOrderId = (st: TenantState, tenantId: string) => {
     const now = new Date();
-    // Use local date for the ID (DDMMYYYY)
-    const dateStr = now.getDate().toString().padStart(2, '0') + 
-                    (now.getMonth() + 1).toString().padStart(2, '0') + 
+    const dateStr = now.getDate().toString().padStart(2, '0') +
+                    (now.getMonth() + 1).toString().padStart(2, '0') +
                     now.getFullYear().toString();
-    
-    // Reset counter if the date has changed
-    if (dateStr !== lastOrderDate) {
-      dailyCounter = 1;
-      lastOrderDate = dateStr;
+    if (dateStr !== st.lastOrderDate) {
+      st.dailyCounter = 1;
+      st.lastOrderDate = dateStr;
     } else {
-      dailyCounter++;
+      st.dailyCounter++;
     }
-    
-    saveCounter();
-    
-    saveToSupabase('config', { dailyCounter, lastOrderDate }, 'app').catch(() => {});
-
-    // Format: DDMMYYYY0001
-    return `${dateStr}${dailyCounter.toString().padStart(4, '0')}`;
+    if (USE_POSTGRES) saveCounter(st);
+    saveToSupabase('config', { dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }, 'app', tenantId).catch(() => {});
+    return `${dateStr}${st.dailyCounter.toString().padStart(4, '0')}`;
   };
-
-  // Stock is now driven by menu items with trackStock=true.
-  // Each entry: { id, menuItemId, name, quantity, unit, minQuantity }
-  let stock: any[] = [];
-  let stockLog: any[] = [];
-
-  let menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
-  let pizzaFlavors = JSON.parse(JSON.stringify(PIZZA_FLAVORS));
-  let pizzaCrusts = JSON.parse(JSON.stringify(PIZZA_CRUSTS));
-  let pizzaSizes: { name: string; slices: number; dim: string; people: string; maxFlavors: number; detail: string }[] = [
-    { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
-    { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-    { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-    { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
-  ];
-  let pizzariaConfig = { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true };
 
   // ── Sessões do cliente por mesa ────────────────────────────────
   const clientSessions = new Map<string, { token: string; lastActivity: number; isComanda: boolean }>();
@@ -561,15 +577,19 @@ async function startServer() {
   const LOCAL_BACKUP_FILE = path.join(process.cwd(), 'data', 'local-state.json');
   let _backupTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const saveLocalBackup = () => {
+  const saveLocalBackup = (st?: TenantState) => {
+    // Only used in PostgreSQL single-instance mode
+    if (!USE_POSTGRES) return;
+    const state = st || getState('default');
     if (_backupTimer) clearTimeout(_backupTimer);
     _backupTimer = setTimeout(() => {
       try {
         const dir = path.dirname(LOCAL_BACKUP_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
         fs.writeFileSync(LOCAL_BACKUP_FILE, JSON.stringify({
-          orders, tables, comandas, waiters, menu, stock, stockLog,
-          isCashRegisterOpen, pizzariaConfig,
+          orders: state.orders, tables: state.tables, comandas: state.comandas,
+          waiters: state.waiters, menu: state.menu, stock: state.stock, stockLog: state.stockLog,
+          isCashRegisterOpen: state.isCashRegisterOpen, pizzariaConfig: state.pizzariaConfig,
           savedAt: new Date().toISOString()
         }), 'utf-8');
       } catch (e) {
@@ -579,27 +599,28 @@ async function startServer() {
   };
 
   const loadLocalBackup = (): boolean => {
+    if (!USE_POSTGRES) return false;
     try {
       if (!fs.existsSync(LOCAL_BACKUP_FILE)) return false;
       const state = JSON.parse(fs.readFileSync(LOCAL_BACKUP_FILE, 'utf-8'));
-      if (state.orders?.length) orders = state.orders;
+      const st = getState('default');
+      if (state.orders?.length) st.orders = state.orders;
       if (state.tables?.length) state.tables.forEach((t: any) => {
-        const idx = tables.findIndex((tt: any) => tt.id === t.id);
-        if (idx !== -1) tables[idx] = { ...tables[idx], ...t };
+        const idx = st.tables.findIndex((tt: any) => tt.id === t.id);
+        if (idx !== -1) st.tables[idx] = { ...st.tables[idx], ...t };
       });
       if (state.comandas?.length) state.comandas.forEach((c: any) => {
-        const idx = comandas.findIndex((cc: any) => cc.id === c.id);
-        if (idx !== -1) comandas[idx] = { ...comandas[idx], ...c };
+        const idx = st.comandas.findIndex((cc: any) => cc.id === c.id);
+        if (idx !== -1) st.comandas[idx] = { ...st.comandas[idx], ...c };
       });
-      if (state.waiters?.length) waiters = state.waiters;
-      if (state.menu?.length) menu = state.menu;
-      if (state.stock?.length) stock = state.stock;
-      if (state.stockLog?.length) stockLog = state.stockLog;
-      if (state.isCashRegisterOpen !== undefined) isCashRegisterOpen = state.isCashRegisterOpen;
-      if (state.pizzariaConfig) pizzariaConfig = { ...pizzariaConfig, ...state.pizzariaConfig };
-      // shiftStartedAt is intentionally NOT restored from backup — resets on every restart.
+      if (state.waiters?.length) st.waiters = state.waiters;
+      if (state.menu?.length) st.menu = state.menu;
+      if (state.stock?.length) st.stock = state.stock;
+      if (state.stockLog?.length) st.stockLog = state.stockLog;
+      if (state.isCashRegisterOpen !== undefined) st.isCashRegisterOpen = state.isCashRegisterOpen;
+      if (state.pizzariaConfig) st.pizzariaConfig = { ...st.pizzariaConfig, ...state.pizzariaConfig };
       const age = state.savedAt ? Math.round((Date.now() - new Date(state.savedAt).getTime()) / 60000) : null;
-      console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `hÃ¡ ${age} min` : 'anteriormente'})`);
+      console.log(`[backup] Estado local restaurado (salvo ${age !== null ? `há ${age} min` : 'anteriormente'})`);
       return true;
     } catch (e) {
       console.error('[backup] Erro ao carregar estado local:', e);
@@ -607,8 +628,7 @@ async function startServer() {
     }
   };
 
-  loadLocalBackup();
-  saveLocalBackup(); // Persist initial/restored state immediately on startup
+  if (USE_POSTGRES) { loadLocalBackup(); saveLocalBackup(); }
 
   const getEffectiveItemPrice = (item: any) => {
     let price = Number(item.price) || 0;
@@ -622,23 +642,18 @@ async function startServer() {
     return price;
   };
 
-  const applyStockReduction = (items: any[]) => {
+  const applyStockReduction = (st: TenantState, tenantId: string, items: any[]) => {
+    const room = 'tenant:' + tenantId;
     const newEntries: any[] = [];
     items.forEach(item => {
       const qty = item.quantity || 1;
-      const entry = stock.find((s: any) =>
+      const entry = st.stock.find((s: any) =>
         (item.menuItemId && s.menuItemId === item.menuItemId) || s.name === item.name
       );
       if (entry) {
-        stock = stock.map((s: any) => {
+        st.stock = st.stock.map((s: any) => {
           if (s.id === entry.id) {
-            newEntries.push({
-              id: randomUUID(),
-              itemName: s.name,
-              change: -qty,
-              reason: 'Venda',
-              timestamp: new Date().toISOString(),
-            });
+            newEntries.push({ id: randomUUID(), itemName: s.name, change: -qty, reason: 'Venda', timestamp: new Date().toISOString() });
             return { ...s, quantity: Math.max(0, s.quantity - qty) };
           }
           return s;
@@ -646,26 +661,11 @@ async function startServer() {
       }
     });
     if (newEntries.length > 0) {
-      stockLog = [...newEntries, ...stockLog].slice(0, 100);
-      io.emit("update_stock_log", stockLog);
+      st.stockLog = [...newEntries, ...st.stockLog].slice(0, 100);
+      io.to(room).emit("update_stock_log", st.stockLog);
     }
-    io.emit("update_stock", stock);
+    io.to(room).emit("update_stock", st.stock);
   };
-
-  // Auto-save whenever state is broadcast to clients
-  const _origIoEmit = io.emit.bind(io);
-  (io as any).emit = (...args: Parameters<typeof io.emit>) => {
-    const result = _origIoEmit(...args);
-    if (['update_orders','update_tables','update_comandas','update_cash_register',
-         'update_menu','update_stock','update_stock_log','update_pizzaria_config'].includes(args[0] as string)) {
-      saveLocalBackup();
-    }
-    return result;
-  };
-
-  // ── Agente de impressão local ─────────────────────────────────────────────
-  // Armazena o socket do agente conectado (um por instância de servidor)
-  let printerAgentSocket: any = null;
 
   const AGENT_SECRET = process.env.AGENT_SECRET || '';
 
@@ -676,56 +676,84 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
 
+    // In dev mode, assign a default tenantId so all events work without auth
     if (isDevMode) {
       (socket as any).isAdmin = true;
+      (socket as any).tenantId = 'default';
+      socket.join('tenant:default');
     }
 
-    socket.on("admin_connect", (token) => {
+    socket.on("admin_connect", async (token) => {
       try {
         const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-        if (payload) {
-          (socket as any).isAdmin = true;
-          console.log(`Admin connected: ${payload.email}`);
-        }
+        if (!payload?.sub) { socket.emit("auth_error", { message: "Token inválido" }); return; }
+        const tenantId: string = payload.sub;
+        (socket as any).isAdmin = true;
+        (socket as any).tenantId = tenantId;
+        socket.join('tenant:' + tenantId);
+        await loadTenantIfNeeded(tenantId);
+        const st = getState(tenantId);
+        socket.emit("init_data", {
+          waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
+          stock: st.stock, stockLog: st.stockLog, menu: st.menu,
+          pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
+          isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
+          pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
+          printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
+        });
+        console.log(`Admin connected: ${payload.email} (tenant: ${tenantId})`);
       } catch (e) {
-        console.error("Error decoding token", e);
+        console.error("Error in admin_connect", e);
+        socket.emit("auth_error", { message: "Erro de autenticação" });
       }
     });
 
     // ── Registro do agente de impressão local ────────────────────────────────
-    socket.on("printer_agent_register", ({ secret }: { secret?: string; pairingCode?: string }) => {
+    socket.on("printer_agent_register", ({ secret, tenantId: agentTenantId }: { secret?: string; pairingCode?: string; tenantId?: string }) => {
       if (AGENT_SECRET && secret !== AGENT_SECRET) {
         socket.emit("printer_agent_rejected", "Segredo inválido.");
         console.warn(`[agent] Tentativa de registro rejeitada (socket ${socket.id})`);
         return;
       }
-      printerAgentSocket = socket;
+      const tid = agentTenantId || (socket as any).tenantId || 'default';
       (socket as any).isPrinterAgent = true;
+      (socket as any).tenantId = tid;
+      const st = getState(tid);
+      st.printerAgentSocket = socket;
       socket.emit("printer_agent_accepted");
-      socket.emit("printer_agent_paired"); // auto-emparelha sem código
-      io.emit("printer_agent_status", { online: true });
-      // Solicita scan automático logo após conexão (agente também envia cache imediato)
-      setTimeout(() => { if (printerAgentSocket) printerAgentSocket.emit("scan_printers_request"); }, 500);
-      console.log(`[agent] Agente de impressão conectado e emparelhado: ${socket.id}`);
+      socket.emit("printer_agent_paired");
+      io.to('tenant:' + tid).emit("printer_agent_status", { online: true });
+      setTimeout(() => { if (st.printerAgentSocket) st.printerAgentSocket.emit("scan_printers_request"); }, 500);
+      console.log(`[agent] Agente conectado: ${socket.id} (tenant: ${tid})`);
     });
 
     socket.on("disconnect", () => {
+      const tenantId = (socket as any).tenantId || 'default';
       if ((socket as any).isPrinterAgent) {
-        printerAgentSocket = null;
-        io.emit("printer_agent_status", { online: false });
-        console.log("[agent] Agente de impressão desconectado.");
+        const st = getState(tenantId);
+        st.printerAgentSocket = null;
+        io.to('tenant:' + tenantId).emit("printer_agent_status", { online: false });
+        console.log(`[agent] Agente desconectado (tenant: ${tenantId})`);
       }
+      if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
 
-    // Resultado de impressão enviado pelo agente → repassa a todos
+    // Resultado de impressão enviado pelo agente → repassa ao tenant
     socket.on("printer_agent_result", (result: { success: boolean; ip: string; error?: string }) => {
-      io.emit("print_result", result);
+      const tenantId = (socket as any).tenantId || 'default';
+      io.to('tenant:' + tenantId).emit("print_result", result);
     });
 
     // Resultado do scan de rede enviado pelo agente → repassa ao dashboard
     socket.on("scan_printers_result", (data: { printers: { ip: string; port: number }[] }) => {
-      io.emit("scan_printers_result", data);
+      const tenantId = (socket as any).tenantId || 'default';
+      io.to('tenant:' + tenantId).emit("scan_printers_result", data);
     });
+
+    // Per-socket tenant helpers
+    const _tid = (): string => (socket as any).tenantId || 'default';
+    const _st = (): TenantState => getState(_tid());
+    const _room = (): string => 'tenant:' + _tid();
 
     const requireAdmin = (handler: (...args: any[]) => void) => {
       return (...args: any[]) => {
@@ -737,54 +765,39 @@ async function startServer() {
       };
     };
 
-    socket.emit("init_data", {
-      waiters,
-      orders,
-      tables,
-      comandas,
-      stock,
-      stockLog,
-      menu,
-      pizzaFlavors,
-      pizzaCrusts,
-      pizzaSizes,
-      isCashRegisterOpen,
-      shiftStartedAt,
-      pizzariaConfig,
-      firebaseActive: !!db,
-      printerAgentOnline: !!(printerAgentSocket?.connected),
-      serverNow: new Date().toISOString(),
-    });
+    // init_data is sent after admin_connect (with per-tenant state); skip here for non-dev
+    if (isDevMode) {
+      const defSt = getState('default');
+      socket.emit("init_data", {
+        waiters: defSt.waiters, orders: defSt.orders, tables: defSt.tables, comandas: defSt.comandas,
+        stock: defSt.stock, stockLog: defSt.stockLog, menu: defSt.menu,
+        pizzaFlavors: defSt.pizzaFlavors, pizzaCrusts: defSt.pizzaCrusts, pizzaSizes: defSt.pizzaSizes,
+        isCashRegisterOpen: defSt.isCashRegisterOpen, shiftStartedAt: defSt.shiftStartedAt,
+        pizzariaConfig: defSt.pizzariaConfig, firebaseActive: !!db,
+        printerAgentOnline: !!(defSt.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
+      });
+    }
 
     socket.on("request_init_data", () => {
+      const st = _st();
       socket.emit("init_data", {
-        waiters,
-        orders,
-        tables,
-        comandas,
-        stock,
-        stockLog,
-        menu,
-        pizzaFlavors,
-        pizzaCrusts,
-        pizzaSizes,
-        isCashRegisterOpen,
-        shiftStartedAt,
-        pizzariaConfig,
-        firebaseActive: !!db,
-        printerAgentOnline: !!(printerAgentSocket?.connected),
-        serverNow: new Date().toISOString(),
+        waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
+        stock: st.stock, stockLog: st.stockLog, menu: st.menu,
+        pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
+        isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
+        pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
+        printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
       });
     });
 
     socket.on("update_pizzaria_config", requireAdmin((config) => {
-      pizzariaConfig = { ...pizzariaConfig, ...config };
-      io.emit("update_pizzaria_config", pizzariaConfig);
-      saveToSupabase('config', pizzariaConfig, 'pizzaria').catch(() => {});
+      _st().pizzariaConfig = { ..._st().pizzariaConfig, ...config };
+      io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
+      saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid()).catch(() => {});
     }));
 
     socket.on("deliver_item", ({ orderId, itemId }) => {
-      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
@@ -794,7 +807,7 @@ async function startServer() {
         ? Math.round((new Date(now).getTime() - new Date(item.timestamp).getTime()) / 60000)
         : null;
 
-      const waiter = waiters.find((w: any) => w.id === (socket as any).waiterId);
+      const waiter = _st().waiters.find((w: any) => w.id === (socket as any).waiterId);
       const waiterName = waiter?.name || (socket as any).waiterName || '';
 
       item.deliveredAt = now;
@@ -812,44 +825,44 @@ async function startServer() {
         waiterName,
       });
 
-      io.emit("update_orders", orders);
+      io.to(_room()).emit("update_orders", _st().orders);
 
-      saveToSupabase('orders', order, String(orderId)).catch(() => {});
+      saveToSupabase('orders', order, String(orderId, _tid())).catch(() => {});
     });
 
     socket.on("kitchen_start_item", async ({ orderId, itemId }) => {
-      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
-      io.emit("update_orders", orders);
-      enqueueWrite('orders', order, String(order.id));
+      io.to(_room()).emit("update_orders", _st().orders);
+      enqueueWrite('_st().orders', order, String(order.id));
     });
 
     socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
-      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'oven';
-      io.emit("update_orders", orders);
-      enqueueWrite('orders', order, String(order.id));
+      io.to(_room()).emit("update_orders", _st().orders);
+      enqueueWrite('_st().orders', order, String(order.id));
     });
 
     socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
-      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order) return;
       const item = order.items.find((i: any) => i.id === itemId);
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
-      io.emit("update_orders", orders);
-      enqueueWrite('orders', order, String(order.id));
+      io.to(_room()).emit("update_orders", _st().orders);
+      enqueueWrite('_st().orders', order, String(order.id));
     });
 
     socket.on("waiter_register", (waiterData) => {
       // Find by CPF or Name/Phone combination if CPF is missing
-      const existingWaiterIndex = waiters.findIndex(w => 
+      const existingWaiterIndex = _st().waiters.findIndex(w => 
         (waiterData.cpf && w.cpf === waiterData.cpf) || 
         (waiterData.name === w.name && waiterData.phone === w.phone)
       );
@@ -866,20 +879,20 @@ async function startServer() {
       (socket as any).waiterId = waiterId;
       
       if (existingWaiterIndex !== -1) {
-        waiters[existingWaiterIndex] = { ...waiters[existingWaiterIndex], ...waiter, status: waiters[existingWaiterIndex].status };
+        _st().waiters[existingWaiterIndex] = { ..._st().waiters[existingWaiterIndex], ...waiter, status: _st().waiters[existingWaiterIndex].status };
       } else {
-        waiters.push(waiter);
+        _st().waiters.push(waiter);
       }
 
-      io.emit("admin_notification", {
+      io.to(_room()).emit("admin_notification", {
         type: "NEW_WAITER",
         data: waiter,
       });
-      io.emit("update_waiters", waiters);
+      io.to(_room()).emit("update_waiters", _st().waiters);
     });
 
     socket.on("waiter_login", ({ name, password }) => {
-      const waiter = waiters.find(w => w.name === name && w.password === password);
+      const waiter = _st().waiters.find(w => w.name === name && w.password === password);
       if (waiter) {
         waiter.socketId = socket.id;
         (socket as any).waiterId = waiter.id;
@@ -889,9 +902,9 @@ async function startServer() {
         delete (socket as any)._pendingLogin;
 
         socket.emit("waiter_approved", { status: waiter.status });
-        io.emit("update_waiters", waiters);
-      } else if (waiters.length === 0) {
-        // Race condition: waiters not loaded from Firestore yet â€" save for retry
+        io.to(_room()).emit("update_waiters", _st().waiters);
+      } else if (_st().waiters.length === 0) {
+        // Race condition: _st().waiters not loaded from Firestore yet â€" save for retry
         (socket as any)._pendingLogin = { name, password };
       } else {
         socket.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
@@ -901,27 +914,27 @@ async function startServer() {
     socket.on("toggle_cash_register", requireAdmin(async (isOpen) => {
       console.log(`Cash register toggle: ${isOpen}`);
       if (!isOpen) {
-        const activeTables = tables.find(t => t.status !== "free");
-        const activeComandas = comandas.find(c => c.status !== "free");
+        const activeTables = _st().tables.find(t => t.status !== "free");
+        const activeComandas = _st().comandas.find(c => c.status !== "free");
         if (activeTables || activeComandas) {
-          socket.emit("error_message", "NÃ£o Ã© possÃ­vel fechar o caixa com mesas ou comandas ocupadas.");
+          socket.emit("error_message", "NÃ£o Ã© possÃ­vel fechar o caixa com mesas ou _st().comandas ocupadas.");
           return;
         }
       }
       if (isOpen) {
-        markShiftStart();
-        io.emit('update_shift_started_at', shiftStartedAt);
+        markShiftStart(_st());
+        io.to(_room()).emit('update_shift_started_at', _st().shiftStartedAt);
       }
-      isCashRegisterOpen = isOpen;
-      io.emit("update_cash_register", isCashRegisterOpen);
-      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt } : {}) }, 'app');
+      _st().isCashRegisterOpen = isOpen;
+      io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
+      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt: _st().shiftStartedAt } : {}) }, 'app', _tid());
     }));
 
     socket.on("toggle_waiter_status", requireAdmin(({ waiterId, status }) => {
-      const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
+      const waiter = _st().waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
       if (waiter) {
         waiter.status = status;
-        io.emit("update_waiters", waiters);
+        io.to(_room()).emit("update_waiters", _st().waiters);
         
         // Notify the waiter via ALL their connected sockets
         const connectedSockets = io.sockets.sockets;
@@ -934,9 +947,9 @@ async function startServer() {
     }));
 
     socket.on("remove_waiter", requireAdmin((waiterId: string) => {
-      const idx = waiters.findIndex((w) => w.id === waiterId || w.cpf === waiterId);
+      const idx = _st().waiters.findIndex((w) => w.id === waiterId || w.cpf === waiterId);
       if (idx === -1) return;
-      const waiter = waiters[idx];
+      const waiter = _st().waiters[idx];
       // Notifica o garçom para que encerre a sessão
       const connectedSockets = io.sockets.sockets;
       connectedSockets.forEach((s) => {
@@ -948,22 +961,22 @@ async function startServer() {
           s.emit("waiter_status_changed", { status: "inactive" });
         }
       });
-      waiters.splice(idx, 1);
-      io.emit("update_waiters", waiters);
-      saveLocalBackup();
+      _st().waiters.splice(idx, 1);
+      io.to(_room()).emit("update_waiters", _st().waiters);
+      saveLocalBackup(_st());
     }));
 
     socket.on("cleanup_test_data", requireAdmin(async ({ deleteWaiters, deleteData }: { deleteWaiters: boolean; deleteData: boolean }) => {
       const prefix = 'Garcom_Fogo_';
       if (deleteWaiters) {
-        waiters = waiters.filter((w: any) => !w.name?.startsWith(prefix));
-        io.emit('update_waiters', waiters);
-        if (USE_POSTGRES) void pgDeleteLike('waiters', 'id', `${prefix}%`);
-        else db?.from('waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
+        _st().waiters = _st().waiters.filter((w: any) => !w.name?.startsWith(prefix));
+        io.to(_room()).emit('update_waiters', _st().waiters);
+        if (USE_POSTGRES) void pgDeleteLike('_st().waiters', 'id', `${prefix}%`);
+        else db?.from('_st().waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
       }
       if (deleteData) {
         // Remove itens lançados por garçons de teste de pedidos mistos; exclui pedidos inteiramente do teste
-        orders = orders
+        _st().orders = _st().orders
           .map((o: any) => ({
             ...o,
             items: (o.items || []).filter((i: any) => !i.waiterName?.startsWith(prefix)),
@@ -974,27 +987,27 @@ async function startServer() {
             return !isTestOrder || hasRealItems;
           });
         // Libera mesas sem pedido ativo
-        tables = tables.map((t: any) => {
-          const hasActive = orders.some((o: any) => String(o.tableId) === String(t.id) && o.status !== 'finalizada');
+        _st().tables = _st().tables.map((t: any) => {
+          const hasActive = _st().orders.some((o: any) => String(o.tableId) === String(t.id) && o.status !== 'finalizada');
           return hasActive ? t : { ...t, status: 'free', currentOrder: null };
         });
-        comandas = comandas.map((c: any) => {
-          const hasActive = orders.some((o: any) => o.isComanda && String(o.tableId) === String(c.id) && o.status !== 'finalizada');
+        _st().comandas = _st().comandas.map((c: any) => {
+          const hasActive = _st().orders.some((o: any) => o.isComanda && String(o.tableId) === String(c.id) && o.status !== 'finalizada');
           return hasActive ? c : { ...c, status: 'free', currentOrder: null };
         });
-        io.emit('update_orders', orders);
-        io.emit('update_tables', tables);
-        io.emit('update_comandas', comandas);
+        io.to(_room()).emit('update_orders', _st().orders);
+        io.to(_room()).emit('update_tables', _st().tables);
+        io.to(_room()).emit('update_comandas', _st().comandas);
         if (USE_POSTGRES) void pgDeleteOrdersByWaiterLike(`${prefix}%`);
-        else db?.from('orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
+        else db?.from('_st().orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
       }
     }));
 
     socket.on("admin_approve_waiter", requireAdmin((waiterId) => {
-      const waiter = waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
+      const waiter = _st().waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
       if (waiter) {
         waiter.status = "approved";
-        io.emit("update_waiters", waiters);
+        io.to(_room()).emit("update_waiters", _st().waiters);
         
         // Notifica o garÃ§om por todos os identificadores possÃ­veis
         const connectedSockets = io.sockets.sockets;
@@ -1014,14 +1027,14 @@ async function startServer() {
     socket.on("new_order", async (orderData) => {
       console.log("New order request received:", orderData.tableId, orderData.isComanda ? "Comanda" : "Table");
       
-      if (!isCashRegisterOpen) {
+      if (!_st().isCashRegisterOpen) {
         console.warn("Attempted order while register is closed");
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para realizar pedidos.");
         return;
       }
       
       const waiterId = (socket as any).waiterId;
-      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+      const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
       
       if (waiter && waiter.status === "inactive") {
         socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
@@ -1029,10 +1042,10 @@ async function startServer() {
       }
 
       const isComanda = !!orderData.isComanda;
-      const targetList = isComanda ? comandas : tables;
+      const targetList = isComanda ? _st().comandas : _st().tables;
       let table = targetList.find(t => orderData.tableId && t.id && String(t.id) === String(orderData.tableId));
       
-      // Handle linked tables
+      // Handle linked _st().tables
       if (table && table.status === "linked" && table.linkedTo) {
         let currentTable = table;
         const visited = new Set([currentTable.id]);
@@ -1047,15 +1060,15 @@ async function startServer() {
 
       const waiterName = orderData.waiterName || (waiter ? waiter.name : "Desconhecido");
 
-      // Tag items with waiter name and resolve type from server menu
+      // Tag items with waiter name and resolve type from server _st().menu
       const orderCreatedAt = Date.now();
       const itemsWithWaiter = (orderData.items || []).map((item: any, idx: number) => {
-        // Pizzas always keep type 'pizzas'; for other items resolve from server menu
+        // Pizzas always keep type 'pizzas'; for other items resolve from server _st().menu
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
           const cat = item.menuItemId
-            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+            ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+            : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
           if (cat?.type) resolvedType = cat.type;
         }
         return {
@@ -1075,7 +1088,7 @@ async function startServer() {
 
       if (table && (table.status === "occupied" || table.status === "bill_requested") && table.currentOrder) {
         console.log("Adding items to existing order:", table.currentOrder);
-        const existingOrder = orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder));
+        const existingOrder = _st().orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder));
         if (existingOrder) {
           if (!existingOrder.items) existingOrder.items = [];
           existingOrder.items.push(...itemsWithWaiter);
@@ -1084,11 +1097,11 @@ async function startServer() {
               ? `${existingOrder.observations} | ${orderData.observations}` 
               : orderData.observations;
           }
-          io.emit("update_orders", orders);
+          io.to(_room()).emit("update_orders", _st().orders);
           if (itemsWithWaiter.length > 0) {
-            io.emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
+            io.to(_room()).emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           }
-          await saveToSupabase('orders', existingOrder, existingOrder.id.toString());
+          await saveToSupabase('orders', existingOrder, existingOrder.id.toString(), _tid());
           // Renovar sessão do cliente ao adicionar itens
           { const s = getClientSession(existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(existingOrder.tableId, existingOrder.isComanda); }
           console.log("Existing order updated and emitted");
@@ -1099,7 +1112,7 @@ async function startServer() {
       const newOrder = { 
         ...orderData, 
         items: itemsWithWaiter,
-        id: generateOrderId(), 
+        id: generateOrderId(_st(), _tid()), 
         status: "pending", 
         timestamp: new Date().toISOString(),
         waiterName: waiterName,
@@ -1107,28 +1120,28 @@ async function startServer() {
       };
       
       console.log("Created new order object:", newOrder.id);
-      orders.push(newOrder);
+      _st().orders.push(newOrder);
       // Ativar sessão do cliente ao criar nova comanda
       activateClientSession(newOrder.tableId, newOrder.isComanda ?? false);
 
       // Emit updates immediately for faster UI
-      io.emit("update_orders", orders);
+      io.to(_room()).emit("update_orders", _st().orders);
       if (isComanda) {
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
       } else {
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
       }
-      io.emit("update_stock", stock);
+      io.to(_room()).emit("update_stock", _st().stock);
       if ((newOrder.items || []).length > 0) {
-        io.emit("kitchen_new_order", { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
+        io.to(_room()).emit("kitchen_new_order", { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
       }
       
       console.log("Emitted initial updates for new order");
       
-      saveToSupabase('orders', newOrder, newOrder.id);
-      saveToSupabase('config', { dailyCounter, lastOrderDate }, 'app');
+      saveToSupabase('orders', newOrder, newOrder.id, _tid());
+      saveToSupabase('config', { dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }, 'app', _tid());
       
       if (table) {
         const orderId = newOrder.id;
@@ -1138,36 +1151,36 @@ async function startServer() {
         console.log("Updating table status to occupied for:", targetId);
         
         if (isComanda) {
-          comandas.forEach(c => {
+          _st().comandas.forEach(c => {
             if (c.id === targetId || c.linkedTo === targetId) {
               c.status = c.id === targetId ? "occupied" : "linked";
               c.currentOrder = orderId;
-              saveToSupabase(collName, c, c.id.toString());
+              saveToSupabase(collName, c, c.id.toString(), _tid());
             }
           });
-          io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+          io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         } else {
-          tables.forEach(t => {
+          _st().tables.forEach(t => {
             if (t.id === targetId || t.linkedTo === targetId) {
               t.status = t.id === targetId ? "occupied" : "linked";
               t.currentOrder = orderId;
-              saveToSupabase(collName, t, t.id.toString());
+              saveToSupabase(collName, t, t.id.toString(), _tid());
             }
           });
-          io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+          io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         }
         
         console.log("Emitted final table updates for new order");
       }
 
-      // Dynamic stock reduction
-      applyStockReduction(orderData.items);
+      // Dynamic _st().stock reduction
+      applyStockReduction(_st(), _tid(), orderData.items);
     });
 
     socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData, subcategoryId }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
           return {
@@ -1181,25 +1194,25 @@ async function startServer() {
         }
         return { ...cat, items: cat.items.map((item: any) => item.id === productId ? { ...item, ...updatedData } : item) };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
 
       // Sincroniza o nome no estoque se o produto for renomeado
       if (updatedData.name) {
-        const stockEntry = stock.find((s: any) => s.menuItemId === productId);
+        const stockEntry = _st().stock.find((s: any) => s.menuItemId === productId);
         if (stockEntry) {
-          stock = stock.map((s: any) =>
+          _st().stock = _st().stock.map((s: any) =>
             s.menuItemId === productId ? { ...s, name: updatedData.name } : s
           );
-          io.emit("update_stock", stock);
-          saveToSupabase('stock', stock.find((s: any) => s.menuItemId === productId), productId).catch(() => {});
+          io.to(_room()).emit("update_stock", _st().stock);
+          saveToSupabase('stock', _st().stock.find((s: any) => s.menuItemId === productId), productId).catch(() => {});
         }
       }
     }));
 
     socket.on("add_product", requireAdmin(({ categoryName, productData, subcategoryId }) => {
       const newItem = { id: randomUUID(), ...productData };
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
           return {
@@ -1211,8 +1224,8 @@ async function startServer() {
         }
         return { ...cat, items: [...cat.items, newItem] };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
@@ -1223,7 +1236,7 @@ async function startServer() {
       let subcategories: any[] = [];
       if (type === 'pizzas') {
         const makeItems = (withBorder: boolean) =>
-          pizzaSizes.map((s, i) => ({
+          _st().pizzaSizes.map((s, i) => ({
             id: `${withBorder ? 'cb' : 'sb'}${i + 1}_${Date.now()}`,
             name: `${s.name} ${withBorder ? 'com Borda' : 'sem Borda'}`,
             price: 0,
@@ -1244,25 +1257,25 @@ async function startServer() {
         items: [],
         subcategories,
       };
-      menu.push(newCategory);
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      _st().menu.push(newCategory);
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("update_category", requireAdmin(({ oldName, updatedData }) => {
-      menu = menu.map((cat: any) => cat.name === oldName ? { ...cat, ...updatedData } : cat);
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      _st().menu = _st().menu.map((cat: any) => cat.name === oldName ? { ...cat, ...updatedData } : cat);
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("toggle_category_visibility", requireAdmin(({ categoryName, visible }) => {
-      menu = menu.map((cat: any) => cat.name === categoryName ? { ...cat, visible } : cat);
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      _st().menu = _st().menu.map((cat: any) => cat.name === categoryName ? { ...cat, visible } : cat);
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("toggle_item_visibility", requireAdmin(({ categoryName, subcategoryId, itemId, visible }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
           return {
@@ -1276,18 +1289,18 @@ async function startServer() {
         }
         return { ...cat, items: (cat.items || []).map((i: any) => i.id === itemId ? { ...i, visible } : i) };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("delete_category", requireAdmin((categoryName) => {
-      menu = menu.filter((cat: any) => cat.name !== categoryName);
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      _st().menu = _st().menu.filter((cat: any) => cat.name !== categoryName);
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("add_subcategory", requireAdmin(({ categoryName, subcategoryData }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         const newSub = {
           id: randomUUID(),
@@ -1299,12 +1312,12 @@ async function startServer() {
         };
         return { ...cat, subcategories: [...(cat.subcategories || []), newSub] };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("update_subcategory", requireAdmin(({ categoryName, subcategoryId, updatedData }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         return {
           ...cat,
@@ -1313,21 +1326,21 @@ async function startServer() {
           ),
         };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("delete_subcategory", requireAdmin(({ categoryName, subcategoryId }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         return { ...cat, subcategories: (cat.subcategories || []).filter((sub: any) => sub.id !== subcategoryId) };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("delete_product", requireAdmin(({ categoryName, productId, subcategoryId }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
           return {
@@ -1339,12 +1352,12 @@ async function startServer() {
         }
         return { ...cat, items: cat.items.filter((item: any) => item.id !== productId) };
       });
-      io.emit("update_menu", menu);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, subcategoryId, enabled }) => {
-      menu = menu.map((cat: any) => {
+      _st().menu = _st().menu.map((cat: any) => {
         if (cat.name === categoryName) {
           if (subcategoryId) {
             return {
@@ -1367,10 +1380,10 @@ async function startServer() {
       });
 
       if (enabled) {
-        const allItems = menu.flatMap((c: any) => [...c.items, ...(c.subcategories || []).flatMap((s: any) => s.items)]);
+        const allItems = _st().menu.flatMap((c: any) => [...c.items, ...(c.subcategories || []).flatMap((s: any) => s.items)]);
         const menuItem = allItems.find((i: any) => i.id === menuItemId);
-        if (menuItem && !stock.find((s: any) => s.menuItemId === menuItemId)) {
-          stock.push({
+        if (menuItem && !_st().stock.find((s: any) => s.menuItemId === menuItemId)) {
+          _st().stock.push({
             id: menuItemId,
             menuItemId,
             name: menuItem.name,
@@ -1380,24 +1393,24 @@ async function startServer() {
           });
         }
       } else {
-        stock = stock.filter((s: any) => s.menuItemId !== menuItemId);
-        stockLog = stockLog.filter((l: any) => {
-          const entry = stock.find((s: any) => s.menuItemId === menuItemId);
+        _st().stock = _st().stock.filter((s: any) => s.menuItemId !== menuItemId);
+        _st().stockLog = _st().stockLog.filter((l: any) => {
+          const entry = _st().stock.find((s: any) => s.menuItemId === menuItemId);
           return entry ? l.itemName !== entry.name : true;
         });
       }
 
-      io.emit("update_menu", menu);
-      io.emit("update_stock", stock);
-      io.emit("update_stock_log", stockLog);
-      saveMenuToSupabase();
+      io.to(_room()).emit("update_menu", _st().menu);
+      io.to(_room()).emit("update_stock", _st().stock);
+      io.to(_room()).emit("update_stock_log", _st().stockLog);
+      saveMenuToSupabase(_st(), _tid());
     }));
 
     socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit, reason }) => {
-      const prev = stock.find((s: any) => (s.menuItemId ?? s.id) === menuItemId);
+      const prev = _st().stock.find((s: any) => (s.menuItemId ?? s.id) === menuItemId);
       if (!prev) return;
       const prevQty = prev.quantity ?? 0;
-      stock = stock.map((s: any) =>
+      _st().stock = _st().stock.map((s: any) =>
         (s.menuItemId ?? s.id) === menuItemId
           ? { ...s, quantity, minQuantity, unit: unit || s.unit }
           : s
@@ -1405,127 +1418,127 @@ async function startServer() {
       if (quantity !== prevQty) {
         const change = quantity - prevQty;
         const defaultReason = change > 0 ? 'Entrada manual' : 'Ajuste manual';
-        stockLog = [{
+        _st().stockLog = [{
           id: randomUUID(),
           itemName: prev.name,
           change,
           reason: (reason && String(reason).trim()) ? String(reason).trim() : defaultReason,
           timestamp: new Date().toISOString(),
-        }, ...stockLog].slice(0, 100);
-        io.emit("update_stock_log", stockLog);
+        }, ..._st().stockLog].slice(0, 100);
+        io.to(_room()).emit("update_stock_log", _st().stockLog);
       }
-      io.emit("update_stock", stock);
+      io.to(_room()).emit("update_stock", _st().stock);
     }));
 
     socket.on("update_pizza_flavor", requireAdmin(({ flavorName, updatedData }) => {
-      pizzaFlavors = pizzaFlavors.map(f => {
+      _st().pizzaFlavors = _st().pizzaFlavors.map(f => {
         if (f.name === flavorName) {
           return { ...f, ...updatedData };
         }
         return f;
       });
-      io.emit("update_pizza_flavors", pizzaFlavors);
+      io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
     }));
 
     socket.on("add_pizza_flavor", requireAdmin((flavorData) => {
-      pizzaFlavors.push(flavorData);
-      io.emit("update_pizza_flavors", pizzaFlavors);
+      _st().pizzaFlavors.push(flavorData);
+      io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
     }));
 
     socket.on("delete_pizza_flavor", requireAdmin((flavorName) => {
-      pizzaFlavors = pizzaFlavors.filter(f => f.name !== flavorName);
-      io.emit("update_pizza_flavors", pizzaFlavors);
+      _st().pizzaFlavors = _st().pizzaFlavors.filter(f => f.name !== flavorName);
+      io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
     }));
 
     socket.on("update_pizza_crust", requireAdmin(({ oldName, newName }) => {
-      pizzaCrusts = pizzaCrusts.map(c => c === oldName ? newName : c);
-      io.emit("update_pizza_crusts", pizzaCrusts);
+      _st().pizzaCrusts = _st().pizzaCrusts.map(c => c === oldName ? newName : c);
+      io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
     }));
 
     socket.on("add_pizza_crust", requireAdmin((crustName) => {
-      pizzaCrusts.push(crustName);
-      io.emit("update_pizza_crusts", pizzaCrusts);
+      _st().pizzaCrusts.push(crustName);
+      io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
     }));
 
     socket.on("delete_pizza_crust", requireAdmin((crustName) => {
-      pizzaCrusts = pizzaCrusts.filter(c => c !== crustName);
-      io.emit("update_pizza_crusts", pizzaCrusts);
+      _st().pizzaCrusts = _st().pizzaCrusts.filter(c => c !== crustName);
+      io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
     }));
 
     socket.on("add_pizza_size", requireAdmin((sizeData) => {
-      pizzaSizes.push(sizeData);
-      io.emit("update_pizza_sizes", pizzaSizes);
+      _st().pizzaSizes.push(sizeData);
+      io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
     }));
 
     socket.on("update_pizza_size", requireAdmin(({ index, updatedData }) => {
-      if (index >= 0 && index < pizzaSizes.length) {
-        pizzaSizes[index] = { ...pizzaSizes[index], ...updatedData };
-        io.emit("update_pizza_sizes", pizzaSizes);
+      if (index >= 0 && index < _st().pizzaSizes.length) {
+        _st().pizzaSizes[index] = { ..._st().pizzaSizes[index], ...updatedData };
+        io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
       }
     }));
 
     socket.on("delete_pizza_size", requireAdmin((index) => {
-      if (index >= 0 && index < pizzaSizes.length) {
-        pizzaSizes.splice(index, 1);
-        io.emit("update_pizza_sizes", pizzaSizes);
+      if (index >= 0 && index < _st().pizzaSizes.length) {
+        _st().pizzaSizes.splice(index, 1);
+        io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
       }
     }));
 
-    socket.on("reorder_pizza_sizes", requireAdmin((newOrder: typeof pizzaSizes) => {
-      pizzaSizes = newOrder;
-      io.emit("update_pizza_sizes", pizzaSizes);
+    socket.on("reorder_pizza_sizes", requireAdmin((newOrder: any[]) => {
+      _st().pizzaSizes = newOrder;
+      io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
     }));
 
     socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock, pizzaFlavors: impFlavors, pizzaCrusts: impCrusts, pizzariaConfig: impPizConfig, stockLog: impStockLog }) => {
       if (importedMenu && Array.isArray(importedMenu)) {
-        menu = importedMenu;
-        io.emit("update_menu", menu);
-        if (USE_POSTGRES) { await pgDeleteMenu(); saveMenuToSupabase(); }
+        _st().menu = importedMenu;
+        io.to(_room()).emit("update_menu", _st().menu);
+        if (USE_POSTGRES) { await pgDeleteMenu(); saveMenuToSupabase(_st(), _tid()); }
         else if (db) {
-          try { await db.from('menu').delete().neq('id', ''); } catch {}
-          saveMenuToSupabase();
+          try { await db.from('_st().menu').delete().neq('id', ''); } catch {}
+          saveMenuToSupabase(_st(), _tid());
         }
       }
       if (importedStock && Array.isArray(importedStock)) {
-        stock = importedStock;
-        io.emit("update_stock", stock);
+        _st().stock = importedStock;
+        io.to(_room()).emit("update_stock", _st().stock);
         if (impStockLog && Array.isArray(impStockLog)) {
-          stockLog = impStockLog;
+          _st().stockLog = impStockLog;
         } else {
-          stockLog = [];
+          _st().stockLog = [];
         }
-        io.emit("update_stock_log", stockLog);
+        io.to(_room()).emit("update_stock_log", _st().stockLog);
       }
       if (impFlavors && Array.isArray(impFlavors)) {
-        pizzaFlavors = impFlavors;
-        io.emit("update_pizza_flavors", pizzaFlavors);
-        if (USE_POSTGRES) { for (const f of pizzaFlavors) await pgSave('pizzaFlavors', f); }
+        _st().pizzaFlavors = impFlavors;
+        io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
+        if (USE_POSTGRES) { for (const f of _st().pizzaFlavors) await pgSave('_st().pizzaFlavors', f); }
         else if (db) {
           try {
             await db.from('pizza_flavors').delete().neq('id', '');
-            for (const f of pizzaFlavors) {
+            for (const f of _st().pizzaFlavors) {
               await db.from('pizza_flavors').upsert({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false });
             }
           } catch {}
         }
       }
       if (impCrusts && Array.isArray(impCrusts)) {
-        pizzaCrusts = impCrusts;
-        io.emit("update_pizza_crusts", pizzaCrusts);
-        if (USE_POSTGRES) { for (const c of pizzaCrusts) await pgSave('pizzaCrusts', { name: c }, c); }
+        _st().pizzaCrusts = impCrusts;
+        io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
+        if (USE_POSTGRES) { for (const c of _st().pizzaCrusts) await pgSave('_st().pizzaCrusts', { name: c }, c); }
         else if (db) {
           try {
             await db.from('pizza_crusts').delete().neq('id', '');
-            for (const c of pizzaCrusts) {
+            for (const c of _st().pizzaCrusts) {
               await db.from('pizza_crusts').upsert({ id: c, name: c });
             }
           } catch {}
         }
       }
       if (impPizConfig && typeof impPizConfig === 'object') {
-        pizzariaConfig = { ...pizzariaConfig, ...impPizConfig, kdsEnabled: false };
-        io.emit("update_pizzaria_config", pizzariaConfig);
-        saveToSupabase('config', pizzariaConfig, 'pizzaria').catch(() => {});
+        _st().pizzariaConfig = { ..._st().pizzariaConfig, ...impPizConfig, kdsEnabled: false };
+        io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
+        saveToSupabase('config', _st().pizzariaConfig, 'pizzaria').catch(() => {});
       }
       socket.emit("import_complete", {
         menuCategories: importedMenu?.length ?? 0,
@@ -1536,32 +1549,32 @@ async function startServer() {
     }));
 
     socket.on("add_item_to_order", async ({ orderId, item }) => {
-      if (!isCashRegisterOpen) {
+      if (!_st().isCashRegisterOpen) {
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
         return;
       }
 
       const waiterId = (socket as any).waiterId;
-      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+      const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
 
       if (waiter && waiter.status === "inactive") {
         socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
         return;
       }
 
-      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         if (order.status === "aguardando_baixa") {
           socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
           return;
         }
         const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
-        // Resolve type from server menu for non-pizza items
+        // Resolve type from server _st().menu for non-pizza items
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
           const cat = item.menuItemId
-            ? menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-            : menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+            ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+            : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
           if (cat?.type) resolvedType = cat.type;
         }
         const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
@@ -1569,48 +1582,48 @@ async function startServer() {
         order.items.push(itemWithTimestamp);
 
         // Emit immediately for fast UI
-        io.emit("update_orders", orders);
-        io.emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
+        io.to(_room()).emit("update_orders", _st().orders);
+        io.to(_room()).emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
 
         // Non-blocking: respond to socket immediately, persist in background
-        enqueueWrite('orders', order, String(order.id));
+        enqueueWrite('_st().orders', order, String(order.id));
 
-        // Update stock for the added item
-        applyStockReduction([itemWithTimestamp]);
+        // Update _st().stock for the added item
+        applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
       }
     });
 
     socket.on("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
-      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order && Array.isArray(guests)) {
         (order as any).guests = guests;
-        io.emit("update_orders", orders);
-        enqueueWrite('orders', order, String(order.id));
+        io.to(_room()).emit("update_orders", _st().orders);
+        enqueueWrite('_st().orders', order, String(order.id));
       }
     });
 
     socket.on("set_item_guest", async ({ orderId, itemId, guestName }: { orderId: any, itemId: string, guestName: string | null }) => {
-      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         const item = (order.items || []).find((i: any) => i.id === itemId);
         if (item) {
           (item as any).guestName = guestName || undefined;
-          io.emit("update_orders", orders);
-          enqueueWrite('orders', order, String(order.id));
+          io.to(_room()).emit("update_orders", _st().orders);
+          enqueueWrite('_st().orders', order, String(order.id));
         }
       }
     });
 
     socket.on("remove_item", async ({ orderId, itemId, quantity, reason, removedBy }) => {
       const waiterId = (socket as any).waiterId;
-      const waiter = waiterId ? waiters.find(w => w.id === waiterId) : null;
+      const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
       
       if (waiter && waiter.status === "inactive") {
         socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
         return;
       }
 
-      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         const hasPartialPayment = (order.paymentLog || []).some((p: any) => p.type === 'partial');
         if (hasPartialPayment) {
@@ -1642,14 +1655,14 @@ async function startServer() {
             item.removedBy = removedBy || (waiter ? waiter.name : "Desconhecido"),
             item.removalReason = reason || "";
           }
-          enqueueWrite('orders', order, String(order.id));
-          io.emit("update_orders", orders);
+          enqueueWrite('_st().orders', order, String(order.id));
+          io.to(_room()).emit("update_orders", _st().orders);
         }
       }
     });
 
     socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin }) => {
-      const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
         if (!order.paymentLog) order.paymentLog = [];
@@ -1740,33 +1753,33 @@ async function startServer() {
         if (IS_FULLY_PAID) {
           if (fromAdmin) {
             // Pagamento via ADM: libera mesa imediatamente sem passar por aguardando_baixa
-            console.log(`Order ${orderId} fully paid via admin. Freeing tables directly.`);
+            console.log(`Order ${orderId} fully paid via admin. Freeing _st().tables directly.`);
             order.status = "finalizada";
 
             const entitiesToUpdate: any[] = [];
-            tables.forEach((t: any) => {
+            _st().tables.forEach((t: any) => {
               if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
                 t.status = "free";
                 t.currentOrder = null;
                 t.linkedTo = null;
-                entitiesToUpdate.push({ entity: t, collection: 'tables' });
+                entitiesToUpdate.push({ entity: t, collection: '_st().tables' });
               }
             });
-            comandas.forEach((c: any) => {
+            _st().comandas.forEach((c: any) => {
               if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
                 c.status = "free";
                 c.currentOrder = null;
                 c.linkedTo = null;
-                entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+                entitiesToUpdate.push({ entity: c, collection: '_st().comandas' });
               }
             });
 
-            io.emit("update_orders", orders);
-            io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
-            await saveToSupabase('orders', order, String(order.id));
+            io.to(_room()).emit("update_orders", _st().orders);
+            io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+            await saveToSupabase('orders', order, String(order.id, _tid()));
             for (const item of entitiesToUpdate) {
-              await saveToSupabase(item.collection, item.entity, String(item.entity.id));
+              await saveToSupabase(item.collection, item.entity, String(item.entity.id, _tid()));
             }
             return;
           } else {
@@ -1774,32 +1787,32 @@ async function startServer() {
             console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
             order.status = "aguardando_baixa";
 
-            tables.forEach(t => {
+            _st().tables.forEach(t => {
               if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
                 t.status = "aguardando_baixa";
-                saveToSupabase('tables', t, String(t.id)).catch(() => {});
+                saveToSupabase('tables', t, String(t.id, _tid())).catch(() => {});
               }
             });
-            comandas.forEach(c => {
+            _st().comandas.forEach(c => {
               if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
                 c.status = "aguardando_baixa";
-                saveToSupabase('comandas', c, String(c.id)).catch(() => {});
+                saveToSupabase('comandas', c, String(c.id, _tid())).catch(() => {});
               }
             });
           }
         }
 
         // Emit updates IMMEDIATELY for UI responsiveness
-        io.emit("update_orders", orders);
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+        io.to(_room()).emit("update_orders", _st().orders);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         
-        await saveToSupabase('orders', order, String(order.id));
+        await saveToSupabase('orders', order, String(order.id, _tid()));
       }
     });
 
     socket.on("link_tables", requireAdmin(async ({ sourceTableId, targetTableId, isComanda }) => {
-      const targetList = isComanda ? comandas : tables;
+      const targetList = isComanda ? _st().comandas : _st().tables;
       const sourceTable = targetList.find(t => String(t.id) === String(sourceTableId));
       let targetTable = targetList.find(t => String(t.id) === String(targetTableId));
 
@@ -1816,10 +1829,10 @@ async function startServer() {
 
         // If source has an order, transfer items to target
         if (sourceTable.currentOrder) {
-          const sourceOrder = orders.find(o => String(o.id) === String(sourceTable.currentOrder));
+          const sourceOrder = _st().orders.find(o => String(o.id) === String(sourceTable.currentOrder));
           if (sourceOrder) {
             if (targetTable.currentOrder) {
-              const targetOrder = orders.find(o => String(o.id) === String(targetTable.currentOrder));
+              const targetOrder = _st().orders.find(o => String(o.id) === String(targetTable.currentOrder));
               if (targetOrder) {
                 // Merge items preserving paid flags
                 targetOrder.items.push(...sourceOrder.items);
@@ -1851,7 +1864,7 @@ async function startServer() {
         sourceTable.linkedTo = finalTargetTableId;
         sourceTable.currentOrder = targetTable.currentOrder;
 
-        // Update all tables and comandas that were linked to source to now point to ultimateTarget
+        // Update all _st().tables and _st().comandas that were linked to source to now point to ultimateTarget
         const updateLinked = (t) => {
           if (String(t.linkedTo) === String(sourceTable.id)) {
             t.linkedTo = finalTargetTableId;
@@ -1859,35 +1872,35 @@ async function startServer() {
           }
         };
         if (isComanda) {
-          comandas.forEach(updateLinked);
+          _st().comandas.forEach(updateLinked);
         } else {
-          tables.forEach(updateLinked);
+          _st().tables.forEach(updateLinked);
         }
 
         // Persist changes to Firestore
-        const tableCol = isComanda ? 'comandas' : 'tables';
-        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString());
-        await saveToSupabase(tableCol, targetTable, targetTable.id.toString());
+        const tableCol = isComanda ? '_st().comandas' : '_st().tables';
+        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString(), _tid());
+        await saveToSupabase(tableCol, targetTable, targetTable.id.toString(), _tid());
         
         if (targetTable.currentOrder) {
-          const tOrder = orders.find(o => o.id.toString() === targetTable.currentOrder.toString());
-          if (tOrder) await saveToSupabase('orders', tOrder, tOrder.id.toString());
+          const tOrder = _st().orders.find(o => o.id.toString() === targetTable.currentOrder.toString());
+          if (tOrder) await saveToSupabase('orders', tOrder, tOrder.id.toString(), _tid());
         }
 
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
-        io.emit("update_orders", orders);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+        io.to(_room()).emit("update_orders", _st().orders);
       }
     }));
 
     socket.on("transfer_table", async ({ sourceTableId, targetTableId, isComanda, reason }) => {
-      const targetList = isComanda ? comandas : tables;
+      const targetList = isComanda ? _st().comandas : _st().tables;
       const sourceTable = targetList.find(t => String(t.id) === String(sourceTableId));
       const targetTable = targetList.find(t => String(t.id) === String(targetTableId));
 
       if (sourceTable && targetTable && sourceTable.currentOrder) {
-        const sourceOrder = orders.find(o => String(o.id) === String(sourceTable.currentOrder));
-        const targetOrder = targetTable.currentOrder ? orders.find(o => String(o.id) === String(targetTable.currentOrder)) : null;
+        const sourceOrder = _st().orders.find(o => String(o.id) === String(sourceTable.currentOrder));
+        const targetOrder = targetTable.currentOrder ? _st().orders.find(o => String(o.id) === String(targetTable.currentOrder)) : null;
 
         if (sourceOrder) {
           if (targetOrder) {
@@ -1906,8 +1919,8 @@ async function startServer() {
                 : sourceOrder.observations;
             }
             // Remove source order
-            const sourceOrderIndex = orders.findIndex(o => String(o.id) === String(sourceOrder.id));
-            if (sourceOrderIndex !== -1) orders.splice(sourceOrderIndex, 1);
+            const sourceOrderIndex = _st().orders.findIndex(o => String(o.id) === String(sourceOrder.id));
+            if (sourceOrderIndex !== -1) _st().orders.splice(sourceOrderIndex, 1);
           } else {
             // Simple transfer
             sourceOrder.tableId = targetTableId;
@@ -1915,7 +1928,7 @@ async function startServer() {
             targetTable.status = sourceTable.status === "linked" ? "occupied" : sourceTable.status;
           }
           
-          // Update any tables/comandas linked to the source table to point to the target table
+          // Update any _st().tables/_st().comandas linked to the source table to point to the target table
           const updateLinked = (t) => {
             if (String(t.linkedTo) === String(sourceTableId)) {
               t.linkedTo = targetTableId;
@@ -1923,9 +1936,9 @@ async function startServer() {
             }
           };
           if (isComanda) {
-            comandas.forEach(updateLinked);
+            _st().comandas.forEach(updateLinked);
           } else {
-            tables.forEach(updateLinked);
+            _st().tables.forEach(updateLinked);
           }
 
           sourceTable.currentOrder = null;
@@ -1933,22 +1946,22 @@ async function startServer() {
           sourceTable.linkedTo = null;
 
           // Persist changes
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString());
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString());
-          if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id);
-          if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id);
+          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', sourceTable, sourceTable.id.toString());
+          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', targetTable, targetTable.id.toString());
+          if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid());
+          if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id, _tid());
         }
 
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
-        io.emit("update_orders", orders);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+        io.to(_room()).emit("update_orders", _st().orders);
       }
     });
 
     socket.on("transfer_items", async ({ sourceTableId, targetTableId, isComanda, itemIds }) => {
       console.log(`[transfer_items] src=${sourceTableId} dst=${targetTableId} isComanda=${isComanda} itemIds=${JSON.stringify(itemIds)}`);
 
-      const tableList = isComanda ? comandas : tables;
+      const tableList = isComanda ? _st().comandas : _st().tables;
       const sourceTable = tableList.find(t => String(t.id) === String(sourceTableId));
       const targetTable = tableList.find(t => String(t.id) === String(targetTableId));
 
@@ -1961,7 +1974,7 @@ async function startServer() {
         return;
       }
 
-      const sourceOrder = orders.find(o => String(o.id) === String(sourceTable.currentOrder));
+      const sourceOrder = _st().orders.find(o => String(o.id) === String(sourceTable.currentOrder));
       if (!sourceOrder) {
         console.warn(`[transfer_items] sourceOrder not found for id=${sourceTable.currentOrder}`);
         return;
@@ -1996,14 +2009,14 @@ async function startServer() {
       }
       console.log(`[transfer_items] itemsToTransfer.length=${itemsToTransfer.length}`);
 
-      // Find or create target order â€" ignore finalized orders (items would be invisible)
+      // Find or create target order â€" ignore finalized _st().orders (items would be invisible)
       let targetOrder: any = targetTable.currentOrder
-        ? orders.find(o => String(o.id) === String(targetTable.currentOrder) && o.status !== 'finalizada')
+        ? _st().orders.find(o => String(o.id) === String(targetTable.currentOrder) && o.status !== 'finalizada')
         : null;
 
       if (!targetOrder) {
         targetOrder = {
-          id: generateOrderId(),
+          id: generateOrderId(_st(), _tid()),
           tableId: Number(targetTableId),
           isComanda: !!isComanda,
           status: 'pending',
@@ -2012,7 +2025,7 @@ async function startServer() {
           paymentLog: [],
           waiterName: sourceOrder.waiterName || 'TransferÃªncia'
         };
-        orders.push(targetOrder);
+        _st().orders.push(targetOrder);
         targetTable.currentOrder = targetOrder.id;
         targetTable.status = 'occupied';
         console.log(`[transfer_items] created new targetOrder id=${targetOrder.id}`);
@@ -2020,7 +2033,7 @@ async function startServer() {
         console.log(`[transfer_items] reusing existing targetOrder id=${targetOrder.id}`);
       }
 
-      const tableCol = isComanda ? 'comandas' : 'tables';
+      const tableCol = isComanda ? '_st().comandas' : '_st().tables';
 
       // Mark each source item as removed, then deep-copy a clean version to target
       itemsToTransfer.forEach((item: any) => {
@@ -2037,11 +2050,11 @@ async function startServer() {
         targetOrder.items.push(clone);
       });
 
-      // If source has no remaining active items, free source table and any tables linked to it
+      // If source has no remaining active items, free source table and any _st().tables linked to it
       const remainingActive = sourceOrder.items.filter((i: any) => !i.removed && !i.paid);
       console.log(`[transfer_items] remainingActive=${remainingActive.length}`);
 
-      // Capture linked tables BEFORE nulling their linkedTo (so we can persist them later)
+      // Capture linked _st().tables BEFORE nulling their linkedTo (so we can persist them later)
       const linkedTablesToFree = remainingActive.length === 0
         ? tableList.filter((t: any) => t.id !== sourceTable.id && String(t.linkedTo) === String(sourceTableId))
         : [];
@@ -2061,26 +2074,26 @@ async function startServer() {
       // Emit immediately with the correct in-memory state BEFORE async Firestore saves.
       // This prevents the Firestore onSnapshot (triggered by saveToSupabase) from racing
       // and emitting stale data that overwrites the correct state on clients.
-      io.emit("update_orders", orders);
-      io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+      io.to(_room()).emit("update_orders", _st().orders);
+      io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
       console.log(`[transfer_items] emitted updates â€" persisting to Firestore`);
 
       // Persist to Firestore (onSnapshot will re-emit after each save with the same correct data)
-      await saveToSupabase('orders', sourceOrder, String(sourceOrder.id));
-      await saveToSupabase('orders', targetOrder, String(targetOrder.id));
-      await saveToSupabase(tableCol, targetTable, targetTable.id.toString());
+      await saveToSupabase('orders', sourceOrder, String(sourceOrder.id, _tid()));
+      await saveToSupabase('orders', targetOrder, String(targetOrder.id, _tid()));
+      await saveToSupabase(tableCol, targetTable, targetTable.id.toString(), _tid());
       if (remainingActive.length === 0) {
-        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString());
+        await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString(), _tid());
         for (const lt of linkedTablesToFree) {
-          await saveToSupabase(tableCol, lt, lt.id.toString());
+          await saveToSupabase(tableCol, lt, lt.id.toString(), _tid());
         }
       }
       console.log(`[transfer_items] Firestore persistence complete`);
     });
 
     socket.on("apply_discount", requireAdmin(async ({ orderId, itemId, discount, discountType }) => {
-      const order = orders.find(o => String(o.id) === String(orderId));
+      const order = _st().orders.find(o => String(o.id) === String(orderId));
       if (order) {
         if (itemId) {
           const item = order.items.find(i => String(i.id) === String(itemId));
@@ -2092,76 +2105,76 @@ async function startServer() {
           order.discount = Number(discount);
           order.discountType = discountType;
         }
-        await saveToSupabase('orders', order, order.id);
-        io.emit("update_orders", orders);
+        await saveToSupabase('orders', order, order.id, _tid());
+        io.to(_room()).emit("update_orders", _st().orders);
       }
     }));
 
     socket.on("confirm_baixa", async ({ orderId }) => {
-      const order = orders.find((o: any) => String(o.id) === String(orderId));
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order || order.status !== "aguardando_baixa") return;
 
       order.status = "finalizada";
 
       const entitiesToUpdate: any[] = [];
-      tables.forEach((t: any) => {
+      _st().tables.forEach((t: any) => {
         if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
           t.status = "free";
           t.currentOrder = null;
           t.linkedTo = null;
-          entitiesToUpdate.push({ entity: t, collection: 'tables' });
+          entitiesToUpdate.push({ entity: t, collection: '_st().tables' });
         }
       });
-      comandas.forEach((c: any) => {
+      _st().comandas.forEach((c: any) => {
         if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
           c.status = "free";
           c.currentOrder = null;
           c.linkedTo = null;
-          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+          entitiesToUpdate.push({ entity: c, collection: '_st().comandas' });
         }
       });
 
-      io.emit("update_orders", orders);
-      io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+      io.to(_room()).emit("update_orders", _st().orders);
+      io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
 
-      await saveToSupabase('orders', order, String(order.id));
+      await saveToSupabase('orders', order, String(order.id, _tid()));
       for (const item of entitiesToUpdate) {
-        await saveToSupabase(item.collection, item.entity, String(item.entity.id));
+        await saveToSupabase(item.collection, item.entity, String(item.entity.id, _tid()));
       }
       // Invalidar sessão do cliente ao dar baixa
-      tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(t.id, false); });
-      comandas.forEach((c: any) => { if (String(c.currentOrder) === String(orderId) || (order.isComanda && c.id === order.tableId)) invalidateClientSession(c.id, true); });
+      _st().tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(t.id, false); });
+      _st().comandas.forEach((c: any) => { if (String(c.currentOrder) === String(orderId) || (order.isComanda && c.id === order.tableId)) invalidateClientSession(c.id, true); });
       console.log(`Baixa confirmada para pedido ${orderId}`);
     });
 
     socket.on("update_order_status", async ({ orderId, status }) => {
-      const order = orders.find(o => String(o.id) === String(orderId));
+      const order = _st().orders.find(o => String(o.id) === String(orderId));
       if (order) {
         order.status = status;
-        await saveToSupabase('orders', order, order.id);
-        io.emit("update_orders", orders);
+        await saveToSupabase('orders', order, order.id, _tid());
+        io.to(_room()).emit("update_orders", _st().orders);
       }
     });
 
     socket.on("request_bill", async ({ tableId, isComanda }) => {
-      const targetList = isComanda ? comandas : tables;
+      const targetList = isComanda ? _st().comandas : _st().tables;
       const table = targetList.find(t => t.id === tableId);
       if (table) {
         table.status = "bill_requested";
-        await saveToSupabase(isComanda ? 'comandas' : 'tables', table, table.id.toString());
+        await saveToSupabase(isComanda ? 'comandas' : '_st().tables', table, table.id.toString());
         if (isComanda) {
-          io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+          io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         } else {
-          io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
+          io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         }
       }
     });
 
     socket.on("close_table", async ({ tableId, isComanda }) => {
-      const targetList = isComanda ? comandas : tables;
+      const targetList = isComanda ? _st().comandas : _st().tables;
       let table = targetList.find(t => t.id === tableId);
       
       if (table) {
@@ -2179,7 +2192,7 @@ async function startServer() {
 
         const orderId = current.currentOrder;
         
-        // Free the main table, the ultimate target, and all tables/comandas linked to that target or sharing the order
+        // Free the main table, the ultimate target, and all _st().tables/_st().comandas linked to that target or sharing the order
         const entitiesToFree = [];
         const processFree = (t, targetId, orderId) => {
           if (
@@ -2195,9 +2208,9 @@ async function startServer() {
         };
 
         if (isComanda) {
-          comandas.forEach(c => processFree(c, ultimateTargetId, orderId));
+          _st().comandas.forEach(c => processFree(c, ultimateTargetId, orderId));
         } else {
-          tables.forEach(t => processFree(t, ultimateTargetId, orderId));
+          _st().tables.forEach(t => processFree(t, ultimateTargetId, orderId));
         }
 
         // Also ensure the initial tableId is freed if it wasn't covered
@@ -2210,58 +2223,58 @@ async function startServer() {
         }
 
         // Persist all freed entities
-        io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
-        io.emit("update_orders", orders);
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+        io.to(_room()).emit("update_orders", _st().orders);
 
         for (const entity of entitiesToFree) {
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', entity, entity.id.toString());
+          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', entity, entity.id.toString());
         }
 
         if (orderId) {
-          const order = orders.find(o => o.id === orderId);
+          const order = _st().orders.find(o => o.id === orderId);
           if (order) {
             order.status = "finalizada";
-            await saveToSupabase('orders', order, order.id);
+            await saveToSupabase('orders', order, order.id, _tid());
           }
         }
       }
     });
 
-    // Reset all in-memory state: free all tables/comandas and wipe orders.
+    // Reset all in-memory state: free all _st().tables/_st().comandas and wipe _st().orders.
     // No requireAdmin wrapper â€" auth may be unavailable when Firebase is disabled,
     // and the button is already protected by the admin-only dashboard UI.
     socket.on("reset_system", async () => {
-      console.log("reset_system: clearing all in-memory orders, tables, comandas and stockLog");
+      console.log("reset_system: clearing all in-memory _st().orders, _st().tables, _st().comandas and _st().stockLog");
 
-      orders = [];
-      stockLog = [];
+      _st().orders = [];
+      _st().stockLog = [];
 
-      tables.forEach(t => {
+      _st().tables.forEach(t => {
         t.status = "free";
         t.currentOrder = null;
         t.linkedTo = null;
       });
 
-      comandas.forEach(c => {
+      _st().comandas.forEach(c => {
         c.status = "free";
         c.currentOrder = null;
         c.linkedTo = null;
       });
 
-      isCashRegisterOpen = false;
+      _st().isCashRegisterOpen = false;
 
-      io.emit("update_orders", orders);
-      io.emit("update_stock_log", stockLog);
-      io.emit("update_tables", tables);
-        io.emit("update_comandas", comandas);
-      io.emit("update_cash_register", false);
+      io.to(_room()).emit("update_orders", _st().orders);
+      io.to(_room()).emit("update_stock_log", _st().stockLog);
+      io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+      io.to(_room()).emit("update_cash_register", false);
 
       // Persist reset to Supabase
       try {
-        await db.from('orders').delete().neq('id', '');
-        await db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
-        await db.from('comandas').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        await db.from('_st().orders').delete().neq('id', '');
+        await db.from('_st().tables').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
+        await db.from('_st().comandas').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
         console.log('reset_system: Supabase cleared successfully');
       } catch (err) {
         console.error('reset_system: failed to clear Supabase', err);
@@ -2270,13 +2283,13 @@ async function startServer() {
 
     // Cliente pede status atual do agente (ex: após reconexão do socket)
     socket.on("request_agent_status", () => {
-      socket.emit("printer_agent_status", { online: !!(printerAgentSocket?.connected) });
+      socket.emit("printer_agent_status", { online: !!(_st().printerAgentSocket?.connected) });
     });
 
     // Scan de impressoras — Dashboard pede, servidor repassa ao agente
     socket.on("scan_printers_request", () => {
-      if (printerAgentSocket?.connected) {
-        printerAgentSocket.emit("scan_printers_request");
+      if (_st().printerAgentSocket?.connected) {
+        _st().printerAgentSocket.emit("scan_printers_request");
       } else {
         socket.emit("scan_printers_result", { printers: [], error: "Agente offline" });
       }
@@ -2288,8 +2301,8 @@ async function startServer() {
     socket.on("print_escpos", ({ ip, port = 9100, localName, data }: { ip?: string; port?: number; localName?: string; data: number[] }) => {
       if (!data?.length) return;
 
-      if (printerAgentSocket && printerAgentSocket.connected) {
-        printerAgentSocket.emit("do_print", { ip, port, localName, data });
+      if (_st().printerAgentSocket && _st().printerAgentSocket.connected) {
+        _st().printerAgentSocket.emit("do_print", { ip, port, localName, data });
         return;
       }
 
@@ -2329,7 +2342,7 @@ async function startServer() {
       if (!id || isNaN(id)) return;
 
       // Caixa deve estar aberto
-      if (!isCashRegisterOpen) {
+      if (!_st().isCashRegisterOpen) {
         socket.emit("call_waiter_result", { success: false, tableId: id });
         return;
       }
@@ -2345,7 +2358,7 @@ async function startServer() {
       callWaiterCooldown.set(id, now);
 
       socket.emit("call_waiter_result", { success: true, tableId: id });
-      io.emit("waiter_called", { tableId: id, timestamp: now });
+      io.to(_room()).emit("waiter_called", { tableId: id, timestamp: now });
     });
     // ── End Chama Garçom ───────────────────────────────────────────────────
 

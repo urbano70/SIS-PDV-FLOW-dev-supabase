@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   table_id TEXT,
   waiter_id TEXT,
   waiter_name TEXT,
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS orders (
 
 CREATE TABLE IF NOT EXISTS tables (
   id INTEGER PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   status TEXT DEFAULT 'free',
   current_order TEXT,
   linked_to TEXT
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tables (
 
 CREATE TABLE IF NOT EXISTS comandas (
   id INTEGER PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   status TEXT DEFAULT 'free',
   current_order TEXT,
   linked_to TEXT
@@ -30,11 +33,13 @@ CREATE TABLE IF NOT EXISTS comandas (
 
 CREATE TABLE IF NOT EXISTS waiters (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   data JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS menu (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   name TEXT,
   position INTEGER DEFAULT 0,
   type TEXT,
@@ -45,6 +50,7 @@ CREATE TABLE IF NOT EXISTS menu (
 
 CREATE TABLE IF NOT EXISTS stock (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   menu_item_id TEXT,
   name TEXT,
   quantity NUMERIC DEFAULT 0,
@@ -55,11 +61,13 @@ CREATE TABLE IF NOT EXISTS stock (
 
 CREATE TABLE IF NOT EXISTS config (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   data JSONB NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS pizza_flavors (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   name TEXT,
   category TEXT,
   price NUMERIC,
@@ -68,6 +76,7 @@ CREATE TABLE IF NOT EXISTS pizza_flavors (
 
 CREATE TABLE IF NOT EXISTS pizza_crusts (
   id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'default',
   name TEXT
 );
 
