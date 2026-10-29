@@ -12,6 +12,7 @@ import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
+import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 
 async function startServer() {
   const app = express();
@@ -34,22 +35,34 @@ async function startServer() {
 
   const PORT = 3001;
 
-  // â"€â"€ Inicializa Supabase Admin (service_role â€" bypassa RLS) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-  let db: SupabaseClient;
-  try {
-    const supabaseUrl     = process.env.SUPABASE_URL;
-    const supabaseKey     = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY sÃ£o obrigatÃ³rios');
+  // ── Detecta modo de banco: PostgreSQL local ou Supabase ─────────────────────
+  const USE_POSTGRES = !!process.env.DATABASE_URL;
+  let db: SupabaseClient | null = null;
+
+  if (USE_POSTGRES) {
+    try {
+      initPg(process.env.DATABASE_URL!);
+      console.log('[pg] Pool PostgreSQL inicializado');
+    } catch (error) {
+      console.error('[pg] Falha ao inicializar PostgreSQL:', error);
+      process.exit(1);
     }
-    db = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
-      realtime: { transport: ws as any },
-    });
-    console.log('[supabase] Admin client inicializado');
-  } catch (error) {
-    console.error('[supabase] Falha ao inicializar:', error);
-    process.exit(1);
+  } else {
+    try {
+      const supabaseUrl = process.env.SUPABASE_URL;
+      const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY são obrigatórios');
+      }
+      db = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false },
+        realtime: { transport: ws as any },
+      });
+      console.log('[supabase] Admin client inicializado');
+    } catch (error) {
+      console.error('[supabase] Falha ao inicializar:', error);
+      process.exit(1);
+    }
   }
 
   app.use(express.json({ limit: '15mb' }));
@@ -92,6 +105,7 @@ async function startServer() {
   };
 
   const saveToSupabase = async (collection: string, data: any, docId?: string) => {
+    if (USE_POSTGRES) { await pgSave(collection, data, docId); return; }
     if (!db) return;
     try {
       const d = JSON.parse(JSON.stringify(data));
@@ -140,8 +154,86 @@ async function startServer() {
     });
   };
 
-  // â"€â"€ Carga inicial do Supabase â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // ── Carga inicial do banco (Supabase ou PostgreSQL) ──────────────────────────
   const loadFromSupabase = async () => {
+    // ── PostgreSQL local ──────────────────────────────────────────────────────
+    if (USE_POSTGRES) {
+      const pgData = await pgLoad();
+      if (!pgData) return;
+
+      if (pgData.waiters?.length) { waiters = pgData.waiters; io.emit('update_waiters', waiters); }
+
+      const typeMap: Record<string, string> = {};
+      MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
+
+      if (pgData.menu?.length) {
+        menu = pgData.menu.map((row: any) => ({
+          ...row,
+          type: row.type || typeMap[row.name] || 'lanches',
+          visible: row.visible !== false,
+          subcategories: row.subcategories || [],
+        }));
+        io.emit('update_menu', menu);
+      } else {
+        await pgSeedMenu(menu);
+        console.log('[pg] Menu inicial semeado');
+        io.emit('update_menu', menu);
+      }
+
+      if (pgData.orders?.length) {
+        orders = pgData.orders.map((o: any) => {
+          if (o.items && menu.length > 0) {
+            o.items = o.items.map((item: any) => {
+              if (item.type === 'pizzas') return item;
+              const cat = menu.find((c: any) =>
+                c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name) ||
+                (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name))
+              );
+              return cat?.type ? { ...item, type: cat.type } : item;
+            });
+          }
+          return o;
+        });
+        io.emit('update_orders', orders);
+      }
+
+      if (pgData.tables?.length) {
+        pgData.tables.forEach((dbTable: any) => {
+          const idx = tables.findIndex(t => t.id === dbTable.id);
+          if (idx !== -1) tables[idx] = { ...tables[idx], ...dbTable }; else tables.push(dbTable);
+        });
+        tables.sort((a, b) => a.id - b.id);
+        io.emit('update_tables', tables);
+      }
+
+      if (pgData.comandas?.length) {
+        pgData.comandas.forEach((dbC: any) => {
+          const idx = comandas.findIndex(c => c.id === dbC.id);
+          if (idx !== -1) comandas[idx] = { ...comandas[idx], ...dbC }; else comandas.push(dbC);
+        });
+        comandas.sort((a, b) => a.id - b.id);
+        io.emit('update_comandas', comandas);
+      }
+
+      if (pgData.configApp) {
+        const cfg = pgData.configApp as any;
+        isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        if (cfg.dailyCounter !== undefined) dailyCounter = cfg.dailyCounter;
+        if (cfg.lastOrderDate !== undefined) lastOrderDate = cfg.lastOrderDate;
+        io.emit('update_cash_register', isCashRegisterOpen);
+        io.emit('update_shift_started_at', shiftStartedAt);
+      }
+
+      if (pgData.stock?.length) { stock = pgData.stock; io.emit('update_stock', stock); }
+      if (pgData.pizzaFlavors?.length) { pizzaFlavors = pgData.pizzaFlavors; io.emit('update_pizza_flavors', pizzaFlavors); }
+      if (pgData.pizzaCrusts?.length) { pizzaCrusts = pgData.pizzaCrusts; io.emit('update_pizza_crusts', pizzaCrusts); }
+      if (pgData.configPizzaria) { pizzariaConfig = { ...pizzariaConfig, ...(pgData.configPizzaria as any) }; io.emit('update_pizzaria_config', pizzariaConfig); }
+
+      console.log('[pg] Carga inicial concluída');
+      return;
+    }
+
+    // ── Supabase ──────────────────────────────────────────────────────────────
     try {
       const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
         db.from('waiters').select('*'),
@@ -866,8 +958,8 @@ async function startServer() {
       if (deleteWaiters) {
         waiters = waiters.filter((w: any) => !w.name?.startsWith(prefix));
         io.emit('update_waiters', waiters);
-        // Persist
-        db?.from('waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
+        if (USE_POSTGRES) void pgDeleteLike('waiters', 'id', `${prefix}%`);
+        else db?.from('waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
       }
       if (deleteData) {
         // Remove itens lançados por garçons de teste de pedidos mistos; exclui pedidos inteiramente do teste
@@ -893,8 +985,8 @@ async function startServer() {
         io.emit('update_orders', orders);
         io.emit('update_tables', tables);
         io.emit('update_comandas', comandas);
-        // Persist orders (delete test orders from Supabase)
-        db?.from('orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
+        if (USE_POSTGRES) void pgDeleteOrdersByWaiterLike(`${prefix}%`);
+        else db?.from('orders').delete().like('waiter_name', `${prefix}%`).then(() => {}).catch(() => {});
       }
     }));
 
@@ -1388,7 +1480,8 @@ async function startServer() {
       if (importedMenu && Array.isArray(importedMenu)) {
         menu = importedMenu;
         io.emit("update_menu", menu);
-        if (db) {
+        if (USE_POSTGRES) { await pgDeleteMenu(); saveMenuToSupabase(); }
+        else if (db) {
           try { await db.from('menu').delete().neq('id', ''); } catch {}
           saveMenuToSupabase();
         }
@@ -1406,7 +1499,8 @@ async function startServer() {
       if (impFlavors && Array.isArray(impFlavors)) {
         pizzaFlavors = impFlavors;
         io.emit("update_pizza_flavors", pizzaFlavors);
-        if (db) {
+        if (USE_POSTGRES) { for (const f of pizzaFlavors) await pgSave('pizzaFlavors', f); }
+        else if (db) {
           try {
             await db.from('pizza_flavors').delete().neq('id', '');
             for (const f of pizzaFlavors) {
@@ -1418,7 +1512,8 @@ async function startServer() {
       if (impCrusts && Array.isArray(impCrusts)) {
         pizzaCrusts = impCrusts;
         io.emit("update_pizza_crusts", pizzaCrusts);
-        if (db) {
+        if (USE_POSTGRES) { for (const c of pizzaCrusts) await pgSave('pizzaCrusts', { name: c }, c); }
+        else if (db) {
           try {
             await db.from('pizza_crusts').delete().neq('id', '');
             for (const c of pizzaCrusts) {
