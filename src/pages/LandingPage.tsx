@@ -100,7 +100,7 @@ export default function LandingPage({ ownerUser }: LandingPageProps) {
                 ))}
               </ul>
               <button
-                onClick={() => navigate(ownerUser ? '/portal' : '/login')}
+                onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=free')}
                 className="w-full py-3 rounded-xl border border-[#141414] text-[#141414] font-semibold hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
               >
                 {ownerUser ? 'Acessar meu Painel' : 'Começar grátis'}
@@ -121,7 +121,7 @@ export default function LandingPage({ ownerUser }: LandingPageProps) {
                 ))}
               </ul>
               <button
-                onClick={() => navigate(ownerUser ? '/portal' : '/login')}
+                onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=pro')}
                 className="w-full py-3 rounded-xl bg-[#E4E3E0] text-[#141414] font-semibold hover:opacity-90 transition-opacity"
               >
                 {ownerUser ? 'Upgrade no Painel' : 'Assinar Pro'}

@@ -66,19 +66,25 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     }
   });
 
-  // Sync establishment name from Supabase user_metadata → printerConfig
-  // Só aplica se o localStorage ainda estiver com o valor padrão (nunca sobrescreve configuração do usuário)
+  // Sync establishment data from Supabase user_metadata → printerConfig
+  // Aplica sempre que o user_metadata mudar (campos de onboarding têm prioridade sobre o padrão)
   useEffect(() => {
-    const name = ownerUser?.user_metadata?.establishment_name;
-    if (!name) return;
+    const meta = ownerUser?.user_metadata;
+    if (!meta) return;
+    const { establishment_name, address, phone_whatsapp, establishment_email } = meta;
+    if (!establishment_name && !address && !phone_whatsapp && !establishment_email) return;
     setPrinterConfig((prev: any) => {
-      const isDefault = prev.establishmentName === defaultPrinterConfig.establishmentName;
-      if (!isDefault) return prev; // usuário já customizou — não sobrescrever
-      const updated = { ...prev, establishmentName: name };
+      const patch: Record<string, string> = {};
+      if (establishment_name) patch.establishmentName = establishment_name;
+      if (address && !prev.address) patch.address = address;
+      if (phone_whatsapp && !prev.phone) patch.phone = phone_whatsapp;
+      if (establishment_email && !prev.email) patch.email = establishment_email;
+      if (Object.keys(patch).length === 0) return prev;
+      const updated = { ...prev, ...patch };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
       return updated;
     });
-  }, [ownerUser?.id]); // depende apenas do ID, não do objeto inteiro
+  }, [ownerUser?.user_metadata?.establishment_name, ownerUser?.user_metadata?.address, ownerUser?.user_metadata?.phone_whatsapp, ownerUser?.user_metadata?.establishment_email]);
 
   useEffect(() => {
     if (waiters.length === 0) return;
