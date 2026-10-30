@@ -16,6 +16,7 @@ import { Toaster, toast } from 'sonner';
 import { FirebaseProvider, useFirebase } from './components/FirebaseProvider';
 import { LogIn } from 'lucide-react';
 import { onAuthStateChange, getSession } from './lib/auth';
+import { supabase } from './lib/supabase';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import UserPanel from './pages/UserPanel';
@@ -111,19 +112,19 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     } catch {}
   }, [user, waiters]);
 
-  // Authenticate admin socket — runs on login and on every socket reconnect
+  // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
   useEffect(() => {
-    const sendAdminConnect = () => {
-      if (isAdmin && user) {
-        (user as any).getIdToken().then((token: string) => {
-          socket.emit('admin_connect', token);
-        }).catch(() => {});
-      }
+    const sendAdminConnect = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (token) socket.emit('admin_connect', token);
+      } catch {}
     };
     sendAdminConnect();
     socket.on('connect', sendAdminConnect);
     return () => { socket.off('connect', sendAdminConnect); };
-  }, [isAdmin, user]);
+  }, [ownerUser?.id]);
 
   // Re-autentica o garçom sempre que o socket (re)conectar ao servidor
   useEffect(() => {
