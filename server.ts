@@ -2472,6 +2472,32 @@ async function startServer() {
     }
   });
 
+  // Atualiza apenas o menu (sem apagar pedidos, mesas, sabores, etc.)
+  app.post("/api/seed-menu", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
+    const tenantId: string = req.body?.tenantId || 'default';
+    try {
+      await db.from('menu').upsert(
+        MENU_CATEGORIES.map((cat: any, idx: number) => ({
+          id: `${tenantId}:${cat.name}`,
+          name: cat.name,
+          position: idx,
+          type: cat.type,
+          items: cat.items || [],
+          subcategories: cat.subcategories || [],
+          tenant_id: tenantId,
+        }))
+      );
+      const st = getState(tenantId);
+      st.menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
+      st.loaded = false;
+      io.to(`tenant:${tenantId}`).emit('update_menu', st.menu);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.post("/api/admin/create-waiter", express.json(), (req, res) => {
     const { name, password } = req.body;
     if (!name || !password) {
