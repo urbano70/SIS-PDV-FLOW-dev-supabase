@@ -48,10 +48,121 @@ export const MENU_CATEGORIES = [
   {
     name: 'Bebidas',
     type: 'bebidas',
-    items: [
-      { id: 'b1', name: 'COCA COLA LATA', price: 14.00, ingredients: 'Lata' },
-      { id: 'b2', name: 'FANTA LARANJA LATA', price: 10.00, ingredients: 'Lata' },
-      { id: 'b3', name: 'GUARANÁ ANTARCTICA LATA', price: 6.00, ingredients: 'Lata' },
+    items: [],
+    subcategories: [
+      {
+        id: 'sub-refrigerantes',
+        name: 'Refrigerantes',
+        items: [
+          { id: 'b7',   name: 'COCA COLA 1L',               price: 12.00 },
+          { id: 'b8',   name: 'COCA COLA KS',               price: 7.00  },
+          { id: 'b9',   name: 'COCA COLA LATA',             price: 8.00  },
+          { id: 'b10',  name: 'COCA COLA LATA ZERO',        price: 8.00  },
+          { id: 'b11',  name: 'FANTA 1L',                   price: 12.00 },
+          { id: 'b12',  name: 'FANTA LARANJA KS',           price: 7.00  },
+          { id: 'b13',  name: 'FANTA LARANJA LATA',         price: 7.00  },
+          { id: 'b14',  name: 'FANTA UVA LATA',             price: 7.00  },
+          { id: 'b15',  name: 'GUARANA ANTARTICA LATA',     price: 7.00  },
+          { id: 'b16',  name: 'H20 500ML',                  price: 10.00 },
+          { id: 'b17',  name: 'SCHWEPPERS LATA',            price: 7.00  },
+          { id: 'b18',  name: 'SPRITE LATA',                price: 7.00  },
+          { id: 'b151', name: 'TORRE DE REFRIGERANTE 1,5 L',price: 18.00 },
+        ]
+      },
+      {
+        id: 'sub-cervejas',
+        name: 'Cervejas',
+        items: [
+          { id: 'b19',  name: 'ARTARTICA ORIGINAL',  price: 18.00 },
+          { id: 'b20',  name: 'BRAHMA',              price: 14.00 },
+          { id: 'b160', name: 'BRAHMA ZERO LATA',    price: 7.00  },
+          { id: 'b143', name: 'CDB',                 price: 3.00  },
+          { id: 'b128', name: 'CORONA 600ML',        price: 22.00 },
+          { id: 'b21',  name: 'HEINEKEN',            price: 22.00 },
+          { id: 'b22',  name: 'SKOL',                price: 14.00 },
+        ]
+      },
+      {
+        id: 'sub-longneck',
+        name: 'Cervejas Longneck',
+        items: [
+          { id: 'b89',  name: 'BUDWEISER',           price: 11.00 },
+          { id: 'b126', name: 'BUDWEISER ZERO',      price: 11.00 },
+          { id: 'b133', name: 'CORONA EXTRA LONG',   price: 12.00 },
+          { id: 'b90',  name: 'HEINEKEN LONGNECK',   price: 12.00 },
+          { id: 'b132', name: 'STELLA GOLD',         price: 12.00 },
+        ]
+      },
+      {
+        id: 'sub-chopp',
+        name: 'Chopp',
+        items: [
+          { id: 'b24',  name: 'CANECA COZUMEL 340ML',          price: 12.00 },
+          { id: 'b23',  name: 'CHOPP CANECA 340ML',            price: 10.00 },
+          { id: 'b27',  name: 'CHOPP 1L',                      price: 30.00 },
+          { id: 'b28',  name: 'CHOPP 1,5 L',                   price: 42.00 },
+          { id: 'b29',  name: 'CHOPP 2,5 L',                   price: 80.00 },
+          { id: 'b25',  name: 'TULIPINHA DE CHOPP 250ML',      price: 9.00  },
+          { id: 'b26',  name: 'TULIPINHA DE CHOPP COZUMEL 250ML', price: 10.00 },
+        ]
+      },
+      {
+        id: 'sub-sucos',
+        name: 'Sucos',
+        items: [
+          { id: 'b78',  name: 'COPO SUCO LARANJA',            price: 18.00 },
+          { id: 'b79',  name: 'COPO SUCO MARACUJA',           price: 16.00 },
+          { id: 'b80',  name: 'COPO SUCO ACEROLA',            price: 15.00 },
+          { id: 'b81',  name: 'COPO SUCO ABACAXI',            price: 15.00 },
+          { id: 'b82',  name: 'COPO SUCO ABACAXI COM HORTELA',price: 15.00 },
+          { id: 'b83',  name: 'COPO SUCO MORANGO',            price: 15.00 },
+          { id: 'b84',  name: 'COPO SUCO CUPUACU',            price: 16.00 },
+          { id: 'b85',  name: 'SUCO KAPO',                    price: 7.00  },
+          { id: 'b117', name: 'JARRA DE LARANJA',             price: 33.00 },
+          { id: 'b118', name: 'JARRA MARACUJA',               price: 26.00 },
+          { id: 'b119', name: 'JARRA ACEROLA',                price: 24.00 },
+          { id: 'b120', name: 'JARRA ABACAXI',                price: 24.00 },
+          { id: 'b121', name: 'JARRA ABACAXI C/ HORTELA',     price: 24.00 },
+          { id: 'b122', name: 'JARRA MORANGO',                price: 24.00 },
+          { id: 'b123', name: 'JARRA CUPUACU',                price: 26.00 },
+        ]
+      },
+      {
+        id: 'sub-aguas',
+        name: 'Aguas',
+        items: [
+          { id: 'b86',  name: 'AGUA COM GAS',         price: 6.00  },
+          { id: 'b87',  name: 'AGUA SEM GAS',         price: 5.00  },
+          { id: 'b88',  name: 'AGUA TONICA',          price: 7.00  },
+          { id: 'b140', name: 'EMBALAGEM PEQUENA',    price: 3.00  },
+          { id: 'b141', name: 'EMBALAGEM GRANDE',     price: 5.00  },
+          { id: 'b125', name: 'PLAY KIDS',            price: 12.00 },
+          { id: 'b146', name: 'RODIZIO',              price: 65.00 },
+          { id: 'b147', name: 'MEIO RODIZIO 5 A 10 ANOS', price: 31.00 },
+        ]
+      },
+      {
+        id: 'sub-doses',
+        name: 'Doses Whisky',
+        items: [
+          { id: 'b108', name: 'DOSE OLD PARR',          price: 26.00 },
+          { id: 'b109', name: 'DOSE CAMPARI',           price: 18.00 },
+          { id: 'b110', name: 'DOSE BLACK LABEL',       price: 24.00 },
+          { id: 'b111', name: 'DOSE RED LABEL',         price: 22.00 },
+          { id: 'b112', name: 'DOSE JACK DANIELS',      price: 0.00  },
+          { id: 'b113', name: 'RED BULL ENERGETICO',    price: 17.00 },
+          { id: 'b158', name: 'DOSE DE VELHO BARREIRO', price: 8.00  },
+          { id: 'b159', name: 'DOSE DE WODKA',          price: 12.00 },
+        ]
+      },
+      {
+        id: 'sub-vinhos',
+        name: 'Vinhos',
+        items: [
+          { id: 'b114', name: 'PERGOLA TINTO SUAVE GARRAFA', price: 65.00 },
+          { id: 'b115', name: 'PERGOLA TINTO SUAVE TACA',    price: 18.00 },
+        ]
+      },
     ]
   }
 ];
