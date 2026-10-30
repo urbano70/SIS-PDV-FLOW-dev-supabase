@@ -1025,7 +1025,7 @@ export default function Dashboard({
   const [isSizeModalOpen, setIsSizeModalOpen] = useState(false);
   const [editingSize, setEditingSize] = useState<any>(null);
   const [editingSizeIndex, setEditingSizeIndex] = useState<number>(-1);
-  const [sizeForm, setSizeForm] = useState({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '' });
+  const [sizeForm, setSizeForm] = useState({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '', basePrice: 0 });
   const [isCrustModalOpen, setIsCrustModalOpen] = useState(false);
   const [editingCrustName, setEditingCrustName] = useState('');
   const [editingCrustOriginal, setEditingCrustOriginal] = useState('');
@@ -3690,7 +3690,7 @@ export default function Dashboard({
                       </span>
                     </div>
                     <button
-                      onClick={() => { setSizeForm({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '' }); setEditingSize(null); setEditingSizeIndex(-1); setIsSizeModalOpen(true); }}
+                      onClick={() => { setSizeForm({ name: '', slices: 4, dim: '', people: '', maxFlavors: 2, detail: '', basePrice: 0 }); setEditingSize(null); setEditingSizeIndex(-1); setIsSizeModalOpen(true); }}
                       className="flex items-center space-x-2 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform"
                     >
                       <PlusCircle size={16} />
@@ -3701,12 +3701,12 @@ export default function Dashboard({
                     {pizzaSizes.map((size, idx) => (
                       <div key={idx} className="px-8 py-4 flex justify-between items-center hover:bg-gray-50/50 transition-colors">
                         <div className="space-y-1">
-                          <p className="font-bold text-lg">{size.name}</p>
+                          <p className="font-bold text-lg">{size.name} {size.basePrice ? <span className="text-green-600 font-semibold">R$ {Number(size.basePrice).toFixed(2)}</span> : ''}</p>
                           <p className="text-sm opacity-50">{size.slices} fatias · {size.dim} · {size.people} · {size.detail}</p>
                         </div>
                         <div className="flex items-center space-x-4">
                           <button
-                            onClick={() => { setSizeForm({ name: size.name, slices: size.slices, dim: size.dim, people: size.people, maxFlavors: size.maxFlavors, detail: size.detail }); setEditingSize(size); setEditingSizeIndex(idx); setIsSizeModalOpen(true); }}
+                            onClick={() => { setSizeForm({ name: size.name, slices: size.slices, dim: size.dim, people: size.people, maxFlavors: size.maxFlavors, detail: size.detail, basePrice: size.basePrice || 0 }); setEditingSize(size); setEditingSizeIndex(idx); setIsSizeModalOpen(true); }}
                             className="p-3 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all"
                           >
                             <Edit size={18} />
@@ -8006,6 +8006,7 @@ export default function Dashboard({
               <input type="text" value={sizeForm.dim} onChange={e => setSizeForm(f => ({...f, dim: e.target.value}))} placeholder="Dimensão (ex: 35cm)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
               <input type="text" value={sizeForm.people} onChange={e => setSizeForm(f => ({...f, people: e.target.value}))} placeholder="Pessoas (ex: 3-4 pessoas)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
               <input type="text" value={sizeForm.detail} onChange={e => setSizeForm(f => ({...f, detail: e.target.value}))} placeholder="Detalhe (ex: até 4 sabores)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
+              <input type="number" value={sizeForm.basePrice} onChange={e => setSizeForm(f => ({...f, basePrice: +e.target.value}))} placeholder="Preço base (R$)" className="w-full border border-[#141414]/20 rounded-xl px-4 py-3 bg-white text-sm" />
             </div>
             <div className="flex gap-3">
               <button onClick={() => setIsSizeModalOpen(false)} className="flex-1 py-2.5 rounded-xl border border-[#141414]/20 text-sm font-bold">Cancelar</button>

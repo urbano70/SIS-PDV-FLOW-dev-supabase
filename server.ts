@@ -78,7 +78,7 @@ async function startServer() {
     stockLog: any[];
     pizzaFlavors: any[];
     pizzaCrusts: any[];
-    pizzaSizes: { name: string; slices: number; dim: string; people: string; maxFlavors: number; detail: string }[];
+    pizzaSizes: { name: string; slices: number; dim: string; people: string; maxFlavors: number; detail: string; basePrice?: number }[];
     isCashRegisterOpen: boolean;
     shiftStartedAt: string;
     dailyCounter: number;
@@ -89,13 +89,13 @@ async function startServer() {
   }
 
   const DEFAULT_PIZZA_SIZES = [
-    { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: '1 sabor' },
-    { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-    { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores' },
-    { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores' },
-    { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores' },
+    { name: 'Mini',       slices: 4,  dim: '20cm',     people: '1 pessoa',     maxFlavors: 1, detail: 'até 1 sabor',  basePrice: 28.00 },
+    { name: 'Pequena',    slices: 4,  dim: '25cm',     people: '1-2 pessoas',  maxFlavors: 2, detail: 'até 2 sabores', basePrice: 38.00 },
+    { name: 'Média',      slices: 6,  dim: '30cm',     people: '2-3 pessoas',  maxFlavors: 2, detail: 'até 2 sabores', basePrice: 48.00 },
+    { name: 'Grande',     slices: 8,  dim: '35cm',     people: '3-4 pessoas',  maxFlavors: 4, detail: 'até 4 sabores', basePrice: 58.00 },
+    { name: 'GG',         slices: 12, dim: '40cm',     people: '4-5 pessoas',  maxFlavors: 4, detail: 'até 4 sabores', basePrice: 69.00 },
+    { name: 'Meio Metro', slices: 16, dim: '50x25cm',  people: '5-6 pessoas',  maxFlavors: 4, detail: 'até 4 sabores', basePrice: 85.00 },
+    { name: 'Metro',      slices: 24, dim: '100x25cm', people: '8-10 pessoas', maxFlavors: 6, detail: 'até 6 sabores', basePrice: 129.00 },
   ];
 
   const tenants = new Map<string, TenantState>();
