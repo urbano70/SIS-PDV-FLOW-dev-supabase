@@ -568,7 +568,8 @@ async function startServer() {
       st.dailyCounter++;
     }
     if (USE_POSTGRES) saveCounter(st);
-    saveToSupabase('config', { dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }, 'app', tenantId).catch(() => {});
+    // Preservar isCashRegisterOpen e shiftStartedAt para não sobrescrever com upsert parcial
+    saveToSupabase('config', { isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt, dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }, 'app', tenantId).catch(() => {});
     return `${dateStr}${st.dailyCounter.toString().padStart(4, '0')}`;
   };
 
@@ -1171,7 +1172,7 @@ async function startServer() {
       console.log("Emitted initial updates for new order");
       
       saveToSupabase('orders', newOrder, newOrder.id, _tid());
-      saveToSupabase('config', { dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }, 'app', _tid());
+      saveToSupabase('config', { isCashRegisterOpen: _st().isCashRegisterOpen, shiftStartedAt: _st().shiftStartedAt, dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }, 'app', _tid());
       
       if (table) {
         const orderId = newOrder.id;
