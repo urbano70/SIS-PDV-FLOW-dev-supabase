@@ -307,11 +307,24 @@ async function startServer() {
       MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
 
       if (mRes.data?.length) {
+        // Mapa de preços padrão por item id (garante que preços do constants.ts prevalecem sobre price:0 no DB)
+        const defaultPriceMap = new Map<string, number>();
+        MENU_CATEGORIES.forEach((cat: any) => {
+          (cat.subcategories || []).forEach((sub: any) => {
+            (sub.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
+          });
+          (cat.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
+        });
+        const fixItems = (items: any[]) => (items || []).map((item: any) => ({
+          ...item,
+          price: (!item.price || item.price === 0) && defaultPriceMap.has(item.id) ? defaultPriceMap.get(item.id) : item.price,
+        }));
         st.menu = mRes.data.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
           visible: row.visible !== false,
-          subcategories: row.subcategories || [],
+          items: fixItems(row.items || []),
+          subcategories: (row.subcategories || []).map((sub: any) => ({ ...sub, items: fixItems(sub.items || []) })),
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
