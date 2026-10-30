@@ -860,7 +860,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     {currentOrder.items.map((item) => {
                       const kdsEnabled = pizzariaConfig?.kdsEnabled ?? false;
                       const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt &&
-                        itemShouldTrackTime(item) &&
                         (kdsEnabled ? (item as any).kitchenStatus === 'ready' : true);
                       return (
                       <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>

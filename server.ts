@@ -372,10 +372,13 @@ async function startServer() {
 
       if (cfgRes.data?.data) {
         const cfg = cfgRes.data.data as any;
-        st.isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        const wasOpen = st.isCashRegisterOpen;
+        st.isCashRegisterOpen = cfg.isCashRegisterOpen ?? wasOpen;
         if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
-        io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
+        if (cfg.isCashRegisterOpen !== undefined) {
+          io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
+        }
         io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
       }
 
@@ -2518,7 +2521,7 @@ async function startServer() {
       );
       const st = getState(tenantId);
       st.menu = JSON.parse(JSON.stringify(MENU_CATEGORIES));
-      st.loaded = false;
+      // NÃO resetar st.loaded para não disparar recarga completa (que emitiria update_cash_register=false)
       io.to(`tenant:${tenantId}`).emit('update_menu', st.menu);
       res.json({ ok: true });
     } catch (err: any) {
