@@ -1198,6 +1198,17 @@ export default function Dashboard({
   const [qrMesaSelected, setQrMesaSelected] = useState<number>(1);
   const [settingsTab, setSettingsTab] = useState<'salon' | 'operation' | 'print' | 'data'>('salon');
 
+  const handleFixTables = async () => {
+    try {
+      const res = await fetch('/api/fix-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+      toast.success(`Mesas corrigidas: ${data.fixed} liberada(s)`);
+    } catch (error: any) {
+      toast.error(`Erro ao corrigir mesas: ${error.message}`);
+    }
+  };
+
   const handleSeedMenu = async () => {
     try {
       const res = await fetch('/api/seed-menu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
@@ -5460,6 +5471,9 @@ export default function Dashboard({
                       </button>
                       <button onClick={handleSeedMenu} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all active:scale-95">
                         <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Atualizar Cardápio</span>
+                      </button>
+                      <button onClick={handleFixTables} className="flex items-center justify-center space-x-1 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-100 hover:bg-yellow-100 transition-all active:scale-95">
+                        <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Corrigir Mesas</span>
                       </button>
                       <button onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
                         <Database size={10} /><span className="text-[7px] font-bold uppercase">Seed DB</span>
