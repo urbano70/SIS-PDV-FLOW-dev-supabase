@@ -399,9 +399,15 @@ async function startServer() {
     }
   };
 
-  const loadTenantIfNeeded = async (tenantId: string) => {
+  // Trava por tenant: evita cargas paralelas do mesmo tenant
+  const _loadingTenants = new Map<string, Promise<void>>();
+  const loadTenantIfNeeded = (tenantId: string): Promise<void> => {
     const st = getState(tenantId);
-    if (!st.loaded && !USE_POSTGRES) await loadTenantData(tenantId);
+    if (st.loaded || USE_POSTGRES) return Promise.resolve();
+    if (_loadingTenants.has(tenantId)) return _loadingTenants.get(tenantId)!;
+    const p = loadTenantData(tenantId).finally(() => _loadingTenants.delete(tenantId));
+    _loadingTenants.set(tenantId, p);
+    return p;
   };
 
   loadFromSupabase().then(() => seedBebidasSubcategories('default'));
@@ -880,10 +886,12 @@ async function startServer() {
       enqueueWrite('_st().orders', order, String(order.id));
     });
 
-    socket.on("waiter_register", (waiterData) => {
+    socket.on("waiter_register", async (waiterData) => {
+      // Garante que o tenant está carregado antes de registrar o garçom
+      await loadTenantIfNeeded(_tid());
       // Find by CPF or Name/Phone combination if CPF is missing
-      const existingWaiterIndex = _st().waiters.findIndex(w => 
-        (waiterData.cpf && w.cpf === waiterData.cpf) || 
+      const existingWaiterIndex = _st().waiters.findIndex(w =>
+        (waiterData.cpf && w.cpf === waiterData.cpf) ||
         (waiterData.name === w.name && waiterData.phone === w.phone)
       );
       
@@ -911,7 +919,8 @@ async function startServer() {
       io.to(_room()).emit("update_waiters", _st().waiters);
     });
 
-    socket.on("waiter_login", ({ name, password }) => {
+    socket.on("waiter_login", async ({ name, password }) => {
+      await loadTenantIfNeeded(_tid());
       const waiter = _st().waiters.find(w => w.name === name && w.password === password);
       if (waiter) {
         waiter.socketId = socket.id;
@@ -923,9 +932,6 @@ async function startServer() {
 
         socket.emit("waiter_approved", { status: waiter.status });
         io.to(_room()).emit("update_waiters", _st().waiters);
-      } else if (_st().waiters.length === 0) {
-        // Race condition: _st().waiters not loaded from Firestore yet â€" save for retry
-        (socket as any)._pendingLogin = { name, password };
       } else {
         socket.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
       }
@@ -1045,8 +1051,9 @@ async function startServer() {
     }));
 
     socket.on("new_order", async (orderData) => {
+      await loadTenantIfNeeded(_tid());
       console.log("New order request received:", orderData.tableId, orderData.isComanda ? "Comanda" : "Table");
-      
+
       if (!_st().isCashRegisterOpen) {
         console.warn("Attempted order while register is closed");
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para realizar pedidos.");
@@ -1569,6 +1576,7 @@ async function startServer() {
     }));
 
     socket.on("add_item_to_order", async ({ orderId, item }) => {
+      await loadTenantIfNeeded(_tid());
       if (!_st().isCashRegisterOpen) {
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
         return;
