@@ -8028,6 +8028,13 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* Badge de versão — canto inferior esquerdo */}
+      <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
+        <span className="text-[9px] font-mono text-[#141414]/25 tracking-widest">
+          v{__BUILD_HASH__} · {__BUILD_DATE__}
+        </span>
+      </div>
     </div>
   );
 }
