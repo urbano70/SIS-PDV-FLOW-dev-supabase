@@ -395,6 +395,31 @@ async function startServer() {
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
       if (cfgPizRes.data?.data) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
 
+      // Reconcilia mesas/comandas: libera as que estão ocupadas sem pedido ativo no banco
+      const activeOrderIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
+      let tablesDirty = false;
+      st.tables = st.tables.map((t: any) => {
+        if (t.status !== 'free' && t.currentOrder && !activeOrderIds.has(String(t.currentOrder))) {
+          tablesDirty = true;
+          saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), tenantId).catch(() => {});
+          return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+        }
+        return t;
+      });
+      st.comandas = st.comandas.map((c: any) => {
+        if (c.status !== 'free' && c.currentOrder && !activeOrderIds.has(String(c.currentOrder))) {
+          tablesDirty = true;
+          saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), tenantId).catch(() => {});
+          return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+        }
+        return c;
+      });
+      if (tablesDirty) {
+        io.to(room).emit('update_tables', st.tables);
+        io.to(room).emit('update_comandas', st.comandas);
+        console.log(`[supabase][${tenantId}] Mesas/comandas inconsistentes liberadas`);
+      }
+
       st.loaded = true;
       console.log(`[supabase][${tenantId}] Carga concluída`);
     } catch (e) {
@@ -2528,6 +2553,35 @@ async function startServer() {
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
+  app.post("/api/fix-tables", async (req, res) => {
+    const tenantId: string = req.body?.tenantId || 'default';
+    const st = getState(tenantId);
+    const activeIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
+    let fixed = 0;
+    st.tables = st.tables.map((t: any) => {
+      if (t.status !== 'free' && t.currentOrder && !activeIds.has(String(t.currentOrder))) {
+        fixed++;
+        if (db) saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), tenantId).catch(() => {});
+        return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+      }
+      return t;
+    });
+    st.comandas = st.comandas.map((c: any) => {
+      if (c.status !== 'free' && c.currentOrder && !activeIds.has(String(c.currentOrder))) {
+        fixed++;
+        if (db) saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), tenantId).catch(() => {});
+        return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+      }
+      return c;
+    });
+    if (fixed > 0) {
+      io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
+      io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+    }
+    res.json({ ok: true, fixed });
   });
 
   app.post("/api/admin/create-waiter", express.json(), (req, res) => {
