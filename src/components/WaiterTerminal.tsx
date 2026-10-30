@@ -433,7 +433,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const confirmQuantitySelection = () => {
     if (!selectedQuantityItem) return;
 
-    const category = menu.find(cat => cat.items?.some(i => i.name === selectedQuantityItem.name));
+    const category = menu.find(cat =>
+      cat.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name) ||
+      (cat.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name))
+    );
 
     const itemToAdd = {
       ...selectedQuantityItem,
