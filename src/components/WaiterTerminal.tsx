@@ -859,7 +859,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <div className="space-y-3">
                     {currentOrder.items.map((item) => {
                       const kdsEnabled = pizzariaConfig?.kdsEnabled ?? false;
-                      const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt;
+                      const DELIVERY_TYPES = new Set(['pizzas', 'lanches', 'lacarte', 'porcoes']);
+                      const itemType = (item as any).type || (menu.find((c: any) =>
+                        c.items?.some((i: any) => i.id === (item as any).menuItemId || i.name === item.name) ||
+                        (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === (item as any).menuItemId || i.name === item.name))
+                      )?.type) || '';
+                      const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt && DELIVERY_TYPES.has(itemType);
                       return (
                       <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>
                         <div className="flex-1 pr-4">
