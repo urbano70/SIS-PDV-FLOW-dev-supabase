@@ -1198,6 +1198,17 @@ export default function Dashboard({
   const [qrMesaSelected, setQrMesaSelected] = useState<number>(1);
   const [settingsTab, setSettingsTab] = useState<'salon' | 'operation' | 'print' | 'data'>('salon');
 
+  const handleSeedMenu = async () => {
+    try {
+      const res = await fetch('/api/seed-menu', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
+      toast.success('Cardápio atualizado com sucesso!');
+    } catch (error: any) {
+      toast.error(`Erro ao atualizar cardápio: ${error.message}`);
+    }
+  };
+
   const handleSeedDatabase = async () => {
     setIsSeedModalOpen(true);
     setIsSeeding(true);
@@ -5447,6 +5458,9 @@ export default function Dashboard({
                       <button onClick={() => importFileRef.current?.click()} className="flex items-center justify-center space-x-1 py-1.5 bg-orange-50 text-orange-700 rounded-lg border border-orange-100 hover:bg-orange-100 transition-colors">
                         <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Importar</span>
                       </button>
+                      <button onClick={handleSeedMenu} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all active:scale-95">
+                        <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Atualizar Cardápio</span>
+                      </button>
                       <button onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
                         <Database size={10} /><span className="text-[7px] font-bold uppercase">Seed DB</span>
                       </button>
@@ -8031,8 +8045,8 @@ export default function Dashboard({
 
       {/* Badge de versão — canto inferior esquerdo */}
       <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
-        <span className="text-[9px] font-mono text-[#141414]/25 tracking-widest">
-          v{__BUILD_HASH__} · {__BUILD_DATE__}
+        <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
+          {__BUILD_HASH__} · {__BUILD_DATE__}
         </span>
       </div>
     </div>
