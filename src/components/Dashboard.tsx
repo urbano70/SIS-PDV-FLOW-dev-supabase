@@ -8046,7 +8046,7 @@ export default function Dashboard({
       {/* Badge de versão — canto inferior esquerdo */}
       <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
         <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
-          {__BUILD_HASH__} · {__BUILD_DATE__}
+          {__BUILD_VERSION__} · {__BUILD_TS__}
         </span>
       </div>
     </div>
