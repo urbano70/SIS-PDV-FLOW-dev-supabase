@@ -2408,55 +2408,61 @@ async function startServer() {
   });
 
   app.post("/api/seed", async (req, res) => {
-    if (!db) return res.status(503).json({ error: "Supabase nÃ£o inicializado" });
+    if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
 
+    const tenantId: string = req.body?.tenantId || 'default';
     const steps: string[] = [];
     const log = (msg: string) => { steps.push(msg); console.log("[seed]", msg); };
 
     try {
       log("Limpando tabelas antigas...");
-      await db.from('orders').delete().neq('id', '');
-      await db.from('stock').delete().neq('id', '');
-      await db.from('pizza_flavors').delete().neq('id', '');
-      await db.from('pizza_crusts').delete().neq('id', '');
+      await db.from('orders').delete().eq('tenant_id', tenantId);
+      await db.from('stock').delete().eq('tenant_id', tenantId);
+      await db.from('pizza_flavors').delete().eq('tenant_id', tenantId);
+      await db.from('pizza_crusts').delete().eq('tenant_id', tenantId);
 
       log("Configurando 40 mesas...");
       await db.from('tables').upsert(
-        Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
+        Array.from({ length: 40 }, (_, i) => ({ id: `${tenantId}:${i+1}`, num: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }))
       );
 
       log("Configurando 50 comandas...");
       await db.from('comandas').upsert(
-        Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null }))
+        Array.from({ length: 50 }, (_, i) => ({ id: `${tenantId}:${i+1}`, num: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }))
       );
 
       log("Carregando categorias do menu...");
       await db.from('menu').upsert(
-        MENU_CATEGORIES.map((cat: any, idx: number) => ({ id: cat.name, name: cat.name, position: idx, items: cat.items || [] }))
+        MENU_CATEGORIES.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, items: cat.items || [], tenant_id: tenantId }))
       );
 
       log("Carregando sabores de pizza...");
       await db.from('pizza_flavors').upsert(
-        PIZZA_FLAVORS.map((f: any) => ({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false }))
+        PIZZA_FLAVORS.map((f: any) => ({ id: `${tenantId}:${f.name}`, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false, tenant_id: tenantId }))
       );
 
       log("Carregando bordas...");
       await db.from('pizza_crusts').upsert(
-        PIZZA_CRUSTS.map((c: any) => ({ id: c, name: c }))
+        PIZZA_CRUSTS.map((c: any) => ({ id: `${tenantId}:${c}`, name: c, tenant_id: tenantId }))
       );
 
       log("Configurando sistema de caixa...");
-      await db.from('config').upsert({ id: 'app', data: { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' } });
+      await db.from('config').upsert({ id: `${tenantId}:app`, data: { isCashRegisterOpen: false, dailyCounter: 0, lastOrderDate: '' }, tenant_id: tenantId });
 
       log("Resetando estado em memória...");
-      orders = [];
-      tables = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
-      comandas = Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
-      isCashRegisterOpen = false;
-      io.emit('update_orders', orders);
-      io.emit('update_tables', tables);
-      io.emit('update_comandas', comandas);
-      io.emit('update_cash_register', isCashRegisterOpen);
+      // Reseta o estado de todos os tenants carregados
+      tenants.forEach((st, tid) => {
+        st.orders = [];
+        st.tables = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+        st.comandas = Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+        st.isCashRegisterOpen = false;
+        st.loaded = false;
+        const room = `tenant:${tid}`;
+        io.to(room).emit('update_orders', st.orders);
+        io.to(room).emit('update_tables', st.tables);
+        io.to(room).emit('update_comandas', st.comandas);
+        io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
+      });
 
       log("ConcluÃ­do!");
       res.json({ ok: true, steps });
@@ -2471,9 +2477,11 @@ async function startServer() {
     if (!name || !password) {
       return res.status(400).json({ error: "name e password sÃ£o obrigatÃ³rios" });
     }
-    const existing = waiters.find((w: any) => w.name === name);
+    const tenantId = (req as any).tenantId || 'default';
+    const st = getState(tenantId);
+    const existing = st.waiters.find((w: any) => w.name === name);
     if (existing) {
-      return res.status(409).json({ error: "GarÃ§om com esse nome jÃ¡ existe" });
+      return res.status(409).json({ error: "Garçom com esse nome já existe" });
     }
     const newWaiter = {
       id: `waiter_${Date.now()}`,
@@ -2483,8 +2491,8 @@ async function startServer() {
       role: "waiter",
       createdAt: new Date().toISOString(),
     };
-    waiters.push(newWaiter);
-    io.emit("update_waiters", waiters);
+    st.waiters.push(newWaiter);
+    io.to(`tenant:${tenantId}`).emit("update_waiters", st.waiters);
     console.log(`[admin] GarÃ§om criado: ${name}`);
     return res.json({ success: true, waiter: { id: newWaiter.id, name: newWaiter.name, status: newWaiter.status } });
   });

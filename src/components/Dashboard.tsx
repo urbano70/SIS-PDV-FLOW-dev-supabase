@@ -1205,7 +1205,7 @@ export default function Dashboard({
     setIsSeedComplete(false);
 
     try {
-      const res = await fetch('/api/seed', { method: 'POST' });
+      const res = await fetch('/api/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
       const data = await res.json();
 
       if (data.steps) setSeedSteps(data.steps);
