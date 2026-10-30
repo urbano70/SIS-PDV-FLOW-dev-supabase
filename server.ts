@@ -689,11 +689,18 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
 
+    // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes
+    const queryTenant = (socket.handshake.query?.tenant as string) || '';
+    if (queryTenant) {
+      (socket as any).tenantId = queryTenant;
+      socket.join('tenant:' + queryTenant);
+    }
+
     // In dev mode, assign a default tenantId so all events work without auth
     if (isDevMode) {
       (socket as any).isAdmin = true;
-      (socket as any).tenantId = 'default';
-      socket.join('tenant:default');
+      (socket as any).tenantId = (socket as any).tenantId || 'default';
+      socket.join('tenant:' + ((socket as any).tenantId || 'default'));
     }
 
     socket.on("admin_connect", async (token) => {
