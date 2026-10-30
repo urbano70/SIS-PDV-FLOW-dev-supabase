@@ -201,8 +201,9 @@ export const PIZZA_FLAVORS = [
 ];
 
 export const PIZZA_CRUSTS = [
-  "BORDA DE CHOCOLATE",
-  "BRANCO",
+  "SEM BORDA",
+  "CATUPIRY",
   "CHEDDAR",
-  "CATUPIRY"
+  "CHOCOLATE BRANCO",
+  "CHOCOLATE PRETO",
 ];
