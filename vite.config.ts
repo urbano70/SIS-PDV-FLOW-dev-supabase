@@ -8,8 +8,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const gitHash = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return 'dev'; } })();
-  const buildDate = new Date().toISOString().slice(0, 10);
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
+  const gitHash = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return ''; } })();
+  const now = new Date();
+  const buildTs = now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const buildVersion = `v${pkg.version}${gitHash ? '+' + gitHash : ''}`;
   // Prioridade: env var (produção) → arquivo .dev.json (dev local) → arquivo padrão
   const firebaseConfigStr = process.env.FIREBASE_CONFIG
     || (() => { try { return fs.readFileSync(path.resolve(__dirname, 'firebase-applet-config.dev.json'), 'utf-8'); } catch { return null; } })()
@@ -40,8 +43,8 @@ export default defineConfig(({mode}) => {
       '__FIREBASE_CONFIG__': JSON.stringify(firebaseConfigStr),
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || ''),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || ''),
-      '__BUILD_HASH__': JSON.stringify(gitHash),
-      '__BUILD_DATE__': JSON.stringify(buildDate),
+      '__BUILD_VERSION__': JSON.stringify(buildVersion),
+      '__BUILD_TS__': JSON.stringify(buildTs),
     },
     resolve: {
       alias: {
