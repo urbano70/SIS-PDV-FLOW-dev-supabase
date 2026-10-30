@@ -2290,7 +2290,7 @@ export default function Dashboard({
     return s === 'inactive' || s === 'rejected';
   });
   const lowStockItems = stock.filter(item => item.quantity <= item.minQuantity);
-  const waiterUrl = `${window.location.origin}/waiter`;
+  const waiterUrl = `${window.location.origin}/waiter${tenantId ? `?tenant=${tenantId}` : ''}`;
 
   const approveWaiter = (id: string) => {
     const target = waiters.find(w => w.id === id || (w as any).cpf === id);
