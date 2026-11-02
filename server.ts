@@ -2555,6 +2555,16 @@ async function startServer() {
     }
   });
 
+  // Retorna config.json pré-configurado para o agente de impressão
+  app.get("/api/agent-config", (req, res) => {
+    const tenantId = req.query.tenant as string;
+    if (!tenantId) return res.status(400).json({ error: 'tenant obrigatório' });
+    const cfg = { serverUrl: 'https://fechaconta.app', agentSecret: '', tenantId };
+    res.setHeader('Content-Disposition', 'attachment; filename="config.json"');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(cfg, null, 2));
+  });
+
   // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
   app.post("/api/fix-tables", async (req, res) => {
     const tenantId: string = req.body?.tenantId || 'default';

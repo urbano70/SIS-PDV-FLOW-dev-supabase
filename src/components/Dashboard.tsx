@@ -5031,6 +5031,13 @@ export default function Dashboard({
                       className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
                       <Download size={9} /> Baixar Agente (.exe) para Windows
                     </a>
+                    <a href={`/api/agent-config?tenant=${tenantId || ''}`} download="config.json"
+                      className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-blue-700 text-white hover:opacity-80 transition-opacity w-full">
+                      <Download size={9} /> Baixar config.json do Agente
+                    </a>
+                    <p className="text-[7px] text-[#141414]/50 leading-tight">
+                      Coloque o <strong>config.json</strong> na mesma pasta do exe antes de iniciar o agente.
+                    </p>
                     {printerAgentOnline && (
                       <button
                         onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
