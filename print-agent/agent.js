@@ -408,7 +408,7 @@ function createDesktopShortcut(serverUrl) {
 }
 
 // ── Agente socket.io ──────────────────────────────────────────────────────────
-function startAgent({ serverUrl, agentSecret = '' }) {
+function startAgent({ serverUrl, agentSecret = '', tenantId = '' }) {
   if (serverSocket) { try { serverSocket.disconnect(); } catch {} }
 
   const resolvedUrl = serverUrl.replace(/localhost/g, '127.0.0.1');
@@ -420,17 +420,18 @@ function startAgent({ serverUrl, agentSecret = '' }) {
   function connect() {
     agentStatus = 'connecting';
     statusMsg = `Conectando em ${serverUrl}...`;
-    console.log(`[agente] Conectando em ${resolvedUrl}...`);
+    console.log(`[agente] Conectando em ${resolvedUrl}${tenantId ? ` (tenant: ${tenantId})` : ''}...`);
 
     serverSocket = io(resolvedUrl, {
       transports: ['polling', 'websocket'],
       reconnection: false,
+      query: tenantId ? { tenant: tenantId } : {},
     });
 
     serverSocket.on('connect', () => {
       console.log(`[agente] Conectado (id=${serverSocket.id})`);
       reconnectDelay = 3000;
-      serverSocket.emit('printer_agent_register', { secret: agentSecret });
+      serverSocket.emit('printer_agent_register', { secret: agentSecret, tenantId: tenantId || undefined });
     });
 
     serverSocket.on('printer_agent_accepted', () => {
