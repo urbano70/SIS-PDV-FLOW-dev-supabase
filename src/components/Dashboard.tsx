@@ -1598,6 +1598,11 @@ export default function Dashboard({
     }
   }, [isAddItemModalOpen]);
 
+  // Limpa convidados locais ao trocar de mesa/pedido
+  useEffect(() => {
+    setAdmLocalGuests([]);
+  }, [admCurrentOrder?.id]);
+
   const handleSavePrinters = () => {
     (setPrinterConfig as any)((latest: any) => {
       try {
