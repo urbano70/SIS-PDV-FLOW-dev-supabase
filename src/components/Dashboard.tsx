@@ -1595,6 +1595,12 @@ export default function Dashboard({
       setSelectedSubcategory(null);
       setAdmLocalGuests([]);
       setAdmGuestForItem('');
+    } else {
+      // Pré-seleciona convidado se já existe exatamente um vínculo no pedido
+      const guests = admCurrentOrder?.guests || [];
+      if (guests.length === 1) {
+        setAdmGuestForItem(guests[0]);
+      }
     }
   }, [isAddItemModalOpen]);
 
