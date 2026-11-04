@@ -1598,11 +1598,6 @@ export default function Dashboard({
     }
   }, [isAddItemModalOpen]);
 
-  // Limpa convidados locais ao trocar de mesa/pedido
-  useEffect(() => {
-    setAdmLocalGuests([]);
-  }, [admCurrentOrder?.id]);
-
   const handleSavePrinters = () => {
     (setPrinterConfig as any)((latest: any) => {
       try {
@@ -1966,6 +1961,11 @@ export default function Dashboard({
     admLocalGuests.forEach(g => { if (!all.includes(g)) all.push(g); });
     return all;
   }, [admCurrentOrder?.guests, admLocalGuests]);
+
+  // Limpa convidados locais ao trocar de mesa/pedido
+  useEffect(() => {
+    setAdmLocalGuests([]);
+  }, [admCurrentOrder?.id]);
 
   const addAdmGuestToList = (name: string) => {
     const trimmed = name.trim();
