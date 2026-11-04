@@ -1036,6 +1036,7 @@ export default function Dashboard({
   const [itemObservations, setItemObservations] = useState('');
   const [admGuestForItem, setAdmGuestForItem] = useState('');
   const [admModalNewGuest, setAdmModalNewGuest] = useState('');
+  const [admLocalGuests, setAdmLocalGuests] = useState<string[]>([]);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -1592,6 +1593,8 @@ export default function Dashboard({
       setSearchTerm('');
       setSelectedCategory(null);
       setSelectedSubcategory(null);
+      setAdmLocalGuests([]);
+      setAdmGuestForItem('');
     }
   }, [isAddItemModalOpen]);
 
@@ -1952,15 +1955,27 @@ export default function Dashboard({
       !!o.isComanda === !!isComandaSelected
     ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0] || null;
   }, [orders, selectedTableId, selectedComandaId, isComandaSelected]);
-  const admGuestList = admCurrentOrder?.guests || [];
+  const admGuestList = React.useMemo(() => {
+    const base = admCurrentOrder?.guests || [];
+    const all = [...base];
+    admLocalGuests.forEach(g => { if (!all.includes(g)) all.push(g); });
+    return all;
+  }, [admCurrentOrder?.guests, admLocalGuests]);
 
   const addAdmGuestToList = (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     const base = admCurrentOrder?.guests || [];
-    if (base.includes(trimmed)) return trimmed;
-    const updated = [...base, trimmed];
-    if (admCurrentOrder) socket.emit('set_order_guests', { orderId: admCurrentOrder.id, guests: updated });
+    if (base.includes(trimmed) && !admLocalGuests.includes(trimmed)) {
+      setAdmLocalGuests(prev => [...prev, trimmed]);
+      return trimmed;
+    }
+    if (!base.includes(trimmed)) {
+      const updated = [...base, trimmed];
+      if (admCurrentOrder) socket.emit('set_order_guests', { orderId: admCurrentOrder.id, guests: updated });
+    }
+    // Atualiza estado local imediatamente sem esperar o servidor
+    setAdmLocalGuests(prev => prev.includes(trimmed) ? prev : [...prev, trimmed]);
     return trimmed;
   };
 
