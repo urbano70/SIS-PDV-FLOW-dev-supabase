@@ -1751,10 +1751,11 @@ export default function Dashboard({
   }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth]);
 
   // Status do agente de impressão local
+  const [pendingAgentSocketId, setPendingAgentSocketId] = useState<string | null>(null);
   useEffect(() => {
     const handleAgentStatus = (data: { online: boolean }) => {
       setPrinterAgentOnline(data.online);
-      if (data.online) { setScanRunning(true); setScanPrinters([]); }
+      if (data.online) { setScanRunning(true); setScanPrinters([]); setPendingAgentSocketId(null); }
     };
     const handleInitData = (data: any) => {
       if (typeof data?.printerAgentOnline === 'boolean') setPrinterAgentOnline(data.printerAgentOnline);
@@ -1776,8 +1777,10 @@ export default function Dashboard({
         toast.error(data.error || 'Código inválido. Verifique o código exibido no agente.');
       }
     };
-    // Quando o socket reconecta (ex: após reload da página), o servidor envia
-    // init_data automaticamente — mas caso não venha, força emissão do status.
+    const handlePairingAvailable = ({ socketId }: { socketId: string }) => {
+      setPendingAgentSocketId(socketId);
+      toast('Agente de impressão detectado! Vá em Configurações → Impressão para parear.', { icon: '🖨️' });
+    };
     const handleReconnect = () => {
       socket.emit('request_agent_status');
     };
@@ -1785,12 +1788,14 @@ export default function Dashboard({
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
     socket.on('agent_code_result', handleAgentCodeResult);
+    socket.on('printer_agent_pairing_available', handlePairingAvailable);
     socket.on('connect', handleReconnect);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
       socket.off('scan_printers_result', handleScanResult);
       socket.off('agent_code_result', handleAgentCodeResult);
+      socket.off('printer_agent_pairing_available', handlePairingAvailable);
       socket.off('connect', handleReconnect);
     };
   }, []);
@@ -5051,16 +5056,35 @@ export default function Dashboard({
                     <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">① Agente de impressão</p>
                     {!printerAgentOnline ? (
                       <div className="space-y-1.5">
-                        <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                          Agente offline. Verifique se o agente está rodando no PC e clique em Reconectar.
-                        </p>
-                        <button
-                          onClick={() => { socket.disconnect(); socket.connect(); }}
-                          className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
-                        >
-                          <span className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full" style={{animation:'spin 1s linear infinite'}} />
-                          Reconectar
-                        </button>
+                        {pendingAgentSocketId ? (
+                          <>
+                            <p className="text-[8px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                              Agente detectado aguardando pareamento. Clique abaixo para vincular ao seu estabelecimento.
+                            </p>
+                            <button
+                              onClick={() => {
+                                socket.emit('claim_printer_agent', { agentSocketId: pendingAgentSocketId });
+                                setPendingAgentSocketId(null);
+                              }}
+                              className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            >
+                              🖨️ Parear Agente
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                              Agente offline. Verifique se o agente está rodando no PC e clique em Reconectar.
+                            </p>
+                            <button
+                              onClick={() => { socket.disconnect(); socket.connect(); }}
+                              className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                            >
+                              <span className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full" style={{animation:'spin 1s linear infinite'}} />
+                              Reconectar
+                            </button>
+                          </>
+                        )}
                       </div>
                     ) : scanRunning ? (
                       <p className="text-[8px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 leading-relaxed flex items-center gap-1.5">

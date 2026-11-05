@@ -447,6 +447,22 @@ function startAgent({ serverUrl, agentSecret = '', tenantId = '' }) {
       runLocalScan(false);
     });
 
+    serverSocket.on('printer_agent_pairing_needed', ({ socketId }) => {
+      agentStatus = 'connecting';
+      statusMsg = 'Aguardando pareamento no Dashboard (Configurações → Impressão → Parear Agente)...';
+      console.log(`[agente] Aguardando pareamento. Acesse o Dashboard e clique em "Parear Agente" (código: ${socketId}).`);
+    });
+
+    serverSocket.on('printer_agent_config_update', ({ tenantId: newTenantId }) => {
+      if (!newTenantId) return;
+      try {
+        const cfg = fs.existsSync(CONFIG_PATH) ? JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')) : {};
+        cfg.tenantId = newTenantId;
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+        console.log(`[agente] tenantId salvo em config.json: ${newTenantId}`);
+      } catch (e) { console.warn('[agente] Não foi possível salvar config.json:', e.message); }
+    });
+
     serverSocket.on('printer_agent_rejected', (reason) => {
       agentStatus = 'error';
       statusMsg = `Registro rejeitado: ${reason}`;

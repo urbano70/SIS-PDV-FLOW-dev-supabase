@@ -99,6 +99,8 @@ async function startServer() {
   ];
 
   const tenants = new Map<string, TenantState>();
+  // Agentes aguardando pareamento (conectaram sem tenantId)
+  const pendingAgents = new Map<string, any>(); // socketId → socket
 
   function defaultTenantState(): TenantState {
     return {
@@ -774,8 +776,20 @@ async function startServer() {
         console.warn(`[agent] Tentativa de registro rejeitada (socket ${socket.id})`);
         return;
       }
-      const tid = agentTenantId || (socket as any).tenantId || 'default';
+      const tid = agentTenantId || (socket as any).tenantId || '';
       (socket as any).isPrinterAgent = true;
+
+      if (!tid || tid === 'default') {
+        // Agente sem tenant configurado — entra em modo de pareamento
+        (socket as any).pendingPairing = true;
+        pendingAgents.set(socket.id, socket);
+        socket.emit("printer_agent_pairing_needed", { socketId: socket.id });
+        // Notifica todos os admins conectados que há um agente aguardando pareamento
+        io.emit("printer_agent_pairing_available", { socketId: socket.id });
+        console.log(`[agent] Agente aguardando pareamento: ${socket.id}`);
+        return;
+      }
+
       (socket as any).tenantId = tid;
       const st = getState(tid);
       st.printerAgentSocket = socket;
@@ -784,6 +798,33 @@ async function startServer() {
       io.to('tenant:' + tid).emit("printer_agent_status", { online: true });
       setTimeout(() => { if (st.printerAgentSocket) st.printerAgentSocket.emit("scan_printers_request"); }, 500);
       console.log(`[agent] Agente conectado: ${socket.id} (tenant: ${tid})`);
+    });
+
+    // Admin aceita pareamento de um agente pendente
+    socket.on("claim_printer_agent", ({ agentSocketId }: { agentSocketId: string }) => {
+      const tid = (socket as any).tenantId;
+      if (!tid || !(socket as any).isAdmin) {
+        socket.emit("error_message", "Não autorizado.");
+        return;
+      }
+      const agentSocket = pendingAgents.get(agentSocketId);
+      if (!agentSocket || !agentSocket.connected) {
+        socket.emit("error_message", "Agente não encontrado ou desconectado.");
+        return;
+      }
+      pendingAgents.delete(agentSocketId);
+      (agentSocket as any).pendingPairing = false;
+      (agentSocket as any).tenantId = tid;
+      agentSocket.join('tenant:' + tid);
+      const st = getState(tid);
+      st.printerAgentSocket = agentSocket;
+      agentSocket.emit("printer_agent_accepted");
+      agentSocket.emit("printer_agent_paired");
+      // Envia config.json com tenantId para o agente salvar localmente
+      agentSocket.emit("printer_agent_config_update", { tenantId: tid });
+      io.to('tenant:' + tid).emit("printer_agent_status", { online: true });
+      setTimeout(() => { if (st.printerAgentSocket) st.printerAgentSocket.emit("scan_printers_request"); }, 500);
+      console.log(`[agent] Agente ${agentSocketId} pareado com tenant ${tid}`);
     });
 
     socket.on("disconnect", () => {
