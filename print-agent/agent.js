@@ -140,6 +140,8 @@ function loadScanCache() {
   try {
     if (fs.existsSync(CACHE_PATH)) {
       const data = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+      // Descarta cache de outra máquina
+      if (data.hostname && data.hostname !== require('os').hostname()) return null;
       if (Array.isArray(data.results)) return data.results;
     }
   } catch {}
@@ -148,7 +150,7 @@ function loadScanCache() {
 
 function saveScanCache(results) {
   try {
-    fs.writeFileSync(CACHE_PATH, JSON.stringify({ results, ts: Date.now() }, null, 2), 'utf8');
+    fs.writeFileSync(CACHE_PATH, JSON.stringify({ results, hostname: require('os').hostname(), ts: Date.now() }, null, 2), 'utf8');
   } catch {}
 }
 
