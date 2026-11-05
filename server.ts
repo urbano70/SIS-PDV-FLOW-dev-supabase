@@ -762,6 +762,16 @@ async function startServer() {
           pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
           printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
         });
+        // Se há agentes aguardando pareamento, avisar o admin recém-conectado
+        if (pendingAgents.size > 0) {
+          pendingAgents.forEach((agentSock, agentSocketId) => {
+            if (agentSock.connected) {
+              socket.emit("printer_agent_pairing_available", { socketId: agentSocketId });
+            } else {
+              pendingAgents.delete(agentSocketId);
+            }
+          });
+        }
         console.log(`Admin connected: ${payload.email} (tenant: ${tenantId})`);
       } catch (e) {
         console.error("Error in admin_connect", e);
