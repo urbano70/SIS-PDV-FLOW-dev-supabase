@@ -1037,6 +1037,9 @@ export default function Dashboard({
   const [admGuestForItem, setAdmGuestForItem] = useState('');
   const [admModalNewGuest, setAdmModalNewGuest] = useState('');
   const [admLocalGuests, setAdmLocalGuests] = useState<string[]>([]);
+  // Sinaliza que o add-item modal fechou para abrir sub-modal (quantidade/pizza)
+  // e não deve limpar os convidados selecionados
+  const admOpeningSubModal = React.useRef(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -1593,8 +1596,12 @@ export default function Dashboard({
       setSearchTerm('');
       setSelectedCategory(null);
       setSelectedSubcategory(null);
-      setAdmLocalGuests([]);
-      setAdmGuestForItem('');
+      // Só limpa convidados se o modal fechou por cancelamento (não por transição para sub-modal)
+      if (!admOpeningSubModal.current) {
+        setAdmLocalGuests([]);
+        setAdmGuestForItem('');
+      }
+      admOpeningSubModal.current = false;
     }
   }, [isAddItemModalOpen]);
 
@@ -2163,6 +2170,7 @@ export default function Dashboard({
       // Se vier de subcategoria conhecida, pula a etapa de escolha de borda
       setSelectionStep(fromSubcat ? 'build' : 'border_choice');
       setIsFlavorModalOpen(true);
+      admOpeningSubModal.current = true;
       setIsAddItemModalOpen(false);
       return;
     }
@@ -2172,6 +2180,7 @@ export default function Dashboard({
       setItemQuantity(1);
       setItemObservations('');
       setIsQuantityModalOpen(true);
+      admOpeningSubModal.current = true;
       setIsAddItemModalOpen(false);
       return;
     }
@@ -2197,6 +2206,11 @@ export default function Dashboard({
         orderId: activeOrder.id,
         item: newItem
       });
+      // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal
+      const guestForThisItem = newItem.guestName;
+      if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
+        socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), guestForThisItem] });
+      }
     } else {
       updateTableStatusLocal(tableId, isComandaSelected, 'occupied');
       socket.emit('new_order', {
@@ -2253,6 +2267,11 @@ export default function Dashboard({
         orderId: activeOrder.id,
         item: newItem
       });
+      // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal
+      if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
+        const updatedGuests = [...(activeOrder.guests || []), admGuestForItem];
+        socket.emit('set_order_guests', { orderId: activeOrder.id, guests: updatedGuests });
+      }
     } else {
       updateTableStatusLocal(targetId, isComandaSelected, 'occupied');
       socket.emit('new_order', {
