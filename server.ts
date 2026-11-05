@@ -844,9 +844,12 @@ async function startServer() {
       io.to('tenant:' + tenantId).emit("print_result", result);
     });
 
-    // Resultado do scan de rede enviado pelo agente → repassa ao dashboard
+    // Resultado do scan enviado pelo agente → repassa ao dashboard apenas se for o agente registrado
     socket.on("scan_printers_result", (data: { printers: { ip: string; port: number }[] }) => {
       const tenantId = (socket as any).tenantId || 'default';
+      const st = getState(tenantId);
+      // Ignora resultado de agente que não é o agente ativo deste tenant
+      if (st.printerAgentSocket?.id !== socket.id) return;
       io.to('tenant:' + tenantId).emit("scan_printers_result", data);
     });
 
