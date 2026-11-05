@@ -1595,12 +1595,6 @@ export default function Dashboard({
       setSelectedSubcategory(null);
       setAdmLocalGuests([]);
       setAdmGuestForItem('');
-    } else {
-      // Pré-seleciona convidado se já existe exatamente um vínculo no pedido
-      const guests = admCurrentOrder?.guests || [];
-      if (guests.length === 1) {
-        setAdmGuestForItem(guests[0]);
-      }
     }
   }, [isAddItemModalOpen]);
 
@@ -1972,6 +1966,16 @@ export default function Dashboard({
   useEffect(() => {
     setAdmLocalGuests([]);
   }, [admCurrentOrder?.id]);
+
+  // Pré-seleciona convidado existente ao abrir modal
+  useEffect(() => {
+    if (isAddItemModalOpen) {
+      const guests = admCurrentOrder?.guests || [];
+      if (guests.length === 1) {
+        setAdmGuestForItem(guests[0]);
+      }
+    }
+  }, [isAddItemModalOpen, admCurrentOrder?.id]);
 
   const addAdmGuestToList = (name: string) => {
     const trimmed = name.trim();
