@@ -552,8 +552,12 @@ async function startServer() {
     }));
 
     st.menu[bebidasIdx] = { ...cat, subcategories: [...(cat.subcategories || []), ...newSubs] };
-    const { error } = await db.from('menu').upsert({ id: `${tenantId}:${cat.name}`, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: st.menu[bebidasIdx].items || [], subcategories: st.menu[bebidasIdx].subcategories, tenant_id: tenantId });
-    if (error) { console.error('[seed-bebidas] Erro ao salvar:', error.message); return; }
+    if (db) {
+      const { error } = await db.from('menu').upsert({ id: `${tenantId}:${cat.name}`, name: cat.name, position: bebidasIdx, type: 'bebidas', visible: true, items: st.menu[bebidasIdx].items || [], subcategories: st.menu[bebidasIdx].subcategories, tenant_id: tenantId });
+      if (error) { console.error('[seed-bebidas] Erro ao salvar:', error.message); return; }
+    } else {
+      await saveToSupabase('menu', st.menu[bebidasIdx], cat.name, tenantId).catch(() => {});
+    }
     io.to('tenant:' + tenantId).emit('update_menu', st.menu);
     console.log(`[seed-bebidas][${tenantId}] ${newSubs.length} subcategorias adicionadas à categoria bebidas.`);
   };
@@ -612,7 +616,7 @@ async function startServer() {
     return clientSessions.get(`${isComanda ? 'c' : 't'}:${mesaId}`) || null;
   };
   setInterval(() => {
-    const timeoutMin = (pizzariaConfig as any).clientSessionTimeoutMin ?? 0;
+    const timeoutMin = (typeof pizzariaConfig !== 'undefined' ? (pizzariaConfig as any) : {}).clientSessionTimeoutMin ?? 0;
     if (timeoutMin <= 0) return;
     const now = Date.now();
     clientSessions.forEach((_session, key) => {
