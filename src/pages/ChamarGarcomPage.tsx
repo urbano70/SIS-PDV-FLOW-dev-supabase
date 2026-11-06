@@ -6,7 +6,7 @@ import { BellRing, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
 export function ChamarGarcomPage() {
-  const { tableId } = useParams<{ tableId: string }>();
+  const { tenantId, tableId } = useParams<{ tenantId: string; tableId: string }>();
   const [status, setStatus] = useState<Status>('idle');
   const [rateLimitMinutes, setRateLimitMinutes] = useState(3);
   const rateLimitRef = useRef(3);
@@ -15,13 +15,18 @@ export function ChamarGarcomPage() {
   const tableNum = Number(tableId);
 
   useEffect(() => {
-    // Lê rate limit do QR (query param opcional)
     const params = new URLSearchParams(window.location.search);
     const rl = Number(params.get('rl'));
     if (rl > 0) { setRateLimitMinutes(rl); rateLimitRef.current = rl; }
 
+    if (!tenantId) return;
+
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
+
+    s.on('connect', () => {
+      s.emit('client_connect', { tenantId });
+    });
 
     s.on('call_waiter_result', ({ success }: { success: boolean }) => {
       if (success) {
@@ -33,7 +38,7 @@ export function ChamarGarcomPage() {
     });
 
     return () => { s.disconnect(); };
-  }, []);
+  }, [tenantId]);
 
   const handleCall = () => {
     if (status === 'loading' || status === 'success') return;
@@ -42,7 +47,7 @@ export function ChamarGarcomPage() {
     socketRef.current.emit('call_waiter', { tableId: tableNum, rateLimitMinutes });
   };
 
-  if (!tableNum || isNaN(tableNum)) {
+  if (!tableNum || isNaN(tableNum) || !tenantId) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F4F0]">
         <p className="text-slate-500 text-sm">QR Code inválido.</p>
