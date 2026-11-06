@@ -7946,7 +7946,7 @@ export default function Dashboard({
       {qrMesaModal && (() => {
         const num = qrMesaModal.num;
         const baseUrl = window.location.origin;
-        const url = `${baseUrl}/mesa/${num}`;
+        const url = `${baseUrl}/mesa/${tenantId}/${num}`;
         const printUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
         return (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setQrMesaModal(null); }}>

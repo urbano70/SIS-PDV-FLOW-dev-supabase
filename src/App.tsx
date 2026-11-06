@@ -406,7 +406,7 @@ export default function App() {
         <Route path="/waiter" element={<WaiterRoute />} />
         <Route path="/presenca/:token" element={<AttendancePage />} />
         <Route path="/chamar/:tableId" element={<ChamarGarcomPage />} />
-        <Route path="/mesa/:mesaId" element={<ClientePage />} />
+        <Route path="/mesa/:tenantId/:mesaId" element={<ClientePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
