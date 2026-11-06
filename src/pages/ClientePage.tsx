@@ -7,7 +7,7 @@ type SessionState = 'checking' | 'active' | 'inactive';
 type CallState = 'idle' | 'loading' | 'sent';
 
 export function ClientePage() {
-  const { mesaId } = useParams<{ mesaId: string }>();
+  const { tenantId, mesaId } = useParams<{ tenantId: string; mesaId: string }>();
   const [session, setSession] = useState<SessionState>('checking');
   const [token, setToken] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>('idle');
@@ -19,7 +19,7 @@ export function ClientePage() {
 
   const checkSession = async () => {
     try {
-      const res = await fetch(`/api/cliente-session/${mesaId}`);
+      const res = await fetch(`/api/cliente-session/${tenantId}/${mesaId}`);
       const data = await res.json();
       if (data.active) {
         setToken(data.token);
@@ -34,16 +34,19 @@ export function ClientePage() {
   };
 
   useEffect(() => {
-    if (!mesaNum || isNaN(mesaNum)) return;
+    if (!mesaNum || isNaN(mesaNum) || !tenantId) return;
     checkSession();
-    // Polling a cada 30s para detectar ativação/expiração
     pollRef.current = setInterval(checkSession, 30_000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [mesaId]);
+  }, [mesaId, tenantId]);
 
   useEffect(() => {
+    if (!tenantId) return;
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
+    s.on('connect', () => {
+      s.emit('client_connect', { tenantId });
+    });
     s.on('call_waiter_result', ({ success }: { success: boolean }) => {
       if (success) {
         setCallState('sent');
@@ -53,7 +56,7 @@ export function ClientePage() {
       }
     });
     return () => { s.disconnect(); };
-  }, []);
+  }, [tenantId]);
 
   const handleCallWaiter = () => {
     if (callState !== 'idle' || !socketRef.current) return;
@@ -61,7 +64,7 @@ export function ClientePage() {
     socketRef.current.emit('call_waiter', { tableId: mesaNum, rateLimitMinutes: 3 });
   };
 
-  if (!mesaNum || isNaN(mesaNum)) {
+  if (!mesaNum || isNaN(mesaNum) || !tenantId) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F4F0]">
         <p className="text-slate-500 text-sm">QR Code inválido.</p>
@@ -183,7 +186,7 @@ export function ClientePage() {
 
         {/* Seção: Comanda */}
         {activeSection === 'comanda' && (
-          <ComandaSection mesaId={mesaNum} token={token} />
+          <ComandaSection mesaId={mesaNum} tenantId={tenantId} token={token} />
         )}
 
         {/* Seção: Avaliação */}
@@ -206,7 +209,7 @@ export function ClientePage() {
   );
 }
 
-function ComandaSection({ mesaId, token }: { mesaId: number; token: string | null }) {
+function ComandaSection({ mesaId, tenantId, token }: { mesaId: number; tenantId: string; token: string | null }) {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const socketRef = useRef<Socket | null>(null);
@@ -214,6 +217,9 @@ function ComandaSection({ mesaId, token }: { mesaId: number; token: string | nul
   useEffect(() => {
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
+    s.on('connect', () => {
+      s.emit('client_connect', { tenantId });
+    });
     s.on('update_orders', (orders: any[]) => {
       const active = orders.find(
         (o: any) => String(o.tableId) === String(mesaId) && !o.isComanda && o.status !== 'finalizada'
@@ -222,7 +228,7 @@ function ComandaSection({ mesaId, token }: { mesaId: number; token: string | nul
       setLoading(false);
     });
     return () => { s.disconnect(); };
-  }, [mesaId]);
+  }, [mesaId, tenantId]);
 
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="animate-spin opacity-30" size={24} /></div>;
 

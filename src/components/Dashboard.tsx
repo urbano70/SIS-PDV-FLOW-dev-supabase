@@ -961,6 +961,7 @@ export default function Dashboard({
   useEffect(() => {
     const handler = ({ tableId }: { tableId: number }) => {
       addCallNotification(tableId);
+      setCallingTables(prev => new Set(prev).add(tableId));
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
       try { new Audio('/sounds/call-waiter.mp3').play(); } catch {}
     };
@@ -973,8 +974,12 @@ export default function Dashboard({
   const [callWaiterTable, setCallWaiterTable] = useState(1);
   const [callWaiterRateLimit, setCallWaiterRateLimit] = useState(3);
   const callWaiterUrl = callWaiterModal
-    ? `${window.location.origin}/chamar/${callWaiterTable}?rl=${callWaiterRateLimit}`
+    ? `${window.location.origin}/chamar/${tenantId}/${callWaiterTable}?rl=${callWaiterRateLimit}`
     : '';
+
+  // Mesas que estão chamando o garçom (sino pulsando)
+  const [callingTables, setCallingTables] = useState<Set<number>>(new Set());
+  const [callingTablePopup, setCallingTablePopup] = useState<number | null>(null);
 
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
@@ -2775,7 +2780,10 @@ export default function Dashboard({
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
                                   setShowingRecentOrders(false);
-                                  if (shouldShowInactivityIcon(table.id, false)) {
+                                  if (callingTables.has(table.id)) {
+                                    setCallingTablePopup(table.id);
+                                    setCallingTables(prev => { const s = new Set(prev); s.delete(table.id); return s; });
+                                  } else if (shouldShowInactivityIcon(table.id, false)) {
                                     setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
                                   }
                                 }}
@@ -2806,6 +2814,7 @@ export default function Dashboard({
                                       {types.hasLaCarte && <Soup size={16} className="shrink-0 text-emerald-600" />}
                                       {table.status === 'linked' && <LinkIcon size={12} className="text-blue-500" />}
                                       {shouldShowInactivityIcon(table.id, false) && <Clock size={11} className="text-amber-400 animate-pulse" />}
+                                      {callingTables.has(table.id) && <BellRing size={13} className="text-orange-400 animate-bounce shrink-0" />}
                                     </>);
                                   })()}
                                 </div>
@@ -7946,7 +7955,7 @@ export default function Dashboard({
       {qrMesaModal && (() => {
         const num = qrMesaModal.num;
         const baseUrl = window.location.origin;
-        const url = `${baseUrl}/mesa/${num}`;
+        const url = `${baseUrl}/mesa/${tenantId}/${num}`;
         const printUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
         return (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) setQrMesaModal(null); }}>
@@ -7996,6 +8005,29 @@ export default function Dashboard({
           </div>
         );
       })()}
+
+      {/* Popup: Mesa chamando garçom */}
+      {callingTablePopup !== null && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
+            <div className="flex flex-col items-center px-6 py-8 gap-4 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-orange-50 border-2 border-orange-200 flex items-center justify-center">
+                <BellRing size={32} className="text-orange-500 animate-bounce" />
+              </div>
+              <div>
+                <h2 className="font-serif italic text-2xl text-[#141414]">Mesa {callingTablePopup} Chamando</h2>
+                <p className="text-xs text-[#141414]/50 mt-1">O cliente solicitou atendimento</p>
+              </div>
+              <button
+                onClick={() => setCallingTablePopup(null)}
+                className="w-full py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
+              >
+                OK — Já vou atender
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Chama Garçom — gerador de QR Code */}
       {callWaiterModal && (

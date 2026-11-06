@@ -604,18 +604,18 @@ async function startServer() {
     return `${dateStr}${st.dailyCounter.toString().padStart(4, '0')}`;
   };
 
-  // ── Sessões do cliente por mesa ────────────────────────────────
+  // ── Sessões do cliente por mesa (keyed by tenantId) ───────────
   const clientSessions = new Map<string, { token: string; lastActivity: number; isComanda: boolean }>();
   const generateClientToken = () => Math.random().toString(36).substr(2, 16) + Date.now().toString(36);
-  const activateClientSession = (mesaId: number | string, isComanda: boolean) => {
-    const key = `${isComanda ? 'c' : 't'}:${mesaId}`;
+  const activateClientSession = (tenantId: string, mesaId: number | string, isComanda: boolean) => {
+    const key = `${tenantId}:${isComanda ? 'c' : 't'}:${mesaId}`;
     clientSessions.set(key, { token: generateClientToken(), lastActivity: Date.now(), isComanda });
   };
-  const invalidateClientSession = (mesaId: number | string, isComanda: boolean) => {
-    clientSessions.delete(`${isComanda ? 'c' : 't'}:${mesaId}`);
+  const invalidateClientSession = (tenantId: string, mesaId: number | string, isComanda: boolean) => {
+    clientSessions.delete(`${tenantId}:${isComanda ? 'c' : 't'}:${mesaId}`);
   };
-  const getClientSession = (mesaId: number | string, isComanda: boolean) => {
-    return clientSessions.get(`${isComanda ? 'c' : 't'}:${mesaId}`) || null;
+  const getClientSession = (tenantId: string, mesaId: number | string, isComanda: boolean) => {
+    return clientSessions.get(`${tenantId}:${isComanda ? 'c' : 't'}:${mesaId}`) || null;
   };
   setInterval(() => {
     const timeoutMin = (typeof pizzariaConfig !== 'undefined' ? (pizzariaConfig as any) : {}).clientSessionTimeoutMin ?? 0;
@@ -1217,7 +1217,7 @@ async function startServer() {
           }
           await saveToSupabase('orders', existingOrder, existingOrder.id.toString(), _tid());
           // Renovar sessão do cliente ao adicionar itens
-          { const s = getClientSession(existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(existingOrder.tableId, existingOrder.isComanda); }
+          { const s = getClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); }
           console.log("Existing order updated and emitted");
           return;
         }
@@ -1236,7 +1236,7 @@ async function startServer() {
       console.log("Created new order object:", newOrder.id);
       _st().orders.push(newOrder);
       // Ativar sessão do cliente ao criar nova comanda
-      activateClientSession(newOrder.tableId, newOrder.isComanda ?? false);
+      activateClientSession(_tid(), newOrder.tableId, newOrder.isComanda ?? false);
 
       // Emit updates immediately for faster UI
       io.to(_room()).emit("update_orders", _st().orders);
@@ -2258,8 +2258,8 @@ async function startServer() {
         await saveToSupabase(item.collection, item.entity, String(item.entity.id, _tid()));
       }
       // Invalidar sessão do cliente ao dar baixa
-      _st().tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(t.id, false); });
-      _st().comandas.forEach((c: any) => { if (String(c.currentOrder) === String(orderId) || (order.isComanda && c.id === order.tableId)) invalidateClientSession(c.id, true); });
+      _st().tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(_tid(), t.id, false); });
+      _st().comandas.forEach((c: any) => { if (String(c.currentOrder) === String(orderId) || (order.isComanda && c.id === order.tableId)) invalidateClientSession(_tid(), c.id, true); });
       console.log(`Baixa confirmada para pedido ${orderId}`);
     });
 
@@ -2462,6 +2462,14 @@ async function startServer() {
 
     // Consolidated init_data is at the beginning of connection
 
+    // ── Cliente connect (página /mesa/:tenantId/:mesaId) ──────────────────
+    socket.on("client_connect", ({ tenantId }: { tenantId: string }) => {
+      if (!tenantId) return;
+      (socket as any).tenantId = tenantId;
+      (socket as any).isClient = true;
+      socket.join('tenant:' + tenantId);
+    });
+
     // ── Chama Garçom ──────────────────────────────────────────────────────
     socket.on("call_waiter", ({ tableId, rateLimitMinutes }: { tableId: number; rateLimitMinutes?: number }) => {
       const id = Number(tableId);
@@ -2473,15 +2481,16 @@ async function startServer() {
         return;
       }
 
-      // Rate limiting por mesa
+      // Rate limiting por mesa (keyed por tenant:mesa)
       const limitMs = Math.max(1, Math.min(rateLimitMinutes ?? 3, 60)) * 60 * 1000;
       const now = Date.now();
-      const lastCall = callWaiterCooldown.get(id) ?? 0;
+      const cooldownKey = `${_tid()}:${id}`;
+      const lastCall = callWaiterCooldown.get(cooldownKey) ?? 0;
       if (now - lastCall < limitMs) {
         socket.emit("call_waiter_result", { success: false, tableId: id });
         return;
       }
-      callWaiterCooldown.set(id, now);
+      callWaiterCooldown.set(cooldownKey, now);
 
       socket.emit("call_waiter_result", { success: true, tableId: id });
       io.to(_room()).emit("waiter_called", { tableId: id, timestamp: now });
@@ -2496,22 +2505,22 @@ async function startServer() {
   });
 
   // ── Sessão do cliente ──────────────────────────────────────────
-  app.get("/api/cliente-session/:mesaId", (req, res) => {
-    const mesaId = req.params.mesaId;
+  app.get("/api/cliente-session/:tenantId/:mesaId", (req, res) => {
+    const { tenantId, mesaId } = req.params;
     const isComanda = req.query.comanda === '1';
-    const session = getClientSession(mesaId, isComanda);
+    const session = getClientSession(tenantId, mesaId, isComanda);
     if (!session) return res.json({ active: false });
-    res.json({ active: true, token: session.token, mesaId, isComanda });
+    res.json({ active: true, token: session.token, mesaId, isComanda, tenantId });
   });
 
-  app.get("/api/cliente-session/:mesaId/validate", (req, res) => {
-    const mesaId = req.params.mesaId;
+  app.get("/api/cliente-session/:tenantId/:mesaId/validate", (req, res) => {
+    const { tenantId, mesaId } = req.params;
     const token = req.query.token as string;
     const isComanda = req.query.comanda === '1';
-    const session = getClientSession(mesaId, isComanda);
+    const session = getClientSession(tenantId, mesaId, isComanda);
     if (!session || session.token !== token) return res.json({ valid: false });
     session.lastActivity = Date.now();
-    res.json({ valid: true, mesaId, isComanda });
+    res.json({ valid: true, mesaId, isComanda, tenantId });
   });
 
   // Serve o executável do agente de impressão para download
