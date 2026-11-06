@@ -1290,18 +1290,20 @@ export default function Dashboard({
   useEffect(() => {
     if (!pizzariaConfig) return;
     const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG];
+    // kdsEnabled só é forçado quando o plano não permite escolha (kdsLocked)
+    const kdsNeedsUpdate = cfg.kdsLocked && (pizzariaConfig.kdsEnabled ?? false) !== cfg.kdsEnabled;
     const needsUpdate =
       (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
       pizzariaConfig.enabled !== cfg.pizzaEnabled ||
-      (pizzariaConfig.kdsEnabled ?? false) !== cfg.kdsEnabled;
+      kdsNeedsUpdate;
     if (needsUpdate) {
       updatePizzeriaConfig({
         ...pizzariaConfig,
         numTables: cfg.tablesLocked ? cfg.maxTables : (pizzariaConfig.numTables ?? cfg.maxTables),
         comandasEnabled: cfg.comandasEnabled,
         enabled: cfg.pizzaEnabled,
-        kdsEnabled: cfg.kdsEnabled,
+        ...(cfg.kdsLocked ? { kdsEnabled: cfg.kdsEnabled } : {}),
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
