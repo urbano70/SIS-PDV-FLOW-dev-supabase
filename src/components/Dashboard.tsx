@@ -14,6 +14,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from '../constants';
 import { seedDatabase } from '../lib/seed';
+import { LATEST_PR } from '../version';
 import { useFirebase } from './FirebaseProvider';
 import { TesteDeForgo } from './TesteDeForgo';
 
@@ -2560,6 +2561,10 @@ export default function Dashboard({
             </div>
           )}
         </nav>
+
+        <div className="mt-auto pt-4 border-t border-[#141414]/10">
+          <p className="text-[9px] text-[#141414]/30 font-mono text-center">PR #{LATEST_PR}</p>
+        </div>
       </motion.div>
 
       {/* Main Content */}
