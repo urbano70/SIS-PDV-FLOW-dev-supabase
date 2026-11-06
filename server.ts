@@ -2524,11 +2524,15 @@ async function startServer() {
   });
 
   // ── Info pública do tenant (nome + logo) ──────────────────────
-  app.get("/api/tenant-info/:tenantId", (req, res) => {
+  app.get("/api/tenant-info/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
     const st = tenantStates.get(tenantId);
-    if (!st) return res.json({ name: '', logoUrl: '' });
-    const cfg = st.pizzariaConfig as any;
+    // Tenta estado em memória primeiro; fallback: Supabase
+    let cfg: any = st?.pizzariaConfig;
+    if (!cfg && db) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).single();
+      cfg = data?.data;
+    }
     res.json({
       name: cfg?.establishmentName || '',
       logoUrl: cfg?.logoUrl || '',
@@ -2536,47 +2540,50 @@ async function startServer() {
   });
 
   // ── Cardápio público do tenant ─────────────────────────────────
-  app.get("/api/menu/:tenantId", (req, res) => {
-    const { tenantId } = req.params;
-    const st = tenantStates.get(tenantId);
-    if (!st) return res.json({ categories: [] });
-    const categories = (st.menu || [])
+  const mapItem = (item: any) => ({
+    id: item.id,
+    name: item.name,
+    price: item.price,
+    originalPrice: item.originalPrice,
+    ingredients: item.ingredients,
+    imageUrl: item.imageUrl,
+    videoUrl: item.videoUrl,
+    available: item.available !== false,
+  });
+
+  const mapCategories = (rawMenu: any[]) =>
+    rawMenu
       .filter((cat: any) => cat.visible !== false)
+      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
       .map((cat: any) => ({
         name: cat.name,
         type: cat.type,
-        items: (cat.items || [])
-          .filter((item: any) => item.visible !== false)
-          .map((item: any) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            originalPrice: item.originalPrice,
-            ingredients: item.ingredients,
-            imageUrl: item.imageUrl,
-            videoUrl: item.videoUrl,
-            available: item.available !== false,
-          })),
+        items: (cat.items || []).filter((i: any) => i.visible !== false).map(mapItem),
         subcategories: (cat.subcategories || [])
           .filter((sub: any) => sub.visible !== false)
           .map((sub: any) => ({
             id: sub.id,
             name: sub.name,
-            items: (sub.items || [])
-              .filter((item: any) => item.visible !== false)
-              .map((item: any) => ({
-                id: item.id,
-                name: item.name,
-                price: item.price,
-                originalPrice: item.originalPrice,
-                ingredients: item.ingredients,
-                imageUrl: item.imageUrl,
-                videoUrl: item.videoUrl,
-                available: item.available !== false,
-              })),
+            items: (sub.items || []).filter((i: any) => i.visible !== false).map(mapItem),
           })),
       }));
-    res.json({ categories });
+
+  app.get("/api/menu/:tenantId", async (req, res) => {
+    const { tenantId } = req.params;
+    const st = tenantStates.get(tenantId);
+    // Estado em memória disponível → usa direto
+    if (st && (st.menu || []).length > 0) {
+      return res.json({ categories: mapCategories(st.menu) });
+    }
+    // Fallback: busca no Supabase
+    if (!db) return res.json({ categories: [] });
+    const { data, error } = await db
+      .from('menu')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('position');
+    if (error || !data) return res.json({ categories: [] });
+    return res.json({ categories: mapCategories(data) });
   });
 
   // Serve o executável do agente de impressão para download
