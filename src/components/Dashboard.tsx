@@ -1617,6 +1617,11 @@ export default function Dashboard({
     (setPrinterConfig as any)((latest: any) => {
       try {
         localStorage.setItem('printerConfig', JSON.stringify(latest));
+        // Sincroniza nome e logo com o servidor para exibição na página da mesa
+        socket.emit('update_pizzaria_config', {
+          establishmentName: latest.establishmentName || '',
+          logoUrl: latest.logoUrl || '',
+        });
         toast.success('Configurações salvas!', {
           description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
         });
@@ -7154,15 +7159,46 @@ export default function Dashboard({
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
-                  <textarea 
+                  <textarea
                     value={editingProduct.item.ingredients}
                     onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, ingredients: e.target.value } })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-32 resize-none"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={(editingProduct.item as any).originalPrice || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, originalPrice: parseFloat(e.target.value) || undefined } as any })}
+                    placeholder="0.00 (deixe vazio se não houver desconto)"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
+                  <input
+                    type="url"
+                    value={(editingProduct.item as any).imageUrl || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, imageUrl: e.target.value } as any })}
+                    placeholder="https://exemplo.com/foto.jpg"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
+                  <input
+                    type="url"
+                    value={(editingProduct.item as any).videoUrl || ''}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, videoUrl: e.target.value } as any })}
+                    placeholder="https://exemplo.com/video.mp4"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
                   />
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => {
                   socket.emit('update_product', {
                     categoryName: editingProduct.categoryName,
@@ -7171,7 +7207,10 @@ export default function Dashboard({
                     updatedData: {
                       name: editingProduct.item.name,
                       price: editingProduct.item.price,
-                      ingredients: editingProduct.item.ingredients
+                      ingredients: editingProduct.item.ingredients,
+                      originalPrice: (editingProduct.item as any).originalPrice || undefined,
+                      imageUrl: (editingProduct.item as any).imageUrl || undefined,
+                      videoUrl: (editingProduct.item as any).videoUrl || undefined,
                     }
                   });
                   setIsEditProductModalOpen(false);
@@ -7267,16 +7306,47 @@ export default function Dashboard({
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
-                  <textarea 
+                  <textarea
                     value={newProductData.ingredients}
                     onChange={(e) => setNewProductData({ ...newProductData, ingredients: e.target.value })}
                     placeholder="Ex: Mussarela, molho de tomate..."
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-32 resize-none"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={(newProductData as any).originalPrice || ''}
+                    onChange={(e) => setNewProductData({ ...newProductData, originalPrice: parseFloat(e.target.value) || undefined } as any)}
+                    placeholder="0.00 (deixe vazio se não houver desconto)"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
+                  <input
+                    type="url"
+                    value={(newProductData as any).imageUrl || ''}
+                    onChange={(e) => setNewProductData({ ...newProductData, imageUrl: e.target.value } as any)}
+                    placeholder="https://exemplo.com/foto.jpg"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
+                  <input
+                    type="url"
+                    value={(newProductData as any).videoUrl || ''}
+                    onChange={(e) => setNewProductData({ ...newProductData, videoUrl: e.target.value } as any)}
+                    placeholder="https://exemplo.com/video.mp4"
+                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
                   />
                 </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => {
                   if (!newProductData.name || !newProductData.price) {
                     toast.error('Por favor, preencha o nome e o preço.');

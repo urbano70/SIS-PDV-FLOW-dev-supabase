@@ -2523,6 +2523,62 @@ async function startServer() {
     res.json({ valid: true, mesaId, isComanda, tenantId });
   });
 
+  // ── Info pública do tenant (nome + logo) ──────────────────────
+  app.get("/api/tenant-info/:tenantId", (req, res) => {
+    const { tenantId } = req.params;
+    const st = tenantStates.get(tenantId);
+    if (!st) return res.json({ name: '', logoUrl: '' });
+    const cfg = st.pizzariaConfig as any;
+    res.json({
+      name: cfg?.establishmentName || '',
+      logoUrl: cfg?.logoUrl || '',
+    });
+  });
+
+  // ── Cardápio público do tenant ─────────────────────────────────
+  app.get("/api/menu/:tenantId", (req, res) => {
+    const { tenantId } = req.params;
+    const st = tenantStates.get(tenantId);
+    if (!st) return res.json({ categories: [] });
+    const categories = (st.menu || [])
+      .filter((cat: any) => cat.visible !== false)
+      .map((cat: any) => ({
+        name: cat.name,
+        type: cat.type,
+        items: (cat.items || [])
+          .filter((item: any) => item.visible !== false)
+          .map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            originalPrice: item.originalPrice,
+            ingredients: item.ingredients,
+            imageUrl: item.imageUrl,
+            videoUrl: item.videoUrl,
+            available: item.available !== false,
+          })),
+        subcategories: (cat.subcategories || [])
+          .filter((sub: any) => sub.visible !== false)
+          .map((sub: any) => ({
+            id: sub.id,
+            name: sub.name,
+            items: (sub.items || [])
+              .filter((item: any) => item.visible !== false)
+              .map((item: any) => ({
+                id: item.id,
+                name: item.name,
+                price: item.price,
+                originalPrice: item.originalPrice,
+                ingredients: item.ingredients,
+                imageUrl: item.imageUrl,
+                videoUrl: item.videoUrl,
+                available: item.available !== false,
+              })),
+          })),
+      }));
+    res.json({ categories });
+  });
+
   // Serve o executável do agente de impressão para download
   app.get("/download/fechaconta-agente.exe", (req, res) => {
     const agentPath = path.join(process.cwd(), "print-agent", "fechaconta-agente.exe");
