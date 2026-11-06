@@ -3,12 +3,23 @@ import { useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
   BellRing, UtensilsCrossed, ClipboardList, Star, CheckCircle,
-  Loader2, Lock, ChevronRight, CreditCard, ArrowLeft, Search, Sparkles
+  Loader2, Lock, ChevronRight, CreditCard, ArrowLeft, Search, Sparkles, Play
 } from 'lucide-react';
 
 type SessionState = 'checking' | 'active' | 'inactive';
 type CallState = 'idle' | 'loading' | 'sent';
 type View = 'home' | 'cardapio' | 'comanda' | 'avaliacao';
+
+interface TenantInfo { name: string; logoUrl: string; }
+interface MenuItemPublic {
+  id: string; name: string; price: number; originalPrice?: number;
+  ingredients?: string; imageUrl?: string; videoUrl?: string; available?: boolean;
+}
+interface MenuCategoryPublic {
+  name: string; type?: string;
+  items: MenuItemPublic[];
+  subcategories?: { id: string; name: string; items: MenuItemPublic[] }[];
+}
 
 export function ClientePage() {
   const { tenantId, mesaId } = useParams<{ tenantId: string; mesaId: string }>();
@@ -16,6 +27,7 @@ export function ClientePage() {
   const [token, setToken] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>('idle');
   const [view, setView] = useState<View>('home');
+  const [tenantInfo, setTenantInfo] = useState<TenantInfo>({ name: '', logoUrl: '' });
   const socketRef = useRef<Socket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -26,16 +38,9 @@ export function ClientePage() {
     try {
       const res = await fetch(`/api/cliente-session/${tenantId}/${mesaId}`);
       const data = await res.json();
-      if (data.active) {
-        setToken(data.token);
-        setSession('active');
-      } else {
-        setToken(null);
-        setSession('inactive');
-      }
-    } catch {
-      setSession('inactive');
-    }
+      if (data.active) { setToken(data.token); setSession('active'); }
+      else { setToken(null); setSession('inactive'); }
+    } catch { setSession('inactive'); }
   };
 
   useEffect(() => {
@@ -47,6 +52,14 @@ export function ClientePage() {
 
   useEffect(() => {
     if (!tenantId) return;
+    fetch(`/api/tenant-info/${tenantId}`)
+      .then(r => r.json())
+      .then(d => setTenantInfo({ name: d.name || '', logoUrl: d.logoUrl || '' }))
+      .catch(() => {});
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!tenantId) return;
     const s = io({ transports: ['websocket', 'polling'] });
     socketRef.current = s;
     s.on('connect', () => { s.emit('client_connect', { tenantId }); });
@@ -54,9 +67,7 @@ export function ClientePage() {
       if (success) {
         setCallState('sent');
         setTimeout(() => setCallState('idle'), 3 * 60 * 1000);
-      } else {
-        setCallState('idle');
-      }
+      } else { setCallState('idle'); }
     });
     return () => { s.disconnect(); };
   }, [tenantId]);
@@ -84,34 +95,34 @@ export function ClientePage() {
   }
 
   if (view === 'cardapio') {
-    return <CardapioView mesaNum={mesaNum} onBack={() => setView('home')} />;
+    return <CardapioView mesaNum={mesaNum} tenantId={tenantId!} tenantInfo={tenantInfo} onBack={() => setView('home')} />;
   }
-
   if (view === 'comanda' && hasSession) {
-    return <ComandaView mesaId={mesaNum} tenantId={tenantId!} token={token} onBack={() => setView('home')} />;
+    return <ComandaView mesaId={mesaNum} tenantId={tenantId!} token={token} tenantInfo={tenantInfo} onBack={() => setView('home')} />;
   }
-
   if (view === 'avaliacao' && hasSession) {
     return <AvaliacaoView mesaId={mesaNum} socketRef={socketRef} onBack={() => setView('home')} />;
   }
+
+  const displayName = tenantInfo.name || 'Meu Restaurante';
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero header */}
       <div className="relative bg-[#1a1a1a] overflow-hidden" style={{ minHeight: 220 }}>
-        {/* Gradient overlay background */}
         <div className="absolute inset-0 bg-gradient-to-b from-orange-900/60 via-[#1a1a1a]/80 to-[#1a1a1a]" />
         <div className="absolute inset-0 opacity-10"
           style={{ backgroundImage: 'radial-gradient(circle at 30% 50%, #f97316 0%, transparent 60%), radial-gradient(circle at 70% 20%, #ea580c 0%, transparent 50%)' }} />
-
         <div className="relative z-10 flex flex-col items-center pt-10 pb-6 px-5">
           {/* Logo */}
-          <div className="w-16 h-16 rounded-full bg-[#2a2a2a] border-2 border-white/20 flex items-center justify-center mb-3 shadow-lg">
-            <UtensilsCrossed size={28} className="text-orange-400" />
+          <div className="w-16 h-16 rounded-full bg-[#2a2a2a] border-2 border-white/20 flex items-center justify-center mb-3 shadow-lg overflow-hidden">
+            {tenantInfo.logoUrl ? (
+              <img src={tenantInfo.logoUrl} alt={displayName} className="w-full h-full object-cover" />
+            ) : (
+              <UtensilsCrossed size={28} className="text-orange-400" />
+            )}
           </div>
-
-          <h1 className="text-white font-black text-xl tracking-wide uppercase">Meu Restaurante</h1>
-
+          <h1 className="text-white font-black text-xl tracking-wide uppercase text-center">{displayName}</h1>
           <div className="flex items-center gap-2 mt-2 flex-wrap justify-center">
             <span className="bg-white/10 text-white text-[11px] font-bold px-3 py-1 rounded-full border border-white/20">
               Mesa {mesaNum}
@@ -127,7 +138,6 @@ export function ClientePage() {
               </span>
             )}
           </div>
-
           <p className="text-white/60 text-xs mt-4 text-center">Como podemos ajudar?</p>
           <p className="text-white/40 text-[11px] mt-0.5 text-center">
             Toque no botão abaixo para chamar nossa equipe diretamente até sua mesa.
@@ -137,25 +147,18 @@ export function ClientePage() {
 
       {/* Content */}
       <div className="flex-1 px-4 pb-8 -mt-2 bg-[#F8F7F4] rounded-t-3xl pt-6 space-y-3">
-
-        {/* Primary CTA: Chamar Garçom */}
+        {/* Primary CTA */}
         <button
           onClick={handleCallWaiter}
           disabled={callState !== 'idle'}
           className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all active:scale-[0.98] shadow-sm ${
-            callState === 'sent'
-              ? 'bg-green-500 text-white'
-              : 'bg-orange-500 text-white hover:bg-orange-600'
+            callState === 'sent' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white hover:bg-orange-600'
           }`}
         >
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${callState === 'sent' ? 'bg-green-600' : 'bg-orange-600'}`}>
-            {callState === 'loading' ? (
-              <Loader2 size={20} className="text-white animate-spin" />
-            ) : callState === 'sent' ? (
-              <CheckCircle size={20} className="text-white" />
-            ) : (
-              <BellRing size={20} className="text-white" />
-            )}
+            {callState === 'loading' ? <Loader2 size={20} className="text-white animate-spin" />
+              : callState === 'sent' ? <CheckCircle size={20} className="text-white" />
+              : <BellRing size={20} className="text-white" />}
           </div>
           <div className="text-left flex-1">
             <p className="text-[9px] uppercase tracking-widest font-semibold opacity-70">Ação principal</p>
@@ -166,9 +169,8 @@ export function ClientePage() {
           {callState === 'idle' && <ChevronRight size={18} className="opacity-60 shrink-0" />}
         </button>
 
-        {/* Secondary actions: 2-column grid */}
+        {/* 2×2 grid */}
         <div className="grid grid-cols-2 gap-3">
-          {/* Ver cardápio */}
           <button
             onClick={() => setView('cardapio')}
             className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-[#141414]/8 hover:border-orange-200 transition-all active:scale-[0.97] shadow-sm"
@@ -182,7 +184,6 @@ export function ClientePage() {
             </div>
           </button>
 
-          {/* Pedir a conta / Minha Comanda */}
           {hasSession ? (
             <button
               onClick={() => setView('comanda')}
@@ -208,7 +209,6 @@ export function ClientePage() {
             </div>
           )}
 
-          {/* Pedir conta */}
           <button
             onClick={handleCallWaiter}
             disabled={callState !== 'idle'}
@@ -223,7 +223,6 @@ export function ClientePage() {
             </div>
           </button>
 
-          {/* Avaliar */}
           {hasSession ? (
             <button
               onClick={() => setView('avaliacao')}
@@ -258,9 +257,48 @@ export function ClientePage() {
   );
 }
 
-function CardapioView({ mesaNum, onBack }: { mesaNum: number; onBack: () => void }) {
+function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
+  mesaNum: number; tenantId: string; tenantInfo: TenantInfo; onBack: () => void;
+}) {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
+  const [categories, setCategories] = useState<MenuCategoryPublic[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [videoItem, setVideoItem] = useState<MenuItemPublic | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/menu/${tenantId}`)
+      .then(r => r.json())
+      .then(d => { setCategories(d.categories || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [tenantId]);
+
+  const allItems: MenuItemPublic[] = categories.flatMap(cat => [
+    ...cat.items,
+    ...(cat.subcategories || []).flatMap(sub => sub.items),
+  ]);
+
+  const filteredItems = allItems.filter(item => {
+    const q = search.toLowerCase();
+    if (q && !item.name.toLowerCase().includes(q) && !(item.ingredients || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const displayName = tenantInfo.name || 'Meu Restaurante';
+  const totalItems = allItems.length;
+
+  const tabs = [
+    { key: 'todos', label: 'Todos' },
+    { key: 'destaques', label: 'Destaques', icon: true },
+    ...categories.map(c => ({ key: c.name, label: c.name })),
+  ];
+
+  const tabItems = activeTab === 'todos' ? filteredItems
+    : activeTab === 'destaques' ? filteredItems.filter(i => i.imageUrl || i.videoUrl)
+    : categories.find(c => c.name === activeTab)?.items.filter(item => {
+        const q = search.toLowerCase();
+        return !q || item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q);
+      }) || [];
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -270,16 +308,22 @@ function CardapioView({ mesaNum, onBack }: { mesaNum: number; onBack: () => void
           <ArrowLeft size={16} />
           Voltar para a mesa
         </button>
-        <span className="text-[11px] font-semibold text-[#141414]/40 bg-[#141414]/5 px-2.5 py-1 rounded-full">— itens</span>
+        {totalItems > 0 && (
+          <span className="text-[11px] font-semibold text-[#141414]/40 bg-[#141414]/5 px-2.5 py-1 rounded-full">{totalItems} {totalItems === 1 ? 'item' : 'itens'}</span>
+        )}
       </div>
 
       {/* Restaurant info */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[#141414]/6">
-        <div className="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0">
-          <UtensilsCrossed size={18} className="text-orange-400" />
+        <div className="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0 overflow-hidden">
+          {tenantInfo.logoUrl ? (
+            <img src={tenantInfo.logoUrl} alt={displayName} className="w-full h-full object-cover" />
+          ) : (
+            <UtensilsCrossed size={18} className="text-orange-400" />
+          )}
         </div>
         <div>
-          <p className="font-black text-sm text-[#141414]">Meu Restaurante</p>
+          <p className="font-black text-sm text-[#141414]">{displayName}</p>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[10px] font-bold text-orange-500 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Cardápio</span>
             <span className="text-[10px] text-[#141414]/40">Mesa {mesaNum}</span>
@@ -301,39 +345,120 @@ function CardapioView({ mesaNum, onBack }: { mesaNum: number; onBack: () => void
         </div>
       </div>
 
-      {/* Category tabs */}
+      {/* Tabs */}
       <div className="flex gap-2 px-4 py-3 overflow-x-auto scrollbar-none border-b border-[#141414]/6">
-        {[
-          { key: 'todos', label: 'Todos' },
-          { key: 'destaques', label: 'Destaques', icon: <Sparkles size={11} className="inline mr-1" /> },
-        ].map(tab => (
+        {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`shrink-0 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
-              activeTab === tab.key
-                ? 'bg-[#141414] text-white'
-                : 'bg-[#141414]/6 text-[#141414]/60 hover:bg-[#141414]/10'
+            className={`shrink-0 flex items-center gap-1 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
+              activeTab === tab.key ? 'bg-[#141414] text-white' : 'bg-[#141414]/6 text-[#141414]/60 hover:bg-[#141414]/10'
             }`}
           >
-            {tab.icon}{tab.label}
+            {(tab as any).icon && <Sparkles size={10} />}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Empty state */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-16 text-center">
-        <UtensilsCrossed size={40} className="mb-4 text-[#141414]/15" />
-        <p className="font-bold text-sm text-[#141414]/50">Cardápio em breve</p>
-        <p className="text-xs text-[#141414]/30 mt-1 max-w-[220px]">
-          Peça ao garçom para ver as opções disponíveis.
-        </p>
+      {/* Items */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex justify-center py-16"><Loader2 className="animate-spin text-orange-400" size={28} /></div>
+        ) : tabItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center px-6">
+            <UtensilsCrossed size={40} className="mb-4 text-[#141414]/15" />
+            <p className="font-bold text-sm text-[#141414]/50">
+              {search ? 'Nenhum item encontrado' : 'Cardápio em breve'}
+            </p>
+            <p className="text-xs text-[#141414]/30 mt-1 max-w-[220px]">
+              {search ? 'Tente outro termo de busca.' : 'Peça ao garçom para ver as opções.'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#141414]/5">
+            {tabItems.map(item => (
+              <div key={item.id} className={`flex gap-3 px-4 py-4 ${!item.available ? 'opacity-60' : ''}`}>
+                {/* Image / Video thumbnail */}
+                <div className="shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-[#141414]/5 flex items-center justify-center relative">
+                  {item.imageUrl ? (
+                    <>
+                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                      {item.videoUrl && (
+                        <button
+                          onClick={() => setVideoItem(item)}
+                          className="absolute inset-0 flex items-center justify-center bg-black/30"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center">
+                            <Play size={12} className="text-[#141414] ml-0.5" fill="currentColor" />
+                          </div>
+                        </button>
+                      )}
+                    </>
+                  ) : item.videoUrl ? (
+                    <button
+                      onClick={() => setVideoItem(item)}
+                      className="w-full h-full flex items-center justify-center bg-[#141414]/8"
+                    >
+                      <Play size={20} className="text-[#141414]/40" />
+                    </button>
+                  ) : (
+                    <UtensilsCrossed size={22} className="text-[#141414]/15" />
+                  )}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-bold text-sm text-[#141414] leading-snug">{item.name}</p>
+                    {!item.available && (
+                      <span className="shrink-0 text-[9px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">Esgotado</span>
+                    )}
+                  </div>
+                  {item.ingredients && (
+                    <p className="text-[11px] text-[#141414]/50 mt-0.5 line-clamp-2 leading-snug">{item.ingredients}</p>
+                  )}
+                  <div className="flex items-center gap-2 mt-1.5">
+                    {item.originalPrice && item.originalPrice > item.price && (
+                      <span className="text-[11px] text-rose-400 line-through font-mono">R$ {item.originalPrice.toFixed(2)}</span>
+                    )}
+                    <span className="text-sm font-black text-green-600 font-mono">R$ {item.price.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Video modal */}
+      {videoItem && (
+        <div
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+          onClick={() => setVideoItem(null)}
+        >
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden bg-black" onClick={e => e.stopPropagation()}>
+            <video
+              src={videoItem.videoUrl}
+              controls
+              autoPlay
+              className="w-full"
+              style={{ maxHeight: '70vh' }}
+            />
+            <div className="px-4 py-3 bg-[#1a1a1a] text-white">
+              <p className="font-bold text-sm">{videoItem.name}</p>
+              <button onClick={() => setVideoItem(null)} className="text-[11px] text-white/50 mt-1">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ComandaView({ mesaId, tenantId, token, onBack }: { mesaId: number; tenantId: string; token: string | null; onBack: () => void }) {
+function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
+  mesaId: number; tenantId: string; token: string | null; tenantInfo: TenantInfo; onBack: () => void;
+}) {
   const [order, setOrder] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const socketRef = useRef<Socket | null>(null);
@@ -354,10 +479,10 @@ function ComandaView({ mesaId, tenantId, token, onBack }: { mesaId: number; tena
 
   const items = order ? (order.items || []).filter((i: any) => !i.removed) : [];
   const total = items.reduce((acc: number, i: any) => acc + i.price, 0);
+  const displayName = tenantInfo.name || 'Meu Restaurante';
 
   return (
     <div className="min-h-screen bg-[#F8F7F4] flex flex-col">
-      {/* Top bar */}
       <div className="flex items-center justify-between px-4 pt-10 pb-3 bg-white border-b border-[#141414]/6">
         <button onClick={onBack} className="flex items-center gap-1.5 text-[#141414]/60 text-sm font-medium hover:text-[#141414] transition-colors">
           <ArrowLeft size={16} />
@@ -367,21 +492,22 @@ function ComandaView({ mesaId, tenantId, token, onBack }: { mesaId: number; tena
           <span className="text-[11px] font-semibold text-[#141414]/40 bg-[#141414]/5 px-2.5 py-1 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
         )}
       </div>
-
-      {/* Restaurant info */}
       <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-[#141414]/6">
-        <div className="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0">
-          <UtensilsCrossed size={18} className="text-orange-400" />
+        <div className="w-10 h-10 rounded-full bg-[#1a1a1a] flex items-center justify-center shrink-0 overflow-hidden">
+          {tenantInfo.logoUrl ? (
+            <img src={tenantInfo.logoUrl} alt={displayName} className="w-full h-full object-cover" />
+          ) : (
+            <UtensilsCrossed size={18} className="text-orange-400" />
+          )}
         </div>
         <div>
-          <p className="font-black text-sm text-[#141414]">Meu Restaurante</p>
+          <p className="font-black text-sm text-[#141414]">{displayName}</p>
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-[10px] font-bold text-blue-500 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full uppercase tracking-wide">Comanda</span>
             <span className="text-[10px] text-[#141414]/40">Mesa {mesaId}</span>
           </div>
         </div>
       </div>
-
       <div className="flex-1 p-4">
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="animate-spin text-orange-400" size={28} /></div>
@@ -430,14 +556,12 @@ function AvaliacaoView({ mesaId, socketRef, onBack }: { mesaId: number; socketRe
 
   return (
     <div className="min-h-screen bg-[#F8F7F4] flex flex-col">
-      {/* Top bar */}
       <div className="flex items-center px-4 pt-10 pb-3 bg-white border-b border-[#141414]/6">
         <button onClick={onBack} className="flex items-center gap-1.5 text-[#141414]/60 text-sm font-medium hover:text-[#141414] transition-colors">
           <ArrowLeft size={16} />
           Voltar para a mesa
         </button>
       </div>
-
       <div className="flex-1 p-4 flex flex-col items-center justify-center">
         {sent ? (
           <div className="bg-white rounded-2xl border border-[#141414]/8 p-10 text-center shadow-sm w-full max-w-sm">

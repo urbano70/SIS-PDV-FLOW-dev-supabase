@@ -101,6 +101,10 @@ export interface MenuItem {
   ingredients?: string;
   trackStock?: boolean;
   visible?: boolean;
+  imageUrl?: string;
+  videoUrl?: string;
+  originalPrice?: number;
+  available?: boolean;
 }
 
 export interface MenuSubcategory {
