@@ -16,6 +16,7 @@ export function ClientePage() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const mesaNum = Number(mesaId);
+  const hasSession = session === 'active';
 
   const checkSession = async () => {
     try {
@@ -80,27 +81,6 @@ export function ClientePage() {
     );
   }
 
-  if (session === 'inactive') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F5F4F0] p-6 text-center">
-        <div className="w-20 h-20 rounded-full bg-white border-2 border-[#141414]/10 flex items-center justify-center mb-6 shadow-sm">
-          <Lock size={32} className="text-[#141414]/30" />
-        </div>
-        <h1 className="font-serif italic text-2xl mb-2">Mesa {mesaNum}</h1>
-        <p className="text-sm text-[#141414]/50 max-w-xs">
-          Esta mesa ainda não possui uma comanda ativa.<br />
-          Aguarde o atendimento do garçom.
-        </p>
-        <button
-          onClick={checkSession}
-          className="mt-8 px-6 py-3 bg-[#141414] text-[#E4E3E0] rounded-2xl font-bold text-sm"
-        >
-          Verificar novamente
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#F5F4F0] flex flex-col">
       {/* Header */}
@@ -113,7 +93,7 @@ export function ClientePage() {
       {/* Menu principal */}
       <div className="flex-1 p-5 space-y-3">
 
-        {/* Chamar Garçom */}
+        {/* Chamar Garçom — sempre disponível */}
         <button
           onClick={handleCallWaiter}
           disabled={callState !== 'idle'}
@@ -142,7 +122,7 @@ export function ClientePage() {
           </div>
         </button>
 
-        {/* Cardápio */}
+        {/* Cardápio — sempre disponível */}
         <button
           onClick={() => setActiveSection(activeSection === 'cardapio' ? null : 'cardapio')}
           className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/10 bg-white text-[#141414] hover:border-[#141414]/30 transition-all active:scale-[0.98]"
@@ -156,41 +136,65 @@ export function ClientePage() {
           </div>
         </button>
 
-        {/* Ver Comanda */}
-        <button
-          onClick={() => setActiveSection(activeSection === 'comanda' ? null : 'comanda')}
-          className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/10 bg-white text-[#141414] hover:border-[#141414]/30 transition-all active:scale-[0.98]"
-        >
-          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
-            <ClipboardList size={22} className="text-white" />
+        {/* Comanda — só com sessão ativa */}
+        {hasSession ? (
+          <button
+            onClick={() => setActiveSection(activeSection === 'comanda' ? null : 'comanda')}
+            className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/10 bg-white text-[#141414] hover:border-[#141414]/30 transition-all active:scale-[0.98]"
+          >
+            <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center shrink-0">
+              <ClipboardList size={22} className="text-white" />
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-base">Minha Comanda</p>
+              <p className="text-xs opacity-50">Veja os itens do seu pedido</p>
+            </div>
+          </button>
+        ) : (
+          <div className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/5 bg-white/50 text-[#141414]/30 cursor-not-allowed">
+            <div className="w-12 h-12 rounded-xl bg-[#141414]/8 flex items-center justify-center shrink-0">
+              <Lock size={20} className="text-[#141414]/20" />
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-base">Minha Comanda</p>
+              <p className="text-xs opacity-60">Disponível após abertura do atendimento</p>
+            </div>
           </div>
-          <div className="text-left">
-            <p className="font-bold text-base">Minha Comanda</p>
-            <p className="text-xs opacity-50">Veja os itens do seu pedido</p>
-          </div>
-        </button>
+        )}
 
-        {/* Avaliação */}
-        <button
-          onClick={() => setActiveSection(activeSection === 'avaliacao' ? null : 'avaliacao')}
-          className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/10 bg-white text-[#141414] hover:border-[#141414]/30 transition-all active:scale-[0.98]"
-        >
-          <div className="w-12 h-12 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0">
-            <Star size={22} className="text-white" />
+        {/* Avaliação — só com sessão ativa */}
+        {hasSession ? (
+          <button
+            onClick={() => setActiveSection(activeSection === 'avaliacao' ? null : 'avaliacao')}
+            className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/10 bg-white text-[#141414] hover:border-[#141414]/30 transition-all active:scale-[0.98]"
+          >
+            <div className="w-12 h-12 rounded-xl bg-yellow-400 flex items-center justify-center shrink-0">
+              <Star size={22} className="text-white" />
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-base">Avaliar Atendimento</p>
+              <p className="text-xs opacity-50">Sua opinião é muito importante</p>
+            </div>
+          </button>
+        ) : (
+          <div className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-[#141414]/5 bg-white/50 text-[#141414]/30 cursor-not-allowed">
+            <div className="w-12 h-12 rounded-xl bg-[#141414]/8 flex items-center justify-center shrink-0">
+              <Lock size={20} className="text-[#141414]/20" />
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-base">Avaliar Atendimento</p>
+              <p className="text-xs opacity-60">Disponível após abertura do atendimento</p>
+            </div>
           </div>
-          <div className="text-left">
-            <p className="font-bold text-base">Avaliar Atendimento</p>
-            <p className="text-xs opacity-50">Sua opinião é muito importante</p>
-          </div>
-        </button>
+        )}
 
         {/* Seção: Comanda */}
-        {activeSection === 'comanda' && (
+        {activeSection === 'comanda' && hasSession && (
           <ComandaSection mesaId={mesaNum} tenantId={tenantId} token={token} />
         )}
 
         {/* Seção: Avaliação */}
-        {activeSection === 'avaliacao' && (
+        {activeSection === 'avaliacao' && hasSession && (
           <AvaliacaoSection mesaId={mesaNum} socketRef={socketRef} />
         )}
 
@@ -204,7 +208,7 @@ export function ClientePage() {
         )}
       </div>
 
-      <p className="text-center text-[9px] opacity-20 pb-6 font-mono">Mesa {mesaNum} · Sessão ativa</p>
+      <p className="text-center text-[9px] opacity-20 pb-6 font-mono">Mesa {mesaNum} · {hasSession ? 'Sessão ativa' : 'Aguardando atendimento'}</p>
     </div>
   );
 }
