@@ -2709,16 +2709,19 @@ async function startServer() {
     const total = nfceItems.reduce((s, i) => s + i.valorTotal, 0);
 
     try {
-      // Ensure emitter is registered (idempotent — 409 is ignored)
-      try {
-        await registerEmitter(fiscalConfig, DOTCOMPANY_API_KEY);
-      } catch (regErr: any) {
-        if (regErr.status !== 409) {
-          console.error('[fiscal] registerEmitter falhou:', regErr.status, regErr.detail || regErr.message);
-          return res.status(regErr.status || 500).json({
-            error: `Erro ao registrar emitente na DotCompany: ${regErr.detail || regErr.message}`,
-            code: regErr.code,
-          });
+      // Registra emitente (idempotente — 409 ignorado). Pulado em sandbox (dc_test_)
+      const isSandbox = DOTCOMPANY_API_KEY.startsWith('dc_test_');
+      if (!isSandbox) {
+        try {
+          await registerEmitter(fiscalConfig, DOTCOMPANY_API_KEY);
+        } catch (regErr: any) {
+          if (regErr.status !== 409) {
+            console.error('[fiscal] registerEmitter falhou:', regErr.status, regErr.detail || regErr.message);
+            return res.status(regErr.status || 500).json({
+              error: `Erro ao registrar emitente na DotCompany: ${regErr.detail || regErr.message}`,
+              code: regErr.code,
+            });
+          }
         }
       }
 
