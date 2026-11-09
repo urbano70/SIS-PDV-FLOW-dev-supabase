@@ -6464,10 +6464,10 @@ export default function Dashboard({
                 {(() => {
                   const today = new Date().toISOString().split('T')[0];
                   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-                  const tableHistory = orders.filter(o => 
-                    o.tableId === targetId && 
-                    o.isComanda === isComandaSelected && 
-                    o.timestamp.startsWith(today)
+                  const tableHistory = orders.filter(o =>
+                    String(o.tableId) === String(targetId) &&
+                    o.isComanda === isComandaSelected &&
+                    o.timestamp && o.timestamp.startsWith(today)
                   ).reverse();
 
                   if (tableHistory.length === 0) {
@@ -6754,6 +6754,25 @@ export default function Dashboard({
                           </div>
                         )}
                       </div>
+
+                      {/* Botão NFC-e */}
+                      {order.status === 'finalizada' && (
+                        <button
+                          onClick={() => {
+                            const total = (order.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+                              let price = i.price;
+                              if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
+                              return acc + price;
+                            }, 0);
+                            setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro');
+                            setNfceModal({ orderId: order.id, total });
+                          }}
+                          className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase transition-colors"
+                        >
+                          <FileText size={13} />
+                          Emitir NFC-e
+                        </button>
+                      )}
                     </div>
                   ));
                 })()}
