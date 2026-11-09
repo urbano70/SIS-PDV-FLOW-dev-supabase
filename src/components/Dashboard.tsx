@@ -587,6 +587,7 @@ const OrderDetails = ({
               <span>Dar Baixa</span>
             </button>
           ) : (
+            <>
             <button
               onClick={() => {
                 if (currentItem?.status === 'linked') {
@@ -605,6 +606,16 @@ const OrderDetails = ({
               <Wallet size={10} />
               <span>Pagar</span>
             </button>
+            {fiscalConfig && (
+              <button
+                onClick={() => { setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro'); setNfceModal({ orderId: activeOrder.id, total: pendingAmount > 0.01 ? pendingAmount : activeOrder.total }); }}
+                className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <FileText size={10} />
+                <span>NFC-e</span>
+              </button>
+            )}
+            </>
           )}
           {allItemsRemoved && (
             <button
@@ -1212,7 +1223,16 @@ export default function Dashboard({
   const [isSeeding, setIsSeeding] = useState(false);
   const [qrMesaModal, setQrMesaModal] = useState<{ num: number } | null>(null);
   const [qrMesaSelected, setQrMesaSelected] = useState<number>(1);
-  const [settingsTab, setSettingsTab] = useState<'salon' | 'operation' | 'print' | 'data'>('salon');
+  const [settingsTab, setSettingsTab] = useState<'salon' | 'operation' | 'print' | 'data' | 'fiscal'>('salon');
+  const [fiscalConfig, setFiscalConfig] = useState<any>(null);
+  const [fiscalConfigLoading, setFiscalConfigLoading] = useState(false);
+  const [fiscalConfigSaving, setFiscalConfigSaving] = useState(false);
+  const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
+  const [nfceCpf, setNfceCpf] = useState('');
+  const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
+  const [nfceEmitting, setNfceEmitting] = useState(false);
+  const [nfceResult, setNfceResult] = useState<any>(null);
+  const [fiscalNotes, setFiscalNotes] = useState<any[]>([]);
 
   const handleFixTables = async () => {
     try {
@@ -4797,6 +4817,7 @@ export default function Dashboard({
                   { key: 'operation', label: 'Operação' },
                   { key: 'print', label: 'Impressão' },
                   { key: 'data', label: 'Dados' },
+                  { key: 'fiscal', label: 'Fiscal' },
                 ] as const).map(tab => (
                   <button
                     key={tab.key}
@@ -5593,6 +5614,144 @@ export default function Dashboard({
                   </div>
 
                 </div>
+
+                </div>
+              </div>
+              )}
+
+              {settingsTab === 'fiscal' && (
+              <div className="flex justify-center mb-4">
+              <div className="w-full max-w-xl">
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <FileText className="text-[#141414]" size={12} />
+                    <h3 className="font-serif italic text-sm leading-none">Configuração Fiscal (NFC-e)</h3>
+                  </div>
+                  {(() => {
+                    const cfg = fiscalConfig || {};
+                    const field = (label: string, key: string, placeholder?: string, type = 'text') => (
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[7px] font-bold uppercase text-[#141414]/50">{label}</label>
+                        <input
+                          type={type}
+                          value={cfg[key] || ''}
+                          onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), [key]: e.target.value }))}
+                          placeholder={placeholder}
+                          className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none focus:ring-1 focus:ring-[#141414]/30"
+                        />
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          {field('CNPJ', 'cnpj', '00.000.000/0001-00')}
+                          {field('Inscrição Estadual', 'ie', '000.000.000.000')}
+                          {field('UF', 'uf', 'SP')}
+                          <div className="flex flex-col gap-0.5">
+                            <label className="text-[7px] font-bold uppercase text-[#141414]/50">Regime Tributário</label>
+                            <select value={cfg.regime || '1'} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), regime: e.target.value }))} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
+                              <option value="1">1 - Simples Nacional</option>
+                              <option value="2">2 - Simples Excesso</option>
+                              <option value="3">3 - Regime Normal</option>
+                            </select>
+                          </div>
+                          {field('CSC', 'csc', 'Token CSC da SEFAZ')}
+                          {field('ID CSC', 'cscId', '000001')}
+                          {field('Série', 'serie', '001')}
+                          <div className="flex flex-col gap-0.5">
+                            <label className="text-[7px] font-bold uppercase text-[#141414]/50">Ambiente</label>
+                            <select value={cfg.ambiente || 'homologacao'} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), ambiente: e.target.value }))} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
+                              <option value="homologacao">Homologação (testes)</option>
+                              <option value="producao">Produção</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Endereço do Emitente</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {field('Razão Social', 'razaoSocial')}
+                            {field('CEP', 'cep', '00000-000')}
+                            {field('Logradouro', 'logradouro')}
+                            {field('Número', 'numero')}
+                            {field('Bairro', 'bairro')}
+                            {field('Município', 'municipio')}
+                            {field('Código IBGE', 'codigoMunicipio', '3550308')}
+                          </div>
+                        </div>
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado A1 (opcional para homologação)</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Certificado .pfx (Base64)</label>
+                              <textarea value={cfg.certificadoA1Base64 || ''} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: e.target.value }))} placeholder="Cole o conteúdo Base64 do arquivo .pfx" rows={2} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none resize-none font-mono" />
+                            </div>
+                            {field('Senha do Certificado', 'certificadoSenha', '••••••••', 'password')}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            disabled={fiscalConfigSaving}
+                            onClick={async () => {
+                              if (!tenantId) { toast.error('Faça login para salvar.'); return; }
+                              setFiscalConfigSaving(true);
+                              try {
+                                const res = await fetch(`/api/fiscal/config/${tenantId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fiscalConfig) });
+                                if (!res.ok) throw new Error(await res.text());
+                                toast.success('Configuração fiscal salva!');
+                              } catch (e: any) { toast.error('Erro ao salvar: ' + e.message); }
+                              setFiscalConfigSaving(false);
+                            }}
+                            className="flex-1 py-1.5 bg-[#141414] text-white rounded-lg text-[8px] font-bold uppercase hover:bg-[#141414]/80 transition-colors disabled:opacity-50"
+                          >{fiscalConfigSaving ? 'Salvando...' : 'Salvar Configuração'}</button>
+                          <button
+                            onClick={async () => {
+                              if (!tenantId) return;
+                              setFiscalConfigLoading(true);
+                              try {
+                                const res = await fetch(`/api/fiscal/config/${tenantId}`);
+                                if (res.ok) { const d = await res.json(); setFiscalConfig(d); toast.success('Configuração carregada.'); }
+                                else toast.error('Nenhuma configuração encontrada.');
+                              } catch { toast.error('Erro ao carregar configuração.'); }
+                              setFiscalConfigLoading(false);
+                            }}
+                            className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-[8px] font-bold uppercase hover:bg-gray-200 transition-colors"
+                          >{fiscalConfigLoading ? '...' : 'Carregar'}</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Notas Fiscais */}
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <FileText className="text-[#141414]" size={12} />
+                      <h3 className="font-serif italic text-sm leading-none">Notas Emitidas</h3>
+                    </div>
+                    <button onClick={async () => {
+                      if (!tenantId) return;
+                      const res = await fetch(`/api/fiscal/notes/${tenantId}`);
+                      if (res.ok) { const d = await res.json(); setFiscalNotes(d); }
+                    }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
+                  </div>
+                  {fiscalNotes.length === 0 ? (
+                    <p className="text-[8px] text-[#141414]/40 text-center py-2">Nenhuma nota emitida.</p>
+                  ) : (
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {fiscalNotes.map((n: any) => (
+                        <div key={n.id} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1 text-[7.5px]">
+                          <div>
+                            <span className={`font-bold ${n.status === 'autorizada' ? 'text-green-700' : n.status === 'cancelada' ? 'text-red-600' : 'text-yellow-600'}`}>{n.status?.toUpperCase()}</span>
+                            <span className="text-[#141414]/50 ml-2">Pedido #{n.order_id}</span>
+                          </div>
+                          <span className="font-mono text-[7px] text-[#141414]/40 truncate max-w-[120px]">{n.chave_acesso?.slice(-9)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
               </div>
               )}
 

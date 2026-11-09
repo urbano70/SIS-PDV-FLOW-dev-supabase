@@ -13,6 +13,32 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
+import { registerEmitter, emitNfce, cancelNfce, consultNfce, type FiscalConfig, type NfceItem, type FormaPagamento } from "./src/lib/dotcompany.ts";
+
+/*
+ * SQL — execute once in Supabase SQL editor:
+ *
+ * CREATE TABLE IF NOT EXISTS fiscal_notes (
+ *   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   tenant_id TEXT NOT NULL,
+ *   order_id TEXT NOT NULL,
+ *   chave_acesso TEXT,
+ *   qr_code TEXT,
+ *   url_danfe TEXT,
+ *   xml TEXT,
+ *   status TEXT NOT NULL DEFAULT 'pendente',
+ *   protocolo TEXT,
+ *   idempotency_key TEXT,
+ *   cpf_consumidor TEXT,
+ *   total NUMERIC,
+ *   ambiente TEXT DEFAULT 'homologacao',
+ *   error_detail TEXT,
+ *   error_code TEXT,
+ *   created_at TIMESTAMPTZ DEFAULT NOW(),
+ *   updated_at TIMESTAMPTZ DEFAULT NOW()
+ * );
+ * CREATE INDEX IF NOT EXISTS fiscal_notes_tenant_order ON fiscal_notes(tenant_id, order_id);
+ */
 
 async function startServer() {
   const app = express();
@@ -84,6 +110,7 @@ async function startServer() {
     dailyCounter: number;
     lastOrderDate: string;
     pizzariaConfig: any;
+    fiscalConfig: FiscalConfig | null;
     printerAgentSocket: any;
     loaded: boolean;
   }
@@ -119,6 +146,7 @@ async function startServer() {
       dailyCounter: 0,
       lastOrderDate: '',
       pizzariaConfig: { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true },
+      fiscalConfig: null,
       printerAgentSocket: null,
       loaded: false,
     };
@@ -396,6 +424,12 @@ async function startServer() {
       if (pfRes.data) { st.pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
       if (cfgPizRes.data?.data) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
+
+      // Load fiscal config
+      if (db) {
+        const { data: cfgFiscal } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+        if (cfgFiscal?.data) { st.fiscalConfig = cfgFiscal.data as FiscalConfig; }
+      }
 
       // Reconcilia mesas/comandas: libera as que estão ocupadas sem pedido ativo no banco
       const activeOrderIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
@@ -722,6 +756,7 @@ async function startServer() {
   };
 
   const AGENT_SECRET = process.env.AGENT_SECRET || '';
+  const DOTCOMPANY_API_KEY = process.env.DOTCOMPANY_API_KEY || '';
 
   // ── Socket.io logic ───────────────────────────────────────────────────────
   // Em dev local (sem env vars de produção), todo socket é admin automaticamente
@@ -2590,6 +2625,146 @@ async function startServer() {
       .order('position');
     if (error || !data) return res.json({ categories: [] });
     return res.json({ categories: mapCategories(data) });
+  });
+
+  // ── Fiscal endpoints ─────────────────────────────────────────────────────
+
+  // GET /api/fiscal/config/:tenantId
+  app.get("/api/fiscal/config/:tenantId", async (req, res) => {
+    const { tenantId } = req.params;
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const { data, error } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    // Never expose certificate or password
+    const cfg = data?.data ? { ...(data.data as any), certificadoA1Base64: undefined, certificadoSenha: undefined } : null;
+    return res.json({ config: cfg });
+  });
+
+  // POST /api/fiscal/config/:tenantId
+  app.post("/api/fiscal/config/:tenantId", express.json(), async (req, res) => {
+    const { tenantId } = req.params;
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const cfg: FiscalConfig = req.body;
+    if (!cfg.cnpj || !cfg.razaoSocial) return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
+    await db.from('config').upsert({ id: `${tenantId}:fiscal`, data: cfg, tenant_id: tenantId });
+    // Update in-memory state
+    const st = tenantStates.get(tenantId);
+    if (st) st.fiscalConfig = cfg;
+    // Notify admin sockets
+    io.to('tenant:' + tenantId).emit('update_fiscal_config', { ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined });
+    return res.json({ ok: true });
+  });
+
+  // POST /api/fiscal/nfce/:orderId
+  app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
+    const { orderId } = req.params;
+    const { tenantId, pagamento, cpfConsumidor } = req.body as { tenantId: string; pagamento: FormaPagamento; cpfConsumidor?: string };
+
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada no servidor' });
+
+    // Load fiscal config
+    let fiscalConfig: FiscalConfig | null = tenantStates.get(tenantId)?.fiscalConfig || null;
+    if (!fiscalConfig && db) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+      fiscalConfig = (data?.data as FiscalConfig) || null;
+    }
+    if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada. Configure em Configurações → Fiscal.' });
+
+    // Load order
+    const st = tenantStates.get(tenantId);
+    let order: any = st?.orders.find((o: any) => String(o.id) === String(orderId));
+    if (!order && db) {
+      const { data } = await db.from('orders').select('*').eq('id', orderId).eq('tenant_id', tenantId).maybeSingle();
+      if (data) order = rowToOrder(data);
+    }
+    if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
+
+    // Build NFC-e items from order items
+    const nfceItems: NfceItem[] = (order.items || [])
+      .filter((i: any) => !i.removed && !i.paid)
+      .map((i: any) => ({
+        nome: i.name || 'Item',
+        ncm: i.ncm || '21069090',
+        cfop: i.cfop || '5102',
+        csosn: i.csosn || '400',
+        cst: i.cst,
+        unidade: i.unidade || 'UN',
+        origem: i.origem || '0',
+        pisCofinsCst: i.pisCofinsCst || '07',
+        quantidade: i.quantity ?? 1,
+        valorUnitario: i.price / (i.quantity ?? 1),
+        valorTotal: i.price,
+      }));
+
+    if (nfceItems.length === 0) return res.status(400).json({ error: 'Pedido sem itens para emitir nota' });
+    const total = nfceItems.reduce((s, i) => s + i.valorTotal, 0);
+
+    try {
+      const result = await emitNfce({
+        tenantId, orderId: String(orderId), fiscalConfig, items: nfceItems,
+        total, pagamento: pagamento || 'outros', cpfConsumidor,
+      }, DOTCOMPANY_API_KEY);
+
+      // Persist to fiscal_notes
+      if (db) {
+        await db.from('fiscal_notes').upsert({
+          tenant_id: tenantId, order_id: String(orderId),
+          chave_acesso: result.chaveAcesso, qr_code: result.qrCode,
+          url_danfe: result.urlDanfe, xml: result.xml,
+          status: result.status, protocolo: result.protocolo,
+          idempotency_key: result.idempotencyKey,
+          cpf_consumidor: cpfConsumidor || null, total,
+          ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
+        }, { onConflict: 'idempotency_key' });
+      }
+
+      io.to('tenant:' + tenantId).emit('fiscal_note_emitted', { orderId, ...result });
+      return res.json(result);
+    } catch (err: any) {
+      console.error('[fiscal] Erro ao emitir NFC-e:', err);
+      if (db) {
+        await db.from('fiscal_notes').upsert({
+          tenant_id: tenantId, order_id: String(orderId),
+          status: 'erro', error_detail: err.detail || err.message,
+          error_code: err.code || 'UNKNOWN',
+          ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
+          idempotency_key: `nfce-${orderId}-${fiscalConfig.cnpj.replace(/\D/g, '')}`,
+        }, { onConflict: 'idempotency_key' });
+      }
+      return res.status(err.status || 500).json({ error: err.detail || err.message, code: err.code });
+    }
+  });
+
+  // POST /api/fiscal/cancel/:chaveAcesso
+  app.post("/api/fiscal/cancel/:chaveAcesso", express.json(), async (req, res) => {
+    const { chaveAcesso } = req.params;
+    const { tenantId, motivo } = req.body as { tenantId: string; motivo: string };
+    if (!tenantId || !motivo) return res.status(400).json({ error: 'tenantId e motivo obrigatórios' });
+    if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada' });
+
+    let fiscalConfig: FiscalConfig | null = tenantStates.get(tenantId)?.fiscalConfig || null;
+    if (!fiscalConfig && db) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+      fiscalConfig = (data?.data as FiscalConfig) || null;
+    }
+    if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada' });
+
+    try {
+      await cancelNfce(chaveAcesso, motivo, fiscalConfig, DOTCOMPANY_API_KEY);
+      if (db) await db.from('fiscal_notes').update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(err.status || 500).json({ error: err.detail || err.message, code: err.code });
+    }
+  });
+
+  // GET /api/fiscal/notes/:tenantId
+  app.get("/api/fiscal/notes/:tenantId", async (req, res) => {
+    const { tenantId } = req.params;
+    if (!db) return res.json({ notes: [] });
+    const { data } = await db.from('fiscal_notes').select('id,order_id,chave_acesso,qr_code,url_danfe,status,protocolo,total,ambiente,error_detail,error_code,created_at').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50);
+    return res.json({ notes: data || [] });
   });
 
   // Serve o executável do agente de impressão para download
