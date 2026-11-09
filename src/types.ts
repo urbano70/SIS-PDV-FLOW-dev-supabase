@@ -105,6 +105,13 @@ export interface MenuItem {
   videoUrl?: string;
   originalPrice?: number;
   available?: boolean;
+  ncm?: string;
+  cfop?: string;
+  csosn?: string;
+  cst?: string;
+  unidade?: string;
+  origem?: string;
+  pisCofinsCst?: string;
 }
 
 export interface MenuSubcategory {

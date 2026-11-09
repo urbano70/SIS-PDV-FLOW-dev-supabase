@@ -1171,6 +1171,8 @@ export default function Dashboard({
   };
   const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [editProductTab, setEditProductTab] = useState<'geral'|'fiscal'>('geral');
+  const [addProductTab, setAddProductTab] = useState<'geral'|'fiscal'>('geral');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isAddCategoryPopupOpen, setIsAddCategoryPopupOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<{oldName: string, name: string, visible: boolean, type: string} | null>(null);
@@ -7133,10 +7135,10 @@ export default function Dashboard({
             animate={{ opacity: 1 }}
             className="fixed inset-0 bg-[#141414]/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white w-full max-w-md rounded-3xl p-8 space-y-6 shadow-2xl"
+              className="bg-white w-full max-w-lg rounded-3xl p-8 space-y-6 shadow-2xl overflow-y-auto max-h-[90vh]"
             >
               <div className="flex justify-between items-center">
                 <h3 className="font-serif italic text-2xl">Editar Produto</h3>
@@ -7145,66 +7147,163 @@ export default function Dashboard({
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Produto</label>
-                  <input 
-                    type="text"
-                    value={editingProduct.item.name}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, name: e.target.value } })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço (R$)</label>
-                  <input 
-                    type="number"
-                    step="0.01"
-                    value={editingProduct.item.price}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, price: parseFloat(e.target.value) } })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
-                  <textarea
-                    value={editingProduct.item.ingredients}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, ingredients: e.target.value } })}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={(editingProduct.item as any).originalPrice || ''}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, originalPrice: parseFloat(e.target.value) || undefined } as any })}
-                    placeholder="0.00 (deixe vazio se não houver desconto)"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
-                  <input
-                    type="url"
-                    value={(editingProduct.item as any).imageUrl || ''}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, imageUrl: e.target.value } as any })}
-                    placeholder="https://exemplo.com/foto.jpg"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
-                  <input
-                    type="url"
-                    value={(editingProduct.item as any).videoUrl || ''}
-                    onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, videoUrl: e.target.value } as any })}
-                    placeholder="https://exemplo.com/video.mp4"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                <button onClick={() => setEditProductTab('geral')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${editProductTab==='geral' ? 'bg-white shadow text-[#141414]' : 'text-[#141414]/50'}`}>Geral</button>
+                <button onClick={() => setEditProductTab('fiscal')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${editProductTab==='fiscal' ? 'bg-white shadow text-[#141414]' : 'text-[#141414]/50'}`}>Fiscal</button>
               </div>
+
+              {editProductTab === 'geral' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Produto</label>
+                    <input
+                      type="text"
+                      value={editingProduct.item.name}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, name: e.target.value } })}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={editingProduct.item.price}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, price: parseFloat(e.target.value) } })}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
+                    <textarea
+                      value={editingProduct.item.ingredients}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, ingredients: e.target.value } })}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={(editingProduct.item as any).originalPrice || ''}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, originalPrice: parseFloat(e.target.value) || undefined } as any })}
+                      placeholder="0.00 (deixe vazio se não houver desconto)"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
+                    <input
+                      type="url"
+                      value={(editingProduct.item as any).imageUrl || ''}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, imageUrl: e.target.value } as any })}
+                      placeholder="https://exemplo.com/foto.jpg"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
+                    <input
+                      type="url"
+                      value={(editingProduct.item as any).videoUrl || ''}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, videoUrl: e.target.value } as any })}
+                      placeholder="https://exemplo.com/video.mp4"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {editProductTab === 'fiscal' && (
+                <div className="space-y-4">
+                  <p className="text-[9px] opacity-40 leading-snug">Dados necessários para emissão de NFC-e / NF-e. Consulte seu contador para os códigos corretos.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">NCM</label>
+                      <input
+                        type="text"
+                        maxLength={8}
+                        value={(editingProduct.item as any).ncm || ''}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, ncm: e.target.value } as any })}
+                        placeholder="Ex: 21069090"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={(editingProduct.item as any).cfop || '5102'}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, cfop: e.target.value } as any })}
+                        placeholder="Ex: 5102"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CSOSN (Simples Nacional)</label>
+                    <select
+                      value={(editingProduct.item as any).csosn || '400'}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, csosn: e.target.value } as any })}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="400">400 - Tributada pelo Simples Nacional</option>
+                      <option value="102">102 - Tributada sem permissão de crédito</option>
+                      <option value="500">500 - Com crédito de ICMS</option>
+                      <option value="900">900 - Outros</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CST (Regime Normal)</label>
+                    <input
+                      type="text"
+                      maxLength={3}
+                      value={(editingProduct.item as any).cst || ''}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, cst: e.target.value } as any })}
+                      placeholder="Ex: 00"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Unidade</label>
+                      <select
+                        value={(editingProduct.item as any).unidade || 'UN'}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, unidade: e.target.value } as any })}
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                      >
+                        {['UN','KG','L','CX','PCT','DZ'].map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">PIS/COFINS CST</label>
+                      <select
+                        value={(editingProduct.item as any).pisCofinsCst || '07'}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, pisCofinsCst: e.target.value } as any })}
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                      >
+                        <option value="07">07 - Isenta</option>
+                        <option value="49">49 - Outras saídas</option>
+                        <option value="99">99 - Outras operações</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Origem</label>
+                    <select
+                      value={(editingProduct.item as any).origem ?? '0'}
+                      onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, origem: e.target.value } as any })}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="0">0 - Nacional</option>
+                      <option value="1">1 - Estrangeira (importação direta)</option>
+                      <option value="2">2 - Estrangeira (adquirida no mercado interno)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
 
               <button
                 onClick={() => {
@@ -7219,6 +7318,13 @@ export default function Dashboard({
                       originalPrice: (editingProduct.item as any).originalPrice || undefined,
                       imageUrl: (editingProduct.item as any).imageUrl || undefined,
                       videoUrl: (editingProduct.item as any).videoUrl || undefined,
+                      ncm: (editingProduct.item as any).ncm || undefined,
+                      cfop: (editingProduct.item as any).cfop || '5102',
+                      csosn: (editingProduct.item as any).csosn || '400',
+                      cst: (editingProduct.item as any).cst || undefined,
+                      unidade: (editingProduct.item as any).unidade || 'UN',
+                      origem: (editingProduct.item as any).origem ?? '0',
+                      pisCofinsCst: (editingProduct.item as any).pisCofinsCst || '07',
                     }
                   });
                   setIsEditProductModalOpen(false);
@@ -7243,7 +7349,7 @@ export default function Dashboard({
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="bg-white w-full max-w-md rounded-3xl p-8 space-y-6 shadow-2xl"
+              className="bg-white w-full max-w-lg rounded-3xl p-8 space-y-6 shadow-2xl overflow-y-auto max-h-[90vh]"
             >
               <div className="flex justify-between items-center">
                 <div>
@@ -7259,100 +7365,197 @@ export default function Dashboard({
                 </button>
               </div>
 
-              <div className="space-y-4">
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Categoria</label>
-                  <select
-                    value={newProductCategory}
-                    onChange={(e) => { setNewProductCategory(e.target.value); setNewProductSubcategoryId(null); }}
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
-                  >
-                    {menu.map(cat => (
-                      <option key={cat.name} value={cat.name}>{cat.name}</option>
-                    ))}
-                  </select>
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                <button onClick={() => setAddProductTab('geral')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${addProductTab==='geral' ? 'bg-white shadow text-[#141414]' : 'text-[#141414]/50'}`}>Geral</button>
+                <button onClick={() => setAddProductTab('fiscal')} className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold transition-colors ${addProductTab==='fiscal' ? 'bg-white shadow text-[#141414]' : 'text-[#141414]/50'}`}>Fiscal</button>
+              </div>
+
+              {addProductTab === 'geral' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Categoria</label>
+                    <select
+                      value={newProductCategory}
+                      onChange={(e) => { setNewProductCategory(e.target.value); setNewProductSubcategoryId(null); }}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
+                    >
+                      {menu.map(cat => (
+                        <option key={cat.name} value={cat.name}>{cat.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {(() => {
+                    const subcats = menu.find(c => c.name === newProductCategory)?.subcategories || [];
+                    if (subcats.length === 0) return null;
+                    return (
+                      <div>
+                        <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Subcategoria</label>
+                        <select
+                          value={newProductSubcategoryId || ''}
+                          onChange={(e) => setNewProductSubcategoryId(e.target.value || null)}
+                          className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
+                        >
+                          <option value="">— Sem subcategoria —</option>
+                          {subcats.map(sub => (
+                            <option key={sub.id} value={sub.id}>{sub.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })()}
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Produto</label>
+                    <input
+                      type="text"
+                      value={newProductData.name}
+                      onChange={(e) => setNewProductData({ ...newProductData, name: e.target.value })}
+                      placeholder="Ex: Pizza de Calabresa"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newProductData.price || ''}
+                      onChange={(e) => setNewProductData({ ...newProductData, price: parseFloat(e.target.value) || 0 })}
+                      placeholder="0.00"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
+                    <textarea
+                      value={newProductData.ingredients}
+                      onChange={(e) => setNewProductData({ ...newProductData, ingredients: e.target.value })}
+                      placeholder="Ex: Mussarela, molho de tomate..."
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={(newProductData as any).originalPrice || ''}
+                      onChange={(e) => setNewProductData({ ...newProductData, originalPrice: parseFloat(e.target.value) || undefined } as any)}
+                      placeholder="0.00 (deixe vazio se não houver desconto)"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
+                    <input
+                      type="url"
+                      value={(newProductData as any).imageUrl || ''}
+                      onChange={(e) => setNewProductData({ ...newProductData, imageUrl: e.target.value } as any)}
+                      placeholder="https://exemplo.com/foto.jpg"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
+                    <input
+                      type="url"
+                      value={(newProductData as any).videoUrl || ''}
+                      onChange={(e) => setNewProductData({ ...newProductData, videoUrl: e.target.value } as any)}
+                      placeholder="https://exemplo.com/video.mp4"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
                 </div>
-                {(() => {
-                  const subcats = menu.find(c => c.name === newProductCategory)?.subcategories || [];
-                  if (subcats.length === 0) return null;
-                  return (
+              )}
+
+              {addProductTab === 'fiscal' && (
+                <div className="space-y-4">
+                  <p className="text-[9px] opacity-40 leading-snug">Dados necessários para emissão de NFC-e / NF-e. Consulte seu contador para os códigos corretos.</p>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Subcategoria</label>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">NCM</label>
+                      <input
+                        type="text"
+                        maxLength={8}
+                        value={(newProductData as any).ncm || ''}
+                        onChange={(e) => setNewProductData({ ...newProductData, ncm: e.target.value } as any)}
+                        placeholder="Ex: 21069090"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={(newProductData as any).cfop || '5102'}
+                        onChange={(e) => setNewProductData({ ...newProductData, cfop: e.target.value } as any)}
+                        placeholder="Ex: 5102"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CSOSN (Simples Nacional)</label>
+                    <select
+                      value={(newProductData as any).csosn || '400'}
+                      onChange={(e) => setNewProductData({ ...newProductData, csosn: e.target.value } as any)}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="400">400 - Tributada pelo Simples Nacional</option>
+                      <option value="102">102 - Tributada sem permissão de crédito</option>
+                      <option value="500">500 - Com crédito de ICMS</option>
+                      <option value="900">900 - Outros</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CST (Regime Normal)</label>
+                    <input
+                      type="text"
+                      maxLength={3}
+                      value={(newProductData as any).cst || ''}
+                      onChange={(e) => setNewProductData({ ...newProductData, cst: e.target.value } as any)}
+                      placeholder="Ex: 00"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Unidade</label>
                       <select
-                        value={newProductSubcategoryId || ''}
-                        onChange={(e) => setNewProductSubcategoryId(e.target.value || null)}
-                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] appearance-none cursor-pointer"
+                        value={(newProductData as any).unidade || 'UN'}
+                        onChange={(e) => setNewProductData({ ...newProductData, unidade: e.target.value } as any)}
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
                       >
-                        <option value="">— Sem subcategoria —</option>
-                        {subcats.map(sub => (
-                          <option key={sub.id} value={sub.id}>{sub.name}</option>
-                        ))}
+                        {['UN','KG','L','CX','PCT','DZ'].map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
-                  );
-                })()}
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Nome do Produto</label>
-                  <input 
-                    type="text"
-                    value={newProductData.name}
-                    onChange={(e) => setNewProductData({ ...newProductData, name: e.target.value })}
-                    placeholder="Ex: Pizza de Calabresa"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">PIS/COFINS CST</label>
+                      <select
+                        value={(newProductData as any).pisCofinsCst || '07'}
+                        onChange={(e) => setNewProductData({ ...newProductData, pisCofinsCst: e.target.value } as any)}
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                      >
+                        <option value="07">07 - Isenta</option>
+                        <option value="49">49 - Outras saídas</option>
+                        <option value="99">99 - Outras operações</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Origem</label>
+                    <select
+                      value={(newProductData as any).origem ?? '0'}
+                      onChange={(e) => setNewProductData({ ...newProductData, origem: e.target.value } as any)}
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm appearance-none cursor-pointer"
+                    >
+                      <option value="0">0 - Nacional</option>
+                      <option value="1">1 - Estrangeira (importação direta)</option>
+                      <option value="2">2 - Estrangeira (adquirida no mercado interno)</option>
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço (R$)</label>
-                  <input 
-                    type="number"
-                    step="0.01"
-                    value={newProductData.price || ''}
-                    onChange={(e) => setNewProductData({ ...newProductData, price: parseFloat(e.target.value) || 0 })}
-                    placeholder="0.00"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes / Descrição</label>
-                  <textarea
-                    value={newProductData.ingredients}
-                    onChange={(e) => setNewProductData({ ...newProductData, ingredients: e.target.value })}
-                    placeholder="Ex: Mussarela, molho de tomate..."
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={(newProductData as any).originalPrice || ''}
-                    onChange={(e) => setNewProductData({ ...newProductData, originalPrice: parseFloat(e.target.value) || undefined } as any)}
-                    placeholder="0.00 (deixe vazio se não houver desconto)"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL da Imagem</label>
-                  <input
-                    type="url"
-                    value={(newProductData as any).imageUrl || ''}
-                    onChange={(e) => setNewProductData({ ...newProductData, imageUrl: e.target.value } as any)}
-                    placeholder="https://exemplo.com/foto.jpg"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">URL do Vídeo (opcional)</label>
-                  <input
-                    type="url"
-                    value={(newProductData as any).videoUrl || ''}
-                    onChange={(e) => setNewProductData({ ...newProductData, videoUrl: e.target.value } as any)}
-                    placeholder="https://exemplo.com/video.mp4"
-                    className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
-                  />
-                </div>
-              </div>
+              )}
 
               <button
                 onClick={() => {
