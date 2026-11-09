@@ -1005,6 +1005,11 @@ async function startServer() {
         data: waiter,
       });
       io.to(_room()).emit("update_waiters", _st().waiters);
+
+      // Auto-aprovados (Garcom_Fogo_*) recebem confirmação imediata
+      if (isFogo) {
+        socket.emit("waiter_approved", { status: "approved" });
+      }
     });
 
     socket.on("waiter_login", async ({ name, password }) => {
