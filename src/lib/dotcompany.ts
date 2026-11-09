@@ -153,7 +153,12 @@ async function dotFetch(
 export async function registerEmitter(fiscalConfig: FiscalConfig, apiKey: string): Promise<void> {
   const body: any = {
     cnpj: (fiscalConfig.cnpj || '').replace(/\D/g, ''),
-    inscricao_estadual: fiscalConfig.ie || '',
+    inscricao_estadual: (() => {
+      const ie = (fiscalConfig.ie || '').replace(/\D/g, '');
+      // IE vazia, placeholder ou regime Simples Nacional → ISENTO
+      if (!ie || ie === '000000000000' || fiscalConfig.regime === '1' || fiscalConfig.regime === '2') return 'ISENTO';
+      return fiscalConfig.ie;
+    })(),
     uf: fiscalConfig.uf || 'SP',
     regime_tributario: fiscalConfig.regime || '1',
     razao_social: fiscalConfig.razaoSocial || '',
@@ -163,7 +168,7 @@ export async function registerEmitter(fiscalConfig: FiscalConfig, apiKey: string
       numero: fiscalConfig.numero || 'S/N',
       bairro: fiscalConfig.bairro || 'N/I',
       municipio: fiscalConfig.municipio || 'N/I',
-      codigo_municipio: fiscalConfig.codigoMunicipio || '0000000',
+      codigo_municipio: fiscalConfig.codigoMunicipio || '3550308',
       uf: fiscalConfig.uf || 'SP',
       cep: (fiscalConfig.cep || '00000000').replace(/\D/g, ''),
     },
