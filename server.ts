@@ -372,7 +372,11 @@ async function startServer() {
       }
 
       if (oRes.data) {
-        st.orders = oRes.data.map((r: any) => {
+        st.orders = oRes.data.filter((r: any) => {
+          // Remove pedidos do Teste de Fogo
+          const waiterName = r.waiter_name || '';
+          return !waiterName.startsWith('Garcom_Fogo_');
+        }).map((r: any) => {
           const o = rowToOrder(r);
           if (o.items && st.menu.length > 0) {
             o.items = o.items.map((item: any) => {

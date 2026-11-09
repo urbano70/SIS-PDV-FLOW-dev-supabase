@@ -5621,6 +5621,18 @@ export default function Dashboard({
               </div>
               )}
 
+              {settingsTab === 'fiscal' && (() => {
+                // Auto-load fiscal config when tab opens
+                if (fiscalConfig === null && !fiscalConfigLoading && tenantId) {
+                  setFiscalConfigLoading(true);
+                  fetch(`/api/fiscal/config/${tenantId}`)
+                    .then(r => r.json())
+                    .then(d => setFiscalConfig(d.config || {}))
+                    .catch(() => setFiscalConfig({}))
+                    .finally(() => setFiscalConfigLoading(false));
+                }
+                return null;
+              })()}
               {settingsTab === 'fiscal' && (
               <div className="flex justify-center mb-4">
               <div className="w-full max-w-xl">
@@ -5629,6 +5641,9 @@ export default function Dashboard({
                     <FileText className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Configuração Fiscal (NFC-e)</h3>
                   </div>
+                  {fiscalConfigLoading ? (
+                    <div className="text-center py-8 opacity-40 text-xs">Carregando configuração...</div>
+                  ) : null}
                   {(() => {
                     const cfg = fiscalConfig || {};
                     const field = (label: string, key: string, placeholder?: string, type = 'text') => (
@@ -5732,7 +5747,7 @@ export default function Dashboard({
                               setFiscalConfigLoading(true);
                               try {
                                 const res = await fetch(`/api/fiscal/config/${tenantId}`);
-                                if (res.ok) { const d = await res.json(); setFiscalConfig(d); toast.success('Configuração carregada.'); }
+                                if (res.ok) { const d = await res.json(); setFiscalConfig(d.config || d); toast.success('Configuração carregada.'); }
                                 else toast.error('Nenhuma configuração encontrada.');
                               } catch { toast.error('Erro ao carregar configuração.'); }
                               setFiscalConfigLoading(false);
