@@ -26,11 +26,32 @@ export function saveNotificationMode(mode: NotificationMode) {
   try { localStorage.setItem(STORAGE_KEY, mode); } catch {}
 }
 
-export function useOrderNotifications(orders: any[], mode: NotificationMode) {
+export function useOrderNotifications(orders: any[], mode: NotificationMode, isCashRegisterOpen?: boolean) {
   const [notifications, setNotifications] = useState<OrderNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const prevItemIdsRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
+  const prevCashOpenRef = useRef<boolean | undefined>(isCashRegisterOpen);
+
+  // Clear notifications and re-seed item IDs when cash register is closed or opened
+  useEffect(() => {
+    if (prevCashOpenRef.current === isCashRegisterOpen) return;
+    const wasOpen = prevCashOpenRef.current;
+    prevCashOpenRef.current = isCashRegisterOpen;
+
+    // Re-seed prevItemIds from current orders so we don't fire stale notifications
+    const ids = new Set<string>();
+    orders.forEach((o: any) => (o.items || []).forEach((item: any) => {
+      if (item.id) ids.add(String(item.id));
+    }));
+    prevItemIdsRef.current = ids;
+
+    // Clear all notifications when cash register closes (or transitions)
+    if (!isCashRegisterOpen && wasOpen) {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [isCashRegisterOpen]);
 
   useEffect(() => {
     if (!initializedRef.current) {
@@ -44,6 +65,7 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode) {
     }
 
     if (mode === 'disabled') return;
+    if (!isCashRegisterOpen) return;
 
     const currentIds = new Set<string>();
     const newNotifs: OrderNotification[] = [];

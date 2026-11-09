@@ -956,7 +956,7 @@ export default function Dashboard({
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
-  const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode);
+  const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode, isCashRegisterOpen);
 
   // Ouve chamadas de garçom via socket
   useEffect(() => {
