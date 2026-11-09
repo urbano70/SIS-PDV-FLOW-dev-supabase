@@ -52,6 +52,7 @@ export interface NfceRequest {
 }
 
 export interface NfceResult {
+  notaId?: number;
   chaveAcesso: string;
   qrCode: string;
   urlDanfe: string;
@@ -253,6 +254,7 @@ export async function emitNfce(req: NfceRequest, apiKey: string): Promise<NfceRe
   });
 
   return {
+    notaId: data.nota_id || data.id || undefined,
     chaveAcesso: data.chave_acesso || data.chave || '',
     qrCode: data.qr_code || data.qrcode || '',
     urlDanfe: data.url_danfe || data.danfe_url || '',
@@ -266,18 +268,16 @@ export async function emitNfce(req: NfceRequest, apiKey: string): Promise<NfceRe
 // ── Cancelamento ──────────────────────────────────────────────────────────────
 
 export async function cancelNfce(
-  chaveAcesso: string,
+  notaId: number,
   motivo: string,
-  fiscalConfig: FiscalConfig,
   apiKey: string,
 ): Promise<void> {
-  const idempotencyKey = `cancel-${chaveAcesso}`;
-  await dotFetch(`/nfce/${chaveAcesso}/cancelamento`, apiKey, {
+  const idempotencyKey = `cancel-${notaId}`;
+  await dotFetch('/nfe/cancelar', apiKey, {
     method: 'POST',
     body: JSON.stringify({
-      cnpj_emitente: (fiscalConfig.cnpj || '').replace(/\D/g, ''),
+      nota_id: notaId,
       justificativa: motivo,
-      ambiente: fiscalConfig.ambiente === 'producao' ? 'producao' : 'homologacao',
     }),
     idempotencyKey,
   });
@@ -289,9 +289,12 @@ export async function consultNfce(
   chaveAcesso: string,
   apiKey: string,
 ): Promise<{ status: string; protocolo?: string }> {
-  const data = await dotFetch(`/nfce/${chaveAcesso}`, apiKey, { method: 'GET' });
+  const data = await dotFetch('/nfe/consultar', apiKey, {
+    method: 'POST',
+    body: JSON.stringify({ chave: chaveAcesso }),
+  });
   return {
-    status: data?.status || 'desconhecido',
-    protocolo: data?.numero_protocolo || data?.protocolo,
+    status: data?.situacao || data?.status || 'desconhecido',
+    protocolo: data?.protocolo,
   };
 }

@@ -29,6 +29,7 @@ import { registerEmitter, emitNfce, cancelNfce, consultNfce, type FiscalConfig, 
  *   status TEXT NOT NULL DEFAULT 'pendente',
  *   protocolo TEXT,
  *   idempotency_key TEXT,
+ *   nota_id INTEGER,
  *   cpf_consumidor TEXT,
  *   total NUMERIC,
  *   ambiente TEXT DEFAULT 'homologacao',
@@ -2754,6 +2755,7 @@ async function startServer() {
           url_danfe: result.urlDanfe, xml: result.xml,
           status: result.status, protocolo: result.protocolo,
           idempotency_key: result.idempotencyKey,
+          nota_id: result.notaId || null,
           cpf_consumidor: cpfConsumidor || null, total,
           ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
         }, { onConflict: 'idempotency_key' });
@@ -2791,8 +2793,16 @@ async function startServer() {
     }
     if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada' });
 
+    // Busca nota_id armazenado na emissão
+    let notaId: number | null = null;
+    if (db) {
+      const { data: noteRow } = await db.from('fiscal_notes').select('nota_id').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
+      notaId = noteRow?.nota_id ?? null;
+    }
+    if (!notaId) return res.status(400).json({ error: 'nota_id não encontrado; reemita ou consulte o suporte' });
+
     try {
-      await cancelNfce(chaveAcesso, motivo, fiscalConfig, DOTCOMPANY_API_KEY);
+      await cancelNfce(notaId, motivo, DOTCOMPANY_API_KEY);
       if (db) await db.from('fiscal_notes').update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
       return res.json({ ok: true });
     } catch (err: any) {
