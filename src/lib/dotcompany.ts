@@ -257,10 +257,10 @@ export async function emitNfce(req: NfceRequest, apiKey: string): Promise<NfceRe
     notaId: data.nota_id || data.id || undefined,
     chaveAcesso: data.chave_acesso || data.chave || '',
     qrCode: data.qr_code || data.qrcode || '',
-    urlDanfe: data.url_danfe || data.danfe_url || '',
-    xml: data.xml || '',
-    status: data.status || 'autorizada',
-    protocolo: data.numero_protocolo || data.protocolo || '',
+    urlDanfe: data.danfe_url || data.url_danfe || data.url_consulta || (data.links?.pdf) || '',
+    xml: data.xml_autorizado || data.xml || '',
+    status: data.autorizada ? 'autorizada' : (data.status || 'autorizada'),
+    protocolo: data.protocolo || data.numero_protocolo || '',
     idempotencyKey,
   };
 }
