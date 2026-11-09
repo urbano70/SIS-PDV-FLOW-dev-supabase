@@ -2658,6 +2658,19 @@ async function startServer() {
     if (st) st.fiscalConfig = cfg;
     // Notify admin sockets
     io.to('tenant:' + tenantId).emit('update_fiscal_config', { ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined });
+
+    // Auto-registrar emitente na DotCompany se tiver certificado
+    if (DOTCOMPANY_API_KEY && cfg.certificadoA1Base64 && cfg.certificadoSenha) {
+      try {
+        await registerEmitter(cfg, DOTCOMPANY_API_KEY);
+        console.log(`[fiscal] Emitente ${cfg.cnpj} registrado na DotCompany`);
+      } catch (regErr: any) {
+        if (regErr.status !== 409) {
+          console.warn(`[fiscal] registerEmitter ao salvar config: ${regErr.status} ${regErr.detail || regErr.message}`);
+        }
+      }
+    }
+
     return res.json({ ok: true });
   });
 
@@ -2709,9 +2722,8 @@ async function startServer() {
     const total = nfceItems.reduce((s, i) => s + i.valorTotal, 0);
 
     try {
-      // Registra emitente (idempotente — 409 ignorado). Pulado em sandbox (dc_test_)
-      const isSandbox = DOTCOMPANY_API_KEY.startsWith('dc_test_');
-      if (!isSandbox) {
+      // Registra emitente se tiver certificado (idempotente — 409 ignorado)
+      if (fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
         try {
           await registerEmitter(fiscalConfig, DOTCOMPANY_API_KEY);
         } catch (regErr: any) {
