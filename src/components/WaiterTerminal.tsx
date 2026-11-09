@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
-import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing, Bluetooth, BluetoothSearching, Printer, BluetoothOff } from 'lucide-react';
+import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing, Receipt, Bluetooth, BluetoothSearching, Printer, BluetoothOff } from 'lucide-react';
 import { usePWA } from '../hooks/usePWA';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -34,6 +34,19 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [callAlertQueue, setCallAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
   const callAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
+  // Fila de alertas "Pedir Conta"
+  const [billAlertQueue, setBillAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
+  const billAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  const dismissBillAlert = useCallback((id: string) => {
+    setBillAlertQueue(prev => prev.filter(a => a.id !== id));
+    const audio = billAudiosRef.current.get(id);
+    if (audio) {
+      if ((audio as any)._replayHandler) audio.removeEventListener('ended', (audio as any)._replayHandler);
+      audio.pause(); audio.currentTime = 0; billAudiosRef.current.delete(id);
+    }
+  }, []);
+
   const dismissCallAlert = useCallback((id: string) => {
     setCallAlertQueue(prev => prev.filter(a => a.id !== id));
     const audio = callAudiosRef.current.get(id);
@@ -59,6 +72,23 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     };
     socket.on('waiter_called', handler);
     return () => { socket.off('waiter_called', handler); };
+  }, []);
+
+  useEffect(() => {
+    const handler = ({ tableId }: { tableId: number }) => {
+      const id = `bill-${tableId}-${Date.now()}`;
+      setBillAlertQueue(prev => [...prev, { tableId, id }]);
+      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      const audio = new Audio('/sounds/call-waiter.mp3');
+      audio.loop = true;
+      const replay = () => { try { audio.currentTime = 0; audio.play().catch(() => {}); } catch {} };
+      audio.addEventListener('ended', replay);
+      (audio as any)._replayHandler = replay;
+      audio.play().catch(() => {});
+      billAudiosRef.current.set(id, audio);
+    };
+    socket.on('bill_requested', handler);
+    return () => { socket.off('bill_requested', handler); };
   }, []);
 
   // Client-side first-seen tracking — avoids relying on potentially stale DB timestamps.
@@ -617,6 +647,36 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
+      {/* Fila de alertas Pedir Conta — card verde, acima do garçom */}
+      {billAlertQueue.length > 0 && (() => {
+        const current = billAlertQueue[0];
+        const remaining = billAlertQueue.length - 1;
+        return (
+          <div className="fixed top-3 right-3 z-[601] animate-bounce-once">
+            <div className="bg-green-600 text-white rounded-2xl px-4 py-3 flex items-center gap-3 shadow-2xl border border-green-500/40 min-w-[180px]">
+              <Receipt size={22} className="animate-pulse shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 leading-none mb-0.5">Pedir conta</p>
+                <p className="text-3xl font-black leading-none">{current.tableId}</p>
+              </div>
+              <div className="flex flex-col items-end gap-1.5 shrink-0">
+                {remaining > 0 && (
+                  <span className="bg-white text-green-600 text-[10px] font-black px-1.5 py-0.5 rounded-full leading-none">
+                    +{remaining}
+                  </span>
+                )}
+                <button
+                  onClick={() => dismissBillAlert(current.id)}
+                  className="bg-white/20 hover:bg-white/35 active:scale-95 text-white text-[10px] font-black px-2.5 py-1 rounded-lg uppercase transition-all"
+                >
+                  OK
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Fila de alertas Chama Garçom — card flutuante no canto superior direito */}
       {callAlertQueue.length > 0 && (() => {
         const current = callAlertQueue[0];

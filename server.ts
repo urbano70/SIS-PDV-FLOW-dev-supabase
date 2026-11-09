@@ -2330,13 +2330,9 @@ async function startServer() {
       if (table) {
         table.status = "bill_requested";
         await saveToSupabase(isComanda ? 'comandas' : '_st().tables', table, table.id.toString());
-        if (isComanda) {
-          io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
-        } else {
-          io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-        }
+        io.to(_room()).emit("bill_requested", { tableId, isComanda: !!isComanda, timestamp: Date.now() });
       }
     });
 
