@@ -983,11 +983,12 @@ async function startServer() {
       );
       
       const waiterId = waiterData.cpf || randomUUID();
-      const waiter = { 
-        ...waiterData, 
+      const isFogo = typeof waiterData.name === 'string' && waiterData.name.startsWith('Garcom_Fogo_');
+      const waiter = {
+        ...waiterData,
         id: waiterId,
-        socketId: socket.id, 
-        status: "pending" 
+        socketId: socket.id,
+        status: isFogo ? "approved" : "pending"
       };
       
       // Store waiter identity on the socket

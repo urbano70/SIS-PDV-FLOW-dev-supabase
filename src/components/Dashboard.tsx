@@ -982,6 +982,10 @@ export default function Dashboard({
   const [callingTables, setCallingTables] = useState<Set<number>>(new Set());
   const [callingTablePopup, setCallingTablePopup] = useState<number | null>(null);
 
+  // Drag & drop de transferência de mesa
+  const [dragSourceTable, setDragSourceTable] = useState<number | null>(null);
+  const [transferPopup, setTransferPopup] = useState<{ source: number; target: number } | null>(null);
+
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
@@ -2788,13 +2792,17 @@ export default function Dashboard({
                             {[...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))).map(table => (
                               <button
                                 key={table.id}
+                                draggable={table.status === 'occupied'}
+                                onDragStart={e => { if (table.status === 'occupied') { setDragSourceTable(table.id); e.dataTransfer.effectAllowed = 'move'; } }}
+                                onDragEnd={() => setDragSourceTable(null)}
+                                onDragOver={e => { if (dragSourceTable !== null && dragSourceTable !== table.id && table.status === 'free') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                onDrop={e => { e.preventDefault(); if (dragSourceTable !== null && table.status === 'free') { setTransferPopup({ source: dragSourceTable, target: table.id }); setDragSourceTable(null); } }}
                                 onClick={() => {
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
                                   setShowingRecentOrders(false);
                                   if (callingTables.has(table.id)) {
                                     setCallingTablePopup(table.id);
-                                    setCallingTables(prev => { const s = new Set(prev); s.delete(table.id); return s; });
                                   } else if (shouldShowInactivityIcon(table.id, false)) {
                                     setInactivityPopup({ tableId: table.id, isComanda: false, minutes: getInactivityMinutes(table.id, false) });
                                   }
@@ -8083,6 +8091,38 @@ export default function Dashboard({
         );
       })()}
 
+      {/* Popup: Confirmar transferência de mesa (drag & drop) */}
+      {transferPopup !== null && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
+            <div className="flex flex-col items-center px-6 py-8 gap-4 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-center justify-center">
+                <svg viewBox="0 0 24 24" className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </div>
+              <div>
+                <h2 className="font-serif italic text-2xl text-[#141414]">Transferir Mesa</h2>
+                <p className="text-sm text-[#141414]/60 mt-1">Mesa <strong>{transferPopup.source}</strong> → Mesa <strong>{transferPopup.target}</strong></p>
+                <p className="text-xs text-[#141414]/40 mt-1">Os itens da mesa {transferPopup.source} serão movidos para a mesa {transferPopup.target}.</p>
+              </div>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setTransferPopup(null)}
+                  className="flex-1 py-3 rounded-xl border border-[#141414]/20 text-[#141414]/60 font-bold text-sm hover:opacity-80 transition-opacity"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => { socket.emit('transfer_table', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, reason: 'Transferência de mesa' }); setTransferPopup(null); }}
+                  className="flex-1 py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Popup: Mesa chamando garçom */}
       {callingTablePopup !== null && (
         <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -8096,7 +8136,7 @@ export default function Dashboard({
                 <p className="text-xs text-[#141414]/50 mt-1">O cliente solicitou atendimento</p>
               </div>
               <button
-                onClick={() => setCallingTablePopup(null)}
+                onClick={() => { setCallingTablePopup(prev => { setCallingTables(s => { const ns = new Set(s); ns.delete(prev!); return ns; }); return null; }); }}
                 className="w-full py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
               >
                 OK — Já vou atender
