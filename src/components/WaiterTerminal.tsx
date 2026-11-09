@@ -37,7 +37,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const dismissCallAlert = useCallback((id: string) => {
     setCallAlertQueue(prev => prev.filter(a => a.id !== id));
     const audio = callAudiosRef.current.get(id);
-    if (audio) { audio.pause(); audio.currentTime = 0; callAudiosRef.current.delete(id); }
+    if (audio) {
+      if ((audio as any)._replayHandler) audio.removeEventListener('ended', (audio as any)._replayHandler);
+      audio.pause(); audio.currentTime = 0; callAudiosRef.current.delete(id);
+    }
   }, []);
 
   useEffect(() => {
@@ -45,12 +48,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       const id = `call-${tableId}-${Date.now()}`;
       setCallAlertQueue(prev => [...prev, { tableId, id }]);
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
-      try {
-        const audio = new Audio('/sounds/call-waiter.mp3');
-        audio.loop = true;
-        audio.play();
-        callAudiosRef.current.set(id, audio);
-      } catch {}
+      const audio = new Audio('/sounds/call-waiter.mp3');
+      audio.loop = true;
+      // fallback: re-play on 'ended' for browsers that ignore loop on short clips
+      const replay = () => { try { audio.currentTime = 0; audio.play().catch(() => {}); } catch {} };
+      audio.addEventListener('ended', replay);
+      (audio as any)._replayHandler = replay;
+      audio.play().catch(() => {});
+      callAudiosRef.current.set(id, audio);
     };
     socket.on('waiter_called', handler);
     return () => { socket.off('waiter_called', handler); };
