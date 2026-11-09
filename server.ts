@@ -292,6 +292,12 @@ async function startServer() {
         st.isCashRegisterOpen = cfg.isCashRegisterOpen || false;
         if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
+        // Se há pedidos ativos mas o caixa está fechado, reabrir automaticamente
+        const hasActiveOrders = st.orders.some((o: any) => o.status !== 'finalizada' && o.status !== 'paid');
+        if (hasActiveOrders && !st.isCashRegisterOpen) {
+          st.isCashRegisterOpen = true;
+          saveToSupabase('config', { isCashRegisterOpen: true }, 'app', tenantId).catch(() => {});
+        }
         io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
         io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
       }
