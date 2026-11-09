@@ -295,10 +295,18 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
 
   const tabItems = activeTab === 'todos' ? filteredItems
     : activeTab === 'destaques' ? filteredItems.filter(i => i.imageUrl || i.videoUrl)
-    : categories.find(c => c.name === activeTab)?.items.filter(item => {
+    : (() => {
+        const cat = categories.find(c => c.name === activeTab);
+        if (!cat) return [];
+        const catItems = [
+          ...(cat.items || []),
+          ...(cat.subcategories || []).flatMap(sub => sub.items || []),
+        ];
         const q = search.toLowerCase();
-        return !q || item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q);
-      }) || [];
+        return q ? catItems.filter(item =>
+          item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q)
+        ) : catItems;
+      })();
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
