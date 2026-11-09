@@ -335,6 +335,8 @@ const OrderDetails = ({
   handleRemoveItem,
   printerConfig,
   firstSeenRef,
+  fiscalConfig,
+  onOpenNfce,
 }: any) => {
   const { clockOffset, data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
@@ -606,9 +608,9 @@ const OrderDetails = ({
               <Wallet size={10} />
               <span>Pagar</span>
             </button>
-            {fiscalConfig && (
+            {fiscalConfig && onOpenNfce && (
               <button
-                onClick={() => { setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro'); setNfceModal({ orderId: activeOrder.id, total: pendingAmount > 0.01 ? pendingAmount : activeOrder.total }); }}
+                onClick={() => onOpenNfce(activeOrder.id, pendingAmount > 0.01 ? pendingAmount : activeOrder.total)}
                 className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 bg-blue-600 hover:bg-blue-700 text-white"
               >
                 <FileText size={10} />
@@ -3070,6 +3072,8 @@ export default function Dashboard({
                           handleRemoveItem={handleRemoveItem}
                           printerConfig={printerConfig}
                           firstSeenRef={firstSeenRef}
+                          fiscalConfig={fiscalConfig}
+                          onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro'); setNfceModal({ orderId, total }); }}
                         />
                       </motion.div>
                     )}
@@ -5612,8 +5616,6 @@ export default function Dashboard({
                       </button>
                     </div>
                   </div>
-
-                </div>
 
                 </div>
               </div>
@@ -8647,6 +8649,77 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* Modal NFC-e */}
+      <AnimatePresence>
+        {nfceModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget && !nfceEmitting) { setNfceModal(null); setNfceResult(null); } }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="bg-blue-600 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="text-white" size={16} />
+                  <h2 className="text-white font-bold text-sm">Emitir NFC-e</h2>
+                </div>
+                <button onClick={() => { if (!nfceEmitting) { setNfceModal(null); setNfceResult(null); } }} className="text-white/70 hover:text-white p-1"><X size={16} /></button>
+              </div>
+              <div className="p-4 space-y-3">
+                {nfceResult ? (
+                  <div className="space-y-3">
+                    <div className={`text-center py-2 rounded-lg font-bold text-sm ${nfceResult.status === 'autorizada' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {nfceResult.status === 'autorizada' ? '✓ NFC-e Autorizada!' : '✗ ' + nfceResult.status}
+                    </div>
+                    {nfceResult.chaveAcesso && <p className="text-[7px] font-mono text-[#141414]/50 break-all bg-gray-50 p-2 rounded">{nfceResult.chaveAcesso}</p>}
+                    {nfceResult.qrCode && (
+                      <div className="flex justify-center">
+                        <QRCodeSVG value={nfceResult.qrCode} size={120} />
+                      </div>
+                    )}
+                    {nfceResult.urlDanfe && <a href={nfceResult.urlDanfe} target="_blank" rel="noopener noreferrer" className="block text-center text-[9px] text-blue-600 underline">Abrir DANFE</a>}
+                    <button onClick={() => { setNfceModal(null); setNfceResult(null); }} className="w-full py-2 bg-[#141414] text-white rounded-lg text-[9px] font-bold uppercase">Fechar</button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="bg-gray-50 rounded-lg p-2 text-center">
+                      <p className="text-[8px] text-[#141414]/50 uppercase font-bold">Pedido #{nfceModal.orderId}</p>
+                      <p className="text-lg font-bold text-[#141414]">R$ {nfceModal.total.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
+                      <input value={nfceCpf} onChange={e => setNfceCpf(e.target.value)} placeholder="000.000.000-00" className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    </div>
+                    <div>
+                      <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
+                      <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="cartao_credito">Cartão de Crédito</option>
+                        <option value="cartao_debito">Cartão de Débito</option>
+                        <option value="pix">PIX</option>
+                        <option value="outros">Outros</option>
+                      </select>
+                    </div>
+                    <button
+                      disabled={nfceEmitting}
+                      onClick={async () => {
+                        if (!tenantId) { toast.error('Faça login.'); return; }
+                        setNfceEmitting(true);
+                        try {
+                          const res = await fetch(`/api/fiscal/nfce/${nfceModal!.orderId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined }) });
+                          const data = await res.json();
+                          if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir NFC-e');
+                          setNfceResult(data);
+                          toast.success('NFC-e emitida com sucesso!');
+                        } catch (e: any) { toast.error('Erro NFC-e: ' + e.message); }
+                        setNfceEmitting(false);
+                      }}
+                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-bold uppercase transition-colors disabled:opacity-50"
+                    >{nfceEmitting ? 'Emitindo...' : 'Emitir NFC-e'}</button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Badge de versão — canto inferior esquerdo */}
       <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
