@@ -262,6 +262,7 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
 }) {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('todos');
+  const [activeSub, setActiveSub] = useState<string | null>(null);
   const [categories, setCategories] = useState<MenuCategoryPublic[]>([]);
   const [loading, setLoading] = useState(true);
   const [videoItem, setVideoItem] = useState<MenuItemPublic | null>(null);
@@ -293,19 +294,27 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
     ...categories.map(c => ({ key: c.name, label: c.name })),
   ];
 
+  const activeCat = activeTab !== 'todos' && activeTab !== 'destaques'
+    ? categories.find(c => c.name === activeTab) ?? null
+    : null;
+
   const tabItems = activeTab === 'todos' ? filteredItems
     : activeTab === 'destaques' ? filteredItems.filter(i => i.imageUrl || i.videoUrl)
     : (() => {
-        const cat = categories.find(c => c.name === activeTab);
-        if (!cat) return [];
-        const catItems = [
-          ...(cat.items || []),
-          ...(cat.subcategories || []).flatMap(sub => sub.items || []),
-        ];
+        if (!activeCat) return [];
+        let pool: MenuItemPublic[];
+        if (activeSub && (activeCat.subcategories || []).some(s => s.id === activeSub)) {
+          pool = (activeCat.subcategories!.find(s => s.id === activeSub)?.items || []);
+        } else {
+          pool = [
+            ...(activeCat.items || []),
+            ...(activeCat.subcategories || []).flatMap(sub => sub.items || []),
+          ];
+        }
         const q = search.toLowerCase();
-        return q ? catItems.filter(item =>
+        return q ? pool.filter(item =>
           item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q)
-        ) : catItems;
+        ) : pool;
       })();
 
   return (
@@ -358,7 +367,7 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
         {tabs.map(tab => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => { setActiveTab(tab.key); setActiveSub(null); }}
             className={`shrink-0 flex items-center gap-1 px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
               activeTab === tab.key ? 'bg-[#141414] text-white' : 'bg-[#141414]/6 text-[#141414]/60 hover:bg-[#141414]/10'
             }`}
@@ -368,6 +377,31 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
           </button>
         ))}
       </div>
+
+      {/* Subcategory tabs — só aparece quando a categoria tem subcategorias */}
+      {activeCat && (activeCat.subcategories || []).length > 0 && (
+        <div className="flex gap-2 px-4 py-2.5 overflow-x-auto scrollbar-none border-b border-[#141414]/6 bg-[#141414]/2">
+          <button
+            onClick={() => setActiveSub(null)}
+            className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+              activeSub === null ? 'bg-[#141414] text-white' : 'bg-[#141414]/8 text-[#141414]/50 hover:bg-[#141414]/12'
+            }`}
+          >
+            Todos
+          </button>
+          {(activeCat.subcategories || []).map(sub => (
+            <button
+              key={sub.id}
+              onClick={() => setActiveSub(sub.id)}
+              className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-bold transition-all ${
+                activeSub === sub.id ? 'bg-[#141414] text-white' : 'bg-[#141414]/8 text-[#141414]/50 hover:bg-[#141414]/12'
+              }`}
+            >
+              {sub.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Items */}
       <div className="flex-1 overflow-y-auto">
@@ -428,11 +462,8 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
                 </div>
               );
 
-              const activeCat = activeTab !== 'todos' && activeTab !== 'destaques'
-                ? categories.find(c => c.name === activeTab)
-                : null;
-
-              if (activeCat && (activeCat.subcategories || []).length > 0) {
+              // quando subcategoria está selecionada, exibe lista plana (tabItems já filtrou)
+              if (activeCat && (activeCat.subcategories || []).length > 0 && !activeSub) {
                 const q = search.toLowerCase();
                 const matchItem = (item: MenuItemPublic) =>
                   !q || item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q);
