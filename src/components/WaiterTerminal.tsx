@@ -32,9 +32,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   // Fila de alertas "Chama Garçom" — suporta múltiplas mesas simultâneas
   const [callAlertQueue, setCallAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
+  const callAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
 
   const dismissCallAlert = useCallback((id: string) => {
     setCallAlertQueue(prev => prev.filter(a => a.id !== id));
+    const audio = callAudiosRef.current.get(id);
+    if (audio) { audio.pause(); audio.currentTime = 0; callAudiosRef.current.delete(id); }
   }, []);
 
   useEffect(() => {
@@ -42,8 +45,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       const id = `call-${tableId}-${Date.now()}`;
       setCallAlertQueue(prev => [...prev, { tableId, id }]);
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
-      try { new Audio('/sounds/call-waiter.mp3').play(); } catch {}
-      setTimeout(() => setCallAlertQueue(prev => prev.filter(a => a.id !== id)), 8000);
+      try {
+        const audio = new Audio('/sounds/call-waiter.mp3');
+        audio.loop = true;
+        audio.play();
+        callAudiosRef.current.set(id, audio);
+      } catch {}
     };
     socket.on('waiter_called', handler);
     return () => { socket.off('waiter_called', handler); };

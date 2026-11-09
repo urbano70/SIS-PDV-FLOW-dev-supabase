@@ -977,7 +977,13 @@ export default function Dashboard({
       addCallNotification(tableId);
       setCallingTables(prev => new Set(prev).add(tableId));
       if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
-      try { new Audio('/sounds/call-waiter.mp3').play(); } catch {}
+      try {
+        if (callingAudioRef.current) { callingAudioRef.current.pause(); }
+        const audio = new Audio('/sounds/call-waiter.mp3');
+        audio.loop = true;
+        audio.play();
+        callingAudioRef.current = audio;
+      } catch {}
     };
     socket.on('waiter_called', handler);
     return () => { socket.off('waiter_called', handler); };
@@ -994,6 +1000,7 @@ export default function Dashboard({
   // Mesas que estão chamando o garçom (sino pulsando)
   const [callingTables, setCallingTables] = useState<Set<number>>(new Set());
   const [callingTablePopup, setCallingTablePopup] = useState<number | null>(null);
+  const callingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Drag & drop de transferência de mesa
   const [dragSourceTable, setDragSourceTable] = useState<number | null>(null);
@@ -8555,7 +8562,7 @@ export default function Dashboard({
                 <p className="text-xs text-[#141414]/50 mt-1">O cliente solicitou atendimento</p>
               </div>
               <button
-                onClick={() => { setCallingTablePopup(prev => { setCallingTables(s => { const ns = new Set(s); ns.delete(prev!); return ns; }); return null; }); }}
+                onClick={() => { if (callingAudioRef.current) { callingAudioRef.current.pause(); callingAudioRef.current = null; } setCallingTablePopup(prev => { setCallingTables(s => { const ns = new Set(s); ns.delete(prev!); return ns; }); return null; }); }}
                 className="w-full py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
               >
                 OK — Já vou atender
