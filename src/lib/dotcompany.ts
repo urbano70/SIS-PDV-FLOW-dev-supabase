@@ -74,9 +74,10 @@ function isSandboxKey(apiKey: string): boolean {
 }
 
 function makeDotError(status: number, body: any): DotCompanyError {
-  const err = new Error(body?.detail || 'DotCompany API error') as DotCompanyError;
-  err.code = body?.code || 'UNKNOWN';
-  err.detail = body?.detail || '';
+  const msg = body?.detail || body?.message || body?.error || (typeof body === 'string' ? body : null) || `HTTP ${status}`;
+  const err = new Error(msg) as DotCompanyError;
+  err.code = body?.code || `HTTP_${status}`;
+  err.detail = msg;
   err.requestId = body?.request_id;
   err.docsUrl = body?.docs_url;
   err.status = status;
@@ -120,7 +121,9 @@ async function dotFetch(
 
       // Parse error body
       let body: any = {};
-      try { body = await res.json(); } catch {}
+      let rawText = '';
+      try { rawText = await res.text(); body = JSON.parse(rawText); } catch { body = { detail: rawText || `HTTP ${res.status}` }; }
+      console.error(`[dotcompany] ${res.status} ${path}:`, rawText);
 
       // 4xx — do not retry (except 429)
       if (res.status >= 400 && res.status < 500 && res.status !== 429) {
