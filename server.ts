@@ -2567,7 +2567,7 @@ async function startServer() {
   // ── Info pública do tenant (nome + logo) ──────────────────────
   app.get("/api/tenant-info/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
-    const st = tenantStates.get(tenantId);
+    const st = tenants.get(tenantId);
     // Tenta estado em memória primeiro; fallback: Supabase
     let cfg: any = st?.pizzariaConfig;
     if (!cfg && db) {
@@ -2611,7 +2611,7 @@ async function startServer() {
 
   app.get("/api/menu/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
-    const st = tenantStates.get(tenantId);
+    const st = tenants.get(tenantId);
     // Estado em memória disponível → usa direto
     if (st && (st.menu || []).length > 0) {
       return res.json({ categories: mapCategories(st.menu) });
@@ -2648,7 +2648,7 @@ async function startServer() {
     if (!cfg.cnpj || !cfg.razaoSocial) return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
     await db.from('config').upsert({ id: `${tenantId}:fiscal`, data: cfg, tenant_id: tenantId });
     // Update in-memory state
-    const st = tenantStates.get(tenantId);
+    const st = tenants.get(tenantId);
     if (st) st.fiscalConfig = cfg;
     // Notify admin sockets
     io.to('tenant:' + tenantId).emit('update_fiscal_config', { ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined });
@@ -2664,7 +2664,7 @@ async function startServer() {
     if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada no servidor' });
 
     // Load fiscal config
-    let fiscalConfig: FiscalConfig | null = tenantStates.get(tenantId)?.fiscalConfig || null;
+    let fiscalConfig: FiscalConfig | null = tenants.get(tenantId)?.fiscalConfig || null;
     if (!fiscalConfig && db) {
       const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
       fiscalConfig = (data?.data as FiscalConfig) || null;
@@ -2672,7 +2672,7 @@ async function startServer() {
     if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada. Configure em Configurações → Fiscal.' });
 
     // Load order
-    const st = tenantStates.get(tenantId);
+    const st = tenants.get(tenantId);
     let order: any = st?.orders.find((o: any) => String(o.id) === String(orderId));
     if (!order && db) {
       const { data } = await db.from('orders').select('*').eq('id', orderId).eq('tenant_id', tenantId).maybeSingle();
@@ -2743,7 +2743,7 @@ async function startServer() {
     if (!tenantId || !motivo) return res.status(400).json({ error: 'tenantId e motivo obrigatórios' });
     if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada' });
 
-    let fiscalConfig: FiscalConfig | null = tenantStates.get(tenantId)?.fiscalConfig || null;
+    let fiscalConfig: FiscalConfig | null = tenants.get(tenantId)?.fiscalConfig || null;
     if (!fiscalConfig && db) {
       const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
       fiscalConfig = (data?.data as FiscalConfig) || null;
