@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -5681,11 +5681,32 @@ export default function Dashboard({
                           </div>
                         </div>
                         <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado A1 (opcional para homologação)</p>
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado A1</p>
                           <div className="grid grid-cols-1 gap-2">
                             <div className="flex flex-col gap-0.5">
-                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Certificado .pfx (Base64)</label>
-                              <textarea value={cfg.certificadoA1Base64 || ''} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: e.target.value }))} placeholder="Cole o conteúdo Base64 do arquivo .pfx" rows={2} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none resize-none font-mono" />
+                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Arquivo .pfx ou .p12</label>
+                              <div className="flex items-center gap-2">
+                                <label className="flex-1 flex items-center gap-2 px-3 py-2 border border-dashed border-[#141414]/20 rounded cursor-pointer hover:bg-[#141414]/5 transition-colors">
+                                  <Upload size={12} className="opacity-40 shrink-0" />
+                                  <span className="text-[9px] opacity-50 truncate">
+                                    {cfg.certificadoA1Base64 ? '✓ Certificado carregado' : 'Clique para selecionar .pfx ou .p12'}
+                                  </span>
+                                  <input type="file" accept=".pfx,.p12" className="hidden" onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = (ev) => {
+                                      const base64 = (ev.target?.result as string).split(',')[1];
+                                      setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: base64 }));
+                                      toast.success('Certificado carregado. Salve a configuração.');
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }} />
+                                </label>
+                                {cfg.certificadoA1Base64 && (
+                                  <button onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: '' }))} className="text-[9px] text-red-500 hover:text-red-700 shrink-0">Remover</button>
+                                )}
+                              </div>
                             </div>
                             {field('Senha do Certificado', 'certificadoSenha', '••••••••', 'password')}
                           </div>
