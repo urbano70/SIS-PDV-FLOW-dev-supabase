@@ -62,6 +62,7 @@ function pickItem(menu: any[]): any | null {
 }
 
 // ── Estado de módulo — sobrevive desmontagem do componente ────────────────────
+let   _tenantId     = '';
 const _sockets:   Socket[]   = [];
 const _waiterIds: string[]   = [];
 let   _stopFlag     = false;
@@ -197,10 +198,7 @@ function waitForCashRegister(): Promise<boolean> {
 
     socket.on('update_cash_register', handler);
 
-    // Solicita estado imediato via re-conexão de dados
-    socket.emit('request_state');
-
-    // Se já estava aberto antes do listener, resolve pelo init_data
+    // Solicita estado atual via request_init_data
     const initHandler = (data: any) => {
       if (data?.isCashRegisterOpen) {
         clearTimeout(tid);
@@ -210,6 +208,7 @@ function waitForCashRegister(): Promise<boolean> {
       }
     };
     socket.once('init_data', initHandler);
+    socket.emit('request_init_data');
   });
 }
 
@@ -219,7 +218,8 @@ function spawnWaiter(index: number) {
   const phone = `11987${String(600000 + index).padStart(6, '0')}`;
   const m     = _metrics;
 
-  const sock = io(window.location.origin, { transports: ['websocket', 'polling'] });
+  const tenantQuery = _tenantId ? `?tenant=${encodeURIComponent(_tenantId)}` : '';
+  const sock = io(window.location.origin + tenantQuery, { transports: ['websocket', 'polling'] });
   _sockets.push(sock);
 
   let menuData:   any[] = [];
@@ -228,7 +228,10 @@ function spawnWaiter(index: number) {
   let active  = false;
   let stopped = false;
 
-  sock.on('connect', () => addLog(name, `Conectado`, 'info'));
+  sock.on('connect', () => {
+    addLog(name, `Conectado`, 'info');
+    sock.emit('request_init_data');
+  });
   sock.on('connect_error', (err) => {
     m.errors.push(`connect_error: ${err.message}`);
     addLog(name, `⛔ ${err.message}`, 'warn');
@@ -374,8 +377,9 @@ function spawnWaiter(index: number) {
 }
 
 // ── Componente ────────────────────────────────────────────────────────────────
-export function TesteDeForgo() {
+export function TesteDeForgo({ tenantId = '' }: { tenantId?: string }) {
   const [, forceRender] = useState(0);
+  _tenantId = tenantId;
 
   useEffect(() => {
     _notifyRender = () => forceRender(n => n + 1);

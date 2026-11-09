@@ -5055,7 +5055,7 @@ export default function Dashboard({
 
                 {/* TesteDeForgo inline */}
                 <div className="border-t border-[#141414]/8 pt-2">
-                  <TesteDeForgo />
+                  <TesteDeForgo tenantId={tenantId} />
                 </div>
               </div>
 
