@@ -74,7 +74,12 @@ function isSandboxKey(apiKey: string): boolean {
 }
 
 function makeDotError(status: number, body: any): DotCompanyError {
-  const msg = body?.detail || body?.message || body?.error || (typeof body === 'string' ? body : null) || `HTTP ${status}`;
+  // Try to extract field-level validation errors
+  let msg = body?.detail || body?.message || body?.error || (typeof body === 'string' ? body : null) || `HTTP ${status}`;
+  if (body?.errors && typeof body.errors === 'object') {
+    const fields = Object.entries(body.errors).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' | ');
+    if (fields) msg += ` — ${fields}`;
+  }
   const err = new Error(msg) as DotCompanyError;
   err.code = body?.code || `HTTP_${status}`;
   err.detail = msg;
