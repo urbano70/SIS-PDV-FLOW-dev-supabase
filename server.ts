@@ -2520,6 +2520,9 @@ async function startServer() {
       (socket as any).tenantId = tenantId;
       (socket as any).isClient = true;
       socket.join('tenant:' + tenantId);
+      // Envia pedidos atuais imediatamente para que ComandaView carregue sem esperar próxima atualização
+      const st = tenants.get(tenantId);
+      if (st) socket.emit('update_orders', st.orders || []);
     });
 
     // ── Chama Garçom ──────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import {
@@ -384,57 +384,92 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-[#141414]/5">
-            {tabItems.map(item => (
-              <div key={item.id} className={`flex gap-3 px-4 py-4 ${!item.available ? 'opacity-60' : ''}`}>
-                {/* Image / Video thumbnail */}
-                <div className="shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-[#141414]/5 flex items-center justify-center relative">
-                  {item.imageUrl ? (
-                    <>
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
-                      {item.videoUrl && (
-                        <button
-                          onClick={() => setVideoItem(item)}
-                          className="absolute inset-0 flex items-center justify-center bg-black/30"
-                        >
-                          <div className="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center">
-                            <Play size={12} className="text-[#141414] ml-0.5" fill="currentColor" />
-                          </div>
-                        </button>
+          <div>
+            {(() => {
+              const renderItem = (item: MenuItemPublic) => (
+                <div key={item.id} className={`flex gap-3 px-4 py-4 ${!item.available ? 'opacity-60' : ''}`}>
+                  <div className="shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-[#141414]/5 flex items-center justify-center relative">
+                    {item.imageUrl ? (
+                      <>
+                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                        {item.videoUrl && (
+                          <button onClick={() => setVideoItem(item)} className="absolute inset-0 flex items-center justify-center bg-black/30">
+                            <div className="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center">
+                              <Play size={12} className="text-[#141414] ml-0.5" fill="currentColor" />
+                            </div>
+                          </button>
+                        )}
+                      </>
+                    ) : item.videoUrl ? (
+                      <button onClick={() => setVideoItem(item)} className="w-full h-full flex items-center justify-center bg-[#141414]/8">
+                        <Play size={20} className="text-[#141414]/40" />
+                      </button>
+                    ) : (
+                      <UtensilsCrossed size={22} className="text-[#141414]/15" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-bold text-sm text-[#141414] leading-snug">{item.name}</p>
+                      {!item.available && (
+                        <span className="shrink-0 text-[9px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">Esgotado</span>
                       )}
-                    </>
-                  ) : item.videoUrl ? (
-                    <button
-                      onClick={() => setVideoItem(item)}
-                      className="w-full h-full flex items-center justify-center bg-[#141414]/8"
-                    >
-                      <Play size={20} className="text-[#141414]/40" />
-                    </button>
-                  ) : (
-                    <UtensilsCrossed size={22} className="text-[#141414]/15" />
-                  )}
+                    </div>
+                    {item.ingredients && (
+                      <p className="text-[11px] text-[#141414]/50 mt-0.5 line-clamp-2 leading-snug">{item.ingredients}</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      {item.originalPrice && item.originalPrice > item.price && (
+                        <span className="text-[11px] text-rose-400 line-through font-mono">R$ {item.originalPrice.toFixed(2)}</span>
+                      )}
+                      <span className="text-sm font-black text-green-600 font-mono">R$ {item.price.toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
+              );
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-bold text-sm text-[#141414] leading-snug">{item.name}</p>
-                    {!item.available && (
-                      <span className="shrink-0 text-[9px] font-bold text-rose-500 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">Esgotado</span>
+              const activeCat = activeTab !== 'todos' && activeTab !== 'destaques'
+                ? categories.find(c => c.name === activeTab)
+                : null;
+
+              if (activeCat && (activeCat.subcategories || []).length > 0) {
+                const q = search.toLowerCase();
+                const matchItem = (item: MenuItemPublic) =>
+                  !q || item.name.toLowerCase().includes(q) || (item.ingredients || '').toLowerCase().includes(q);
+
+                return (
+                  <div>
+                    {/* itens diretos da categoria (sem subcategoria) */}
+                    {(activeCat.items || []).filter(matchItem).length > 0 && (
+                      <div className="divide-y divide-[#141414]/5">
+                        {(activeCat.items || []).filter(matchItem).map(renderItem)}
+                      </div>
                     )}
+                    {/* subcategorias com seus itens */}
+                    {(activeCat.subcategories || []).map(sub => {
+                      const subItems = (sub.items || []).filter(matchItem);
+                      if (subItems.length === 0) return null;
+                      return (
+                        <div key={sub.id}>
+                          <div className="px-4 pt-5 pb-2">
+                            <span className="text-[11px] font-black uppercase tracking-widest text-[#141414]/40">{sub.name}</span>
+                          </div>
+                          <div className="divide-y divide-[#141414]/5">
+                            {subItems.map(renderItem)}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {item.ingredients && (
-                    <p className="text-[11px] text-[#141414]/50 mt-0.5 line-clamp-2 leading-snug">{item.ingredients}</p>
-                  )}
-                  <div className="flex items-center gap-2 mt-1.5">
-                    {item.originalPrice && item.originalPrice > item.price && (
-                      <span className="text-[11px] text-rose-400 line-through font-mono">R$ {item.originalPrice.toFixed(2)}</span>
-                    )}
-                    <span className="text-sm font-black text-green-600 font-mono">R$ {item.price.toFixed(2)}</span>
-                  </div>
+                );
+              }
+
+              return (
+                <div className="divide-y divide-[#141414]/5">
+                  {tabItems.map(renderItem)}
                 </div>
-              </div>
-            ))}
+              );
+            })()}
           </div>
         )}
       </div>
