@@ -2701,6 +2701,19 @@ async function startServer() {
     const total = nfceItems.reduce((s, i) => s + i.valorTotal, 0);
 
     try {
+      // Ensure emitter is registered (idempotent — 409 is ignored)
+      try {
+        await registerEmitter(fiscalConfig, DOTCOMPANY_API_KEY);
+      } catch (regErr: any) {
+        if (regErr.status !== 409) {
+          console.error('[fiscal] registerEmitter falhou:', regErr.status, regErr.detail || regErr.message);
+          return res.status(regErr.status || 500).json({
+            error: `Erro ao registrar emitente na DotCompany: ${regErr.detail || regErr.message}`,
+            code: regErr.code,
+          });
+        }
+      }
+
       const result = await emitNfce({
         tenantId, orderId: String(orderId), fiscalConfig, items: nfceItems,
         total, pagamento: pagamento || 'outros', cpfConsumidor,
@@ -2722,17 +2735,18 @@ async function startServer() {
       io.to('tenant:' + tenantId).emit('fiscal_note_emitted', { orderId, ...result });
       return res.json(result);
     } catch (err: any) {
-      console.error('[fiscal] Erro ao emitir NFC-e:', err);
+      const errMsg = err.detail || err.message || 'Erro desconhecido';
+      console.error('[fiscal] Erro ao emitir NFC-e:', err.status, err.code, errMsg);
       if (db) {
         await db.from('fiscal_notes').upsert({
           tenant_id: tenantId, order_id: String(orderId),
-          status: 'erro', error_detail: err.detail || err.message,
+          status: 'erro', error_detail: errMsg,
           error_code: err.code || 'UNKNOWN',
           ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
           idempotency_key: `nfce-${orderId}-${fiscalConfig.cnpj.replace(/\D/g, '')}`,
         }, { onConflict: 'idempotency_key' });
       }
-      return res.status(err.status || 500).json({ error: err.detail || err.message, code: err.code });
+      return res.status(err.status || 500).json({ error: errMsg, code: err.code });
     }
   });
 
