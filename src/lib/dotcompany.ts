@@ -149,20 +149,20 @@ async function dotFetch(
 
 export async function registerEmitter(fiscalConfig: FiscalConfig, apiKey: string): Promise<void> {
   const body: any = {
-    cnpj: fiscalConfig.cnpj.replace(/\D/g, ''),
-    inscricao_estadual: fiscalConfig.ie,
-    uf: fiscalConfig.uf,
-    regime_tributario: fiscalConfig.regime,
-    razao_social: fiscalConfig.razaoSocial,
-    nome_fantasia: fiscalConfig.razaoSocial,
+    cnpj: (fiscalConfig.cnpj || '').replace(/\D/g, ''),
+    inscricao_estadual: fiscalConfig.ie || '',
+    uf: fiscalConfig.uf || 'SP',
+    regime_tributario: fiscalConfig.regime || '1',
+    razao_social: fiscalConfig.razaoSocial || '',
+    nome_fantasia: fiscalConfig.razaoSocial || '',
     endereco: {
-      logradouro: fiscalConfig.logradouro,
-      numero: fiscalConfig.numero,
-      bairro: fiscalConfig.bairro,
-      municipio: fiscalConfig.municipio,
-      codigo_municipio: fiscalConfig.codigoMunicipio,
-      uf: fiscalConfig.uf,
-      cep: fiscalConfig.cep.replace(/\D/g, ''),
+      logradouro: fiscalConfig.logradouro || 'N/I',
+      numero: fiscalConfig.numero || 'S/N',
+      bairro: fiscalConfig.bairro || 'N/I',
+      municipio: fiscalConfig.municipio || 'N/I',
+      codigo_municipio: fiscalConfig.codigoMunicipio || '0000000',
+      uf: fiscalConfig.uf || 'SP',
+      cep: (fiscalConfig.cep || '00000000').replace(/\D/g, ''),
     },
     nfce: {
       serie: fiscalConfig.serie || '001',
@@ -197,7 +197,7 @@ function mapPagamento(p: FormaPagamento): string {
 
 export async function emitNfce(req: NfceRequest, apiKey: string): Promise<NfceResult> {
   const { fiscalConfig, items, total, pagamento, cpfConsumidor, orderId } = req;
-  const idempotencyKey = `nfce-${orderId}-${fiscalConfig.cnpj.replace(/\D/g, '')}`;
+  const idempotencyKey = `nfce-${orderId}-${(fiscalConfig.cnpj || '').replace(/\D/g, '')}`;
 
   const detalhes = items.map((item, idx) => ({
     numero_item: idx + 1,
@@ -219,7 +219,7 @@ export async function emitNfce(req: NfceRequest, apiKey: string): Promise<NfceRe
   }));
 
   const body: any = {
-    cnpj_emitente: fiscalConfig.cnpj.replace(/\D/g, ''),
+    cnpj_emitente: (fiscalConfig.cnpj || '').replace(/\D/g, ''),
     serie: fiscalConfig.serie || '001',
     ambiente: fiscalConfig.ambiente === 'producao' ? 'producao' : 'homologacao',
     detalhes,
@@ -262,7 +262,7 @@ export async function cancelNfce(
   await dotFetch(`/nfce/${chaveAcesso}/cancelamento`, apiKey, {
     method: 'POST',
     body: JSON.stringify({
-      cnpj_emitente: fiscalConfig.cnpj.replace(/\D/g, ''),
+      cnpj_emitente: (fiscalConfig.cnpj || '').replace(/\D/g, ''),
       justificativa: motivo,
       ambiente: fiscalConfig.ambiente === 'producao' ? 'producao' : 'homologacao',
     }),
