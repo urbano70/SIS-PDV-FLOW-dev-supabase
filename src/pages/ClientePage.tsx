@@ -520,9 +520,31 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
     return () => { s.disconnect(); };
   }, [mesaId, tenantId]);
 
-  const items = order ? (order.items || []).filter((i: any) => !i.removed) : [];
-  const total = items.reduce((acc: number, i: any) => acc + i.price, 0);
+  const allItems: any[] = order?.items || [];
+  const openItems   = allItems.filter((i: any) => !i.removed && !i.paid);
+  const paidItems   = allItems.filter((i: any) => !i.removed && i.paid);
+  const canceledItems = allItems.filter((i: any) => i.removed);
+  const totalOpen = openItems.reduce((acc: number, i: any) => acc + (i.price || 0), 0);
+  const totalPaid = paidItems.reduce((acc: number, i: any) => acc + (i.price || 0), 0);
+  const hasAnything = allItems.length > 0;
   const displayName = tenantInfo.name || 'Meu Restaurante';
+
+  const renderItem = (item: any, idx: number, variant: 'open' | 'paid' | 'canceled') => (
+    <div key={idx} className={`flex justify-between items-center px-4 py-3.5 ${variant === 'canceled' ? 'opacity-50' : ''}`}>
+      <div className="flex-1 mr-4">
+        <p className={`text-sm font-semibold leading-snug ${variant === 'canceled' ? 'line-through text-[#141414]/40' : variant === 'paid' ? 'text-[#141414]/60' : 'text-[#141414]'}`}>
+          {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+        </p>
+        {item.observations && <p className="text-[10px] text-blue-500 mt-0.5">{item.observations}</p>}
+        {variant === 'canceled' && item.removedBy && (
+          <p className="text-[10px] text-rose-400 mt-0.5">Cancelado pelo garçom</p>
+        )}
+      </div>
+      <span className={`font-mono text-sm font-black shrink-0 ${variant === 'canceled' ? 'line-through text-[#141414]/30' : variant === 'paid' ? 'text-green-600' : 'text-[#141414]'}`}>
+        R$ {(item.price || 0).toFixed(2)}
+      </span>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#F8F7F4] flex flex-col">
@@ -531,8 +553,8 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
           <ArrowLeft size={16} />
           Voltar para a mesa
         </button>
-        {items.length > 0 && (
-          <span className="text-[11px] font-semibold text-[#141414]/40 bg-[#141414]/5 px-2.5 py-1 rounded-full">{items.length} {items.length === 1 ? 'item' : 'itens'}</span>
+        {openItems.length > 0 && (
+          <span className="text-[11px] font-semibold text-[#141414]/40 bg-[#141414]/5 px-2.5 py-1 rounded-full">{openItems.length} em aberto</span>
         )}
       </div>
       <div className="flex items-center gap-3 px-4 py-3 bg-white border-b border-[#141414]/6">
@@ -551,35 +573,61 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
           </div>
         </div>
       </div>
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-4 space-y-4">
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="animate-spin text-orange-400" size={28} /></div>
-        ) : !items.length ? (
+        ) : !hasAnything ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <ClipboardList size={40} className="mb-4 text-[#141414]/15" />
             <p className="font-bold text-sm text-[#141414]/50">Nenhum item ainda</p>
             <p className="text-xs text-[#141414]/30 mt-1">Seus pedidos aparecerão aqui.</p>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-[#141414]/8 overflow-hidden shadow-sm">
-            <div className="divide-y divide-[#141414]/5">
-              {items.map((item: any, idx: number) => (
-                <div key={idx} className="flex justify-between items-center px-4 py-3.5">
-                  <div className="flex-1 mr-4">
-                    <p className="text-sm font-semibold text-[#141414]">
-                      {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                    </p>
-                    {item.observations && <p className="text-[10px] text-blue-500 mt-0.5">{item.observations}</p>}
-                  </div>
-                  <span className="font-mono text-sm font-black text-[#141414] shrink-0">R$ {item.price.toFixed(2)}</span>
+          <>
+            {/* Itens em aberto */}
+            {openItems.length > 0 && (
+              <div className="bg-white rounded-2xl border border-[#141414]/8 overflow-hidden shadow-sm">
+                <div className="px-4 pt-4 pb-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#141414]/40">Em aberto</span>
                 </div>
-              ))}
-            </div>
-            <div className="px-4 py-4 bg-[#141414]/3 border-t border-[#141414]/8 flex justify-between items-center">
-              <span className="text-xs font-bold uppercase text-[#141414]/40 tracking-widest">Total</span>
-              <span className="font-mono font-black text-xl text-[#141414]">R$ {total.toFixed(2)}</span>
-            </div>
-          </div>
+                <div className="divide-y divide-[#141414]/5">
+                  {openItems.map((item, idx) => renderItem(item, idx, 'open'))}
+                </div>
+                <div className="px-4 py-4 bg-[#141414]/3 border-t border-[#141414]/8 flex justify-between items-center">
+                  <span className="text-xs font-bold uppercase text-[#141414]/40 tracking-widest">Total em aberto</span>
+                  <span className="font-mono font-black text-xl text-[#141414]">R$ {totalOpen.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Itens pagos */}
+            {paidItems.length > 0 && (
+              <div className="bg-white rounded-2xl border border-green-100 overflow-hidden shadow-sm">
+                <div className="px-4 pt-4 pb-2 flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-green-600">Pagos</span>
+                </div>
+                <div className="divide-y divide-[#141414]/5">
+                  {paidItems.map((item, idx) => renderItem(item, idx, 'paid'))}
+                </div>
+                <div className="px-4 py-3 bg-green-50 border-t border-green-100 flex justify-between items-center">
+                  <span className="text-xs font-bold uppercase text-green-600/60 tracking-widest">Total pago</span>
+                  <span className="font-mono font-black text-lg text-green-600">R$ {totalPaid.toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Itens cancelados */}
+            {canceledItems.length > 0 && (
+              <div className="bg-white rounded-2xl border border-rose-100 overflow-hidden shadow-sm">
+                <div className="px-4 pt-4 pb-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-rose-400">Cancelados</span>
+                </div>
+                <div className="divide-y divide-[#141414]/5">
+                  {canceledItems.map((item, idx) => renderItem(item, idx, 'canceled'))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
