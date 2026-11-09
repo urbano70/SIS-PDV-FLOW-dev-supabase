@@ -2670,6 +2670,8 @@ async function startServer() {
       fiscalConfig = (data?.data as FiscalConfig) || null;
     }
     if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada. Configure em Configurações → Fiscal.' });
+    if (!fiscalConfig.cnpj) return res.status(400).json({ error: 'CNPJ não preenchido na configuração fiscal. Acesse Configurações → Fiscal e salve novamente.' });
+    if (!fiscalConfig.razaoSocial) return res.status(400).json({ error: 'Razão Social não preenchida na configuração fiscal.' });
 
     // Load order
     const st = tenants.get(tenantId);
