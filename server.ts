@@ -2682,7 +2682,7 @@ async function startServer() {
 
     // Build NFC-e items from order items
     const nfceItems: NfceItem[] = (order.items || [])
-      .filter((i: any) => !i.removed && !i.paid)
+      .filter((i: any) => !i.removed)
       .map((i: any) => ({
         nome: i.name || 'Item',
         ncm: i.ncm || '21069090',
