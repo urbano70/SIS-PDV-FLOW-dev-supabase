@@ -76,7 +76,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     if (!establishment_name && !address && !phone_whatsapp && !establishment_email) return;
     setPrinterConfig((prev: any) => {
       const patch: Record<string, string> = {};
-      if (establishment_name) patch.establishmentName = establishment_name;
+      if (establishment_name && prev.establishmentName === 'Pizzaria & Restaurante') patch.establishmentName = establishment_name;
       if (address && !prev.address) patch.address = address;
       if (phone_whatsapp && !prev.phone) patch.phone = phone_whatsapp;
       if (establishment_email && !prev.email) patch.email = establishment_email;
@@ -111,6 +111,22 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       }
     } catch {}
   }, [user, waiters]);
+
+  // Sync establishmentName/logoUrl do pizzariaConfig (Supabase) → printerConfig (localStorage)
+  // Garante que o nome salvo pelo admin no dashboard apareça na ClientePage mesmo após hard refresh
+  useEffect(() => {
+    const cfg = pizzariaConfig as any;
+    if (!cfg) return;
+    setPrinterConfig((prev: any) => {
+      const patch: Record<string, string> = {};
+      if (cfg.establishmentName && cfg.establishmentName !== prev.establishmentName) patch.establishmentName = cfg.establishmentName;
+      if (cfg.logoUrl !== undefined && cfg.logoUrl !== prev.logoUrl) patch.logoUrl = cfg.logoUrl;
+      if (Object.keys(patch).length === 0) return prev;
+      const updated = { ...prev, ...patch };
+      localStorage.setItem('printerConfig', JSON.stringify(updated));
+      return updated;
+    });
+  }, [(pizzariaConfig as any)?.establishmentName, (pizzariaConfig as any)?.logoUrl]);
 
   // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
   useEffect(() => {
