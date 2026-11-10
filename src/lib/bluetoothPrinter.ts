@@ -212,6 +212,7 @@ export function buildReceiptTicket(
     // right-align price at 32 chars, price in bold
     const spaces = Math.max(1, 32 - name.length - price.length);
     parts.push(encode(`${name}${' '.repeat(spaces)}`), BOLD_ON, encode(`${price}\n`), BOLD_OFF);
+    if (item.obs) parts.push(BOLD_ON, encode(`   Obs: ${item.obs}\n`), BOLD_OFF);
   }
 
   parts.push(DASHES);
