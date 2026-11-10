@@ -3529,8 +3529,22 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
+    // Arquivos com hash no nome (JS/CSS/assets) podem ser cacheados por 1 ano
+    // index.html e sw.js nunca devem ser cacheados — sempre buscar do servidor
+    app.use(express.static(distPath, {
+      setHeaders(res, filePath) {
+        const name = path.basename(filePath);
+        if (name === 'index.html' || name === 'sw.js' || name.startsWith('workbox-')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        }
+      },
+    }));
     app.get("*", (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
