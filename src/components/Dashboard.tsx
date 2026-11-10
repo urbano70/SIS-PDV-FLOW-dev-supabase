@@ -2761,14 +2761,6 @@ export default function Dashboard({
             </button>
             <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
             <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
-            <StatCard
-              title="Em aberto"
-              value={`R$ ${orders
-                .filter(o => o.status !== 'finalizada')
-                .reduce((acc, o) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0)
-                .toFixed(2).replace('.', ',')}`}
-              icon={Wallet}
-            />
           </div>
         )}
 
@@ -2880,6 +2872,24 @@ export default function Dashboard({
                               </button>
                             ))}
                           </div>
+                          {/* Open tables summary bar */}
+                          {(() => {
+                            const openOrders = orders.filter(o => o.status !== 'finalizada');
+                            const openTablesCount = tables.filter(t => t.status !== 'free').length;
+                            const totalOpen = openOrders.reduce((acc, o) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
+                            return (
+                              <div className="mt-2 mx-0.5 rounded-lg border border-[#141414]/10 bg-white/80 px-3 py-2 flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <Wallet size={13} className="text-[#141414]/50" />
+                                  <span className="text-[9px] font-bold uppercase tracking-widest text-[#141414]/50">Em aberto</span>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-[10px] text-[#141414]/60">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
+                                  <span className="text-[11px] font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {/* Time-limit plan countdown — Free plan only */}
                           {planKey === 'free' && ownerCreatedAt && (() => {
                             const trialDays = planCfg.trialDays;
