@@ -944,7 +944,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>
                         <div className="flex-1 pr-4">
                           <div className="flex items-center space-x-2">
-                            <p className={`font-medium ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700 font-bold' : ''}`}>
+                            <p className={`font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
                               {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                             </p>
                             {!item.removed && !item.paid && itemShouldTrackTime(item) && (
@@ -1228,7 +1228,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div className="space-y-1.5">
                   {cart.map((item, idx) => (
                     <div key={idx} className="flex justify-between items-center text-[10px]">
-                      <span className="flex-1 pr-2 font-medium">
+                      <span className="flex-1 pr-2 font-bold">
                         {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                       </span>
                       <div className="flex items-center gap-2 shrink-0">
@@ -1727,7 +1727,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               <div className="max-h-72 overflow-y-auto">
                 {cart.map((item, idx) => (
                   <div key={idx} className={`flex justify-between items-center px-5 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <span className="flex-1 pr-3 font-medium text-sm">
+                    <span className="flex-1 pr-3 font-bold text-sm">
                       {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                     </span>
                     <div className="flex items-center gap-3 shrink-0">
