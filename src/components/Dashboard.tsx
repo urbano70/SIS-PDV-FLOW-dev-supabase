@@ -2419,9 +2419,8 @@ export default function Dashboard({
     const crustLabel = selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : '';
     const obsAll = [pizzaObservations, crustObservations ? `Borda: ${crustObservations}` : ''].filter(Boolean).join(' | ');
 
-    // Calcular acréscimo dos sabores com valor extra
-    // Cada slot de sabor vale 1/maxFlavors da pizza; somar proporcionalmente
-    const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0) / Math.max(maxFlavors, 1);
+    // Acréscimo: cada slot de sabor com preço extra soma seu valor integralmente
+    const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0);
     const basePrice = matchedSizeItem?.price ?? selectedPizzaItem?.price ?? 0;
 
     const itemWithDetails = {

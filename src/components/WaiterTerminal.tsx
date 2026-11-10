@@ -516,8 +516,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const flavorNames = uniqueFlavors.map(([name, count]) => count > 1 ? `${count}x ${name}` : name).join(' / ');
     const flavorIngredients = selectedFlavors.filter((f, i, arr) => arr.findIndex(x => x.name === f.name) === i).map(f => f.ingredients).join(' + ');
 
+    // Acréscimo: cada slot de sabor com preço extra soma seu valor integralmente
+    const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0);
     const itemWithDetails = {
       ...selectedPizzaItem,
+      price: (selectedPizzaItem.price || 0) + extraFlavorPrice,
       name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : ''}`,
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
@@ -1461,8 +1464,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               : 'border-[#141414]/10 hover:bg-white'
                           }`}
                         >
-                          <div>
-                            <p className="font-bold text-sm">{flavor.name}</p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-bold text-sm">{flavor.name}</p>
+                              {flavor.price > 0 && (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>
+                                  +R$ {flavor.price.toFixed(2).replace('.', ',')}
+                                </span>
+                              )}
+                            </div>
                             <p className={`text-[10px] uppercase ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
                               {flavor.ingredients}
                             </p>
