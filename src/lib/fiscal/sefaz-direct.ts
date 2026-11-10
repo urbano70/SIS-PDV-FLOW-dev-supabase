@@ -7,7 +7,7 @@ import type { IntencaoFiscal, FiscalDocStatus, AmbienteFiscal, ModeloFiscal } fr
 import type { CertificadoCarregado } from './certificate.js';
 import { getEndpoint, C_UF_MT, TP_AMB, T_PAG } from './endpoints.js';
 import {
-  gerarChaveAcesso, gerarXmlNFCe, assinarXml, gerarQRCode,
+  gerarChaveAcesso, gerarXmlNFCe, assinarXml, gerarQRCode, montarInfoNFeSupl,
 } from './xml-nfce.js';
 import {
   montarEnvelopeAutorizacao, montarEnvelopeStatusServico,
@@ -112,15 +112,28 @@ export async function autorizarNFCe(
 
   // 4. Assinar
   const xmlAssinado = assinarXml(xmlBase, cert.privateKeyPem, cert.certificatePem);
-  intencao.xmlAssinado = xmlAssinado;
   intencao.status = 'ASSINADO';
 
-  // 5. Persistir XML assinado antes de enviar (ponto de recuperação)
-  // Chamador deve persistir intencao.xmlAssinado aqui antes de continuar.
+  // 5. Gerar QR Code e inserir <infNFeSupl> no XML antes de enviar (obrigatório NFC-e)
+  const cscId    = intencao.ambiente === 'producao' ? intencao.emitente.cscProdId : intencao.emitente.cscHomId;
+  const csc      = intencao.ambiente === 'producao' ? intencao.emitente.cscProd   : intencao.emitente.cscHom;
+  const urlQrBase = intencao.ambiente === 'producao'
+    ? 'https://nfce.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf'
+    : 'https://homologacao.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf';
+  const urlConsulta = urlQrBase;
+  const digestVal = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
+  const total = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
+  const qrCodeGerado = (cscId && csc)
+    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, total, digestVal, cscId, csc, urlQrBase)
+    : '';
+  const infoSupl = montarInfoNFeSupl(qrCodeGerado, urlConsulta);
+  // Insere <infNFeSupl> logo após </infNFe> (antes de <Signature>), fora da área assinada
+  const xmlComSupl = xmlAssinado.replace(/<Signature\s+xmlns="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#">/, `${infoSupl}<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">`);
+  intencao.xmlAssinado = xmlComSupl;
 
   // 6. Transmitir
   const url = getEndpoint('nfce', intencao.ambiente, 'autorizacao');
-  const envelope = montarEnvelopeAutorizacao(xmlAssinado);
+  const envelope = montarEnvelopeAutorizacao(xmlComSupl);
   intencao.status = 'ENVIANDO';
 
   let soapResp: Awaited<ReturnType<typeof soapCall>>;
@@ -168,23 +181,11 @@ export async function autorizarNFCe(
   let xmlProcNfe: string | undefined;
   if (status === 'AUTORIZADO' || status === 'AUTORIZADO_COM_ALERTA') {
     const retProc = soapResp.body.match(/<retNFeProc[\s\S]*?<\/retNFeProc>/)?.[0] ?? '';
-    xmlProcNfe = xmlAssinado.replace(/<\/NFe>/, `</NFe>${retProc}`);
+    xmlProcNfe = xmlComSupl.replace(/<\/NFe>/, `</NFe>${retProc}`);
     intencao.xmlProcNfe = xmlProcNfe;
   }
 
-  // 9. Gerar QR Code
-  const cscId = intencao.ambiente === 'producao' ? intencao.emitente.cscProdId : intencao.emitente.cscHomId;
-  const csc   = intencao.ambiente === 'producao' ? intencao.emitente.cscProd   : intencao.emitente.cscHom;
-  const urlQrBase = intencao.ambiente === 'producao'
-    ? 'https://nfce.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf'
-    : 'https://homologacao.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf';
-  const digestVal = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
-  const total = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
-  const qrCode = csc
-    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, total, digestVal, csc, urlQrBase)
-    : '';
-
-  return { status, cStat, xMotivo, protocolo: nProt, dhRecbto, xmlProcNfe, chaveAcesso: intencao.chaveAcesso, qrCode };
+  return { status, cStat, xMotivo, protocolo: nProt, dhRecbto, xmlProcNfe, chaveAcesso: intencao.chaveAcesso, qrCode: qrCodeGerado };
 }
 
 // ── Consultar por chave de acesso ───────────────────────────────────────────

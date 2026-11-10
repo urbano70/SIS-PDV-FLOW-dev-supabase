@@ -223,13 +223,19 @@ export function gerarQRCode(
   tpAmb: '1' | '2',
   dhEmi: Date,
   vNF: number,
-  dIgest: string, // digestValue da assinatura
-  csc: string,
+  dIgest: string,   // digestValue da assinatura
+  cscId: string,    // ID CSC do portal SEFAZ (ex: "000001")
+  csc: string,      // valor CSC completo
   urlBase: string,
 ): string {
   const valor = dec(vNF, 2);
   const dIgestEnc = encodeURIComponent(dIgest);
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}&cDest=&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${csc.slice(0, 6)}`;
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}&cDest=&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
+}
+
+/** Monta a seção <infNFeSupl> obrigatória para NFC-e (fora da área assinada) */
+export function montarInfoNFeSupl(qrCode: string, urlConsulta: string): string {
+  return `<infNFeSupl><qrCode><![CDATA[${qrCode}]]></qrCode><urlChave>${urlConsulta}</urlChave></infNFeSupl>`;
 }
