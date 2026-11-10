@@ -6,7 +6,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import net from "net";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { createServer as createViteServer } from "vite";
 import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
@@ -2893,7 +2893,7 @@ async function startServer() {
       emitente, items, pagamentos, total,
       cpfConsumidor: cpfConsumidor?.replace(/\D/g, '') || undefined,
       observacoes: order.observations,
-      hashPayload: require('node:crypto').createHash('sha256')
+      hashPayload: createHash('sha256')
         .update(JSON.stringify({ orderId, items, total })).digest('hex'),
       criadoEm: new Date().toISOString(),
       atualizadoEm: new Date().toISOString(),
