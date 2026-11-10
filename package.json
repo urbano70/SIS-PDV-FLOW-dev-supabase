@@ -4,10 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws --external:pg && node server.js",
+    "dev": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws --external:pg --external:node-forge && node server.js",
     "start": "node server.js",
     "build": "npm run build:server && vite build",
-    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws --external:pg",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=server.js --external:express --external:socket.io --external:vite --external:dotenv --external:@google/genai --external:@tailwindcss/vite --external:@vitejs/plugin-react --external:@supabase/supabase-js --external:ws --external:pg --external:node-forge",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
