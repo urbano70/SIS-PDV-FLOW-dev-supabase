@@ -16,6 +16,7 @@ import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDelet
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
+  encryptPfx, decryptPfx, encryptText, decryptText,
 } from "./src/lib/fiscal/certificate.ts";
 import {
   autorizarNFCe, cancelarNFCe, consultarNFCe, verificarServico,
@@ -2702,10 +2703,20 @@ async function startServer() {
       try {
         const loaded = carregarCertificado(tenantId, cfg.certificadoA1Base64, cfg.certificadoSenha);
         validarCNPJ(cfg.cnpj, loaded);
-        // Salvar metadados da validação — nunca o PFX fora do servidor
         cfg.certificadoValidadeFim = loaded.ref.validadeFim;
         cfg.certificadoTitular = loaded.ref.titular;
         cfg.certificadoFingerprint = loaded.ref.fingerprint;
+        // Persistir PFX cifrado (AES-256-GCM) — nunca em plain base64
+        const pfxEnc = encryptPfx(loaded.pfxBuffer);
+        const senhaEnc = encryptText(cfg.certificadoSenha);
+        if (pfxEnc && senhaEnc) {
+          cfg.pfxEncrypted = pfxEnc;
+          cfg.senhaCifrada = senhaEnc;
+          cfg.certificadoA1Base64 = undefined;
+          cfg.certificadoSenha = undefined;
+        }
+        // Se CERT_ENCRYPTION_KEY não configurada, mantém plain (aviso em log)
+        if (!pfxEnc) console.warn('[fiscal] CERT_ENCRYPTION_KEY não configurada — PFX não persistido cifrado. Defina a variável em produção.');
       } catch (certErr: any) {
         return res.status(400).json({ error: `Certificado inválido: ${certErr.message}` });
       }
@@ -2748,9 +2759,17 @@ async function startServer() {
 
     // Carregar ou reutilizar certificado em memória
     let cert = getCertificado(tenantId);
-    if (!cert && fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
+    if (!cert) {
       try {
-        cert = carregarCertificado(tenantId, fiscalConfig.certificadoA1Base64, fiscalConfig.certificadoSenha);
+        if (fiscalConfig.pfxEncrypted && fiscalConfig.senhaCifrada) {
+          const pfxBuf = decryptPfx(fiscalConfig.pfxEncrypted);
+          const senha = decryptText(fiscalConfig.senhaCifrada);
+          if (pfxBuf && senha) {
+            cert = carregarCertificado(tenantId, pfxBuf.toString('base64'), senha);
+          }
+        } else if (fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
+          cert = carregarCertificado(tenantId, fiscalConfig.certificadoA1Base64, fiscalConfig.certificadoSenha);
+        }
       } catch (e: any) {
         return res.status(400).json({ error: `Certificado inválido: ${e.message}` });
       }
@@ -2786,7 +2805,7 @@ async function startServer() {
         .order('numero', { ascending: false }).limit(1).maybeSingle();
       highWaterMark = hwRow?.numero ?? 0;
     }
-    sincronizarContador(tenantId, '65', serie, ambiente, highWaterMark);
+    await sincronizarContador(tenantId, '65', serie, ambiente, highWaterMark, db ?? null);
 
     // Montar itens
     const items: ItemNota[] = (order.items || [])
@@ -2871,7 +2890,7 @@ async function startServer() {
     }
 
     try {
-      const result = await autorizarNFCe(intencao, cert, highWaterMark);
+      const result = await autorizarNFCe(intencao, cert, highWaterMark, db ?? null);
 
       if (db) {
         await db.from('fiscal_notes').update({

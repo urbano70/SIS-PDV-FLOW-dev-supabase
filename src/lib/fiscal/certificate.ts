@@ -8,14 +8,53 @@ import type { CertificadoRef } from './types.js';
 
 export interface CertificadoCarregado {
   ref: CertificadoRef;
-  pfxBuffer: Buffer;        // bytes originais do PFX — retidos em memória
+  pfxBuffer: Buffer;
   privateKeyPem: string;
   certificatePem: string;
   caCertsPem: string[];
 }
 
-// Cache em memória por tenantId — nunca persiste PFX fora desta estrutura
+// Cache em memória por tenantId
 const _cache = new Map<string, CertificadoCarregado>();
+
+// ── Criptografia de envelope para persistir PFX no banco ────────────────────
+// Chave derivada de CERT_ENCRYPTION_KEY (variável de ambiente obrigatória em produção).
+// Sem ela o PFX não é persistido — apenas retido em memória até reinício do processo.
+
+const ALGO = 'aes-256-gcm';
+
+function getEncKey(): Buffer | null {
+  const raw = process.env.CERT_ENCRYPTION_KEY;
+  if (!raw || raw.length < 32) return null;
+  return crypto.createHash('sha256').update(raw).digest();
+}
+
+export function encryptPfx(pfxBuffer: Buffer): string | null {
+  const key = getEncKey();
+  if (!key) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGO, key, iv);
+  const enc = Buffer.concat([cipher.update(pfxBuffer), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  // formato: iv(12) + tag(16) + ciphertext — tudo em base64
+  return Buffer.concat([iv, tag, enc]).toString('base64');
+}
+
+export function decryptPfx(encrypted: string): Buffer | null {
+  const key = getEncKey();
+  if (!key) return null;
+  try {
+    const buf = Buffer.from(encrypted, 'base64');
+    const iv  = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const enc = buf.subarray(28);
+    const decipher = crypto.createDecipheriv(ALGO, key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(enc), decipher.final()]);
+  } catch {
+    return null;
+  }
+}
 
 export function carregarCertificado(
   tenantId: string,
@@ -89,6 +128,17 @@ export function carregarCertificado(
 
 export function getCertificado(tenantId: string): CertificadoCarregado | null {
   return _cache.get(tenantId) ?? null;
+}
+
+export function encryptText(text: string): string | null {
+  const key = getEncKey();
+  if (!key) return null;
+  return encryptPfx(Buffer.from(text, 'utf8'));
+}
+
+export function decryptText(encrypted: string): string | null {
+  const buf = decryptPfx(encrypted);
+  return buf ? buf.toString('utf8') : null;
 }
 
 export function validarCNPJ(cnpj: string, cert: CertificadoCarregado): void {

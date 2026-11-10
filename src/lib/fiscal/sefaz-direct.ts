@@ -14,32 +14,38 @@ import {
   montarEnvelopeCancelamento, soapCall, extrairCampo,
 } from './sefaz-soap.js';
 
-// ── Controle de numeração por série (em memória — deve ser persistido no Supabase) ───
-const _contadores = new Map<string, number>(); // key: `${tenantId}:${modelo}:${serie}:${ambiente}`
+// ── Controle de numeração por série (banco de dados — seguro para múltiplos containers) ───
+// Usa a tabela fiscal_series com UPDATE atômico. Fallback em memória quando db=null (dev sem banco).
 
-function chaveContador(tenantId: string, modelo: ModeloFiscal, serie: string, ambiente: AmbienteFiscal): string {
-  return `${tenantId}:${modelo}:${serie}:${ambiente}`;
+/** Reserva o próximo número via UPDATE atômico no banco (multi-container safe). */
+export async function reservarNumero(
+  tenantId: string, modelo: ModeloFiscal, serie: string,
+  ambiente: AmbienteFiscal, _highWaterMark: number,
+  db: any | null,
+): Promise<number> {
+  if (db) {
+    const id = `${tenantId}:${modelo}:${serie}:${ambiente}`;
+    // Upsert + incremento atômico via RPC (evita race condition entre containers)
+    const { data, error } = await db.rpc('fiscal_series_next', {
+      p_id: id, p_tenant_id: tenantId, p_modelo: modelo, p_serie: serie, p_ambiente: ambiente,
+    });
+    if (error) throw new Error(`Erro ao reservar número fiscal: ${error.message}`);
+    return data as number;
+  }
+  // fallback em memória (desenvolvimento sem banco)
+  _memContadores.set(`${tenantId}:${modelo}:${serie}:${ambiente}`,
+    (_memContadores.get(`${tenantId}:${modelo}:${serie}:${ambiente}`) ?? 0) + 1);
+  return _memContadores.get(`${tenantId}:${modelo}:${serie}:${ambiente}`)!;
 }
 
-/** Reserva o próximo número de forma exclusiva (por processo). Para multi-nós, usar lock no banco. */
-export function reservarNumero(
-  tenantId: string, modelo: ModeloFiscal, serie: string,
-  ambiente: AmbienteFiscal, highWaterMark: number,
-): number {
-  const key = chaveContador(tenantId, modelo, serie, ambiente);
-  const atual = Math.max(_contadores.get(key) ?? 0, highWaterMark);
-  const proximo = atual + 1;
-  _contadores.set(key, proximo);
-  return proximo;
-}
+const _memContadores = new Map<string, number>();
 
-export function sincronizarContador(
-  tenantId: string, modelo: ModeloFiscal, serie: string,
-  ambiente: AmbienteFiscal, highWaterMark: number,
-): void {
-  const key = chaveContador(tenantId, modelo, serie, ambiente);
-  const atual = _contadores.get(key) ?? 0;
-  if (highWaterMark > atual) _contadores.set(key, highWaterMark);
+export async function sincronizarContador(
+  _tenantId: string, _modelo: ModeloFiscal, _serie: string,
+  _ambiente: AmbienteFiscal, _highWaterMark: number,
+  _db: any | null,
+): Promise<void> {
+  // Sincronização não necessária com contadores em banco — a tabela já é a fonte de verdade.
 }
 
 // ── Verificar disponibilidade do serviço ────────────────────────────────────
@@ -79,14 +85,15 @@ export async function autorizarNFCe(
   intencao: IntencaoFiscal,
   cert: CertificadoCarregado,
   highWaterMark: number,
+  db: any | null = null,
 ): Promise<AutorizacaoResult> {
   const tpAmb = TP_AMB[intencao.ambiente];
   const serie = intencao.ambiente === 'producao'
     ? intencao.emitente.serieNFCeProd
     : intencao.emitente.serieNFCeHom;
 
-  // 1. Reservar número
-  const numero = reservarNumero(intencao.tenantId, '65', serie, intencao.ambiente, highWaterMark);
+  // 1. Reservar número (atômico no banco — seguro para múltiplos containers)
+  const numero = await reservarNumero(intencao.tenantId, '65', serie, intencao.ambiente, highWaterMark, db);
   intencao.numero = numero;
   intencao.serie = serie;
 
