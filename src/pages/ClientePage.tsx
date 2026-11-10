@@ -21,6 +21,16 @@ interface MenuCategoryPublic {
   subcategories?: { id: string; name: string; items: MenuItemPublic[] }[];
 }
 
+function resolveImageUrl(url: string): string {
+  const fileMatch = url.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+  if (fileMatch) return `https://drive.google.com/thumbnail?id=${fileMatch[1]}&sz=w400`;
+  const openMatch = url.match(/drive\.google\.com\/open\?.*[?&]id=([^&]+)/);
+  if (openMatch) return `https://drive.google.com/thumbnail?id=${openMatch[1]}&sz=w400`;
+  const ucMatch = url.match(/drive\.google\.com\/uc\?.*[?&]id=([^&]+)/);
+  if (ucMatch) return `https://drive.google.com/thumbnail?id=${ucMatch[1]}&sz=w400`;
+  return url;
+}
+
 export function ClientePage() {
   const { tenantId, mesaId } = useParams<{ tenantId: string; mesaId: string }>();
   const [session, setSession] = useState<SessionState>('checking');
@@ -425,7 +435,7 @@ function CardapioView({ mesaNum, tenantId, tenantInfo, onBack }: {
                   <div className="shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-[#141414]/5 flex items-center justify-center relative">
                     {item.imageUrl ? (
                       <>
-                        <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                        <img src={resolveImageUrl(item.imageUrl)} alt={item.name} className="w-full h-full object-cover" />
                         {item.videoUrl && (
                           <button onClick={() => setVideoItem(item)} className="absolute inset-0 flex items-center justify-center bg-black/30">
                             <div className="w-7 h-7 rounded-full bg-white/90 flex items-center justify-center">
