@@ -58,10 +58,14 @@ export async function verificarServico(
   const envelope = montarEnvelopeStatusServico(C_UF_MT, tpAmb);
 
   try {
-    const { body } = await soapCall(url, envelope, cert, 15_000);
-    const cStat = extrairCampo(body, 'cStat');
-    const xMotivo = extrairCampo(body, 'xMotivo');
-    const dhRecbto = extrairCampo(body, 'dhRecbto');
+    const resp = await soapCall(url, envelope, cert, 15_000);
+    const cStat   = extrairCampo(resp.body, 'cStat');
+    const xMotivo = extrairCampo(resp.body, 'xMotivo');
+    const dhRecbto = extrairCampo(resp.body, 'dhRecbto');
+    if (!cStat) {
+      const snippet = resp.body.replace(/\s+/g, ' ').trim().slice(0, 400) || '(vazio)';
+      return { online: false, xMotivo: `HTTP ${resp.status} — resposta inesperada: ${snippet}`, dhRecbto: '' };
+    }
     return { online: cStat === '107', xMotivo, dhRecbto };
   } catch (err: any) {
     const msg = err?.message || err?.code || String(err) || 'erro desconhecido';

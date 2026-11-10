@@ -5931,17 +5931,20 @@ export default function Dashboard({
                           )}
                         </div>
                         {!sefazStatus.checking && sefazStatus.motivo && (
-                          <p className={`text-[8px] mt-0.5 ${sefazStatus.online ? 'text-green-600' : 'text-red-600'}`}>{sefazStatus.motivo}</p>
+                          <p className={`text-[8px] mt-0.5 break-all ${sefazStatus.online ? 'text-green-600' : 'text-red-600'}`}>
+                            {sefazStatus.motivo.length > 300 ? sefazStatus.motivo.slice(0, 300) + '…' : sefazStatus.motivo}
+                          </p>
                         )}
                         {sefazStatus.online && (
                           <p className="text-[7px] text-green-600 mt-1 font-bold">✓ NFC-e pode ser emitida neste ambiente</p>
                         )}
-                        {!sefazStatus.checking && !sefazStatus.online && (
-                          <div className="mt-1.5 flex items-center gap-2">
+                        {!sefazStatus.checking && !sefazStatus.online && sefazStatus.checkedAt && (
+                          <div className="mt-1.5 flex items-center gap-3">
                             <a href="https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx" target="_blank" rel="noopener noreferrer"
                               className="text-[7px] text-red-600 underline font-bold">
                               Ver status oficial Portal NF-e →
                             </a>
+                            <span className="text-[7px] text-red-500 opacity-70">Pode ser bloqueio de rede do servidor</span>
                           </div>
                         )}
                       </div>
