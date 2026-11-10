@@ -128,6 +128,12 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     });
   }, [(pizzariaConfig as any)?.establishmentName, (pizzariaConfig as any)?.logoUrl]);
 
+  // Persiste printerConfig no localStorage sempre que mudar (garante que alterações feitas no
+  // Dashboard não se percam ao recarregar ou atualizar o sistema)
+  useEffect(() => {
+    try { localStorage.setItem('printerConfig', JSON.stringify(printerConfig)); } catch {}
+  }, [printerConfig]);
+
   // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
   useEffect(() => {
     const sendAdminConnect = async () => {
