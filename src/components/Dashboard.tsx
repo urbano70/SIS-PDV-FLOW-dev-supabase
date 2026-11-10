@@ -1270,6 +1270,7 @@ export default function Dashboard({
   const [fiscalConfig, setFiscalConfig] = useState<any>(null);
   const [fiscalConfigLoading, setFiscalConfigLoading] = useState(false);
   const [fiscalConfigSaving, setFiscalConfigSaving] = useState(false);
+  const [sefazStatus, setSefazStatus] = useState<{ checking: boolean; online: boolean | null; motivo: string; dhRecbto: string; checkedAt: string | null }>({ checking: false, online: null, motivo: '', dhRecbto: '', checkedAt: null });
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
@@ -5884,15 +5885,18 @@ export default function Dashboard({
                           <button
                             onClick={async () => {
                               if (!tenantId) return;
+                              setSefazStatus(s => ({ ...s, checking: true }));
                               try {
                                 const res = await fetch(`/api/fiscal/status/${tenantId}`);
                                 const d = await res.json();
-                                if (d.online) toast.success(`SEFAZ disponível: ${d.xMotivo}`);
-                                else toast.error(`SEFAZ indisponível: ${d.xMotivo}`);
-                              } catch { toast.error('Erro ao consultar SEFAZ.'); }
+                                setSefazStatus({ checking: false, online: d.online ?? false, motivo: d.xMotivo || d.error || 'Sem resposta', dhRecbto: d.dhRecbto || '', checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                              } catch (e: any) {
+                                setSefazStatus({ checking: false, online: false, motivo: e.message || 'Falha na requisição', dhRecbto: '', checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                              }
                             }}
-                            className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[8px] font-bold uppercase hover:bg-blue-100 transition-colors"
-                          >Testar SEFAZ</button>
+                            disabled={sefazStatus.checking}
+                            className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[8px] font-bold uppercase hover:bg-blue-100 transition-colors disabled:opacity-50"
+                          >{sefazStatus.checking ? 'Verificando...' : 'Verificar SEFAZ'}</button>
                           <button
                             onClick={async () => {
                               if (!tenantId) return;
@@ -5911,6 +5915,39 @@ export default function Dashboard({
                     );
                   })()}
                 </div>
+
+                {/* Painel de status SEFAZ */}
+                {(sefazStatus.online !== null || sefazStatus.checking) && (
+                  <div className={`mt-2 p-3 rounded-xl border ${sefazStatus.checking ? 'bg-blue-50 border-blue-200' : sefazStatus.online ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="flex items-start gap-2">
+                      <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${sefazStatus.checking ? 'bg-blue-400 animate-pulse' : sefazStatus.online ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className={`text-[9px] font-black uppercase tracking-wide ${sefazStatus.checking ? 'text-blue-700' : sefazStatus.online ? 'text-green-700' : 'text-red-700'}`}>
+                            {sefazStatus.checking ? 'Verificando conexão com SEFAZ-MT...' : sefazStatus.online ? 'SEFAZ-MT — Serviço em Operação' : 'SEFAZ-MT — Serviço Indisponível'}
+                          </p>
+                          {sefazStatus.checkedAt && (
+                            <span className="text-[7px] opacity-50 shrink-0">{sefazStatus.checkedAt}</span>
+                          )}
+                        </div>
+                        {!sefazStatus.checking && sefazStatus.motivo && (
+                          <p className={`text-[8px] mt-0.5 ${sefazStatus.online ? 'text-green-600' : 'text-red-600'}`}>{sefazStatus.motivo}</p>
+                        )}
+                        {sefazStatus.online && (
+                          <p className="text-[7px] text-green-600 mt-1 font-bold">✓ NFC-e pode ser emitida neste ambiente</p>
+                        )}
+                        {!sefazStatus.checking && !sefazStatus.online && (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <a href="https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx" target="_blank" rel="noopener noreferrer"
+                              className="text-[7px] text-red-600 underline font-bold">
+                              Ver status oficial Portal NF-e →
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Notas Fiscais */}
                 <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
