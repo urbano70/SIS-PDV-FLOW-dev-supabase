@@ -1240,7 +1240,7 @@ export default function Dashboard({
   const [isEditFlavorModalOpen, setIsEditFlavorModalOpen] = useState(false);
   const [isAddFlavorModalOpen, setIsAddFlavorModalOpen] = useState(false);
   const [editingFlavor, setEditingFlavor] = useState<any>(null);
-  const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '' });
+  const [newFlavorData, setNewFlavorData] = useState({ name: '', ingredients: '', price: 0 });
   const [editingProduct, setEditingProduct] = useState<{categoryName: string, subcategoryId?: string, item: MenuItem} | null>(null);
 
   const [stockEdits, setStockEdits] = useState<Record<string, { quantity: string; minQuantity: string; unit: string }>>({});
@@ -2419,12 +2419,18 @@ export default function Dashboard({
     const crustLabel = selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : '';
     const obsAll = [pizzaObservations, crustObservations ? `Borda: ${crustObservations}` : ''].filter(Boolean).join(' | ');
 
+    // Calcular acréscimo dos sabores com valor extra
+    // Cada slot de sabor vale 1/maxFlavors da pizza; somar proporcionalmente
+    const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0) / Math.max(maxFlavors, 1);
+    const basePrice = matchedSizeItem?.price ?? selectedPizzaItem?.price ?? 0;
+
     const itemWithDetails = {
       ...matchedSizeItem,
       id: Math.random().toString(36).substr(2, 9),
       menuItemId: matchedSizeItem?.id || selectedPizzaItem?.id,
       name: `${sizeLabel} (${flavorNames})${crustLabel}`,
       type: 'pizzas',
+      price: basePrice + extraFlavorPrice,
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrusts.length > 0 ? selectedCrusts.join(' / ') : null,
@@ -3797,7 +3803,7 @@ export default function Dashboard({
                     </div>
                     <button 
                       onClick={() => {
-                        setNewFlavorData({ name: '', ingredients: '' });
+                        setNewFlavorData({ name: '', ingredients: '', price: 0 });
                         setIsAddFlavorModalOpen(true);
                       }}
                       className="flex items-center space-x-2 bg-[#141414] text-[#E4E3E0] px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 transition-transform"
@@ -7242,25 +7248,35 @@ export default function Dashboard({
                           {pizzaFlavors.map((flavor, idx) => {
                             const flavorCount = selectedFlavors.filter(f => f.name === flavor.name).length;
                             const isSel = flavorCount > 0;
+                            const hasExtra = flavor.price > 0;
                             return (
                               <button key={idx}
                                 onClick={() => {
                                   const total = selectedFlavors.length;
-                                  if (isSel && total >= maxFlavors) {
-                                    if (flavorCount < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
-                                    else { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
-                                  } else if (isSel) {
-                                    setSelectedFlavors([...selectedFlavors, flavor]);
+                                  if (isSel) {
+                                    // já selecionado: se cabe mais do mesmo, adiciona; senão remove todos deste sabor
+                                    if (total < maxFlavors) {
+                                      setSelectedFlavors([...selectedFlavors, flavor]);
+                                    } else {
+                                      setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
+                                    }
                                   } else if (total < maxFlavors) {
                                     setSelectedFlavors([...selectedFlavors, flavor]);
                                   } else {
-                                    toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`);
+                                    toast.error(`Máximo de ${maxFlavors} sabor${maxFlavors > 1 ? 'es' : ''} para este tamanho`);
                                   }
                                 }}
                                 className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
                               >
-                                <div>
-                                  <p className="font-bold text-sm">{flavor.name}</p>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <p className="font-bold text-sm">{flavor.name}</p>
+                                    {hasExtra && (
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${isSel ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>
+                                        +R$ {flavor.price.toFixed(2).replace('.', ',')}
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
                                 </div>
                                 {isSel && (
@@ -8042,21 +8058,37 @@ export default function Dashboard({
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes</label>
-                  <textarea 
+                  <textarea
                     value={editingFlavor.ingredients}
                     onChange={(e) => setEditingFlavor({ ...editingFlavor, ingredients: e.target.value })}
                     className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-32 resize-none"
                   />
                 </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Valor adicional <span className="normal-case font-normal">(opcional — deixe 0 se não cobrar a mais)</span></label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold opacity-40">R$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={editingFlavor.price || ''}
+                      onChange={(e) => setEditingFlavor({ ...editingFlavor, price: parseFloat(e.target.value) || 0 })}
+                      placeholder="0,00"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 pl-10 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => {
                   socket.emit('update_pizza_flavor', {
                     flavorName: editingFlavor.name,
                     updatedData: {
                       name: editingFlavor.name,
-                      ingredients: editingFlavor.ingredients
+                      ingredients: editingFlavor.ingredients,
+                      price: editingFlavor.price || 0,
                     }
                   });
                   setIsEditFlavorModalOpen(false);
@@ -8103,16 +8135,31 @@ export default function Dashboard({
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Ingredientes</label>
-                  <textarea 
+                  <textarea
                     value={newFlavorData.ingredients}
                     onChange={(e) => setNewFlavorData({ ...newFlavorData, ingredients: e.target.value })}
                     placeholder="Ex: Mussarela, presunto, ovos..."
                     className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-32 resize-none"
                   />
                 </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Valor adicional <span className="normal-case font-normal">(opcional — deixe 0 se não cobrar a mais)</span></label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold opacity-40">R$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={newFlavorData.price || ''}
+                      onChange={(e) => setNewFlavorData({ ...newFlavorData, price: parseFloat(e.target.value) || 0 })}
+                      placeholder="0,00"
+                      className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 pl-10 font-bold outline-none focus:border-[#141414]"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <button 
+              <button
                 onClick={() => {
                   if (!newFlavorData.name) {
                     toast.error('Por favor, preencha o nome do sabor.');
