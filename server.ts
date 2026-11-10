@@ -1283,7 +1283,7 @@ async function startServer() {
           if (itemsWithWaiter.length > 0) {
             io.to(_room()).emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
           }
-          await saveToSupabase('orders', existingOrder, existingOrder.id.toString(), _tid());
+          enqueueWrite('orders', existingOrder, existingOrder.id.toString(), _tid());
           // Renovar sessão do cliente ao adicionar itens
           { const s = getClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); }
           console.log("Existing order updated and emitted");
@@ -1340,8 +1340,6 @@ async function startServer() {
               saveToSupabase(collName, c, c.id.toString(), _tid());
             }
           });
-          io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
         } else {
           _st().tables.forEach(t => {
             if (t.id === targetId || t.linkedTo === targetId) {
@@ -1350,9 +1348,9 @@ async function startServer() {
               saveToSupabase(collName, t, t.id.toString(), _tid());
             }
           });
-          io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
         }
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
         
         console.log("Emitted final table updates for new order");
       }

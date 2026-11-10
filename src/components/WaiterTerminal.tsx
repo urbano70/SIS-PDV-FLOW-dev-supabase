@@ -560,15 +560,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
     // Send order to socket (for production/alerts)
     if (activeOrder) {
-      // Append items to existing order via socket
-      cart.forEach(item => {
-        socket.emit('add_item_to_order', {
-          orderId: activeOrder.id,
-          item: {
-            ...item,
-            waiterName: waiterName
-          }
-        });
+      // Send all cart items in a single new_order emit instead of one per item
+      socket.emit('new_order', {
+        tableId: selectedId,
+        isComanda: isComandaSelected,
+        items: cart,
+        observations: cartObservations.trim(),
+        waiterName,
+        guests: guestModeActive && guestList.length > 0 ? guestList : undefined,
       });
     } else {
       socket.emit('new_order', {
