@@ -171,11 +171,11 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
     const qty = item.quantity ?? 1;
     const line = `${qty}x ${item.name}\n`;
     parts.push(encode(line));
-    if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
+    if (item.obs) parts.push(BOLD_ON, encode(`   Obs: ${item.obs}\n`), BOLD_OFF);
   }
 
   parts.push(DASHES);
-  if (order.observations) parts.push(encode(`Obs: ${order.observations}\n`), DASHES);
+  if (order.observations) parts.push(BOLD_ON, encode(`Obs: ${order.observations}\n`), BOLD_OFF, DASHES);
   parts.push(NL, NL, CUT);
 
   return concat(...parts);
