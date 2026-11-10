@@ -1011,6 +1011,8 @@ export default function Dashboard({
   // Drag & drop de transferência de mesa
   const [dragSourceTable, setDragSourceTable] = useState<number | null>(null);
   const [transferPopup, setTransferPopup] = useState<{ source: number; target: number } | null>(null);
+  const [dragTransferMode, setDragTransferMode] = useState<'all' | 'items'>('all');
+  const [dragSelectedIds, setDragSelectedIds] = useState<Record<string, boolean>>({});
 
   // Client-side first-seen tracking for items and orders — avoids stale DB timestamps.
   const firstSeenRef = useRef<Map<string, number>>(new Map());
@@ -2849,7 +2851,7 @@ export default function Dashboard({
                                 onDragStart={e => { if (table.status === 'occupied') { setDragSourceTable(table.id); e.dataTransfer.effectAllowed = 'move'; } }}
                                 onDragEnd={() => setDragSourceTable(null)}
                                 onDragOver={e => { if (dragSourceTable !== null && dragSourceTable !== table.id && table.status === 'free') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                                onDrop={e => { e.preventDefault(); if (dragSourceTable !== null && table.status === 'free') { setTransferPopup({ source: dragSourceTable, target: table.id }); setDragSourceTable(null); } }}
+                                onDrop={e => { e.preventDefault(); if (dragSourceTable !== null && table.status === 'free') { setTransferPopup({ source: dragSourceTable, target: table.id }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceTable(null); } }}
                                 onClick={() => {
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
@@ -8578,19 +8580,103 @@ export default function Dashboard({
       })()}
 
       {/* Popup: Confirmar transferência de mesa (drag & drop) */}
-      {transferPopup !== null && (
-        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
-            <div className="flex flex-col items-center px-6 py-8 gap-4 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-center justify-center">
-                <svg viewBox="0 0 24 24" className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      {transferPopup !== null && (() => {
+        const srcOrder = orders.find((o: any) => {
+          const tbl = tables.find((t: any) => String(t.id) === String(transferPopup.source));
+          return tbl?.currentOrder && String(o.id) === String(tbl.currentOrder);
+        });
+        const transferableItems = (srcOrder?.items || []).filter((i: any) => !i.removed && !i.paid);
+        const selectedCount = Object.values(dragSelectedIds).filter(Boolean).length;
+
+        const doTransfer = () => {
+          if (dragTransferMode === 'all') {
+            socket.emit('transfer_table', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, reason: 'Transferência de mesa' });
+          } else {
+            const ids = Object.entries(dragSelectedIds).filter(([,v]) => v).map(([k]) => k);
+            if (ids.length === 0) return;
+            socket.emit('transfer_items', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, itemIds: ids });
+          }
+          setTransferPopup(null);
+        };
+
+        return (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[#141414]/10">
+                <div>
+                  <h2 className="font-bold text-base text-[#141414]">Transferir Mesa</h2>
+                  <p className="text-xs text-[#141414]/50 mt-0.5">
+                    Mesa <strong>{transferPopup.source}</strong> → Mesa <strong>{transferPopup.target}</strong>
+                  </p>
+                </div>
+                <button onClick={() => setTransferPopup(null)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#141414]/5 transition-colors text-[#141414]/40 hover:text-[#141414]">
+                  <X size={16} />
+                </button>
               </div>
-              <div>
-                <h2 className="font-serif italic text-2xl text-[#141414]">Transferir Mesa</h2>
-                <p className="text-sm text-[#141414]/60 mt-1">Mesa <strong>{transferPopup.source}</strong> → Mesa <strong>{transferPopup.target}</strong></p>
-                <p className="text-xs text-[#141414]/40 mt-1">Os itens da mesa {transferPopup.source} serão movidos para a mesa {transferPopup.target}.</p>
+
+              {/* Mode toggle */}
+              <div className="px-5 pt-4">
+                <div className="flex rounded-xl border border-[#141414]/10 overflow-hidden text-xs font-bold">
+                  <button
+                    onClick={() => setDragTransferMode('all')}
+                    className={`flex-1 py-2 transition-colors ${dragTransferMode === 'all' ? 'bg-[#141414] text-white' : 'bg-white text-[#141414]/50 hover:text-[#141414]'}`}
+                  >
+                    Toda a mesa
+                  </button>
+                  <button
+                    onClick={() => setDragTransferMode('items')}
+                    className={`flex-1 py-2 transition-colors ${dragTransferMode === 'items' ? 'bg-[#141414] text-white' : 'bg-white text-[#141414]/50 hover:text-[#141414]'}`}
+                  >
+                    Itens específicos
+                  </button>
+                </div>
               </div>
-              <div className="flex gap-3 w-full">
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+                {dragTransferMode === 'all' ? (
+                  <div className="text-center py-4">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-50 border-2 border-blue-200 flex items-center justify-center mx-auto mb-3">
+                      <svg viewBox="0 0 24 24" className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </div>
+                    <p className="text-sm text-[#141414]/60">
+                      Todos os <strong>{transferableItems.length} itens</strong> em aberto da Mesa <strong>{transferPopup.source}</strong> serão movidos para a Mesa <strong>{transferPopup.target}</strong>.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        const allSel = transferableItems.every((i: any) => dragSelectedIds[i.id]);
+                        const next: Record<string, boolean> = {};
+                        if (!allSel) transferableItems.forEach((i: any) => { next[i.id] = true; });
+                        setDragSelectedIds(next);
+                      }}
+                      className="text-xs font-bold text-[#141414]/50 hover:text-[#141414] transition-colors"
+                    >
+                      {transferableItems.every((i: any) => dragSelectedIds[i.id]) ? 'Desmarcar tudo' : 'Marcar tudo'}
+                    </button>
+                    {transferableItems.map((item: any) => (
+                      <label key={item.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${dragSelectedIds[item.id] ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 hover:bg-gray-50'}`}>
+                        <input
+                          type="checkbox"
+                          checked={!!dragSelectedIds[item.id]}
+                          onChange={() => setDragSelectedIds(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                          className="rounded"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold truncate">{item.name}</p>
+                          <p className="text-xs text-[#141414]/50">R$ {Number(item.price).toFixed(2).replace('.', ',')}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex gap-3 px-5 py-4 border-t border-[#141414]/10">
                 <button
                   onClick={() => setTransferPopup(null)}
                   className="flex-1 py-3 rounded-xl border border-[#141414]/20 text-[#141414]/60 font-bold text-sm hover:opacity-80 transition-opacity"
@@ -8598,16 +8684,17 @@ export default function Dashboard({
                   Cancelar
                 </button>
                 <button
-                  onClick={() => { socket.emit('transfer_table', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, reason: 'Transferência de mesa' }); setTransferPopup(null); }}
-                  className="flex-1 py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
+                  onClick={doTransfer}
+                  disabled={dragTransferMode === 'items' && selectedCount === 0}
+                  className="flex-1 py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity disabled:opacity-40"
                 >
-                  Confirmar
+                  {dragTransferMode === 'items' ? `Mover ${selectedCount} item${selectedCount !== 1 ? 's' : ''}` : 'Confirmar'}
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Popup: Mesa chamando garçom */}
       {callingTablePopup !== null && (
