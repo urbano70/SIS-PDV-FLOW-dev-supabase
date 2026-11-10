@@ -2672,19 +2672,36 @@ async function startServer() {
   // ── Fiscal endpoints — integração direta SEFAZ-MT ────────────────────────
   // DotCompany removida. Sem API intermediária, sem fallback remoto.
 
+  // Tenta recarregar certificado do banco quando não está em memória (após restart)
+  async function tentarRecarregarCert(tenantId: string, raw: any): Promise<void> {
+    if (getCertificado(tenantId)) return; // já em memória
+    try {
+      if (raw?.pfxEncrypted && raw?.senhaCifrada) {
+        const pfxBuf = decryptPfx(raw.pfxEncrypted);
+        const senha = decryptText(raw.senhaCifrada);
+        if (pfxBuf && senha) carregarCertificado(tenantId, pfxBuf.toString('base64'), senha);
+      } else if (raw?.certificadoA1Base64 && raw?.certificadoSenha) {
+        carregarCertificado(tenantId, raw.certificadoA1Base64, raw.certificadoSenha);
+      }
+    } catch { /* cert expirado ou inválido — ignora, o usuário verá status correto */ }
+  }
+
   // GET /api/fiscal/config/:tenantId
   app.get("/api/fiscal/config/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const { data, error } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
-    // Nunca expor certificado ou senha — retornar apenas metadados e ref do certificado
     const raw = data?.data as any;
+    // Recarregar certificado automaticamente após restart se dados estiverem no banco
+    await tentarRecarregarCert(tenantId, raw);
     const certRef = getCertificado(tenantId)?.ref ?? null;
     const cfg = raw ? {
       ...raw,
       certificadoA1Base64: undefined,
       certificadoSenha: undefined,
+      pfxEncrypted: undefined,
+      senhaCifrada: undefined,
       certificadoCarregado: !!certRef,
       certificadoFingerprint: certRef?.fingerprint?.slice(0, 16) ?? null,
       certificadoValidadeFim: certRef?.validadeFim ?? raw.certificadoValidadeFim ?? null,
@@ -2736,6 +2753,10 @@ async function startServer() {
   // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ
   app.get("/api/fiscal/status/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
+    if (db && !getCertificado(tenantId)) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+      await tentarRecarregarCert(tenantId, data?.data);
+    }
     const cert = getCertificado(tenantId);
     if (!cert) return res.status(400).json({ error: 'Certificado não carregado. Salve a configuração fiscal com o certificado A1.' });
     const fiscalConfig = tenants.get(tenantId)?.fiscalConfig;
