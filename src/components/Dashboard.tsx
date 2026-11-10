@@ -9162,7 +9162,11 @@ export default function Dashboard({
                           const data = await res.json();
                           if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir NFC-e');
                           setNfceResult(data);
-                          toast.success('NFC-e emitida com sucesso!');
+                          if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
+                            toast.success('NFC-e Autorizada pela SEFAZ!');
+                          } else {
+                            toast.warning(`NFC-e transmitida — cStat ${data.cStat || '?'}: ${data.xMotivo || data.status}`);
+                          }
                         } catch (e: any) { toast.error('Erro NFC-e: ' + e.message); }
                         setNfceEmitting(false);
                       }}
