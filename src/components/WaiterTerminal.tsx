@@ -251,7 +251,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [selectedFlavors, setSelectedFlavors] = useState<any[]>([]);
   const [maxFlavors, setMaxFlavors] = useState(1);
   const [selectionStep, setSelectionStep] = useState<'flavors' | 'crust'>('flavors');
-  const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
+  const [selectedCrusts, setSelectedCrusts] = useState<string[]>([]);
   const [pizzaHasBorder, setPizzaHasBorder] = useState(false);
   const [pizzaObservations, setPizzaObservations] = useState('');
   const [flavorObservations, setFlavorObservations] = useState('');
@@ -406,7 +406,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedPizzaItem(pizza);
       setMaxFlavors(getMaxFlavors(pizza.name));
       setSelectedFlavors([]);
-      setSelectedCrust(null);
+      setSelectedCrusts([]);
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
       setFlavorObservations('');
@@ -515,11 +515,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
     const itemWithDetails = {
       ...selectedPizzaItem,
-      name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrust ? ` + ${selectedCrust}` : ''}`,
+      name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : ''}`,
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
-      crust: selectedCrust,
+      crust: selectedCrusts.length > 0 ? selectedCrusts.join(' / ') : null,
       observations: [pizzaObservations, flavorObservations].filter(Boolean).join(' | '),
       guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
@@ -1375,7 +1375,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <h3 className="text-xl font-bold">{selectedPizzaItem?.name}</h3>
                   <p className="text-sm opacity-60">
                     {selectionStep === 'crust'
-                      ? 'Escolha a borda'
+                      ? 'Escolha até 2 bordas'
                       : `Selecione até ${maxFlavors} sabor${maxFlavors > 1 ? 'es (toque 2x para dobrar)' : ''}`}
                   </p>
                 </div>
@@ -1390,20 +1390,30 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               <div className="flex-1 overflow-y-auto pr-2 mb-6">
                 {selectionStep === 'crust' ? (
                   <div className="space-y-6">
+                    <p className="text-xs text-[#141414]/50 font-semibold">Selecione até 2 bordas ({selectedCrusts.length}/2)</p>
                     <div className="grid grid-cols-1 gap-3">
                       {pizzaCrusts.map((crust, idx) => {
-                        const isSelected = selectedCrust === crust;
+                        const isSelected = selectedCrusts.includes(crust);
                         return (
                           <button
                             key={idx}
-                            onClick={() => setSelectedCrust(isSelected ? null : crust)}
-                            className={`p-4 rounded-xl border transition-all text-left font-bold ${
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedCrusts(selectedCrusts.filter(c => c !== crust));
+                              } else if (selectedCrusts.length < 2) {
+                                setSelectedCrusts([...selectedCrusts, crust]);
+                              }
+                            }}
+                            className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left font-bold ${
                               isSelected
                                 ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]'
-                                : 'border-[#141414]/10 hover:bg-white'
+                                : selectedCrusts.length >= 2 ? 'border-[#141414]/10 opacity-40 cursor-not-allowed' : 'border-[#141414]/10 hover:bg-white'
                             }`}
                           >
                             {crust}
+                            {isSelected && (
+                              <span className="w-5 h-5 rounded-full bg-white/20 border border-white/40 flex items-center justify-center text-[10px] font-black">✓</span>
+                            )}
                           </button>
                         );
                       })}

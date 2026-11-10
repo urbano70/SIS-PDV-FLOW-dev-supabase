@@ -1046,7 +1046,7 @@ export default function Dashboard({
   const [maxFlavors, setMaxFlavors] = useState(1);
   const [selectionStep, setSelectionStep] = useState<'border_choice' | 'build'>('border_choice');
   const [pizzaHasBorder, setPizzaHasBorder] = useState(false);
-  const [selectedCrust, setSelectedCrust] = useState<string | null>(null);
+  const [selectedCrusts, setSelectedCrusts] = useState<string[]>([]);
   const [selectedPizzaSize, setSelectedPizzaSize] = useState<string | null>(null);
   const [pizzaObservations, setPizzaObservations] = useState('');
   const [crustObservations, setCrustObservations] = useState('');
@@ -2214,7 +2214,7 @@ export default function Dashboard({
       );
       setSelectedPizzaItem(item);
       setSelectedFlavors([]);
-      setSelectedCrust(null);
+      setSelectedCrusts([]);
       setSelectedPizzaSize(sizeMatch ? sizeMatch.name : null);
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
@@ -2365,7 +2365,7 @@ export default function Dashboard({
       ...(pizzaCat?.items || []),
       ...(pizzaCat?.subcategories || []).flatMap((s: any) => s.items || []),
     ];
-    const hasBorder = !!selectedCrust || pizzaHasBorder;
+    const hasBorder = selectedCrusts.length > 0 || pizzaHasBorder;
     const matchedSizeItem =
       allPizzaItems.find((i: any) =>
         i.name.toLowerCase().includes(selectedPizzaSize.toLowerCase()) &&
@@ -2378,7 +2378,7 @@ export default function Dashboard({
     const sizeLabel = selectedPizzaItem?.name
       ? selectedPizzaItem.name.replace(/ com borda| sem borda/i, '').trim()
       : `Pizza ${selectedPizzaSize}`;
-    const crustLabel = selectedCrust ? ` + Borda ${selectedCrust}` : '';
+    const crustLabel = selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : '';
     const obsAll = [pizzaObservations, crustObservations ? `Borda: ${crustObservations}` : ''].filter(Boolean).join(' | ');
 
     const itemWithDetails = {
@@ -2389,7 +2389,7 @@ export default function Dashboard({
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
-      crust: selectedCrust,
+      crust: selectedCrusts.length > 0 ? selectedCrusts.join(' / ') : null,
       observations: obsAll,
       guestName: undefined,
     };
@@ -7062,7 +7062,7 @@ export default function Dashboard({
                   {selectionStep === 'border_choice' && (
                     <div className="grid grid-cols-2 gap-4">
                       <button
-                        onClick={() => { setPizzaHasBorder(false); setSelectedCrust(null); setSelectionStep('build'); }}
+                        onClick={() => { setPizzaHasBorder(false); setSelectedCrusts([]); setSelectionStep('build'); }}
                         className="flex flex-col items-center justify-center gap-2 p-6 rounded-2xl border-2 border-[#141414]/10 hover:border-[#141414] hover:bg-white transition-all font-bold text-base"
                       >
                         <span className="text-3xl">🍕</span>
@@ -7085,14 +7085,18 @@ export default function Dashboard({
                       {pizzaHasBorder && (
                         <>
                           <div className="space-y-2">
-                            <p className="text-xs font-black uppercase tracking-wider opacity-40">Escolha a Borda</p>
+                            <p className="text-xs font-black uppercase tracking-wider opacity-40">Escolha até 2 bordas ({selectedCrusts.length}/2)</p>
                             <div className="grid grid-cols-2 gap-2">
                               {pizzaCrusts.map((crust, idx) => {
-                                const isSel = selectedCrust === crust;
+                                const isSel = selectedCrusts.includes(crust);
                                 return (
-                                  <button key={idx} onClick={() => setSelectedCrust(isSel ? null : crust)}
-                                    className={`p-3 rounded-xl border transition-all text-left font-bold text-sm ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}>
+                                  <button key={idx} onClick={() => {
+                                    if (isSel) { setSelectedCrusts(selectedCrusts.filter(c => c !== crust)); }
+                                    else if (selectedCrusts.length < 2) { setSelectedCrusts([...selectedCrusts, crust]); }
+                                  }}
+                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left font-bold text-sm ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : selectedCrusts.length >= 2 ? 'border-[#141414]/10 bg-white opacity-40 cursor-not-allowed' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}>
                                     {crust}
+                                    {isSel && <span className="w-5 h-5 rounded-full bg-white/20 border border-white/40 flex items-center justify-center text-[10px] font-black">✓</span>}
                                   </button>
                                 );
                               })}
