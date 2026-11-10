@@ -5717,57 +5717,114 @@ export default function Dashboard({
                   ) : null}
                   {(() => {
                     const cfg = fiscalConfig || {};
-                    const field = (label: string, key: string, placeholder?: string, type = 'text') => (
+                    const upd = (key: string, val: string) => setFiscalConfig((prev: any) => ({ ...(prev || {}), [key]: val }));
+                    const field = (label: string, key: string, placeholder?: string, type = 'text', hint?: string) => (
                       <div className="flex flex-col gap-0.5">
-                        <label className="text-[7px] font-bold uppercase text-[#141414]/50">{label}</label>
-                        <input
-                          type={type}
-                          value={cfg[key] || ''}
-                          onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), [key]: e.target.value }))}
-                          placeholder={placeholder}
-                          className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none focus:ring-1 focus:ring-[#141414]/30"
-                        />
+                        <label className="text-[7px] font-bold uppercase text-[#141414]/50">{label}{hint && <span className="normal-case font-normal ml-1 text-[#141414]/30">({hint})</span>}</label>
+                        <input type={type} value={cfg[key] || ''} onChange={e => upd(key, e.target.value)} placeholder={placeholder}
+                          className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none focus:ring-1 focus:ring-[#141414]/30" />
                       </div>
                     );
+                    const isHom = (cfg.ambiente || 'homologacao') === 'homologacao';
                     return (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          {field('CNPJ', 'cnpj', '00.000.000/0001-00')}
-                          {field('Inscrição Estadual', 'ie', '000.000.000.000')}
-                          {field('UF', 'uf', 'SP')}
-                          <div className="flex flex-col gap-0.5">
-                            <label className="text-[7px] font-bold uppercase text-[#141414]/50">Regime Tributário</label>
-                            <select value={cfg.regime || '1'} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), regime: e.target.value }))} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
-                              <option value="1">1 - Simples Nacional</option>
-                              <option value="2">2 - Simples Excesso</option>
-                              <option value="3">3 - Regime Normal</option>
-                            </select>
+                      <div className="space-y-3">
+
+                        {/* Ambiente — destaque no topo */}
+                        <div className={`flex items-center justify-between rounded-lg px-3 py-2 border-2 ${isHom ? 'border-amber-400 bg-amber-50' : 'border-green-500 bg-green-50'}`}>
+                          <div>
+                            <p className="text-[8px] font-black uppercase tracking-widest">{isHom ? '⚠ Homologação (testes)' : '✓ Produção'}</p>
+                            <p className="text-[7px] text-[#141414]/50 mt-0.5">{isHom ? 'Notas não têm validade fiscal — use para configurar e testar.' : 'Notas têm validade fiscal. Troque somente com autorização do contador.'}</p>
                           </div>
-                          {field('CSC', 'csc', 'Token CSC da SEFAZ')}
-                          {field('ID CSC', 'cscId', '000001')}
-                          {field('Série', 'serie', '001')}
-                          <div className="flex flex-col gap-0.5">
-                            <label className="text-[7px] font-bold uppercase text-[#141414]/50">Ambiente</label>
-                            <select value={cfg.ambiente || 'homologacao'} onChange={e => setFiscalConfig((prev: any) => ({ ...(prev || {}), ambiente: e.target.value }))} className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
-                              <option value="homologacao">Homologação (testes)</option>
-                              <option value="producao">Produção</option>
-                            </select>
-                          </div>
+                          <select value={cfg.ambiente || 'homologacao'} onChange={e => upd('ambiente', e.target.value)}
+                            className="border border-[#141414]/15 rounded px-2 py-1 text-[8px] font-bold focus:outline-none ml-3 shrink-0">
+                            <option value="homologacao">Homologação</option>
+                            <option value="producao">Produção</option>
+                          </select>
                         </div>
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Endereço do Emitente</p>
+
+                        {/* Dados do emitente */}
+                        <div>
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Dados do Emitente</p>
                           <div className="grid grid-cols-2 gap-2">
-                            {field('Razão Social', 'razaoSocial')}
-                            {field('CEP', 'cep', '00000-000')}
-                            {field('Logradouro', 'logradouro')}
-                            {field('Número', 'numero')}
-                            {field('Bairro', 'bairro')}
-                            {field('Município', 'municipio')}
-                            {field('Código IBGE', 'codigoMunicipio', '3550308')}
+                            {field('CNPJ', 'cnpj', '00.000.000/0001-00')}
+                            {field('Inscrição Estadual', 'ie', '0000000000000')}
+                            {field('Razão Social', 'razaoSocial', 'Nome da empresa')}
+                            {field('Nome Fantasia', 'nomeFantasia', 'Opcional')}
+                            <div className="flex flex-col gap-0.5">
+                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Regime Tributário (CRT)</label>
+                              <select value={cfg.crt || cfg.regime || '1'} onChange={e => upd('crt', e.target.value)}
+                                className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
+                                <option value="1">1 — Simples Nacional</option>
+                                <option value="2">2 — Simples Nacional Excesso</option>
+                                <option value="3">3 — Regime Normal</option>
+                              </select>
+                            </div>
+                            {field('CNAE Principal', 'cnaePrincipal', '5611201', 'text', 'restaurante=5611201')}
+                            {field('Telefone', 'telefone', '(65) 99999-9999')}
                           </div>
                         </div>
+
+                        {/* Endereço */}
                         <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado A1</p>
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Endereço</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {field('Logradouro', 'logradouro', 'Rua, Av...')}
+                            {field('Número', 'numero', 'SN')}
+                            {field('Bairro', 'bairro', '')}
+                            {field('CEP', 'cep', '78000-000')}
+                            {field('Município', 'municipio', 'Cuiabá')}
+                            {field('UF', 'uf', 'MT')}
+                            {field('Código IBGE', 'codigoMunicipio', '5103403', 'text', 'Cuiabá=5103403')}
+                          </div>
+                        </div>
+
+                        {/* Séries e numeração */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Séries e Numeração</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {field('Série NFC-e Homologação', 'serieNFCeHom', '1')}
+                            {field('Série NFC-e Produção', 'serieNFCeProd', '1')}
+                            {field('Série NF-e Homologação', 'serieNFEHom', '1')}
+                            {field('Série NF-e Produção', 'serieNFEProd', '1')}
+                          </div>
+                          <p className="text-[7px] text-[#141414]/40 mt-1">Confirme os últimos números usados com o contador antes de ativar em produção.</p>
+                        </div>
+
+                        {/* CSC por ambiente */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">CSC — Código de Segurança do Contribuinte</p>
+                          <p className="text-[7px] text-[#141414]/40 mb-2">Obtido no portal SEFAZ-MT. CSC e ID são diferentes para homologação e produção.</p>
+                          <div className="space-y-2">
+                            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-2">
+                              <p className="text-[7px] font-bold uppercase text-amber-700 mb-1">Homologação</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {field('ID CSC Homologação', 'cscHomId', '000001')}
+                                {field('CSC Homologação', 'cscHom', 'Token da SEFAZ-MT')}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border border-green-200 bg-green-50/50 p-2">
+                              <p className="text-[7px] font-bold uppercase text-green-700 mb-1">Produção</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {field('ID CSC Produção', 'cscProdId', '000001')}
+                                {field('CSC Produção', 'cscProd', 'Token da SEFAZ-MT')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Certificado A1 */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado Digital A1</p>
+                          {cfg.certificadoCarregado && (
+                            <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 mb-2">
+                              <span className="text-green-600 text-[9px]">✓</span>
+                              <div>
+                                <p className="text-[8px] font-bold text-green-700">Certificado ativo no servidor</p>
+                                {cfg.certificadoTitular && <p className="text-[7px] text-green-600">{cfg.certificadoTitular}</p>}
+                                {cfg.certificadoValidadeFim && <p className="text-[7px] text-green-600">Válido até {new Date(cfg.certificadoValidadeFim).toLocaleDateString('pt-BR')}</p>}
+                              </div>
+                            </div>
+                          )}
                           <div className="grid grid-cols-1 gap-2">
                             <div className="flex flex-col gap-0.5">
                               <label className="text-[7px] font-bold uppercase text-[#141414]/50">Arquivo .pfx ou .p12</label>
@@ -5775,7 +5832,7 @@ export default function Dashboard({
                                 <label className="flex-1 flex items-center gap-2 px-3 py-2 border border-dashed border-[#141414]/20 rounded cursor-pointer hover:bg-[#141414]/5 transition-colors">
                                   <Upload size={12} className="opacity-40 shrink-0" />
                                   <span className="text-[9px] opacity-50 truncate">
-                                    {cfg.certificadoA1Base64 ? '✓ Certificado carregado' : 'Clique para selecionar .pfx ou .p12'}
+                                    {cfg.certificadoA1Base64 ? '✓ Novo certificado selecionado — salve para aplicar' : cfg.certificadoCarregado ? 'Substituir certificado atual' : 'Clique para selecionar .pfx ou .p12'}
                                   </span>
                                   <input type="file" accept=".pfx,.p12" className="hidden" onChange={e => {
                                     const file = e.target.files?.[0];
@@ -5784,7 +5841,7 @@ export default function Dashboard({
                                     reader.onload = (ev) => {
                                       const base64 = (ev.target?.result as string).split(',')[1];
                                       setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: base64 }));
-                                      toast.success('Certificado carregado. Salve a configuração.');
+                                      toast.success('Certificado selecionado. Informe a senha e salve.');
                                     };
                                     reader.readAsDataURL(file);
                                   }} />
@@ -5795,9 +5852,12 @@ export default function Dashboard({
                               </div>
                             </div>
                             {field('Senha do Certificado', 'certificadoSenha', '••••••••', 'password')}
+                            <p className="text-[7px] text-[#141414]/40">A senha não é armazenada no banco após a validação. O arquivo .pfx fica criptografado no servidor.</p>
                           </div>
                         </div>
-                        <div className="flex gap-2 pt-1">
+
+                        {/* Ações */}
+                        <div className="flex gap-2 pt-1 border-t border-[#141414]/10">
                           <button
                             disabled={fiscalConfigSaving}
                             onClick={async () => {
@@ -5805,13 +5865,29 @@ export default function Dashboard({
                               setFiscalConfigSaving(true);
                               try {
                                 const res = await fetch(`/api/fiscal/config/${tenantId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fiscalConfig) });
-                                if (!res.ok) throw new Error(await res.text());
-                                toast.success('Configuração fiscal salva!');
-                              } catch (e: any) { toast.error('Erro ao salvar: ' + e.message); }
+                                const d = await res.json();
+                                if (!res.ok) throw new Error(d.error || res.statusText);
+                                toast.success(d.certificadoCarregado ? 'Configuração salva e certificado validado!' : 'Configuração fiscal salva!');
+                                // Recarregar para exibir metadados do certificado
+                                const r2 = await fetch(`/api/fiscal/config/${tenantId}`);
+                                if (r2.ok) { const d2 = await r2.json(); setFiscalConfig((prev: any) => ({ ...(prev || {}), ...(d2.config || {}), certificadoA1Base64: prev?.certificadoA1Base64 })); }
+                              } catch (e: any) { toast.error('Erro: ' + e.message); }
                               setFiscalConfigSaving(false);
                             }}
                             className="flex-1 py-1.5 bg-[#141414] text-white rounded-lg text-[8px] font-bold uppercase hover:bg-[#141414]/80 transition-colors disabled:opacity-50"
                           >{fiscalConfigSaving ? 'Salvando...' : 'Salvar Configuração'}</button>
+                          <button
+                            onClick={async () => {
+                              if (!tenantId) return;
+                              try {
+                                const res = await fetch(`/api/fiscal/status/${tenantId}`);
+                                const d = await res.json();
+                                if (d.online) toast.success(`SEFAZ disponível: ${d.xMotivo}`);
+                                else toast.error(`SEFAZ indisponível: ${d.xMotivo}`);
+                              } catch { toast.error('Erro ao consultar SEFAZ.'); }
+                            }}
+                            className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[8px] font-bold uppercase hover:bg-blue-100 transition-colors"
+                          >Testar SEFAZ</button>
                           <button
                             onClick={async () => {
                               if (!tenantId) return;
