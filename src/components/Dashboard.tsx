@@ -9100,9 +9100,29 @@ export default function Dashboard({
               <div className="p-4 space-y-3">
                 {nfceResult ? (
                   <div className="space-y-3">
-                    <div className={`text-center py-2 rounded-lg font-bold text-sm ${nfceResult.status === 'autorizada' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                      {nfceResult.status === 'autorizada' ? '✓ NFC-e Autorizada!' : '✗ ' + nfceResult.status}
-                    </div>
+                    {(() => {
+                      const ok = nfceResult.status === 'AUTORIZADO' || nfceResult.status === 'AUTORIZADO_COM_ALERTA';
+                      const labels: Record<string, string> = {
+                        AUTORIZADO: '✓ NFC-e Autorizada!',
+                        AUTORIZADO_COM_ALERTA: '✓ Autorizada com alerta',
+                        REJEITADO: '✗ Rejeitada pela SEFAZ',
+                        RESULTADO_DESCONHECIDO: '⚠ Em processamento — consulte pela chave',
+                        RETORNO_NAO_CLASSIFICADO: '⚠ Retorno não classificado',
+                      };
+                      return (
+                        <>
+                          <div className={`text-center py-2 rounded-lg font-bold text-sm ${ok ? 'bg-green-50 text-green-700' : nfceResult.status?.startsWith('AUTORIZADO') ? 'bg-yellow-50 text-yellow-700' : 'bg-red-50 text-red-700'}`}>
+                            {labels[nfceResult.status] || nfceResult.status}
+                          </div>
+                          {nfceResult.cStat && (
+                            <div className="bg-gray-50 rounded px-3 py-2 space-y-0.5">
+                              <p className="text-[7px] font-bold uppercase text-[#141414]/40">Retorno SEFAZ</p>
+                              <p className="text-[9px] font-mono text-[#141414]"><span className="font-bold">cStat {nfceResult.cStat}</span> — {nfceResult.xMotivo || '(sem motivo)'}</p>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                     {nfceResult.chaveAcesso && <p className="text-[7px] font-mono text-[#141414]/50 break-all bg-gray-50 p-2 rounded">{nfceResult.chaveAcesso}</p>}
                     {nfceResult.qrCode && (
                       <div className="flex justify-center">

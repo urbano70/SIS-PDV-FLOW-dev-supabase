@@ -144,16 +144,18 @@ export async function autorizarNFCe(
   const dhRecbto = extrairCampo(soapResp.body, 'dhRecbto');
 
   let status: FiscalDocStatus;
+  const cStatN = parseInt(cStat || '0');
   if (cStat === '100') {
     status = 'AUTORIZADO';
-  } else if (cStat === '110' || cStat === '301' || cStat === '302') {
-    status = 'REJEITADO';
+  } else if (cStatN >= 150 && cStatN <= 199) {
+    status = 'AUTORIZADO_COM_ALERTA';
+  } else if (cStat === '105') {
+    status = 'RESULTADO_DESCONHECIDO'; // lote em processamento async
   } else if (cStat === '') {
     status = 'RETORNO_NAO_CLASSIFICADO';
-  } else if (parseInt(cStat) >= 150 && parseInt(cStat) <= 199) {
-    status = 'AUTORIZADO_COM_ALERTA';
   } else {
-    status = 'RETORNO_NAO_CLASSIFICADO';
+    // Qualquer outro cStat (2xx–9xx) é rejeição SEFAZ
+    status = 'REJEITADO';
   }
 
   intencao.status = status;
