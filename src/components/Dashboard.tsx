@@ -2919,24 +2919,6 @@ export default function Dashboard({
                               </button>
                             ))}
                           </div>
-                          {/* Open tables summary bar */}
-                          {(() => {
-                            const openOrders = orders.filter(o => o.status !== 'finalizada');
-                            const openTablesCount = tables.filter(t => t.status !== 'free').length;
-                            const totalOpen = openOrders.reduce((acc, o) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
-                            return (
-                              <div className="mt-2 mx-0.5 rounded-lg border border-[#141414]/20 bg-white px-4 py-2.5 flex items-center justify-between shadow-sm">
-                                <div className="flex items-center gap-2">
-                                  <Wallet size={16} className="text-[#141414]/60" />
-                                  <span className="text-xs font-bold uppercase tracking-widest text-[#141414]/60">Em aberto</span>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                  <span className="text-sm font-semibold text-[#141414]/70">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
-                                  <span className="text-base font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
-                                </div>
-                              </div>
-                            );
-                          })()}
                           {/* Time-limit plan countdown — Free plan only */}
                           {planKey === 'free' && ownerCreatedAt && (() => {
                             const trialDays = planCfg.trialDays;
@@ -9179,6 +9161,23 @@ export default function Dashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Em aberto — fixed acima do badge de versão */}
+      {activeTab === 'overview' && (() => {
+        const openOrders = orders.filter((o: any) => o.status !== 'finalizada');
+        const openTablesCount = tables.filter((t: any) => t.status !== 'free').length;
+        const totalOpen = openOrders.reduce((acc: number, o: any) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
+        return (
+          <div className="fixed bottom-8 left-2 z-40 select-none pointer-events-none">
+            <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-[#141414]/15 rounded-lg px-3 py-1.5 shadow-sm">
+              <Wallet size={12} className="text-[#141414]/50 shrink-0" />
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[#141414]/50">Em aberto</span>
+              <span className="text-[10px] font-semibold text-[#141414]/60">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
+              <span className="text-[11px] font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Badge de versão — canto inferior esquerdo */}
       <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
