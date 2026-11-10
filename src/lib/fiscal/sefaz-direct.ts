@@ -131,9 +131,14 @@ export async function autorizarNFCe(
   const xmlComSupl = xmlAssinado.replace(/<Signature\s+xmlns="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#">/, `${infoSupl}<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">`);
   intencao.xmlAssinado = xmlComSupl;
 
-  // 6. Transmitir
+  // 6. Transmitir — extrair só <NFe>...</NFe> sem o wrapper <nfeProc>
+  const nfeStart = xmlComSupl.indexOf('<NFe');
+  const nfeEnd   = xmlComSupl.lastIndexOf('</NFe>') + '</NFe>'.length;
+  const xmlNFe   = (nfeStart >= 0 && nfeEnd > nfeStart)
+    ? xmlComSupl.slice(nfeStart, nfeEnd)
+    : xmlComSupl;
   const url = getEndpoint('nfce', intencao.ambiente, 'autorizacao');
-  const envelope = montarEnvelopeAutorizacao(xmlComSupl);
+  const envelope = montarEnvelopeAutorizacao(xmlNFe);
   intencao.status = 'ENVIANDO';
 
   let soapResp: Awaited<ReturnType<typeof soapCall>>;
