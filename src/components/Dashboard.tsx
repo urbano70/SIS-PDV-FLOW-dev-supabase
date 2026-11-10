@@ -2878,14 +2878,14 @@ export default function Dashboard({
                             const openTablesCount = tables.filter(t => t.status !== 'free').length;
                             const totalOpen = openOrders.reduce((acc, o) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
                             return (
-                              <div className="mt-2 mx-0.5 rounded-lg border border-[#141414]/10 bg-white/80 px-3 py-2 flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <Wallet size={13} className="text-[#141414]/50" />
-                                  <span className="text-[9px] font-bold uppercase tracking-widest text-[#141414]/50">Em aberto</span>
+                              <div className="mt-2 mx-0.5 rounded-lg border border-[#141414]/20 bg-white px-4 py-2.5 flex items-center justify-between shadow-sm">
+                                <div className="flex items-center gap-2">
+                                  <Wallet size={16} className="text-[#141414]/60" />
+                                  <span className="text-xs font-bold uppercase tracking-widest text-[#141414]/60">Em aberto</span>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-[10px] text-[#141414]/60">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
-                                  <span className="text-[11px] font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
+                                <div className="flex items-center gap-4">
+                                  <span className="text-sm font-semibold text-[#141414]/70">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
+                                  <span className="text-base font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
                                 </div>
                               </div>
                             );
