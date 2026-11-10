@@ -744,6 +744,7 @@ async function startServer() {
   const applyStockReduction = (st: TenantState, tenantId: string, items: any[]) => {
     const room = 'tenant:' + tenantId;
     const newEntries: any[] = [];
+    const lowAlerts: { name: string; quantity: number; minQuantity: number }[] = [];
     items.forEach(item => {
       const qty = item.quantity || 1;
       const entry = st.stock.find((s: any) =>
@@ -752,8 +753,13 @@ async function startServer() {
       if (entry) {
         st.stock = st.stock.map((s: any) => {
           if (s.id === entry.id) {
+            const newQty = Math.max(0, s.quantity - qty);
             newEntries.push({ id: randomUUID(), itemName: s.name, change: -qty, reason: 'Venda', timestamp: new Date().toISOString() });
-            return { ...s, quantity: Math.max(0, s.quantity - qty) };
+            // Alert when stock reaches or drops below minQuantity
+            if (s.minQuantity > 0 && newQty <= s.minQuantity && s.quantity > s.minQuantity) {
+              lowAlerts.push({ name: s.name, quantity: newQty, minQuantity: s.minQuantity });
+            }
+            return { ...s, quantity: newQty };
           }
           return s;
         });
@@ -764,6 +770,9 @@ async function startServer() {
       io.to(room).emit("update_stock_log", st.stockLog);
     }
     io.to(room).emit("update_stock", st.stock);
+    if (lowAlerts.length > 0) {
+      io.to(room).emit("stock_low_alert", lowAlerts);
+    }
   };
 
   const AGENT_SECRET = process.env.AGENT_SECRET || '';
@@ -2518,12 +2527,13 @@ async function startServer() {
     // Consolidated init_data is at the beginning of connection
 
     // ── Cliente connect (página /mesa/:tenantId/:mesaId) ──────────────────
-    socket.on("client_connect", ({ tenantId }: { tenantId: string }) => {
+    socket.on("client_connect", async ({ tenantId }: { tenantId: string }) => {
       if (!tenantId) return;
       (socket as any).tenantId = tenantId;
       (socket as any).isClient = true;
       socket.join('tenant:' + tenantId);
-      // Envia pedidos atuais imediatamente para que ComandaView carregue sem esperar próxima atualização
+      // Garante que o tenant está carregado antes de enviar os pedidos
+      await loadTenantIfNeeded(tenantId);
       const st = tenants.get(tenantId);
       if (st) socket.emit('update_orders', st.orders || []);
     });

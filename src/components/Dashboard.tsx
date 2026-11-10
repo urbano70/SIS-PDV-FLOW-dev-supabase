@@ -995,6 +995,18 @@ export default function Dashboard({
     return () => { socket.off('waiter_called', handler); };
   }, [addCallNotification]);
 
+  useEffect(() => {
+    const handler = (alerts: { name: string; quantity: number; minQuantity: number }[]) => {
+      setStockLowAlerts(prev => {
+        const existing = new Set(prev.map(a => a.name));
+        const newAlerts = alerts.filter(a => !existing.has(a.name));
+        return newAlerts.length > 0 ? [...prev, ...newAlerts] : prev;
+      });
+    };
+    socket.on('stock_low_alert', handler);
+    return () => { socket.off('stock_low_alert', handler); };
+  }, []);
+
   // Estado do modal Chama Garçom
   const [callWaiterModal, setCallWaiterModal] = useState(false);
   const [callWaiterTable, setCallWaiterTable] = useState(1);
@@ -1009,6 +1021,8 @@ export default function Dashboard({
   const callingAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Drag & drop de transferência de mesa
+  const [stockLowAlerts, setStockLowAlerts] = useState<{ name: string; quantity: number; minQuantity: number }[]>([]);
+
   const [dragSourceTable, setDragSourceTable] = useState<number | null>(null);
   const [dragSourceComanda, setDragSourceComanda] = useState<number | null>(null);
   const [transferPopup, setTransferPopup] = useState<{ source: number; target: number; isComanda?: boolean } | null>(null);
@@ -8584,6 +8598,42 @@ export default function Dashboard({
           </div>
         );
       })()}
+
+      {/* Popup: Alerta de estoque mínimo */}
+      {stockLowAlerts.length > 0 && (
+        <div className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 bg-amber-50 border-b border-amber-200">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              </div>
+              <div>
+                <p className="font-bold text-sm text-amber-800">Estoque mínimo atingido</p>
+                <p className="text-xs text-amber-600">{stockLowAlerts.length} item{stockLowAlerts.length > 1 ? 'ns' : ''} abaixo do mínimo</p>
+              </div>
+            </div>
+            <div className="px-5 py-4 space-y-2 max-h-64 overflow-y-auto">
+              {stockLowAlerts.map((alert, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
+                  <p className="text-sm font-bold text-[#141414]">{alert.name}</p>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="text-base font-black text-amber-600">{alert.quantity} un.</p>
+                    <p className="text-[10px] text-[#141414]/40">mín. {alert.minQuantity}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-[#141414]/10">
+              <button
+                onClick={() => setStockLowAlerts([])}
+                className="w-full py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
+              >
+                OK — Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Popup: Confirmar transferência de mesa/comanda (drag & drop) */}
       {transferPopup !== null && (() => {
