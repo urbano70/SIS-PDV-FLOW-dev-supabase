@@ -263,6 +263,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [drinkCups, setDrinkCups] = useState(0);
   const [drinkIce, setDrinkIce] = useState(false);
   const [drinkLemon, setDrinkLemon] = useState(false);
+  const [drinkWithOrder, setDrinkWithOrder] = useState(false);
 
   // ── Bluetooth printer state ───────────────────────────────────────────────
   const [btDevice, setBtDevice] = useState<BTPrinterDevice | null>(() => {
@@ -423,6 +424,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setDrinkCups(0);
       setDrinkIce(false);
       setDrinkLemon(false);
+      setDrinkWithOrder(false);
       setIsQuantityModalOpen(true);
       return;
     }
@@ -488,6 +490,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkCups > 0 ? `${drinkCups} copo${drinkCups > 1 ? 's' : ''}` : '',
         (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkIce ? 'Com gelo' : '',
         (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkLemon ? 'Com limão' : '',
+        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkWithOrder ? 'Junto com pedido' : '',
       ].filter(Boolean).join(' · '),
       quantity: itemQuantity,
       guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
@@ -1649,6 +1652,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                         🍋 Limão
                       </button>
                     </div>
+                    <button
+                      onClick={() => setDrinkWithOrder(!drinkWithOrder)}
+                      className={`w-full py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkWithOrder ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                    >
+                      🍽️ Junto com pedido
+                    </button>
                   </div>
                 )}
 
