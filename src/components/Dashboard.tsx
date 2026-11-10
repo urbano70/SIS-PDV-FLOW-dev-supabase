@@ -1010,7 +1010,8 @@ export default function Dashboard({
 
   // Drag & drop de transferência de mesa
   const [dragSourceTable, setDragSourceTable] = useState<number | null>(null);
-  const [transferPopup, setTransferPopup] = useState<{ source: number; target: number } | null>(null);
+  const [dragSourceComanda, setDragSourceComanda] = useState<number | null>(null);
+  const [transferPopup, setTransferPopup] = useState<{ source: number; target: number; isComanda?: boolean } | null>(null);
   const [dragTransferMode, setDragTransferMode] = useState<'all' | 'items'>('all');
   const [dragSelectedIds, setDragSelectedIds] = useState<Record<string, boolean>>({});
 
@@ -2950,6 +2951,11 @@ export default function Dashboard({
                             {[...comandas].sort((a, b) => a.id - b.id).filter(c => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas).map(comanda => (
                               <button
                                 key={comanda.id}
+                                draggable={comanda.status === 'occupied'}
+                                onDragStart={e => { if (comanda.status === 'occupied') { setDragSourceComanda(comanda.id); e.dataTransfer.effectAllowed = 'move'; } }}
+                                onDragEnd={() => setDragSourceComanda(null)}
+                                onDragOver={e => { if (dragSourceComanda !== null && dragSourceComanda !== comanda.id && comanda.status === 'free') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                onDrop={e => { e.preventDefault(); if (dragSourceComanda !== null && comanda.status === 'free') { setTransferPopup({ source: dragSourceComanda, target: comanda.id, isComanda: true }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceComanda(null); } }}
                                 onClick={() => {
                                   setSelectedComandaId(comanda.id);
                                   setIsComandaSelected(true);
@@ -8579,9 +8585,15 @@ export default function Dashboard({
         );
       })()}
 
-      {/* Popup: Confirmar transferência de mesa (drag & drop) */}
+      {/* Popup: Confirmar transferência de mesa/comanda (drag & drop) */}
       {transferPopup !== null && (() => {
+        const isCmd = !!transferPopup.isComanda;
+        const label = isCmd ? 'Comanda' : 'Mesa';
         const srcOrder = orders.find((o: any) => {
+          if (isCmd) {
+            const cmd = comandas.find((c: any) => String(c.id) === String(transferPopup.source));
+            return cmd?.currentOrder && String(o.id) === String(cmd.currentOrder);
+          }
           const tbl = tables.find((t: any) => String(t.id) === String(transferPopup.source));
           return tbl?.currentOrder && String(o.id) === String(tbl.currentOrder);
         });
@@ -8590,11 +8602,11 @@ export default function Dashboard({
 
         const doTransfer = () => {
           if (dragTransferMode === 'all') {
-            socket.emit('transfer_table', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, reason: 'Transferência de mesa' });
+            socket.emit('transfer_table', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: isCmd, reason: `Transferência de ${label.toLowerCase()}` });
           } else {
             const ids = Object.entries(dragSelectedIds).filter(([,v]) => v).map(([k]) => k);
             if (ids.length === 0) return;
-            socket.emit('transfer_items', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: false, itemIds: ids });
+            socket.emit('transfer_items', { sourceTableId: transferPopup.source, targetTableId: transferPopup.target, isComanda: isCmd, itemIds: ids });
           }
           setTransferPopup(null);
         };
@@ -8605,9 +8617,9 @@ export default function Dashboard({
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[#141414]/10">
                 <div>
-                  <h2 className="font-bold text-base text-[#141414]">Transferir Mesa</h2>
+                  <h2 className="font-bold text-base text-[#141414]">Transferir {label}</h2>
                   <p className="text-xs text-[#141414]/50 mt-0.5">
-                    Mesa <strong>{transferPopup.source}</strong> → Mesa <strong>{transferPopup.target}</strong>
+                    {label} <strong>{transferPopup.source}</strong> → {label} <strong>{transferPopup.target}</strong>
                   </p>
                 </div>
                 <button onClick={() => setTransferPopup(null)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-[#141414]/5 transition-colors text-[#141414]/40 hover:text-[#141414]">
@@ -8641,7 +8653,7 @@ export default function Dashboard({
                       <svg viewBox="0 0 24 24" className="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </div>
                     <p className="text-sm text-[#141414]/60">
-                      Todos os <strong>{transferableItems.length} itens</strong> em aberto da Mesa <strong>{transferPopup.source}</strong> serão movidos para a Mesa <strong>{transferPopup.target}</strong>.
+                      Todos os <strong>{transferableItems.length} itens</strong> em aberto da {label} <strong>{transferPopup.source}</strong> serão movidos para a {label} <strong>{transferPopup.target}</strong>.
                     </p>
                   </div>
                 ) : (
