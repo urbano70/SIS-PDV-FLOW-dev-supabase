@@ -1723,7 +1723,8 @@ export default function Dashboard({
         targetPrinterName = printerConfig.drinks || printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintDrinks ?? false;
         sectorPaperWidth = (printerConfig as any).drinksPaperWidth || printerConfig.paperWidth || '80mm';
-      } else if (item.type === 'lanches') {
+      } else {
+        // lanches, porcoes, lacarte e qualquer outro tipo vão para a cozinha
         targetPrinterName = printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintKitchen ?? true;
         sectorPaperWidth = (printerConfig as any).kitchenPaperWidth || printerConfig.paperWidth || '80mm';
@@ -1787,16 +1788,6 @@ export default function Dashboard({
             .item-detail{font-size:${_itemFs};font-weight:bold;text-transform:uppercase;margin-bottom:4px}
             .observation{background:#000;color:#fff;padding:6px;font-weight:bold;font-size:${_obsFs};margin-top:4px}
             .sep{border-top:1px dashed #000;margin:6px 0}
-            .footer{font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px;line-height:1.4}
-          </style></head><body>
-            <div class="header">
-              <div style="font-size:11px;font-weight:bold">VIA PRODUÇÃO: ${targetPrinterName.toUpperCase()}</div>
-              <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
-              <div style="font-size:11px;font-weight:bold;margin-top:4px">${dateStr} &nbsp; ${timeStr}</div>
-            </div>
-            <div class="item-detail">${item.quantity || 1}x ${((item.type === 'pizzas' || (item.flavors && item.flavors.length > 0)) ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '')).toUpperCase()}</div>
-            ${(() => { if (!item.flavors || item.flavors.length === 0) return ''; const cm = new Map(); item.flavors.forEach((f: string) => cm.set(f, (cm.get(f) || 0) + 1)); return Array.from(cm.entries()).map(([n, c]: [string, number]) => `<div style="font-size:${_obsFs};padding-left:8px">- ${(c > 1 ? c + 'x ' : '') + n.toUpperCase()}</div>`).join(''); })()}
-            ${item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : ''}
           </style></head><body>
             <div class="header">
               <div style="font-size:11px;font-weight:bold">VIA PRODUCAO: ${printerName.toUpperCase()}</div>
@@ -1804,7 +1795,7 @@ export default function Dashboard({
               <div style="font-size:11px;font-weight:bold;margin-top:4px">${dateStr} &nbsp; ${timeStr}</div>
             </div>
             ${itemsHtml}
-            <div class="footer" style="font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px"><div>Garcom: ${items[0]?.waiterName || 'SISTEMA'}</div></div>
+            <div style="font-size:9px;margin-top:8px;border-top:1px solid #000;padding-top:4px">Garcom: ${items[0]?.waiterName || 'SISTEMA'}</div>
           </body></html>`;
 
         if (printFrame.contentWindow) {
