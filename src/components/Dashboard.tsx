@@ -2761,6 +2761,14 @@ export default function Dashboard({
             </button>
             <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
             <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
+            <StatCard
+              title="Em aberto"
+              value={`R$ ${orders
+                .filter(o => o.status !== 'finalizada')
+                .reduce((acc, o) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0)
+                .toFixed(2).replace('.', ',')}`}
+              icon={Wallet}
+            />
           </div>
         )}
 
