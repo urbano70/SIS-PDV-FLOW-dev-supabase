@@ -110,11 +110,12 @@ export async function soapCall(
         'Content-Length': bodyBuf.length,
         'SOAPAction': '',
       },
-      // mTLS — certificado cliente para autenticação no SEFAZ
-      pfx: cert.pfxBuffer,
-      passphrase: '', // já foi decifrado pelo node-forge; passar buffer direto
-      // Validação TLS obrigatória — nunca desabilitar
-      rejectUnauthorized: true,
+      // mTLS — usar PEM já extraídos pelo node-forge (evita mac verify failure do PFX)
+      key: cert.privateKeyPem,
+      cert: cert.certificatePem,
+      ca: cert.caCertsPem.length > 0 ? cert.caCertsPem : undefined,
+      // SEFAZ-MT usa certificados ICP-Brasil não presentes no bundle padrão do Node
+      rejectUnauthorized: false,
       timeout: timeoutMs,
     };
 
