@@ -13,6 +13,7 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
+import { agendarBackupDiario } from "./src/lib/backup.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -98,6 +99,7 @@ async function startServer() {
         realtime: { transport: ws as any },
       });
       console.log('[supabase] Admin client inicializado');
+      agendarBackupDiario(db);
     } catch (error) {
       console.error('[supabase] Falha ao inicializar:', error);
       process.exit(1);
@@ -2997,6 +2999,42 @@ async function startServer() {
       .select('id,order_id,chave_acesso,qr_code,status,protocolo,total,ambiente,modelo,serie,numero,error_detail,cstat,xmotivo,created_at')
       .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50);
     return res.json({ notes: data || [] });
+  });
+
+  // GET /api/backup/list — lista backups disponíveis no Storage
+  app.get("/api/backup/list", async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const { data, error } = await db.storage.from('backups').list('', {
+      limit: 30, sortBy: { column: 'created_at', order: 'desc' },
+    });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ backups: (data || []).map(f => ({
+      nome: f.name,
+      tamanho: f.metadata?.size ?? 0,
+      criadoEm: f.created_at,
+    }))});
+  });
+
+  // GET /api/backup/download/:nome — URL assinada para baixar um backup
+  app.get("/api/backup/download/:nome", async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const { data, error } = await db.storage
+      .from('backups')
+      .createSignedUrl(req.params.nome, 300); // válida por 5 min
+    if (error) return res.status(404).json({ error: error.message });
+    return res.json({ url: data.signedUrl });
+  });
+
+  // POST /api/backup/now — dispara backup imediato (admin)
+  app.post("/api/backup/now", express.json(), async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    try {
+      const { executarBackup } = await import('./src/lib/backup.ts');
+      const resultado = await executarBackup(db);
+      return res.json(resultado);
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // Serve o executável do agente de impressão para download
