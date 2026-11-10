@@ -538,9 +538,11 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const s = io({ transports: ['websocket', 'polling'] });
+    const s = io({ transports: ['websocket', 'polling'], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000 });
     socketRef.current = s;
-    s.on('connect', () => { s.emit('client_connect', { tenantId }); });
+
+    const doConnect = () => { s.emit('client_connect', { tenantId }); };
+
     s.on('update_orders', (orders: any[]) => {
       const active = orders.find(
         (o: any) => String(o.tableId) === String(mesaId) && !o.isComanda && o.status !== 'finalizada'
@@ -548,6 +550,16 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
       setOrder(active || null);
       setLoading(false);
     });
+
+    if (s.connected) {
+      doConnect();
+    } else {
+      s.on('connect', doConnect);
+    }
+
+    // Re-identify and re-request on reconnect
+    s.on('connect', doConnect);
+
     return () => { s.disconnect(); };
   }, [mesaId, tenantId]);
 

@@ -1007,6 +1007,17 @@ export default function Dashboard({
     return () => { socket.off('stock_low_alert', handler); };
   }, []);
 
+  // Verifica itens já abaixo do mínimo ao carregar o estoque pela primeira vez
+  const stockInitCheckedRef = useRef(false);
+  useEffect(() => {
+    if (stockInitCheckedRef.current || stock.length === 0) return;
+    stockInitCheckedRef.current = true;
+    const below = stock.filter((s: any) => s.minQuantity > 0 && s.quantity <= s.minQuantity);
+    if (below.length > 0) {
+      setStockLowAlerts(below.map((s: any) => ({ name: s.name, quantity: s.quantity, minQuantity: s.minQuantity })));
+    }
+  }, [stock]);
+
   // Estado do modal Chama Garçom
   const [callWaiterModal, setCallWaiterModal] = useState(false);
   const [callWaiterTable, setCallWaiterTable] = useState(1);
