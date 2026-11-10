@@ -178,7 +178,29 @@ export interface TicketOrder {
   isComanda?: boolean;
   waiterName?: string;
   observations?: string;
-  items: { name: string; price: number; quantity?: number; obs?: string; removed?: boolean }[];
+  items: { name: string; price: number; quantity?: number; obs?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
+}
+
+function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
+  const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
+  if (!isPizza) return [];
+  const parts: Uint8Array[] = [];
+  if (item.flavors && item.flavors.length > 0) {
+    const cm = new Map<string, number>();
+    item.flavors.forEach(f => cm.set(f, (cm.get(f) || 0) + 1));
+    cm.forEach((count, name) => {
+      const line = count > 1 ? `   ${count}x ${name}\n` : `   ${name}\n`;
+      parts.push(encode(line));
+    });
+  }
+  if (item.crust) parts.push(encode(`   Borda: ${item.crust}\n`));
+  return parts;
+}
+
+function pizzaBaseName(item: TicketOrder['items'][0]): string {
+  const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
+  if (!isPizza) return item.name;
+  return item.name.replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim();
 }
 
 export function buildOrderTicket(order: TicketOrder, establishmentName: string): Uint8Array {
@@ -199,9 +221,9 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
 
   for (const item of items) {
     const qty = item.quantity ?? 1;
-    const line = `${qty}x ${item.name}\n`;
-    parts.push(encode(line));
-    if (item.obs) parts.push(BOLD_ON, encode(`   Obs: ${item.obs}\n`), BOLD_OFF);
+    parts.push(BOLD_ON, encode(`${qty}x ${pizzaBaseName(item)}\n`), BOLD_OFF);
+    parts.push(...pizzaItemParts(item));
+    if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
   }
 
   parts.push(DASHES);
@@ -238,11 +260,11 @@ export function buildReceiptTicket(
   for (const item of items) {
     const qty = item.quantity ?? 1;
     const price = `R$ ${item.price.toFixed(2).replace('.', ',')}`;
-    const name = `${qty}x ${item.name}`;
-    // right-align price at 32 chars, price in bold
+    const name = `${qty}x ${pizzaBaseName(item)}`;
     const spaces = Math.max(1, 32 - name.length - price.length);
     parts.push(encode(`${name}${' '.repeat(spaces)}`), BOLD_ON, encode(`${price}\n`), BOLD_OFF);
-    if (item.obs) parts.push(BOLD_ON, encode(`   Obs: ${item.obs}\n`), BOLD_OFF);
+    parts.push(...pizzaItemParts(item));
+    if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
   }
 
   parts.push(DASHES);

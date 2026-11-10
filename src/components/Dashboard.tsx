@@ -273,8 +273,10 @@ function buildEscPosKitchenTicket(
 
     const qty = item.quantity > 1 ? String(item.quantity) + 'x ' : '1x ';
     const priceStr = item.price != null ? 'R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
-    const itemName = item.name || '';
-    const firstLine = qty + itemName;
+    // For pizzas with flavors, show base name only (strip "(flavors)" part)
+    const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
+    const baseName = isPizza ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
+    const firstLine = qty + baseName;
     // Nome em double-height
     push(0x1D, 0x21, 0x10);
     const dhLen = Math.floor(lineLen / 2);
@@ -287,15 +289,19 @@ function buildEscPosKitchenTicket(
       push(0x1B, 0x61, 0x00); // align left
     }
 
-    // Sabores
-    if (item.flavors && item.flavors.length > 1) {
-      wordWrap('SABORES: ' + item.flavors.join(' / ').toUpperCase(), lineLen)
-        .forEach(l => { text(l); lf(); });
+    // Sabores listados um por linha (deduplicados com prefixo Nx quando repetido)
+    if (isPizza && item.flavors && item.flavors.length > 0) {
+      const countMap = new Map<string, number>();
+      item.flavors.forEach((f: string) => countMap.set(f, (countMap.get(f) || 0) + 1));
+      countMap.forEach((count, name) => {
+        const flavorLine = count > 1 ? `${count}x ${name.toUpperCase()}` : name.toUpperCase();
+        wordWrap('- ' + flavorLine, lineLen).forEach(l => { text(l); lf(); });
+      });
     }
 
     // Borda
     if (item.crust) {
-      wordWrap('BORDA: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+      wordWrap('Borda: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
     if (item.observations) {
@@ -1726,12 +1732,24 @@ export default function Dashboard({
         const _tblFs = paperWidth === '48mm' ? '20px' : '32px';
         const _itemFs = paperWidth === '48mm' ? '13px' : '18px';
         const _obsFs  = paperWidth === '48mm' ? '10px' : '14px';
-        const itemsHtml = items.map(item => `
-          <div class="item-detail">${item.quantity || 1}x ${item.name}</div>
-          ${item.flavors && item.flavors.length > 1 ? `<div style="font-size:${_obsFs};font-weight:bold">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
-          ${item.crust ? `<div style="font-size:${_obsFs}">BORDA: ${item.crust}</div>` : ''}
+        const itemsHtml = items.map(item => {
+          const isPiz = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
+          const baseN = isPiz ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
+          let flavorsHtml = '';
+          if (isPiz && item.flavors && item.flavors.length > 0) {
+            const cm = new Map<string, number>();
+            item.flavors.forEach((f: string) => cm.set(f, (cm.get(f) || 0) + 1));
+            flavorsHtml = Array.from(cm.entries()).map(([n, c]) =>
+              `<div style="font-size:${_obsFs};padding-left:8px">- ${(c > 1 ? `${c}x ` : '') + n.toUpperCase()}</div>`
+            ).join('');
+          }
+          const crustHtml = item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : '';
+          return `
+          <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
+          ${flavorsHtml}${crustHtml}
           ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-        `).join(`<div class="sep"></div>`);
+        `;
+        }).join(`<div class="sep"></div>`);
         const html = `<html><head><style>
             @page{size:${_pw} auto;margin:4mm}
             *{box-sizing:border-box}
@@ -1748,8 +1766,9 @@ export default function Dashboard({
               <div class="table-info">${tableType.toUpperCase()} ${targetId}</div>
               <div style="font-size:11px;font-weight:bold;margin-top:4px">${dateStr} &nbsp; ${timeStr}</div>
             </div>
-            <div class="item-detail">${item.quantity || 1}x ${item.name}</div>
-            ${item.flavors && item.flavors.length > 1 ? `<div style="font-size:${_obsFs};font-weight:bold">SABORES: ${item.flavors.join(' / ')}</div>` : ''}
+            <div class="item-detail">${item.quantity || 1}x ${((item.type === 'pizzas' || (item.flavors && item.flavors.length > 0)) ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '')).toUpperCase()}</div>
+            ${(() => { if (!item.flavors || item.flavors.length === 0) return ''; const cm = new Map(); item.flavors.forEach((f: string) => cm.set(f, (cm.get(f) || 0) + 1)); return Array.from(cm.entries()).map(([n, c]: [string, number]) => `<div style="font-size:${_obsFs};padding-left:8px">- ${(c > 1 ? c + 'x ' : '') + n.toUpperCase()}</div>`).join(''); })()}
+            ${item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : ''}
           </style></head><body>
             <div class="header">
               <div style="font-size:11px;font-weight:bold">VIA PRODUCAO: ${printerName.toUpperCase()}</div>
