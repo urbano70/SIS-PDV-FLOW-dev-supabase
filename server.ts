@@ -1019,6 +1019,13 @@ async function startServer() {
       enqueueWrite('_st().orders', order, String(order.id));
     });
 
+    socket.on("waiter_identify_tenant", ({ tenantId }: { tenantId: string }) => {
+      if (tenantId) {
+        (socket as any).tenantId = tenantId;
+        socket.join('tenant:' + tenantId);
+      }
+    });
+
     socket.on("waiter_register", async (waiterData) => {
       // Garante que o tenant está carregado antes de registrar o garçom
       await loadTenantIfNeeded(_tid());

@@ -190,6 +190,14 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         socket.emit('admin_connect', cachedAdminToken);
       } else if (isWaiterMode && tenantId) {
         socket.emit('waiter_identify_tenant', { tenantId });
+        // Re-login waiter so server recovers waiterId/waiterName on this new socket
+        try {
+          const saved = localStorage.getItem('waiter_credentials');
+          if (saved) {
+            const { name, password } = JSON.parse(saved);
+            if (name && password) socket.emit('waiter_login', { name, password });
+          }
+        } catch {}
       }
       socket.emit('request_init_data');
       identifyConnection();
