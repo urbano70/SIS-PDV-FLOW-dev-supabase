@@ -2354,8 +2354,11 @@ export default function Dashboard({
   const confirmPizzaSelection = () => {
     if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
     if (!selectedPizzaSize && !selectedPizzaItem?.name) { toast.error('Selecione o tamanho'); return; }
-    const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
-    const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
+    const flavorCountMap = new Map<string, number>();
+    selectedFlavors.forEach(f => flavorCountMap.set(f.name, (flavorCountMap.get(f.name) || 0) + 1));
+    const uniqueFlavors = Array.from(flavorCountMap.entries());
+    const flavorNames = uniqueFlavors.map(([name, count]) => count > 1 ? `${count}x ${name}` : name).join(' / ');
+    const flavorIngredients = selectedFlavors.filter((f, i, arr) => arr.findIndex((x: any) => x.name === f.name) === i).map(f => f.ingredients).join(' + ');
     // find the matching menu item for price — check subcategories first, then direct items
     const pizzaCat = menu.find((c: any) => c.type === 'pizzas');
     const allPizzaItems = [
@@ -7114,18 +7117,34 @@ export default function Dashboard({
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {pizzaFlavors.map((flavor, idx) => {
-                            const isSel = selectedFlavors.some(f => f.name === flavor.name);
+                            const flavorCount = selectedFlavors.filter(f => f.name === flavor.name).length;
+                            const isSel = flavorCount > 0;
                             return (
                               <button key={idx}
                                 onClick={() => {
-                                  if (isSel) { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
-                                  else if (selectedFlavors.length < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
-                                  else { toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`); }
+                                  const total = selectedFlavors.length;
+                                  if (isSel && total >= maxFlavors) {
+                                    if (flavorCount < maxFlavors) { setSelectedFlavors([...selectedFlavors, flavor]); }
+                                    else { setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name)); }
+                                  } else if (isSel) {
+                                    setSelectedFlavors([...selectedFlavors, flavor]);
+                                  } else if (total < maxFlavors) {
+                                    setSelectedFlavors([...selectedFlavors, flavor]);
+                                  } else {
+                                    toast.error(`Máximo de ${maxFlavors} sabores para este tamanho`);
+                                  }
                                 }}
-                                className={`flex flex-col p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
+                                className={`flex items-center justify-between p-3 rounded-xl border transition-all text-left ${isSel ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' : 'border-[#141414]/10 bg-white hover:bg-gray-50'}`}
                               >
-                                <p className="font-bold text-sm">{flavor.name}</p>
-                                <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
+                                <div>
+                                  <p className="font-bold text-sm">{flavor.name}</p>
+                                  <p className={`text-[10px] uppercase ${isSel ? 'opacity-70' : 'opacity-50'}`}>{flavor.ingredients}</p>
+                                </div>
+                                {isSel && (
+                                  <span className="ml-2 shrink-0 w-7 h-7 rounded-full bg-white/20 border border-white/40 flex items-center justify-center text-xs font-black">
+                                    {flavorCount}x
+                                  </span>
+                                )}
                               </button>
                             );
                           })}

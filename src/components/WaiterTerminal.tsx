@@ -506,8 +506,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const confirmPizzaSelection = () => {
-    const flavorNames = selectedFlavors.map(f => f.name).join(' / ');
-    const flavorIngredients = selectedFlavors.map(f => f.ingredients).join(' + ');
+    // Build flavor name with quantity prefix when same flavor chosen multiple times
+    const flavorCountMap = new Map<string, number>();
+    selectedFlavors.forEach(f => flavorCountMap.set(f.name, (flavorCountMap.get(f.name) || 0) + 1));
+    const uniqueFlavors = Array.from(flavorCountMap.entries());
+    const flavorNames = uniqueFlavors.map(([name, count]) => count > 1 ? `${count}x ${name}` : name).join(' / ');
+    const flavorIngredients = selectedFlavors.filter((f, i, arr) => arr.findIndex(x => x.name === f.name) === i).map(f => f.ingredients).join(' + ');
 
     const itemWithDetails = {
       ...selectedPizzaItem,
@@ -1372,7 +1376,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <p className="text-sm opacity-60">
                     {selectionStep === 'crust'
                       ? 'Escolha a borda'
-                      : `Selecione até ${maxFlavors} sabores`}
+                      : `Selecione até ${maxFlavors} sabor${maxFlavors > 1 ? 'es (toque 2x para dobrar)' : ''}`}
                   </p>
                 </div>
                 <button 
@@ -1417,27 +1421,45 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 ) : (
                   <div className="grid grid-cols-1 gap-3">
                     {pizzaFlavors.map((flavor, idx) => {
-                      const isSelected = selectedFlavors.some(f => f.name === flavor.name);
+                      const flavorCount = selectedFlavors.filter(f => f.name === flavor.name).length;
+                      const isSelected = flavorCount > 0;
                       return (
-                        <button 
+                        <button
                           key={idx}
                           onClick={() => {
-                            if (isSelected) {
-                              setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
-                            } else if (selectedFlavors.length < maxFlavors) {
+                            const totalSelected = selectedFlavors.length;
+                            if (isSelected && totalSelected >= maxFlavors) {
+                              // já no limite: incrementa se ainda cabe, senão remove um
+                              if (flavorCount < maxFlavors) {
+                                setSelectedFlavors([...selectedFlavors, flavor]);
+                              } else {
+                                // remove todas as ocorrências deste sabor
+                                setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
+                              }
+                            } else if (isSelected) {
+                              // adiciona mais uma ocorrência
+                              setSelectedFlavors([...selectedFlavors, flavor]);
+                            } else if (totalSelected < maxFlavors) {
                               setSelectedFlavors([...selectedFlavors, flavor]);
                             }
                           }}
-                          className={`flex flex-col p-4 rounded-xl border transition-all text-left ${
-                            isSelected 
-                              ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]' 
+                          className={`flex items-center justify-between p-4 rounded-xl border transition-all text-left ${
+                            isSelected
+                              ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]'
                               : 'border-[#141414]/10 hover:bg-white'
                           }`}
                         >
-                          <p className="font-bold text-sm">{flavor.name}</p>
-                          <p className={`text-[10px] uppercase ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
-                            {flavor.ingredients}
-                          </p>
+                          <div>
+                            <p className="font-bold text-sm">{flavor.name}</p>
+                            <p className={`text-[10px] uppercase ${isSelected ? 'opacity-70' : 'opacity-50'}`}>
+                              {flavor.ingredients}
+                            </p>
+                          </div>
+                          {isSelected && (
+                            <span className="ml-3 shrink-0 w-8 h-8 rounded-full bg-white/20 border border-white/40 flex items-center justify-center text-sm font-black">
+                              {flavorCount}x
+                            </span>
+                          )}
                         </button>
                       );
                     })}
