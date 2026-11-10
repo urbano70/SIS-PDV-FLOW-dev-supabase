@@ -13,7 +13,18 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
-import { registerEmitter, emitNfce, cancelNfce, consultNfce, type FiscalConfig, type NfceItem, type FormaPagamento } from "./src/lib/dotcompany.ts";
+// DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
+import {
+  carregarCertificado, getCertificado, validarCNPJ,
+} from "./src/lib/fiscal/certificate.ts";
+import {
+  autorizarNFCe, cancelarNFCe, consultarNFCe, verificarServico,
+  reservarNumero, sincronizarContador,
+} from "./src/lib/fiscal/sefaz-direct.ts";
+import type { IntencaoFiscal, EstabelecimentoFiscal, ItemNota, PagamentoNota, AmbienteFiscal } from "./src/lib/fiscal/types.ts";
+import { T_PAG, TP_AMB } from "./src/lib/fiscal/endpoints.ts";
+// Tipos legados mantidos apenas para compatibilidade de campos salvos no banco
+type FiscalConfig = any;
 
 /*
  * SQL — execute once in Supabase SQL editor:
@@ -776,7 +787,8 @@ async function startServer() {
   };
 
   const AGENT_SECRET = process.env.AGENT_SECRET || '';
-  const DOTCOMPANY_API_KEY = process.env.DOTCOMPANY_API_KEY || '';
+  // DOTCOMPANY_API_KEY removida — integração direta SEFAZ-MT
+  const DOTCOMPANY_API_KEY = ''; // mantido para evitar erros de compilação em código legado não removido ainda
 
   // ── Socket.io logic ───────────────────────────────────────────────────────
   // Em dev local (sem env vars de produção), todo socket é admin automaticamente
@@ -2654,14 +2666,27 @@ async function startServer() {
 
   // ── Fiscal endpoints ─────────────────────────────────────────────────────
 
+  // ── Fiscal endpoints — integração direta SEFAZ-MT ────────────────────────
+  // DotCompany removida. Sem API intermediária, sem fallback remoto.
+
   // GET /api/fiscal/config/:tenantId
   app.get("/api/fiscal/config/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const { data, error } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
-    // Never expose certificate or password
-    const cfg = data?.data ? { ...(data.data as any), certificadoA1Base64: undefined, certificadoSenha: undefined } : null;
+    // Nunca expor certificado ou senha — retornar apenas metadados e ref do certificado
+    const raw = data?.data as any;
+    const certRef = getCertificado(tenantId)?.ref ?? null;
+    const cfg = raw ? {
+      ...raw,
+      certificadoA1Base64: undefined,
+      certificadoSenha: undefined,
+      certificadoCarregado: !!certRef,
+      certificadoFingerprint: certRef?.fingerprint?.slice(0, 16) ?? null,
+      certificadoValidadeFim: certRef?.validadeFim ?? raw.certificadoValidadeFim ?? null,
+      certificadoTitular: certRef?.titular ?? null,
+    } : null;
     return res.json({ config: cfg });
   });
 
@@ -2671,47 +2696,68 @@ async function startServer() {
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const cfg: FiscalConfig = req.body;
     if (!cfg.cnpj || !cfg.razaoSocial) return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
-    await db.from('config').upsert({ id: `${tenantId}:fiscal`, data: cfg, tenant_id: tenantId });
-    // Update in-memory state
-    const st = tenants.get(tenantId);
-    if (st) st.fiscalConfig = cfg;
-    // Notify admin sockets
-    io.to('tenant:' + tenantId).emit('update_fiscal_config', { ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined });
 
-    // Auto-registrar emitente na DotCompany se tiver certificado
-    if (DOTCOMPANY_API_KEY && cfg.certificadoA1Base64 && cfg.certificadoSenha) {
+    // Validar e carregar certificado A1 se fornecido
+    if (cfg.certificadoA1Base64 && cfg.certificadoSenha) {
       try {
-        await registerEmitter(cfg, DOTCOMPANY_API_KEY);
-        console.log(`[fiscal] Emitente ${cfg.cnpj} registrado na DotCompany`);
-      } catch (regErr: any) {
-        if (regErr.status !== 409) {
-          console.warn(`[fiscal] registerEmitter ao salvar config: ${regErr.status} ${regErr.detail || regErr.message}`);
-        }
+        const loaded = carregarCertificado(tenantId, cfg.certificadoA1Base64, cfg.certificadoSenha);
+        validarCNPJ(cfg.cnpj, loaded);
+        // Salvar metadados da validação — nunca o PFX fora do servidor
+        cfg.certificadoValidadeFim = loaded.ref.validadeFim;
+        cfg.certificadoTitular = loaded.ref.titular;
+        cfg.certificadoFingerprint = loaded.ref.fingerprint;
+      } catch (certErr: any) {
+        return res.status(400).json({ error: `Certificado inválido: ${certErr.message}` });
       }
     }
 
-    return res.json({ ok: true });
+    await db.from('config').upsert({ id: `${tenantId}:fiscal`, data: cfg, tenant_id: tenantId });
+    const st = tenants.get(tenantId);
+    if (st) st.fiscalConfig = cfg;
+    io.to('tenant:' + tenantId).emit('update_fiscal_config', {
+      ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined,
+    });
+    return res.json({ ok: true, certificadoCarregado: !!cfg.certificadoA1Base64 });
+  });
+
+  // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ
+  app.get("/api/fiscal/status/:tenantId", async (req, res) => {
+    const { tenantId } = req.params;
+    const cert = getCertificado(tenantId);
+    if (!cert) return res.status(400).json({ error: 'Certificado não carregado. Salve a configuração fiscal com o certificado A1.' });
+    const fiscalConfig = tenants.get(tenantId)?.fiscalConfig;
+    const ambiente: AmbienteFiscal = fiscalConfig?.ambiente || 'homologacao';
+    const result = await verificarServico('65', ambiente, cert);
+    return res.json(result);
   });
 
   // POST /api/fiscal/nfce/:orderId
   app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
     const { orderId } = req.params;
-    const { tenantId, pagamento, cpfConsumidor } = req.body as { tenantId: string; pagamento: FormaPagamento; cpfConsumidor?: string };
+    const { tenantId, pagamento, cpfConsumidor } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string };
 
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
-    if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada no servidor' });
 
-    // Load fiscal config
-    let fiscalConfig: FiscalConfig | null = tenants.get(tenantId)?.fiscalConfig || null;
+    // Carregar configuração fiscal
+    let fiscalConfig: FiscalConfig = tenants.get(tenantId)?.fiscalConfig;
     if (!fiscalConfig && db) {
       const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
-      fiscalConfig = (data?.data as FiscalConfig) || null;
+      fiscalConfig = data?.data || null;
     }
-    if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada. Configure em Configurações → Fiscal.' });
-    if (!fiscalConfig.cnpj) return res.status(400).json({ error: 'CNPJ não preenchido na configuração fiscal. Acesse Configurações → Fiscal e salve novamente.' });
-    if (!fiscalConfig.razaoSocial) return res.status(400).json({ error: 'Razão Social não preenchida na configuração fiscal.' });
+    if (!fiscalConfig?.cnpj) return res.status(400).json({ error: 'Configuração fiscal incompleta. Acesse Configurações → Fiscal.' });
 
-    // Load order
+    // Carregar ou reutilizar certificado em memória
+    let cert = getCertificado(tenantId);
+    if (!cert && fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
+      try {
+        cert = carregarCertificado(tenantId, fiscalConfig.certificadoA1Base64, fiscalConfig.certificadoSenha);
+      } catch (e: any) {
+        return res.status(400).json({ error: `Certificado inválido: ${e.message}` });
+      }
+    }
+    if (!cert) return res.status(400).json({ error: 'Certificado A1 não carregado. Configure em Configurações → Fiscal.' });
+
+    // Carregar pedido
     const st = tenants.get(tenantId);
     let order: any = st?.orders.find((o: any) => String(o.id) === String(orderId));
     if (!order && db) {
@@ -2720,76 +2766,145 @@ async function startServer() {
     }
     if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
 
-    // Build NFC-e items from order items
-    const nfceItems: NfceItem[] = (order.items || [])
+    // Verificar emissão duplicada
+    if (db) {
+      const { data: existing } = await db.from('fiscal_notes')
+        .select('chave_acesso,status')
+        .eq('tenant_id', tenantId).eq('order_id', String(orderId))
+        .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA'])
+        .maybeSingle();
+      if (existing) return res.status(409).json({ error: 'Nota já emitida para este pedido.', chaveAcesso: existing.chave_acesso });
+    }
+
+    // Obter high-water mark do banco para numeração segura
+    const ambiente: AmbienteFiscal = fiscalConfig.ambiente || 'homologacao';
+    const serie = ambiente === 'producao' ? (fiscalConfig.serieNFCeProd || '1') : (fiscalConfig.serieNFCeHom || '1');
+    let highWaterMark = 0;
+    if (db) {
+      const { data: hwRow } = await db.from('fiscal_notes')
+        .select('numero').eq('tenant_id', tenantId).eq('modelo', '65').eq('serie', serie).eq('ambiente', ambiente)
+        .order('numero', { ascending: false }).limit(1).maybeSingle();
+      highWaterMark = hwRow?.numero ?? 0;
+    }
+    sincronizarContador(tenantId, '65', serie, ambiente, highWaterMark);
+
+    // Montar itens
+    const items: ItemNota[] = (order.items || [])
       .filter((i: any) => !i.removed)
-      .map((i: any) => ({
-        nome: i.name || 'Item',
+      .map((i: any, idx: number) => ({
+        seq: idx + 1,
+        codigo: String(i.id || idx + 1).slice(0, 60),
+        descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
         csosn: i.csosn || '400',
         cst: i.cst,
         unidade: i.unidade || 'UN',
         origem: i.origem || '0',
-        pisCofinsCst: i.pisCofinsCst || '07',
         quantidade: i.quantity ?? 1,
         valorUnitario: i.price / (i.quantity ?? 1),
         valorTotal: i.price,
+        piscofins: { cst: i.pisCofinsCst || '07' },
+        gtin: i.gtin || undefined,
       }));
 
-    if (nfceItems.length === 0) return res.status(400).json({ error: 'Pedido sem itens para emitir nota' });
-    const total = nfceItems.reduce((s, i) => s + i.valorTotal, 0);
+    if (items.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
+    const total = items.reduce((s, i) => s + i.valorTotal, 0);
+
+    // Montar pagamento
+    const tPag = T_PAG[pagamento] || T_PAG.outros;
+    const pagamentos: PagamentoNota[] = [{ tPag, vPag: total }];
+
+    // Montar emitente
+    const emitente: EstabelecimentoFiscal = {
+      tenantId,
+      cnpj: fiscalConfig.cnpj.replace(/\D/g, ''),
+      ie: fiscalConfig.ie || '',
+      razaoSocial: fiscalConfig.razaoSocial,
+      nomeFantasia: fiscalConfig.nomeFantasia,
+      uf: fiscalConfig.uf || 'MT',
+      codigoMunicipio: fiscalConfig.codigoMunicipio || '5103403',
+      municipio: fiscalConfig.municipio || 'Cuiabá',
+      logradouro: fiscalConfig.logradouro || '',
+      numero: fiscalConfig.numero || 'SN',
+      bairro: fiscalConfig.bairro || '',
+      cep: (fiscalConfig.cep || '').replace(/\D/g, ''),
+      telefone: fiscalConfig.telefone,
+      crt: fiscalConfig.crt || '1',
+      cnaePrincipal: fiscalConfig.cnae || '5611201',
+      serieNFCeHom: fiscalConfig.serieNFCeHom || fiscalConfig.serie || '1',
+      serieNFCeProd: fiscalConfig.serieNFCeProd || fiscalConfig.serie || '1',
+      serieNFEHom: fiscalConfig.serieNFEHom || '1',
+      serieNFEProd: fiscalConfig.serieNFEProd || '1',
+      cscHomId: fiscalConfig.cscId || fiscalConfig.cscHomId || '',
+      cscHom: fiscalConfig.csc || fiscalConfig.cscHom || '',
+      cscProdId: fiscalConfig.cscProdId || '',
+      cscProd: fiscalConfig.cscProd || '',
+      ambiente,
+    };
+
+    const intencao: IntencaoFiscal = {
+      id: crypto.randomUUID(),
+      tenantId, orderId: String(orderId),
+      modelo: '65', ambiente, serie, tpEmis: '1',
+      status: 'VALIDACAO_PENDENTE',
+      emitente, items, pagamentos, total,
+      cpfConsumidor: cpfConsumidor?.replace(/\D/g, '') || undefined,
+      observacoes: order.observations,
+      hashPayload: require('node:crypto').createHash('sha256')
+        .update(JSON.stringify({ orderId, items, total })).digest('hex'),
+      criadoEm: new Date().toISOString(),
+      atualizadoEm: new Date().toISOString(),
+      tentativas: [],
+    };
+
+    // Persistir intenção antes de enviar
+    if (db) {
+      await db.from('fiscal_notes').upsert({
+        id: intencao.id,
+        tenant_id: tenantId, order_id: String(orderId),
+        status: 'VALIDACAO_PENDENTE', modelo: '65',
+        serie, ambiente, total,
+        hash_payload: intencao.hashPayload,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    }
 
     try {
-      // Registra emitente se tiver certificado (idempotente — 409 ignorado)
-      if (fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
-        try {
-          await registerEmitter(fiscalConfig, DOTCOMPANY_API_KEY);
-        } catch (regErr: any) {
-          if (regErr.status !== 409) {
-            console.error('[fiscal] registerEmitter falhou:', regErr.status, regErr.detail || regErr.message);
-            return res.status(regErr.status || 500).json({
-              error: `Erro ao registrar emitente na DotCompany: ${regErr.detail || regErr.message}`,
-              code: regErr.code,
-            });
-          }
-        }
-      }
+      const result = await autorizarNFCe(intencao, cert, highWaterMark);
 
-      const result = await emitNfce({
-        tenantId, orderId: String(orderId), fiscalConfig, items: nfceItems,
-        total, pagamento: pagamento || 'outros', cpfConsumidor,
-      }, DOTCOMPANY_API_KEY);
-
-      // Persist to fiscal_notes
       if (db) {
-        await db.from('fiscal_notes').upsert({
-          tenant_id: tenantId, order_id: String(orderId),
-          chave_acesso: result.chaveAcesso, qr_code: result.qrCode,
-          url_danfe: result.urlDanfe, xml: result.xml,
-          status: result.status, protocolo: result.protocolo,
-          idempotency_key: result.idempotencyKey,
-          nota_id: result.notaId || null,
-          cpf_consumidor: cpfConsumidor || null, total,
-          ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
-        }, { onConflict: 'idempotency_key' });
+        await db.from('fiscal_notes').update({
+          chave_acesso: result.chaveAcesso,
+          qr_code: result.qrCode,
+          status: result.status,
+          protocolo: result.protocolo,
+          cstat: result.cStat,
+          xmotivo: result.xMotivo,
+          numero: intencao.numero,
+          xml_assinado: intencao.xmlAssinado,
+          xml_proc_nfe: result.xmlProcNfe,
+          cpf_consumidor: cpfConsumidor || null,
+          updated_at: new Date().toISOString(),
+        }).eq('id', intencao.id);
       }
 
-      io.to('tenant:' + tenantId).emit('fiscal_note_emitted', { orderId, ...result });
-      return res.json(result);
+      io.to('tenant:' + tenantId).emit('fiscal_note_emitted', {
+        orderId, status: result.status, chaveAcesso: result.chaveAcesso,
+        qrCode: result.qrCode, protocolo: result.protocolo,
+        cStat: result.cStat, xMotivo: result.xMotivo,
+      });
+      return res.json({ ...result, intencaoId: intencao.id });
+
     } catch (err: any) {
-      const errMsg = err.detail || err.message || 'Erro desconhecido';
-      console.error('[fiscal] Erro ao emitir NFC-e:', err.status, err.code, errMsg);
+      const errMsg = err.message || 'Erro desconhecido';
       if (db) {
-        await db.from('fiscal_notes').upsert({
-          tenant_id: tenantId, order_id: String(orderId),
-          status: 'erro', error_detail: errMsg,
-          error_code: err.code || 'UNKNOWN',
-          ambiente: fiscalConfig.ambiente, updated_at: new Date().toISOString(),
-          idempotency_key: `nfce-${orderId}-${fiscalConfig.cnpj.replace(/\D/g, '')}`,
-        }, { onConflict: 'idempotency_key' });
+        await db.from('fiscal_notes').update({
+          status: 'REJEITADO', error_detail: errMsg,
+          updated_at: new Date().toISOString(),
+        }).eq('id', intencao.id);
       }
-      return res.status(err.status || 500).json({ error: errMsg, code: err.code });
+      return res.status(500).json({ error: errMsg });
     }
   });
 
@@ -2798,29 +2913,60 @@ async function startServer() {
     const { chaveAcesso } = req.params;
     const { tenantId, motivo } = req.body as { tenantId: string; motivo: string };
     if (!tenantId || !motivo) return res.status(400).json({ error: 'tenantId e motivo obrigatórios' });
-    if (!DOTCOMPANY_API_KEY) return res.status(503).json({ error: 'DOTCOMPANY_API_KEY não configurada' });
+    if (motivo.length < 15) return res.status(400).json({ error: 'Motivo deve ter pelo menos 15 caracteres.' });
 
-    let fiscalConfig: FiscalConfig | null = tenants.get(tenantId)?.fiscalConfig || null;
-    if (!fiscalConfig && db) {
-      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
-      fiscalConfig = (data?.data as FiscalConfig) || null;
-    }
-    if (!fiscalConfig) return res.status(400).json({ error: 'Configuração fiscal não encontrada' });
+    const cert = getCertificado(tenantId);
+    if (!cert) return res.status(400).json({ error: 'Certificado não carregado.' });
 
-    // Busca nota_id armazenado na emissão
-    let notaId: number | null = null;
+    // Buscar protocolo e ambiente da nota
+    let protocolo = '', ambiente: AmbienteFiscal = 'homologacao';
     if (db) {
-      const { data: noteRow } = await db.from('fiscal_notes').select('nota_id').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
-      notaId = noteRow?.nota_id ?? null;
+      const { data } = await db.from('fiscal_notes')
+        .select('protocolo,ambiente').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
+      protocolo = data?.protocolo ?? '';
+      ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
     }
-    if (!notaId) return res.status(400).json({ error: 'nota_id não encontrado; reemita ou consulte o suporte' });
+    if (!protocolo) return res.status(400).json({ error: 'Protocolo não encontrado. A nota pode não ter sido autorizada.' });
 
     try {
-      await cancelNfce(notaId, motivo, DOTCOMPANY_API_KEY);
-      if (db) await db.from('fiscal_notes').update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
-      return res.json({ ok: true });
+      const result = await cancelarNFCe(chaveAcesso, protocolo, motivo, ambiente, cert);
+      if (db) await db.from('fiscal_notes').update({ status: 'CANCELADO', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+      return res.json({ ok: true, ...result });
     } catch (err: any) {
-      return res.status(err.status || 500).json({ error: err.detail || err.message, code: err.code });
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/fiscal/consultar/:chaveAcesso
+  app.get("/api/fiscal/consultar/:chaveAcesso", async (req, res) => {
+    const { chaveAcesso } = req.params;
+    const { tenantId } = req.query as { tenantId: string };
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+
+    const cert = getCertificado(tenantId);
+    if (!cert) return res.status(400).json({ error: 'Certificado não carregado.' });
+
+    let ambiente: AmbienteFiscal = 'homologacao';
+    if (db) {
+      const { data } = await db.from('fiscal_notes').select('ambiente').eq('chave_acesso', chaveAcesso).maybeSingle();
+      ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
+    }
+
+    try {
+      const result = await consultarNFCe(chaveAcesso, ambiente, cert);
+      // Se SEFAZ confirmou autorização mas tínhamos RESULTADO_DESCONHECIDO, atualizar
+      if (db && (result.cStat === '100' || result.cStat === '101')) {
+        await db.from('fiscal_notes').update({
+          status: result.cStat === '100' ? 'AUTORIZADO' : 'CANCELADO',
+          protocolo: result.protocolo,
+          cstat: result.cStat,
+          xmotivo: result.xMotivo,
+          updated_at: new Date().toISOString(),
+        }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+      }
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -2828,7 +2974,9 @@ async function startServer() {
   app.get("/api/fiscal/notes/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
     if (!db) return res.json({ notes: [] });
-    const { data } = await db.from('fiscal_notes').select('id,order_id,chave_acesso,qr_code,url_danfe,status,protocolo,total,ambiente,error_detail,error_code,created_at').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50);
+    const { data } = await db.from('fiscal_notes')
+      .select('id,order_id,chave_acesso,qr_code,status,protocolo,total,ambiente,modelo,serie,numero,error_detail,cstat,xmotivo,created_at')
+      .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50);
     return res.json({ notes: data || [] });
   });
 
