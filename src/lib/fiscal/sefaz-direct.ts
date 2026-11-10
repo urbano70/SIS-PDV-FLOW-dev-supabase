@@ -64,7 +64,8 @@ export async function verificarServico(
     const dhRecbto = extrairCampo(body, 'dhRecbto');
     return { online: cStat === '107', xMotivo, dhRecbto };
   } catch (err: any) {
-    return { online: false, xMotivo: err.message, dhRecbto: '' };
+    const msg = err?.message || err?.code || String(err) || 'erro desconhecido';
+    return { online: false, xMotivo: `${msg} [url: ${url}]`, dhRecbto: '' };
   }
 }
 
