@@ -46,30 +46,42 @@ export function montarEnvelopeStatusServico(cUF: string, tpAmb: '1' | '2'): stri
   );
 }
 
-export function montarEnvelopeCancelamento(
-  chaveAcesso: string, protocolo: string, motivo: string,
-  tpAmb: '1' | '2', dhEvento: string, nSeqEvento = '1',
-): string {
-  const detEvento =
-    `<detEvento versao="1.00">` +
-    `<descEvento>Cancelamento</descEvento>` +
-    `<nProt>${protocolo}</nProt>` +
-    `<xJust>${motivo.substring(0, 255)}</xJust>` +
-    `</detEvento>`;
+function pad(v: string | number, len: number): string {
+  return String(v).padStart(len, '0');
+}
 
+// ── Eventos (cancelamento, 110112) ───────────────────────────────────────────
+
+/**
+ * Monta o XML do evento (unsigned) — assinar com assinarXmlElemento(xml, 'infEvento', ...) antes de transmitir.
+ */
+export function montarXmlEvento(
+  chaveAcesso: string,
+  tpEvento: string,
+  tpAmb: '1' | '2',
+  dhEvento: string,
+  detEvento: string,
+  nSeqEvento = '1',
+): string {
+  const idEvento = `ID${tpEvento}${chaveAcesso}${pad(nSeqEvento, 2)}`;
   const infEvento =
-    `<infEvento Id="ID11010${chaveAcesso}${pad(nSeqEvento, 2)}">` +
+    `<infEvento Id="${idEvento}">` +
     `<cOrgao>51</cOrgao>` +
     `<tpAmb>${tpAmb}</tpAmb>` +
     `<CNPJ>${chaveAcesso.substring(6, 20)}</CNPJ>` +
     `<chNFe>${chaveAcesso}</chNFe>` +
     `<dhEvento>${dhEvento}</dhEvento>` +
-    `<tpEvento>110111</tpEvento>` +
+    `<tpEvento>${tpEvento}</tpEvento>` +
     `<nSeqEvento>${nSeqEvento}</nSeqEvento>` +
     `<verEvento>1.00</verEvento>` +
     detEvento +
     `</infEvento>`;
 
+  return `<evento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">${infEvento}</evento>`;
+}
+
+/** Envolve um evento já assinado no envelope SOAP de RecepcaoEvento4. */
+export function montarEnvelopeEvento(eventoAssinado: string): string {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
@@ -77,7 +89,7 @@ export function montarEnvelopeCancelamento(
     `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">` +
     `<envEvento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
     `<idLote>${Date.now()}</idLote>` +
-    `<evento versao="1.00"><${infEvento}</evento>` +
+    eventoAssinado +
     `</envEvento>` +
     `</nfeDadosMsg>` +
     `</soap12:Body>` +
@@ -85,8 +97,82 @@ export function montarEnvelopeCancelamento(
   );
 }
 
-function pad(v: string | number, len: number): string {
-  return String(v).padStart(len, '0');
+/** detEvento para cancelamento ordinário (tpEvento=110111). */
+export function detCancelamento(protocolo: string, motivo: string): string {
+  return (
+    `<detEvento versao="1.00">` +
+    `<descEvento>Cancelamento</descEvento>` +
+    `<nProt>${protocolo}</nProt>` +
+    `<xJust>${motivo.substring(0, 255)}</xJust>` +
+    `</detEvento>`
+  );
+}
+
+/** detEvento para cancelamento por substituição de NFC-e contingente (tpEvento=110112, NT 2018.004). */
+export function detCancelamentoPorSubstituicao(
+  protocolo: string, motivo: string, chaveNFCeContingente: string,
+): string {
+  return (
+    `<detEvento versao="1.01">` +
+    `<descEvento>Cancelamento por substituicao</descEvento>` +
+    `<cOrgaoAutor>51</cOrgaoAutor>` +
+    `<tpAutor>1</tpAutor>` +
+    `<verAplic>1.0.0</verAplic>` +
+    `<nProt>${protocolo}</nProt>` +
+    `<xJust>${motivo.substring(0, 255)}</xJust>` +
+    `<chNFeRef>${chaveNFCeContingente}</chNFeRef>` +
+    `</detEvento>`
+  );
+}
+
+// ── Inutilização ─────────────────────────────────────────────────────────────
+
+export interface ParamsInutilizacao {
+  tpAmb: '1' | '2';
+  cnpj: string;
+  mod: '55' | '65';
+  serie: string;
+  nNFIni: number;
+  nNFFin: number;
+  xJust: string;
+  ano?: number; // padrão: ano atual
+}
+
+/** Monta o XML de inutilização (unsigned) — assinar com assinarXmlElemento(xml, 'infInut', ...) antes de transmitir. */
+export function montarXmlInutilizacao(p: ParamsInutilizacao): string {
+  const ano = p.ano ?? new Date().getFullYear() % 100;
+  const cnpj = p.cnpj.replace(/\D/g, '');
+  const idInut =
+    `ID${pad(51, 2)}${pad(ano, 2)}${pad(cnpj, 14)}${p.mod}${pad(p.serie, 3)}${pad(p.nNFIni, 9)}${pad(p.nNFFin, 9)}`;
+
+  const infInut =
+    `<infInut Id="${idInut}">` +
+    `<tpAmb>${p.tpAmb}</tpAmb>` +
+    `<cUF>51</cUF>` +
+    `<ano>${pad(ano, 2)}</ano>` +
+    `<CNPJ>${cnpj}</CNPJ>` +
+    `<mod>${p.mod}</mod>` +
+    `<serie>${p.serie}</serie>` +
+    `<nNFIni>${p.nNFIni}</nNFIni>` +
+    `<nNFFin>${p.nNFFin}</nNFFin>` +
+    `<xJust>${p.xJust.substring(0, 255)}</xJust>` +
+    `</infInut>`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?><inutNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">${infInut}</inutNFe>`;
+}
+
+/** Envelope SOAP para NfeInutilizacao4. */
+export function montarEnvelopeInutilizacao(xmlInutAssinado: string): string {
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">` +
+    `<soap12:Body>` +
+    `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4">` +
+    xmlInutAssinado +
+    `</nfeDadosMsg>` +
+    `</soap12:Body>` +
+    `</soap12:Envelope>`
+  );
 }
 
 /** Chamada SOAP com mTLS — certificado A1 usado como client certificate */
