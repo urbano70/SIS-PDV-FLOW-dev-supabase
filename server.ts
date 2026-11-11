@@ -3996,6 +3996,32 @@ async function startServer() {
     return res.json({ intencao });
   });
 
+  // GET /api/fiscal/xml/:chaveAcesso — download do XML assinado / procNFe
+  app.get("/api/fiscal/xml/:chaveAcesso", async (req, res) => {
+    const { chaveAcesso } = req.params;
+    const { tenant } = req.query as { tenant: string };
+    if (!tenant) return res.status(400).json({ error: 'tenant obrigatório' });
+    if (!db) return res.status(503).json({ error: 'Banco indisponível' });
+
+    const { data, error } = await db.from('fiscal_notes')
+      .select('xml_assinado,xml_proc_nfe,modelo,status')
+      .eq('chave_acesso', chaveAcesso)
+      .eq('tenant_id', tenant)
+      .maybeSingle();
+
+    if (error || !data) return res.status(404).json({ error: 'Nota não encontrada' });
+
+    const xml = data.xml_proc_nfe || data.xml_assinado;
+    if (!xml) return res.status(404).json({ error: 'XML não disponível para esta nota' });
+
+    const sufixo = data.xml_proc_nfe ? 'procNFe' : 'NFe';
+    const filename = `${chaveAcesso}-${sufixo}.xml`;
+
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(xml);
+  });
+
   // GET /api/fiscal/consultar/:chaveAcesso
   app.get("/api/fiscal/consultar/:chaveAcesso", async (req, res) => {
     const { chaveAcesso } = req.params;
