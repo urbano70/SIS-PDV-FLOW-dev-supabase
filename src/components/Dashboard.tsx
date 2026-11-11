@@ -6699,6 +6699,13 @@ export default function Dashboard({
                                 className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors"
                               >DANFE</a>
                             )}
+                            {n.chave_acesso && (st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA' || st === 'CANCELADO' || st === 'EPEC_AUTORIZADO' || st === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') && (
+                              <a
+                                href={`/api/fiscal/xml/${n.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
+                                download
+                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-gray-600 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+                              >XML</a>
+                            )}
                             {canCancel && (
                               <button
                                 onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id }); setCancelMotivo(''); }}
