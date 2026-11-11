@@ -1300,6 +1300,8 @@ export default function Dashboard({
   const [inutilizarModal, setInutilizarModal] = useState(false);
   const [inutilizarForm, setInutilizarForm] = useState({ modelo: '65' as '55' | '65', serie: '', nNFIni: '', nNFFin: '', xJust: '' });
   const [inutilizarLoading, setInutilizarLoading] = useState(false);
+  const [reconciliarLoading, setReconciliarLoading] = useState(false);
+  const [reconciliarResult, setReconciliarResult] = useState<{ total: number; autorizados: number; rejeitados: number; ainda_pendentes: number } | null>(null);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -6625,6 +6627,26 @@ export default function Dashboard({
                     </div>
                     <div className="flex items-center gap-2">
                       <button onClick={() => setInutilizarModal(true)} className="text-[7px] font-bold uppercase text-orange-500 hover:text-orange-700 border border-orange-200 rounded px-1.5 py-0.5 transition-colors">Inutilizar</button>
+                      <button
+                        disabled={reconciliarLoading}
+                        onClick={async () => {
+                          if (!tenantId) return;
+                          setReconciliarLoading(true);
+                          setReconciliarResult(null);
+                          try {
+                            const res = await fetch('/api/fiscal/reconciliar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId }) });
+                            const d = await res.json();
+                            if (!res.ok) { toast.error(d.error || 'Erro na reconciliação.'); return; }
+                            setReconciliarResult({ total: d.total, autorizados: d.autorizados, rejeitados: d.rejeitados, ainda_pendentes: d.ainda_pendentes });
+                            if (d.total === 0) toast.success('Nenhuma nota pendente para reconciliar.');
+                            else toast.success(`Reconciliação: ${d.autorizados} autorizada(s), ${d.rejeitados} rejeitada(s), ${d.ainda_pendentes} pendente(s).`);
+                            const r2 = await fetch(`/api/fiscal/notes/${tenantId}`);
+                            if (r2.ok) { const d2 = await r2.json(); setFiscalNotes(Array.isArray(d2) ? d2 : (d2.notes || [])); }
+                          } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
+                          finally { setReconciliarLoading(false); }
+                        }}
+                        className="text-[7px] font-bold uppercase text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-1.5 py-0.5 transition-colors disabled:opacity-50"
+                      >{reconciliarLoading ? '...' : 'Reconciliar'}</button>
                       <button onClick={async () => {
                         if (!tenantId) return;
                         const res = await fetch(`/api/fiscal/notes/${tenantId}`);
@@ -6632,6 +6654,14 @@ export default function Dashboard({
                       }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
                     </div>
                   </div>
+                  {reconciliarResult && reconciliarResult.total > 0 && (
+                    <div className="mb-2 bg-blue-50 border border-blue-100 rounded px-2 py-1 flex items-center gap-3 text-[7px]">
+                      <span className="font-bold text-blue-700">Reconciliação</span>
+                      <span className="text-green-700">✓ {reconciliarResult.autorizados} autorizada(s)</span>
+                      {reconciliarResult.rejeitados > 0 && <span className="text-red-600">✗ {reconciliarResult.rejeitados} rejeitada(s)</span>}
+                      {reconciliarResult.ainda_pendentes > 0 && <span className="text-amber-600">⏳ {reconciliarResult.ainda_pendentes} ainda pendente(s)</span>}
+                    </div>
+                  )}
                   {fiscalNotes.length === 0 ? (
                     <p className="text-[8px] text-[#141414]/40 text-center py-2">Nenhuma nota emitida.</p>
                   ) : (
