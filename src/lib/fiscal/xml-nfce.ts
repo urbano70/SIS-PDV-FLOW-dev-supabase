@@ -184,7 +184,8 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
 // ── Assinatura XMLDSig ───────────────────────────────────────────────────────
 
 /**
- * Assina qualquer elemento XML usando XMLDSig enveloped (RSA-SHA1, C14N).
+ * Assina qualquer elemento XML usando XMLDSig enveloped (RSA-SHA256, C14N).
+ * NFe/NFC-e 4.00 exige SHA-256 (NT 2015.001 / MOC NFC-e 7.0).
  * Reutilizado por NF-e, NFC-e, eventos de cancelamento e inutilização.
  * A assinatura é inserida imediatamente após o `</elementoTag>` no documento.
  */
@@ -202,26 +203,26 @@ export function assinarXmlElemento(
   if (!elementoXml) throw new Error(`Elemento <${elementoTag}> não encontrado.`);
 
   const digestValue = crypto
-    .createHash('sha1')
+    .createHash('sha256')
     .update(Buffer.from(elementoXml, 'utf8'))
     .digest('base64');
 
   const signedInfo =
     `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
     `<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
-    `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
+    `<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
     `<Reference URI="#${refId}">` +
     `<Transforms>` +
     `<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>` +
     `<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
     `</Transforms>` +
-    `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
+    `<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
     `<DigestValue>${digestValue}</DigestValue>` +
     `</Reference>` +
     `</SignedInfo>`;
 
   const signatureValue = crypto
-    .createSign('RSA-SHA1')
+    .createSign('RSA-SHA256')
     .update(Buffer.from(signedInfo, 'utf8'))
     .sign(privateKeyPem, 'base64');
 
@@ -259,9 +260,9 @@ export function gerarQRCode(
   cpfConsumidor?: string, // omitir quando não informado (cDest vazio causa rejeição cStat 215)
 ): string {
   const valor = dec(vNF, 2);
-  const dIgestEnc = encodeURIComponent(dIgest);
   const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
+  // digVal sem URL-encode: SEFAZ-MT rejeita %3D com cStat 215 (cvc-type.3.1.3 no qrCode)
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgest}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
 }
