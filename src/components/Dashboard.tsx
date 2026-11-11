@@ -1816,26 +1816,8 @@ export default function Dashboard({
   useEffect(() => {
     const handleKitchenOrder = (data: any) => {
       const items = data?.items;
-      if (!items?.length) return;
-
-      // Deduplicação cross-tab: usa localStorage com TTL de 8s.
-      // Se outra aba (ou outro socket do mesmo reload) já registrou o item,
-      // ignora — evita imprimir duas vias quando há múltiplas abas abertas.
-      const now = Date.now();
-      const toPrint = items.filter((item: any) => {
-        if (!item?.id) return true; // sem id, deixa passar
-        const key = `pdv_print_${item.id}`;
-        try {
-          const last = Number(localStorage.getItem(key) || '0');
-          if (now - last < 8_000) return false;
-          localStorage.setItem(key, String(now));
-          setTimeout(() => { try { localStorage.removeItem(key); } catch {} }, 10_000);
-        } catch { /* localStorage indisponível, imprime normalmente */ }
-        return true;
-      });
-
-      if (toPrint.length > 0) {
-        printOrderToPrinters(toPrint, data.tableId, data.isComanda);
+      if (items?.length > 0) {
+        printOrderToPrinters(items, data.tableId, data.isComanda);
       }
     };
 
@@ -1847,10 +1829,11 @@ export default function Dashboard({
       }
     };
 
-    socket.on('kitchen_new_order', handleKitchenOrder);
+    socket.emit('register_print_socket');
+    socket.on('kitchen_print_order', handleKitchenOrder);
     socket.on('print_result', handlePrintResult);
     return () => {
-      socket.off('kitchen_new_order', handleKitchenOrder);
+      socket.off('kitchen_print_order', handleKitchenOrder);
       socket.off('print_result', handlePrintResult);
     };
   }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth]);

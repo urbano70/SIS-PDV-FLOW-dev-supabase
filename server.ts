@@ -127,6 +127,7 @@ async function startServer() {
     pizzariaConfig: any;
     fiscalConfig: FiscalConfig | null;
     printerAgentSocket: any;
+    printSocket: any;
     loaded: boolean;
   }
 
@@ -163,6 +164,7 @@ async function startServer() {
       pizzariaConfig: { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true },
       fiscalConfig: null,
       printerAgentSocket: null,
+      printSocket: null,
       loaded: false,
     };
   }
@@ -915,6 +917,8 @@ async function startServer() {
         io.to('tenant:' + tenantId).emit("printer_agent_status", { online: false });
         console.log(`[agent] Agente desconectado (tenant: ${tenantId})`);
       }
+      const stDis = getState(tenantId);
+      if (stDis.printSocket?.id === socket.id) stDis.printSocket = null;
       if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
 
@@ -946,6 +950,21 @@ async function startServer() {
         }
         handler(...args);
       };
+    };
+
+    // Admin dashboard registra-se como socket de impressão exclusivo do tenant
+    socket.on("register_print_socket", () => {
+      _st().printSocket = socket;
+    });
+
+    // Emite kitchen_print_order somente para o socket admin registrado; fallback para room se não houver
+    const emitPrintOrder = (payload: any) => {
+      const ps = _st().printSocket;
+      if (ps?.connected) {
+        ps.emit("kitchen_print_order", payload);
+      } else {
+        io.to(_room()).emit("kitchen_print_order", payload);
+      }
     };
 
     // init_data is sent after admin_connect (with per-tenant state); skip here for non-dev
@@ -1296,7 +1315,9 @@ async function startServer() {
           }
           io.to(_room()).emit("update_orders", _st().orders);
           if (itemsWithWaiter.length > 0) {
-            io.to(_room()).emit("kitchen_new_order", { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda });
+            const kPayload1 = { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda };
+            io.to(_room()).emit("kitchen_new_order", kPayload1);
+            emitPrintOrder(kPayload1);
           }
           enqueueWrite('orders', existingOrder, existingOrder.id.toString(), _tid());
           // Renovar sessão do cliente ao adicionar itens
@@ -1332,7 +1353,9 @@ async function startServer() {
       }
       io.to(_room()).emit("update_stock", _st().stock);
       if ((newOrder.items || []).length > 0) {
-        io.to(_room()).emit("kitchen_new_order", { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda });
+        const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
+        io.to(_room()).emit("kitchen_new_order", kPayload2);
+        emitPrintOrder(kPayload2);
       }
       
       console.log("Emitted initial updates for new order");
@@ -1779,7 +1802,9 @@ async function startServer() {
 
         // Emit immediately for fast UI
         io.to(_room()).emit("update_orders", _st().orders);
-        io.to(_room()).emit("kitchen_new_order", { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda });
+        const kPayload3 = { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda };
+        io.to(_room()).emit("kitchen_new_order", kPayload3);
+        emitPrintOrder(kPayload3);
 
         // Non-blocking: respond to socket immediately, persist in background
         enqueueWrite('_st().orders', order, String(order.id));
