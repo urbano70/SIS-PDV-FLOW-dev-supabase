@@ -18,6 +18,7 @@ import { LogIn } from 'lucide-react';
 import { onAuthStateChange, getSession } from './lib/auth';
 import { supabase } from './lib/supabase';
 import LandingPage from './pages/LandingPage';
+import DanfePage from './pages/DanfePage';
 import LoginPage from './pages/LoginPage';
 import UserPanel from './pages/UserPanel';
 import FinanceiroDashboard from './pages/FinanceiroDashboard';
@@ -429,6 +430,7 @@ export default function App() {
         <Route path="/presenca/:token" element={<AttendancePage />} />
         <Route path="/chamar/:tenantId/:tableId" element={<ChamarGarcomPage />} />
         <Route path="/mesa/:tenantId/:mesaId" element={<ClientePage />} />
+        <Route path="/danfe/nfce/:chaveAcesso" element={<DanfePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
