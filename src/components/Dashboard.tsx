@@ -2663,7 +2663,7 @@ export default function Dashboard({
       </motion.div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden p-4 lg:p-6 bg-[#F5F5F3] flex flex-col">
+      <main className="flex-1 overflow-hidden p-4 lg:p-6 pb-14 bg-[#F5F5F3] flex flex-col">
         <div className="flex items-center gap-2 mb-4 shrink-0 min-w-0">
           <button
             onClick={() => setIsSidebarOpen(true)}
@@ -2788,7 +2788,7 @@ export default function Dashboard({
         </div>
 
         {activeTab === 'overview' && (
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5 mb-1 shrink-0">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pt-3 pb-0.5 mb-1 shrink-0">
             <div className="relative shrink-0">
               {isCashRegisterOpen && activeCashRegisterName && (
                 <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#141414] text-white text-[7px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap z-10 pointer-events-none">
@@ -9293,29 +9293,39 @@ export default function Dashboard({
         )}
       </AnimatePresence>
 
-      {/* Em aberto — fixed acima do badge de versão */}
+      {/* Em aberto — barra full-width na base */}
       {activeTab === 'overview' && (() => {
         const openOrders = orders.filter((o: any) => o.status !== 'finalizada');
         const openTablesCount = tables.filter((t: any) => t.status !== 'free').length;
         const totalOpen = openOrders.reduce((acc: number, o: any) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
         return (
-          <div className="fixed bottom-8 left-2 z-40 select-none pointer-events-none">
-            <div className="flex items-center gap-2 bg-white/90 backdrop-blur-sm border border-[#141414]/15 rounded-lg px-3 py-1.5 shadow-sm">
-              <Wallet size={12} className="text-[#141414]/50 shrink-0" />
-              <span className="text-[9px] font-bold uppercase tracking-widest text-[#141414]/50">Em aberto</span>
-              <span className="text-[10px] font-semibold text-[#141414]/60">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
-              <span className="text-[11px] font-black text-[#141414]">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
+          <div className="fixed bottom-0 left-0 right-0 z-40 select-none pointer-events-none">
+            <div className="flex items-center justify-between bg-[#141414] px-4 py-3 gap-4">
+              <div className="flex items-center gap-2">
+                <Wallet size={14} className="text-white/50 shrink-0" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/50">Em aberto</span>
+              </div>
+              <span className="text-[9px] font-mono text-white/20 hidden sm:block">PR #{LATEST_PR} · {__BUILD_TS__}</span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <Users size={13} className="text-white/40 shrink-0" />
+                  <span className="text-[11px] font-bold text-white/70">{openTablesCount} mesa{openTablesCount !== 1 ? 's' : ''}</span>
+                </div>
+                <span className="text-[15px] font-black text-white tracking-tight">R$ {totalOpen.toFixed(2).replace('.', ',')}</span>
+              </div>
             </div>
           </div>
         );
       })()}
 
-      {/* Badge de versão — canto inferior esquerdo */}
-      <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
-        <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
-          PR #{LATEST_PR} · {__BUILD_TS__}
-        </span>
-      </div>
+      {/* Badge de versão — dentro da barra inferior (visível apenas fora do overview) */}
+      {activeTab !== 'overview' && (
+        <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
+          <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
+            PR #{LATEST_PR} · {__BUILD_TS__}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
