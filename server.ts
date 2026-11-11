@@ -2883,7 +2883,7 @@ async function startServer() {
     return res.json({ ok: true, certificadoCarregado: !!cfg.certificadoA1Base64 });
   });
 
-  // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ
+  // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ (NFC-e e NF-e)
   app.get("/api/fiscal/status/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
     if (db && !getCertificado(tenantId)) {
@@ -2894,8 +2894,14 @@ async function startServer() {
     if (!cert) return res.status(400).json({ error: 'Certificado não carregado. Salve a configuração fiscal com o certificado A1.' });
     const fiscalConfig = tenants.get(tenantId)?.fiscalConfig;
     const ambiente: AmbienteFiscal = fiscalConfig?.ambiente || 'homologacao';
-    const result = await verificarServico('65', ambiente, cert);
-    return res.json(result);
+    const [nfce, nfe] = await Promise.allSettled([
+      verificarServico('65', ambiente, cert),
+      verificarServico('55', ambiente, cert),
+    ]);
+    return res.json({
+      nfce: nfce.status === 'fulfilled' ? nfce.value : { cStat: '', xMotivo: (nfce as PromiseRejectedResult).reason?.message ?? 'Erro' },
+      nfe:  nfe.status  === 'fulfilled' ? nfe.value  : { cStat: '', xMotivo: (nfe  as PromiseRejectedResult).reason?.message ?? 'Erro' },
+    });
   });
 
   // POST /api/fiscal/nfce/:orderId
