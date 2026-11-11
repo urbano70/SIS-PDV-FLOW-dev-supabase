@@ -1305,6 +1305,9 @@ export default function Dashboard({
   const [consultaChave, setConsultaChave] = useState('');
   const [consultaLoading, setConsultaLoading] = useState(false);
   const [consultaResult, setConsultaResult] = useState<{ cStat: string; xMotivo: string; protocolo: string; dhRecbto: string } | null>(null);
+  const [xmlLoteAno, setXmlLoteAno] = useState(() => String(new Date().getFullYear()));
+  const [xmlLoteMes, setXmlLoteMes] = useState(() => String(new Date().getMonth() + 1));
+  const [xmlLoteLoading, setXmlLoteLoading] = useState(false);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -6769,6 +6772,61 @@ export default function Dashboard({
                       )}
                     </div>
                   )}
+                </div>
+
+                {/* Exportação de XML em lote */}
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Download className="text-[#141414]" size={12} />
+                    <h3 className="font-serif italic text-sm leading-none">Exportar XMLs do Mês</h3>
+                  </div>
+                  <p className="text-[7px] text-[#141414]/40 mb-2">ZIP com todos os XMLs autorizados — para entrega à contabilidade (SPED).</p>
+                  <div className="flex gap-2 items-end">
+                    <div>
+                      <label className="text-[7px] font-bold uppercase text-[#141414]/40 block mb-0.5">Mês</label>
+                      <select value={xmlLoteMes} onChange={e => setXmlLoteMes(e.target.value)} className="border border-[#141414]/15 rounded px-2 py-1.5 text-[8px] focus:outline-none">
+                        {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
+                          <option key={i+1} value={String(i+1)}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[7px] font-bold uppercase text-[#141414]/40 block mb-0.5">Ano</label>
+                      <select value={xmlLoteAno} onChange={e => setXmlLoteAno(e.target.value)} className="border border-[#141414]/15 rounded px-2 py-1.5 text-[8px] focus:outline-none">
+                        {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                          <option key={y} value={String(y)}>{y}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <button
+                      disabled={xmlLoteLoading}
+                      onClick={async () => {
+                        if (!tenantId) return;
+                        setXmlLoteLoading(true);
+                        try {
+                          const url = `/api/fiscal/xml-lote?tenant=${encodeURIComponent(tenantId)}&ano=${xmlLoteAno}&mes=${xmlLoteMes}`;
+                          const res = await fetch(url);
+                          if (!res.ok) {
+                            const d = await res.json();
+                            toast.error(d.error || 'Erro ao gerar ZIP.');
+                            return;
+                          }
+                          const blob = await res.blob();
+                          const a = document.createElement('a');
+                          a.href = URL.createObjectURL(blob);
+                          a.download = `xmls-${String(xmlLoteMes).padStart(2,'0')}-${xmlLoteAno}.zip`;
+                          a.click();
+                          URL.revokeObjectURL(a.href);
+                          toast.success('ZIP gerado com sucesso!');
+                        } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
+                        finally { setXmlLoteLoading(false); }
+                      }}
+                      className="px-3 py-1.5 bg-[#141414] hover:bg-[#141414]/80 text-white rounded text-[7px] font-bold uppercase transition-colors disabled:opacity-40 flex items-center gap-1"
+                    >
+                      <Download size={9} />
+                      {xmlLoteLoading ? 'Gerando...' : 'Baixar ZIP'}
+                    </button>
+                  </div>
                 </div>
               </div>
               </div>
