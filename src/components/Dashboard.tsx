@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, Plus, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -146,7 +146,7 @@ interface DashboardProps {
   activeTab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products';
   setActiveTab: (tab: 'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products') => void;
   isCashRegisterOpen: boolean;
-  toggleCashRegister: (open: boolean) => Promise<void>;
+  toggleCashRegister: (open: boolean, cashRegisterName?: string) => void;
   printerConfig: any;
   setPrinterConfig: (config: any) => void;
   pizzariaConfig: PizzeriaConfig;
@@ -970,7 +970,7 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, logout, clockOffset, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
@@ -1144,6 +1144,16 @@ export default function Dashboard({
   const [localMaxWaiters, setLocalMaxWaiters] = useState<number>(pizzariaConfig.maxWaiters ?? 10);
   const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
+  const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
+  const [newRegisterName, setNewRegisterName] = useState('');
+
+  useEffect(() => {
+    if (!cashRegisterPickerOpen) return;
+    const handler = () => setCashRegisterPickerOpen(false);
+    setTimeout(() => document.addEventListener('click', handler), 0);
+    return () => document.removeEventListener('click', handler);
+  }, [cashRegisterPickerOpen]);
 
   // Sincroniza estado local quando dados do servidor chegam
   useEffect(() => {
@@ -1151,6 +1161,10 @@ export default function Dashboard({
     setLocalNumComandas(pizzariaConfig.numComandas ?? 50);
     setLocalMaxWaiters(pizzariaConfig.maxWaiters ?? 10);
   }, [pizzariaConfig.numTables, pizzariaConfig.numComandas, pizzariaConfig.maxWaiters]);
+
+  useEffect(() => {
+    setLocalCashRegisters(pizzariaConfig.cashRegisters ?? []);
+  }, [pizzariaConfig.cashRegisters]);
 
   useEffect(() => {
     setLocalLogoUrl(printerConfig.logoUrl || '');
@@ -2782,31 +2796,61 @@ export default function Dashboard({
 
         {activeTab === 'overview' && (
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pb-0.5 mb-1 shrink-0">
-            <button
-              onClick={() => {
-                if (!isCashRegisterOpen) {
-                  toggleCashRegister(true);
-                  socket.emit('toggle_cash_register', true);
-                } else {
-                  const activeTables = tables.find(t => t.status !== "free");
-                  const activeComandas = comandas.find(c => c.status !== "free");
-                  if (activeTables || activeComandas) {
-                    toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+            <div className="relative shrink-0">
+              {isCashRegisterOpen && activeCashRegisterName && (
+                <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#141414] text-white text-[7px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap z-10 pointer-events-none">
+                  {activeCashRegisterName}
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  if (!isCashRegisterOpen) {
+                    const registers = pizzariaConfig.cashRegisters ?? [];
+                    if (registers.length > 0) {
+                      setCashRegisterPickerOpen(v => !v);
+                    } else {
+                      toggleCashRegister(true);
+                    }
                   } else {
-                    toggleCashRegister(false);
-                    socket.emit('toggle_cash_register', false);
+                    const activeTables = tables.find(t => t.status !== "free");
+                    const activeComandas = comandas.find(c => c.status !== "free");
+                    if (activeTables || activeComandas) {
+                      toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
+                    } else {
+                      toggleCashRegister(false, activeCashRegisterName ?? undefined);
+                    }
                   }
-                }
-              }}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-sm shrink-0 ${
-                isCashRegisterOpen
-                  ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'bg-green-600 text-white hover:bg-green-700'
-              }`}
-            >
-              <Wallet size={14} />
-              <span>{isCashRegisterOpen ? 'Fechar' : 'Abrir'}</span>
-            </button>
+                }}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl font-bold text-xs transition-all shadow-sm ${
+                  isCashRegisterOpen
+                    ? 'bg-red-500 text-white hover:bg-red-600'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                <Wallet size={14} />
+                <span>{isCashRegisterOpen ? 'Fechar Caixa' : 'Abrir Caixa'}</span>
+              </button>
+              {cashRegisterPickerOpen && !isCashRegisterOpen && (
+                <div className="absolute top-full left-0 mt-1 bg-white rounded-xl shadow-lg border border-[#141414]/10 z-50 min-w-[160px] overflow-hidden">
+                  <div className="px-3 py-1.5 border-b border-[#141414]/5">
+                    <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Selecionar Caixa</span>
+                  </div>
+                  {(pizzariaConfig.cashRegisters ?? []).map(reg => (
+                    <button
+                      key={reg.id}
+                      onClick={() => {
+                        setCashRegisterPickerOpen(false);
+                        toggleCashRegister(true, reg.name);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2"
+                    >
+                      <Wallet size={11} className="text-[#141414]/40 shrink-0" />
+                      {reg.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
             <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
           </div>
@@ -5035,6 +5079,94 @@ export default function Dashboard({
                     <BellRing size={10} /> Configurar Chama Garçom
                   </button>
                 </div>
+              </div>
+
+              {/* Card: Configuração de Caixas */}
+              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <Wallet className="text-[#141414]" size={13} />
+                  <h3 className="font-serif italic text-sm leading-none flex-1">Configuração de Caixas</h3>
+                  <button
+                    onClick={() => {
+                      updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: localCashRegisters });
+                      toast.success('Caixas salvos!');
+                    }}
+                    disabled={isCashRegisterOpen || JSON.stringify(localCashRegisters) === JSON.stringify(pizzariaConfig.cashRegisters ?? [])}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all ${
+                      !isCashRegisterOpen && JSON.stringify(localCashRegisters) !== JSON.stringify(pizzariaConfig.cashRegisters ?? [])
+                        ? 'bg-[#141414] text-white hover:opacity-80'
+                        : 'bg-[#141414]/10 text-[#141414]/40 cursor-not-allowed'
+                    }`}
+                  >
+                    <Save size={9} />
+                    Salvar
+                  </button>
+                </div>
+                {isCashRegisterOpen && (
+                  <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1 mb-2">
+                    <Lock size={9} className="text-red-500 shrink-0" />
+                    <span className="text-[8px] text-red-700 font-bold">Feche o caixa para alterar</span>
+                  </div>
+                )}
+                <p className="text-[8px] text-[#141414]/40 mb-2 leading-tight">
+                  Nomeie seus caixas para controlar qual estação pode abrir cada um. Um caixa com o mesmo nome não pode ser aberto em dois lugares ao mesmo tempo.
+                </p>
+                <div className="space-y-1 mb-2">
+                  {localCashRegisters.length === 0 && (
+                    <p className="text-[8px] text-[#141414]/30 italic text-center py-1">Nenhum caixa configurado — sem restrição de acesso</p>
+                  )}
+                  {localCashRegisters.map(reg => (
+                    <div key={reg.id} className="flex items-center gap-2 bg-[#141414]/3 rounded-lg px-2 py-1.5">
+                      <Wallet size={10} className="text-[#141414]/40 shrink-0" />
+                      <span className="text-[9px] font-semibold text-[#141414] flex-1">{reg.name}</span>
+                      <button
+                        disabled={isCashRegisterOpen}
+                        onClick={() => !isCashRegisterOpen && setLocalCashRegisters(prev => prev.filter(r => r.id !== reg.id))}
+                        className={`p-0.5 rounded transition-colors ${isCashRegisterOpen ? 'text-[#141414]/20 cursor-not-allowed' : 'text-[#141414]/30 hover:text-red-500'}`}
+                      >
+                        <Trash2 size={9} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {!isCashRegisterOpen && (
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newRegisterName}
+                      onChange={e => setNewRegisterName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && newRegisterName.trim()) {
+                          const trimmed = newRegisterName.trim();
+                          if (localCashRegisters.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
+                            toast.error('Já existe um caixa com esse nome.');
+                            return;
+                          }
+                          setLocalCashRegisters(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name: trimmed }]);
+                          setNewRegisterName('');
+                        }
+                      }}
+                      placeholder="Nome do caixa..."
+                      className="flex-1 bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 text-[9px] font-medium outline-none focus:ring-1 focus:ring-[#141414]"
+                    />
+                    <button
+                      onClick={() => {
+                        const trimmed = newRegisterName.trim();
+                        if (!trimmed) return;
+                        if (localCashRegisters.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
+                          toast.error('Já existe um caixa com esse nome.');
+                          return;
+                        }
+                        setLocalCashRegisters(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name: trimmed }]);
+                        setNewRegisterName('');
+                      }}
+                      className="bg-[#141414] text-white px-2 py-1.5 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity flex items-center gap-1"
+                    >
+                      <Plus size={9} />
+                      Add
+                    </button>
+                  </div>
+                )}
               </div>
               </div>
               )}

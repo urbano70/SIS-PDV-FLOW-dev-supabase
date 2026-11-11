@@ -48,6 +48,9 @@ export interface PizzeriaConfig {
   comandasEnabled?: boolean;
   numComandas?: number;
   maxWaiters?: number;
+  waiterCanCancelItem?: boolean;
+  clientSessionTimeoutMin?: number;
+  cashRegisters?: { id: string; name: string }[];
 }
 
 export interface Order {

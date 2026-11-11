@@ -11,7 +11,8 @@ interface FirebaseContextType {
   tenantId: string | undefined;
   signIn: () => Promise<void>;
   logout: () => Promise<void>;
-  toggleCashRegister: (open: boolean) => void;
+  toggleCashRegister: (open: boolean, cashRegisterName?: string) => void;
+  activeCashRegisterName: string | null;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
   clockOffset: number;
@@ -87,6 +88,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [shiftStartedAt, setShiftStartedAt] = useState<string>(cached?.shiftStartedAt ?? new Date().toISOString());
   // clockOffset: ms difference (client - server). Use Date.now() - clockOffset for server-aligned time.
   const [clockOffset, setClockOffset] = useState<number>(0);
+  const [activeCashRegisterName, setActiveCashRegisterName] = useState<string | null>(null);
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -102,7 +104,11 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     const handleUpdateOrders = (data: Order[]) => setOrders(data);
     const handleUpdateTables = (data: Table[]) => setTables(data);
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
-    const handleUpdateCashRegister = (isOpen: boolean) => setIsCashRegisterOpen(isOpen);
+    const handleUpdateCashRegister = (isOpen: boolean) => {
+      setIsCashRegisterOpen(isOpen);
+      if (!isOpen) setActiveCashRegisterName(null);
+    };
+    const handleUpdateMyCashRegisterName = (name: string | null) => setActiveCashRegisterName(name);
     const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
     const handleUpdateShiftStartedAt = (ts: string) => setShiftStartedAt(ts);
     const handleUpdateMenu = (data: MenuCategory[]) => {
@@ -147,6 +153,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('update_tables', handleUpdateTables);
     socket.on('update_comandas', handleUpdateComandas);
     socket.on('update_cash_register', handleUpdateCashRegister);
+    socket.on('update_my_cash_register_name', handleUpdateMyCashRegisterName);
     socket.on('update_pizzaria_config', handleUpdatePizzeriaConfig);
     socket.on('update_shift_started_at', handleUpdateShiftStartedAt);
     socket.on('update_menu', handleUpdateMenu);
@@ -210,6 +217,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('update_tables', handleUpdateTables);
       socket.off('update_comandas', handleUpdateComandas);
       socket.off('update_cash_register', handleUpdateCashRegister);
+      socket.off('update_my_cash_register_name', handleUpdateMyCashRegisterName);
       socket.off('update_pizzaria_config', handleUpdatePizzeriaConfig);
       socket.off('update_shift_started_at', handleUpdateShiftStartedAt);
       socket.off('update_menu', handleUpdateMenu);
@@ -232,9 +240,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.emit('update_pizzaria_config', config);
   };
 
-  const toggleCashRegister = (open: boolean) => {
-    socket.emit('toggle_cash_register', open);
+  const toggleCashRegister = (open: boolean, cashRegisterName?: string) => {
+    socket.emit('toggle_cash_register', cashRegisterName !== undefined ? { isOpen: open, cashRegisterName } : open);
     setIsCashRegisterOpen(open);
+    if (!open) setActiveCashRegisterName(null);
   };
 
   return (
@@ -246,6 +255,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       signIn,
       logout,
       toggleCashRegister,
+      activeCashRegisterName,
       updateTableStatusLocal,
       updatePizzeriaConfig,
       clockOffset,

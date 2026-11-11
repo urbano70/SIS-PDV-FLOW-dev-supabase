@@ -128,6 +128,7 @@ async function startServer() {
     fiscalConfig: FiscalConfig | null;
     printerAgentSocket: any;
     printSocket: any;
+    openCashRegisters: Record<string, string>;
     loaded: boolean;
   }
 
@@ -165,6 +166,7 @@ async function startServer() {
       fiscalConfig: null,
       printerAgentSocket: null,
       printSocket: null,
+      openCashRegisters: {},
       loaded: false,
     };
   }
@@ -919,6 +921,11 @@ async function startServer() {
       }
       const stDis = getState(tenantId);
       if (stDis.printSocket?.id === socket.id) stDis.printSocket = null;
+      for (const name of Object.keys(stDis.openCashRegisters)) {
+        if (stDis.openCashRegisters[name] === socket.id) {
+          delete stDis.openCashRegisters[name];
+        }
+      }
       if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
 
@@ -1126,22 +1133,45 @@ async function startServer() {
       }
     });
 
-    socket.on("toggle_cash_register", requireAdmin(async (isOpen) => {
-      console.log(`Cash register toggle: ${isOpen}`);
+    socket.on("toggle_cash_register", requireAdmin(async (payload) => {
+      const isOpen: boolean = typeof payload === 'boolean' ? payload : (payload?.isOpen ?? false);
+      const cashRegisterName: string | undefined = typeof payload === 'object' && payload !== null ? payload.cashRegisterName : undefined;
+
       if (!isOpen) {
-        const activeTables = _st().tables.find(t => t.status !== "free");
-        const activeComandas = _st().comandas.find(c => c.status !== "free");
+        const activeTables = _st().tables.find((t: any) => t.status !== "free");
+        const activeComandas = _st().comandas.find((c: any) => c.status !== "free");
         if (activeTables || activeComandas) {
-          socket.emit("error_message", "NÃ£o Ã© possÃ­vel fechar o caixa com mesas ou _st().comandas ocupadas.");
+          socket.emit("error_message", "Não é possível fechar o caixa com mesas ou comandas ocupadas.");
           return;
         }
-      }
-      if (isOpen) {
+        if (cashRegisterName) {
+          delete _st().openCashRegisters[cashRegisterName];
+        } else {
+          for (const name of Object.keys(_st().openCashRegisters)) {
+            if (_st().openCashRegisters[name] === socket.id) delete _st().openCashRegisters[name];
+          }
+        }
+      } else {
+        if (cashRegisterName) {
+          const existingSocketId = _st().openCashRegisters[cashRegisterName];
+          if (existingSocketId && existingSocketId !== socket.id) {
+            const existingSocket = io.sockets.sockets.get(existingSocketId);
+            if (existingSocket?.connected) {
+              socket.emit("error_message", `"${cashRegisterName}" já está aberto em outra sessão.`);
+              return;
+            }
+          }
+          _st().openCashRegisters[cashRegisterName] = socket.id;
+        }
         markShiftStart(_st());
         io.to(_room()).emit('update_shift_started_at', _st().shiftStartedAt);
       }
+
       _st().isCashRegisterOpen = isOpen;
-      io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
+      io.to(_room()).emit("update_cash_register", isOpen);
+      if (cashRegisterName !== undefined) {
+        socket.emit("update_my_cash_register_name", isOpen ? cashRegisterName : null);
+      }
       await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt: _st().shiftStartedAt } : {}) }, 'app', _tid());
     }));
 
