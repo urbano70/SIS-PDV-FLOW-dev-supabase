@@ -819,6 +819,7 @@ async function startServer() {
     const room = 'tenant:' + tenantId;
     const newEntries: any[] = [];
     const lowAlerts: { name: string; quantity: number; minQuantity: number }[] = [];
+    const updatedStockEntries: any[] = [];
     items.forEach(item => {
       const qty = item.quantity || 1;
       const entry = st.stock.find((s: any) =>
@@ -833,7 +834,9 @@ async function startServer() {
             if (s.minQuantity > 0 && newQty <= s.minQuantity && s.quantity > s.minQuantity) {
               lowAlerts.push({ name: s.name, quantity: newQty, minQuantity: s.minQuantity });
             }
-            return { ...s, quantity: newQty };
+            const updated = { ...s, quantity: newQty };
+            updatedStockEntries.push(updated);
+            return updated;
           }
           return s;
         });
@@ -846,6 +849,9 @@ async function startServer() {
     io.to(room).emit("update_stock", st.stock);
     if (lowAlerts.length > 0) {
       io.to(room).emit("stock_low_alert", lowAlerts);
+    }
+    for (const updated of updatedStockEntries) {
+      saveToSupabase('stock', updated, updated.id, tenantId);
     }
   };
 
