@@ -62,11 +62,12 @@ export function montarXmlEvento(
   dhEvento: string,
   detEvento: string,
   nSeqEvento = '1',
+  cOrgao = '51',
 ): string {
   const idEvento = `ID${tpEvento}${chaveAcesso}${pad(nSeqEvento, 2)}`;
   const infEvento =
     `<infEvento Id="${idEvento}">` +
-    `<cOrgao>51</cOrgao>` +
+    `<cOrgao>${cOrgao}</cOrgao>` +
     `<tpAmb>${tpAmb}</tpAmb>` +
     `<CNPJ>${chaveAcesso.substring(6, 20)}</CNPJ>` +
     `<chNFe>${chaveAcesso}</chNFe>` +
@@ -121,6 +122,49 @@ export function detCancelamentoPorSubstituicao(
     `<nProt>${protocolo}</nProt>` +
     `<xJust>${motivo.substring(0, 255)}</xJust>` +
     `<chNFeRef>${chaveNFCeContingente}</chNFeRef>` +
+    `</detEvento>`
+  );
+}
+
+// ── EPEC (tpEvento=110140, NT 2015.001) ──────────────────────────────────────
+
+export interface ParamsDetEpec {
+  dhEmi: string;              // ISO 8601 com offset, ex: "2026-11-11T10:30:00-04:00"
+  tpNF: '0' | '1';           // 0=entrada, 1=saída
+  ie: string;                 // IE do emitente, somente dígitos
+  destUF: string;             // UF do destinatário
+  destCNPJ?: string;          // CNPJ do destinatário (14 dígitos)
+  destCPF?: string;           // CPF do destinatário (11 dígitos)
+  destIE?: string;            // IE do destinatário ou 'ISENTO'
+  vNF: string;                // valor total (2 casas decimais, ex: "150.00")
+  vICMS: string;              // valor ICMS
+  vST: string;                // valor ICMS-ST
+}
+
+/** detEvento para EPEC (tpEvento=110140) — transmitido ao SVC-RS/SVC-AN. */
+export function montarDetEventoEpec(p: ParamsDetEpec): string {
+  const docDest = p.destCNPJ
+    ? `<CNPJ>${p.destCNPJ}</CNPJ>`
+    : p.destCPF
+    ? `<CPF>${p.destCPF}</CPF>`
+    : `<CNPJ></CNPJ>`;
+  return (
+    `<detEvento versao="1.00">` +
+    `<descEvento>EPEC</descEvento>` +
+    `<cOrgaoAutor>51</cOrgaoAutor>` +
+    `<tpAutor>1</tpAutor>` +
+    `<verAplic>1.0.0</verAplic>` +
+    `<dhEmi>${p.dhEmi}</dhEmi>` +
+    `<tpNF>${p.tpNF}</tpNF>` +
+    `<IE>${p.ie}</IE>` +
+    `<dest>` +
+    `<UF>${p.destUF}</UF>` +
+    docDest +
+    `<IE>${p.destIE ?? 'ISENTO'}</IE>` +
+    `</dest>` +
+    `<vNF>${p.vNF}</vNF>` +
+    `<vICMS>${p.vICMS}</vICMS>` +
+    `<vST>${p.vST}</vST>` +
     `</detEvento>`
   );
 }

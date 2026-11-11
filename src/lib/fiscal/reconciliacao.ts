@@ -114,7 +114,7 @@ export async function reconciliarResultadoDesconhecido(
   const { data: notas, error } = await db.from('fiscal_notes')
     .select('id,chave_acesso,modelo,ambiente,xml_assinado,intencao_json,status,order_id')
     .eq('tenant_id', tenantId)
-    .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO'])
+    .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO', 'EPEC_AUTORIZADO'])
     .not('chave_acesso', 'is', null)
     .order('created_at', { ascending: true })
     .limit(limit);
@@ -131,32 +131,18 @@ export async function reconciliarResultadoDesconhecido(
     const ambiente = nota.ambiente as AmbienteFiscal;
     const modelo   = nota.modelo   as ModeloFiscal;
 
-    // 1. Consultar status no SEFAZ
     let cStat: string, xMotivo: string, protocolo: string;
-    try {
-      const r = modelo === '55'
-        ? await consultarNFe(nota.chave_acesso, ambiente, cert)
-        : await consultarNFCe(nota.chave_acesso, ambiente, cert);
-      cStat    = r.cStat;
-      xMotivo  = r.xMotivo;
-      protocolo = r.protocolo;
-    } catch {
-      // Falha de rede — tentar no próximo ciclo
-      ainda_pendentes++;
-      continue;
-    }
-
-    const classificacao = classificarCstatConsulta(cStat);
     let statusNovo: FiscalDocStatus;
     let retransmitida = false;
 
-    // 2. Tratar resultado
-    if (classificacao === 'AGUARDAR') {
-      ainda_pendentes++;
-      continue; // Manter status atual, sem atualizar o banco
-
-    } else if (classificacao === 'RETRANSMITIR') {
-      if (nota.xml_assinado) {
+    // ── Notas com EPEC autorizado: re-transmitir diretamente ao SEFAZ principal ─
+    if (nota.status === 'EPEC_AUTORIZADO') {
+      if (!nota.xml_assinado) {
+        statusNovo = 'REJEITADO';
+        cStat      = '';
+        xMotivo    = 'XML não encontrado para re-transmissão pós-EPEC';
+        protocolo  = '';
+      } else {
         try {
           const rt = await retransmitirXml(nota.xml_assinado, modelo, ambiente, cert);
           cStat     = rt.cStat;
@@ -165,24 +151,67 @@ export async function reconciliarResultadoDesconhecido(
           retransmitida = true;
           statusNovo = classificarCstatAutorizacao(cStat);
           if (statusNovo === 'RESULTADO_DESCONHECIDO') {
-            // Ainda processando — manter pendente
+            // SEFAZ ainda processando — aguardar próximo ciclo
             ainda_pendentes++;
             continue;
           }
         } catch {
-          // Re-transmissão falhou — tentar no próximo ciclo
+          // SEFAZ-MT ainda inacessível — manter EPEC_AUTORIZADO
           ainda_pendentes++;
           continue;
         }
-      } else {
-        // Sem XML para re-transmitir — marcar para re-emissão manual
-        statusNovo = 'REJEITADO';
-        xMotivo    = 'NF não encontrada no SEFAZ — re-emissão necessária';
-        protocolo  = '';
       }
 
     } else {
-      statusNovo = classificacao as FiscalDocStatus;
+      // ── Notas com status desconhecido/processando: consultar antes de re-transmitir ─
+
+      // 1. Consultar status no SEFAZ
+      try {
+        const r = modelo === '55'
+          ? await consultarNFe(nota.chave_acesso, ambiente, cert)
+          : await consultarNFCe(nota.chave_acesso, ambiente, cert);
+        cStat    = r.cStat;
+        xMotivo  = r.xMotivo;
+        protocolo = r.protocolo;
+      } catch {
+        // Falha de rede — tentar no próximo ciclo
+        ainda_pendentes++;
+        continue;
+      }
+
+      const classificacao = classificarCstatConsulta(cStat);
+
+      // 2. Tratar resultado
+      if (classificacao === 'AGUARDAR') {
+        ainda_pendentes++;
+        continue;
+
+      } else if (classificacao === 'RETRANSMITIR') {
+        if (nota.xml_assinado) {
+          try {
+            const rt = await retransmitirXml(nota.xml_assinado, modelo, ambiente, cert);
+            cStat     = rt.cStat;
+            xMotivo   = rt.xMotivo;
+            protocolo = rt.protocolo;
+            retransmitida = true;
+            statusNovo = classificarCstatAutorizacao(cStat);
+            if (statusNovo === 'RESULTADO_DESCONHECIDO') {
+              ainda_pendentes++;
+              continue;
+            }
+          } catch {
+            ainda_pendentes++;
+            continue;
+          }
+        } else {
+          statusNovo = 'REJEITADO';
+          xMotivo    = 'NF não encontrada no SEFAZ — re-emissão necessária';
+          protocolo  = '';
+        }
+
+      } else {
+        statusNovo = classificacao as FiscalDocStatus;
+      }
     }
 
     // 3. Atualizar banco
