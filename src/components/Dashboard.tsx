@@ -1302,6 +1302,9 @@ export default function Dashboard({
   const [inutilizarLoading, setInutilizarLoading] = useState(false);
   const [reconciliarLoading, setReconciliarLoading] = useState(false);
   const [reconciliarResult, setReconciliarResult] = useState<{ total: number; autorizados: number; rejeitados: number; ainda_pendentes: number } | null>(null);
+  const [consultaChave, setConsultaChave] = useState('');
+  const [consultaLoading, setConsultaLoading] = useState(false);
+  const [consultaResult, setConsultaResult] = useState<{ cStat: string; xMotivo: string; protocolo: string; dhRecbto: string } | null>(null);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -6705,6 +6708,58 @@ export default function Dashboard({
                           </div>
                         );
                       })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Consulta por chave de acesso */}
+                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Search className="text-[#141414]" size={12} />
+                    <h3 className="font-serif italic text-sm leading-none">Consultar por Chave</h3>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      value={consultaChave}
+                      onChange={e => { setConsultaChave(e.target.value.replace(/\D/g, '')); setConsultaResult(null); }}
+                      placeholder="44 dígitos da chave de acesso"
+                      maxLength={44}
+                      className="flex-1 text-[8px] font-mono border border-[#141414]/15 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    />
+                    <button
+                      disabled={consultaLoading || consultaChave.length !== 44}
+                      onClick={async () => {
+                        if (!tenantId || consultaChave.length !== 44) return;
+                        setConsultaLoading(true);
+                        setConsultaResult(null);
+                        try {
+                          const res = await fetch(`/api/fiscal/consultar/${consultaChave}?tenantId=${encodeURIComponent(tenantId)}`);
+                          const d = await res.json();
+                          if (!res.ok) { toast.error(d.error || 'Erro na consulta.'); return; }
+                          setConsultaResult({ cStat: d.cStat, xMotivo: d.xMotivo, protocolo: d.protocolo || '', dhRecbto: d.dhRecbto || '' });
+                        } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
+                        finally { setConsultaLoading(false); }
+                      }}
+                      className="shrink-0 px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[7px] font-bold uppercase transition-colors disabled:opacity-40"
+                    >{consultaLoading ? '...' : 'Consultar'}</button>
+                  </div>
+                  {consultaChave.length > 0 && consultaChave.length < 44 && (
+                    <p className="text-[7px] text-[#141414]/40 mt-0.5">{44 - consultaChave.length} dígitos restantes</p>
+                  )}
+                  {consultaResult && (
+                    <div className="mt-2 bg-gray-50 border border-[#141414]/10 rounded px-2 py-1.5 space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[7px] font-bold uppercase text-[#141414]/40">cStat</span>
+                        <span className="text-[8px] font-mono font-bold text-[#141414]">{consultaResult.cStat}</span>
+                        <span className="text-[8px] text-[#141414]/70">— {consultaResult.xMotivo}</span>
+                      </div>
+                      {consultaResult.protocolo && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-[7px] font-bold uppercase text-[#141414]/40">Protocolo</span>
+                          <span className="text-[8px] font-mono text-[#141414]">{consultaResult.protocolo}</span>
+                          {consultaResult.dhRecbto && <span className="text-[7px] text-[#141414]/40">{new Date(consultaResult.dhRecbto).toLocaleString('pt-BR')}</span>}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
