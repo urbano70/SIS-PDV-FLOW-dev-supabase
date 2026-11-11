@@ -127,7 +127,7 @@ export async function autorizarNFCe(
   const digestVal = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
   const total = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
   const qrCodeGerado = (cscId && csc)
-    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, total, digestVal, cscId, csc, urlQrBase)
+    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, total, digestVal, cscId, csc, urlQrBase, intencao.cpfConsumidor || undefined)
     : '';
   const infoSupl = montarInfoNFeSupl(qrCodeGerado, urlConsulta);
   // Insere <infNFeSupl> logo após </infNFe> (antes de <Signature>), fora da área assinada

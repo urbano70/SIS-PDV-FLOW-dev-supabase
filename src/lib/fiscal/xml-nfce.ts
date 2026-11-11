@@ -256,10 +256,12 @@ export function gerarQRCode(
   cscId: string,    // ID CSC do portal SEFAZ (ex: "000001")
   csc: string,      // valor CSC completo
   urlBase: string,
+  cpfConsumidor?: string, // omitir quando não informado (cDest vazio causa rejeição cStat 215)
 ): string {
   const valor = dec(vNF, 2);
   const dIgestEnc = encodeURIComponent(dIgest);
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}&cDest=&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
+  const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
 }
