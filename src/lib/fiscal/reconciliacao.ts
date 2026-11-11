@@ -114,7 +114,7 @@ export async function reconciliarResultadoDesconhecido(
   const { data: notas, error } = await db.from('fiscal_notes')
     .select('id,chave_acesso,modelo,ambiente,xml_assinado,intencao_json,status,order_id')
     .eq('tenant_id', tenantId)
-    .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO', 'EPEC_AUTORIZADO'])
+    .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO', 'EPEC_AUTORIZADO', 'CONTINGENCIA_PENDENTE_TRANSMISSAO'])
     .not('chave_acesso', 'is', null)
     .order('created_at', { ascending: true })
     .limit(limit);
@@ -135,12 +135,12 @@ export async function reconciliarResultadoDesconhecido(
     let statusNovo: FiscalDocStatus;
     let retransmitida = false;
 
-    // ── Notas com EPEC autorizado: re-transmitir diretamente ao SEFAZ principal ─
-    if (nota.status === 'EPEC_AUTORIZADO') {
+    // ── NFC-e offline / EPEC: re-transmitir diretamente ao SEFAZ principal ──────
+    if (nota.status === 'EPEC_AUTORIZADO' || nota.status === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') {
       if (!nota.xml_assinado) {
         statusNovo = 'REJEITADO';
         cStat      = '';
-        xMotivo    = 'XML não encontrado para re-transmissão pós-EPEC';
+        xMotivo    = 'XML não encontrado para re-transmissão — re-emissão necessária';
         protocolo  = '';
       } else {
         try {
