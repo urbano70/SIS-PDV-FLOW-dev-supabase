@@ -7,12 +7,15 @@ import type { IntencaoFiscal, FiscalDocStatus, AmbienteFiscal, ModeloFiscal } fr
 import type { CertificadoCarregado } from './certificate.js';
 import { getEndpoint, C_UF_MT, TP_AMB, T_PAG, URL_QR_CONSULTA } from './endpoints.js';
 import {
-  gerarChaveAcesso, gerarXmlNFCe, assinarXml, gerarQRCode, montarInfoNFeSupl,
+  gerarChaveAcesso, gerarXmlNFCe, assinarXml, assinarXmlElemento,
+  gerarQRCode, montarInfoNFeSupl, type OpcoesNFCe,
 } from './xml-nfce.js';
 import { gerarChaveAcessoNFe, gerarXmlNFe, type OpcoesNFe } from './xml-nfe.js';
 import {
   montarEnvelopeAutorizacao, montarEnvelopeStatusServico,
-  montarEnvelopeCancelamento, soapCall, extrairCampo,
+  montarXmlEvento, montarEnvelopeEvento, detCancelamento, detCancelamentoPorSubstituicao,
+  montarXmlInutilizacao, montarEnvelopeInutilizacao, type ParamsInutilizacao,
+  soapCall, extrairCampo,
 } from './sefaz-soap.js';
 
 // ── Controle de numeração por série (banco de dados — seguro para múltiplos containers) ───
@@ -92,6 +95,7 @@ export async function autorizarNFCe(
   cert: CertificadoCarregado,
   highWaterMark: number,
   db: any | null = null,
+  opts: OpcoesNFCe = {},
 ): Promise<AutorizacaoResult> {
   const tpAmb = TP_AMB[intencao.ambiente];
   const serie = intencao.ambiente === 'producao'
@@ -109,7 +113,7 @@ export async function autorizarNFCe(
   intencao.chaveAcesso = gerarChaveAcesso(C_UF_MT, dhEmi, intencao.emitente.cnpj, '65', serie, numero, intencao.tpEmis, cNF, tpAmb);
 
   // 3. Gerar XML
-  const xmlBase = gerarXmlNFCe(intencao);
+  const xmlBase = gerarXmlNFCe(intencao, opts);
 
   // 4. Assinar
   const xmlAssinado = assinarXml(xmlBase, cert.privateKeyPem, cert.certificatePem);
@@ -224,7 +228,9 @@ export async function cancelarNFCe(
   const url = getEndpoint('nfce', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date().toISOString().replace('Z', '-04:00');
-  const envelope = montarEnvelopeCancelamento(chaveAcesso, protocolo, motivo, tpAmb, dhEvento);
+  const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo));
+  const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
+  const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const cStat   = extrairCampo(body, 'cStat');
@@ -338,7 +344,9 @@ export async function cancelarNFe(
   const url = getEndpoint('nfe', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date().toISOString().replace('Z', '-04:00');
-  const envelope = montarEnvelopeCancelamento(chaveAcesso, protocolo, motivo, tpAmb, dhEvento);
+  const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo));
+  const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
+  const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const cStat   = extrairCampo(body, 'cStat');
@@ -348,6 +356,60 @@ export async function cancelarNFe(
     throw new Error(`Cancelamento NF-e rejeitado: ${cStat} — ${xMotivo}`);
   }
   return { cStat, xMotivo };
+}
+
+// ── Cancelar NFC-e por substituição (110112, NT 2018.004) ────────────────────
+// Usado quando uma NFC-e emitida em contingência off-line já foi autorizada e
+// a empresa emitiu uma NFC-e substituta em modo normal. Janela: 168h após emissão.
+
+export async function cancelarNFCePorSubstituicao(
+  chaveAcesso: string,
+  protocolo: string,
+  motivo: string,
+  chaveNFCeContingente: string,
+  ambiente: AmbienteFiscal,
+  cert: CertificadoCarregado,
+): Promise<{ cStat: string; xMotivo: string }> {
+  const url = getEndpoint('nfce', ambiente, 'cancelamento');
+  const tpAmb = TP_AMB[ambiente];
+  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const det = detCancelamentoPorSubstituicao(protocolo, motivo, chaveNFCeContingente);
+  const eventoXml = montarXmlEvento(chaveAcesso, '110112', tpAmb, dhEvento, det);
+  const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
+  const envelope = montarEnvelopeEvento(eventoAssinado);
+
+  const { body } = await soapCall(url, envelope, cert, 15_000);
+  const cStat   = extrairCampo(body, 'cStat');
+  const xMotivo = extrairCampo(body, 'xMotivo');
+
+  if (cStat !== '135' && cStat !== '155') {
+    throw new Error(`Cancelamento por substituição rejeitado: ${cStat} — ${xMotivo}`);
+  }
+  return { cStat, xMotivo };
+}
+
+// ── Inutilizar numeração (lacunas não emitidas, até 10º dia do mês seguinte) ─
+
+export async function inutilizarNumeracao(
+  params: ParamsInutilizacao,
+  modelo: ModeloFiscal,
+  ambiente: AmbienteFiscal,
+  cert: CertificadoCarregado,
+): Promise<{ cStat: string; xMotivo: string; nProt: string }> {
+  const url = getEndpoint(modelo === '65' ? 'nfce' : 'nfe', ambiente, 'inutilizacao');
+  const xmlInut = montarXmlInutilizacao(params);
+  const xmlAssinado = assinarXmlElemento(xmlInut, 'infInut', cert.privateKeyPem, cert.certificatePem);
+  const envelope = montarEnvelopeInutilizacao(xmlAssinado);
+
+  const { body } = await soapCall(url, envelope, cert, 15_000);
+  const cStat   = extrairCampo(body, 'cStat');
+  const xMotivo = extrairCampo(body, 'xMotivo');
+  const nProt   = extrairCampo(body, 'nProt');
+
+  if (cStat !== '102') {
+    throw new Error(`Inutilização rejeitada: ${cStat} — ${xMotivo}`);
+  }
+  return { cStat, xMotivo, nProt };
 }
 
 // ── Consultar NF-e por chave de acesso ──────────────────────────────────────

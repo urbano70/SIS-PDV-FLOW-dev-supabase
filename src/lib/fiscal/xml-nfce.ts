@@ -90,15 +90,31 @@ function xmlPagamentos(pags: PagamentoNota[], total: number, troco = 0): string 
   return `<pag>${detPag}<vTroco>${dec(troco, 2)}</vTroco></pag>`;
 }
 
-export function gerarXmlNFCe(intencao: IntencaoFiscal): string {
+export interface OpcoesNFCe {
+  /** Data/hora de entrada em contingência — obrigatório quando tpEmis='9' */
+  dhCont?: string;
+  /** Justificativa da contingência (15–256 chars) — obrigatório quando tpEmis='9' */
+  xJust?: string;
+}
+
+export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): string {
   const { emitente: emit, items, pagamentos } = intencao;
   if (!intencao.numero) throw new Error('Número da nota não reservado.');
   if (!intencao.chaveAcesso) throw new Error('Chave de acesso não gerada.');
+
+  if (intencao.tpEmis === '9') {
+    if (!opts.dhCont) throw new Error('dhCont obrigatório para NFC-e em contingência (tpEmis=9).');
+    if (!opts.xJust || opts.xJust.trim().length < 15) throw new Error('xJust deve ter ao menos 15 caracteres para NFC-e em contingência.');
+  }
 
   const tpAmb = TP_AMB[intencao.ambiente];
   const dhEmi = new Date().toISOString().replace('Z', '-04:00'); // MT = UTC-4
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
   const troco = intencao.troco ?? 0;
+
+  const contingenciaFields = intencao.tpEmis !== '1'
+    ? `<dhCont>${opts.dhCont}</dhCont><xJust>${(opts.xJust ?? '').substring(0, 256)}</xJust>`
+    : '';
 
   const infNFe =
     `<infNFe Id="NFe${intencao.chaveAcesso}" versao="${VERSAO_NFE}">` +
@@ -122,6 +138,7 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal): string {
     `<indPres>1</indPres>` +
     `<procEmi>0</procEmi>` +
     `<verProc>1.0.0</verProc>` +
+    contingenciaFields +
     `</ide>` +
     `<emit>` +
     `<CNPJ>${emit.cnpj.replace(/\D/g, '')}</CNPJ>` +
@@ -166,20 +183,27 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal): string {
 
 // ── Assinatura XMLDSig ───────────────────────────────────────────────────────
 
-export function assinarXml(xmlSemAssinatura: string, privateKeyPem: string, certificatePem: string): string {
-  // Extrai o XML da NFe sem o wrapper nfeProc para assinar
-  const nfeMatch = xmlSemAssinatura.match(/<NFe[^>]*>([\s\S]*?)<\/NFe>/);
-  if (!nfeMatch) throw new Error('NFe element não encontrado no XML.');
+/**
+ * Assina qualquer elemento XML usando XMLDSig enveloped (RSA-SHA1, C14N).
+ * Reutilizado por NF-e, NFC-e, eventos de cancelamento e inutilização.
+ * A assinatura é inserida imediatamente após o `</elementoTag>` no documento.
+ */
+export function assinarXmlElemento(
+  xml: string,
+  elementoTag: string,
+  privateKeyPem: string,
+  certificatePem: string,
+): string {
+  const refIdMatch = xml.match(/Id="([^"]+)"/);
+  if (!refIdMatch) throw new Error(`Id não encontrado no XML para <${elementoTag}>.`);
+  const refId = refIdMatch[1];
 
-  const infNFeMatch = xmlSemAssinatura.match(/Id="(NFe[^"]+)"/);
-  if (!infNFeMatch) throw new Error('Id infNFe não encontrado.');
-  const refId = infNFeMatch[1];
+  const elementoXml = xml.match(new RegExp(`<${elementoTag}[\\s\\S]*?<\\/${elementoTag}>`))?.[0] ?? '';
+  if (!elementoXml) throw new Error(`Elemento <${elementoTag}> não encontrado.`);
 
-  // Canonicalização C14N simples (exclusiva sem comentários) — suficiente para NF-e
-  const infNFeXml = xmlSemAssinatura.match(/<infNFe[\s\S]*?<\/infNFe>/)?.[0] ?? '';
   const digestValue = crypto
     .createHash('sha1')
-    .update(Buffer.from(infNFeXml, 'utf8'))
+    .update(Buffer.from(elementoXml, 'utf8'))
     .digest('base64');
 
   const signedInfo =
@@ -213,7 +237,12 @@ export function assinarXml(xmlSemAssinatura: string, privateKeyPem: string, cert
     `<KeyInfo><X509Data><X509Certificate>${certBody}</X509Certificate></X509Data></KeyInfo>` +
     `</Signature>`;
 
-  return xmlSemAssinatura.replace('</infNFe>', `</infNFe>${signatureXml}`);
+  return xml.replace(`</${elementoTag}>`, `</${elementoTag}>${signatureXml}`);
+}
+
+/** Assina o elemento <infNFe> de uma NF-e / NFC-e (wrapper de assinarXmlElemento). */
+export function assinarXml(xmlSemAssinatura: string, privateKeyPem: string, certificatePem: string): string {
+  return assinarXmlElemento(xmlSemAssinatura, 'infNFe', privateKeyPem, certificatePem);
 }
 
 // ── QR Code NFC-e ────────────────────────────────────────────────────────────
