@@ -21,7 +21,7 @@ import {
 } from "./src/lib/fiscal/certificate.ts";
 import {
   autorizarNFCe, cancelarNFCe, cancelarNFe, consultarNFCe, consultarNFe, verificarServico,
-  reservarNumero, sincronizarContador, autorizarNFe,
+  reservarNumero, sincronizarContador, autorizarNFe, inutilizarNumeracao,
 } from "./src/lib/fiscal/sefaz-direct.ts";
 import { reconciliarResultadoDesconhecido } from "./src/lib/fiscal/reconciliacao.ts";
 import { emitirEpecNFe } from "./src/lib/fiscal/epec.ts";
@@ -3883,6 +3883,80 @@ async function startServer() {
       }
       if (db) await db.from('fiscal_notes').update({ status: 'CANCELADO', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
       return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/fiscal/inutilizar — inutilização de faixa numérica (prazo: até o 10º dia do mês seguinte)
+  app.post("/api/fiscal/inutilizar", express.json(), async (req, res) => {
+    const { tenantId, modelo, serie, nNFIni, nNFFin, xJust } = req.body as {
+      tenantId: string; modelo: string; serie: string;
+      nNFIni: number; nNFFin: number; xJust: string;
+    };
+
+    if (!tenantId || !modelo || !serie || !nNFIni || !nNFFin || !xJust)
+      return res.status(400).json({ error: 'tenantId, modelo, serie, nNFIni, nNFFin e xJust são obrigatórios' });
+    if (xJust.length < 15)
+      return res.status(400).json({ error: 'xJust deve ter pelo menos 15 caracteres.' });
+    if (nNFIni > nNFFin)
+      return res.status(400).json({ error: 'nNFIni deve ser <= nNFFin.' });
+    if (modelo !== '55' && modelo !== '65')
+      return res.status(400).json({ error: 'modelo deve ser "55" (NF-e) ou "65" (NFC-e).' });
+
+    // Carregar configuração fiscal
+    let fiscalConfig: FiscalConfig = tenants.get(tenantId)?.fiscalConfig;
+    if (!fiscalConfig && db) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+      fiscalConfig = data?.data || null;
+    }
+    if (!fiscalConfig?.cnpj) return res.status(400).json({ error: 'Configuração fiscal incompleta. Acesse Configurações → Fiscal.' });
+
+    let cert = getCertificado(tenantId);
+    if (!cert) {
+      try {
+        if (fiscalConfig.pfxEncrypted && fiscalConfig.senhaCifrada) {
+          const pfxBuf = decryptPfx(fiscalConfig.pfxEncrypted);
+          const senha = decryptText(fiscalConfig.senhaCifrada);
+          if (pfxBuf && senha) cert = carregarCertificado(tenantId, pfxBuf.toString('base64'), senha);
+        } else if (fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
+          cert = carregarCertificado(tenantId, fiscalConfig.certificadoA1Base64, fiscalConfig.certificadoSenha);
+        }
+      } catch (e: any) {
+        return res.status(400).json({ error: `Certificado inválido: ${e.message}` });
+      }
+    }
+    if (!cert) return res.status(400).json({ error: 'Certificado A1 não carregado. Configure em Configurações → Fiscal.' });
+
+    const ambiente: AmbienteFiscal = fiscalConfig.ambiente || 'homologacao';
+    const tpAmb = TP_AMB[ambiente];
+
+    try {
+      const result = await inutilizarNumeracao(
+        { tpAmb, cnpj: fiscalConfig.cnpj, mod: modelo as '55' | '65', serie, nNFIni, nNFFin, xJust },
+        modelo as '55' | '65',
+        ambiente,
+        cert,
+      );
+
+      if (db) {
+        await db.from('fiscal_notes').insert({
+          id: crypto.randomUUID(),
+          tenant_id: tenantId,
+          status: 'INUTILIZADO',
+          modelo,
+          serie,
+          ambiente,
+          numero: nNFIni,
+          protocolo: result.nProt,
+          cstat: result.cStat,
+          xmotivo: result.xMotivo,
+          intencao_json: { nNFIni, nNFFin, xJust, ...result },
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      return res.json({ ok: true, ...result, nNFIni, nNFFin });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
