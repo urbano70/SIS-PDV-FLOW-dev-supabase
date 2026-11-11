@@ -1147,6 +1147,8 @@ export default function Dashboard({
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
   const [newRegisterName, setNewRegisterName] = useState('');
+  const [cashRegisterReportModal, setCashRegisterReportModal] = useState(false);
+  const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
   // Sincroniza estado local quando dados do servidor chegam
   useEffect(() => {
@@ -1908,6 +1910,191 @@ export default function Dashboard({
     }, 90000);
     return () => clearTimeout(t);
   }, [scanRunning]);
+
+  const buildAndPrintCashRegisterReport = () => {
+    const receiptPrinterName = printerConfig.receipts;
+    const printer = receiptPrinterName
+      ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
+      : null;
+
+    const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
+    const lineLen = is50mm ? 32 : 48;
+    const b: number[] = [];
+    const push = (...bytes: number[]) => b.push(...bytes);
+    const lf = () => push(0x0A);
+    const text = (s: string) => push(...escStr(s));
+    const ln  = () => { text('-'.repeat(lineLen)); lf(); };
+    const dln = () => { text('='.repeat(lineLen)); lf(); };
+    const center = () => push(0x1B, 0x61, 0x01);
+    const left   = () => push(0x1B, 0x61, 0x00);
+    const right  = () => push(0x1B, 0x61, 0x02);
+    const bold   = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
+    const dbl    = (on: boolean) => push(0x1D, 0x21, on ? 0x11 : 0x00);
+
+    const fmtMoney = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
+    const fmtDate  = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const colRow   = (left2: string, right2: string) => {
+      const sp = Math.max(1, lineLen - left2.length - right2.length);
+      text(left2 + ' '.repeat(sp) + right2); lf();
+    };
+    const col3Row  = (c1: string, c2: string, c3: string, w1: number) => {
+      const rem = lineLen - w1;
+      const w2 = Math.floor(rem / 2);
+      const w3 = rem - w2;
+      const p1 = c1.substring(0, w1).padEnd(w1);
+      const p2 = c2.substring(0, w2).padStart(w2);
+      const p3 = c3.substring(0, w3).padStart(w3);
+      text(p1 + p2 + p3); lf();
+    };
+
+    // Coleta dados do turno
+    const shiftOrders = orders.filter((o: any) => {
+      if (!shiftStartedAt) return true;
+      return new Date(o.timestamp) >= new Date(shiftStartedAt);
+    });
+    const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
+
+    // Totais por método de pagamento
+    const methodTotals: Record<string, number> = {};
+    finishedOrders.forEach((o: any) => {
+      (o.paymentLog || o.partialPayments || []).forEach((p: any) => {
+        const m = (p.method || 'Outros').trim();
+        methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
+      });
+    });
+
+    // Totais por produto
+    const productTotals: Record<string, { qty: number; total: number }> = {};
+    finishedOrders.forEach((o: any) => {
+      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
+        const k = i.name || 'Item';
+        if (!productTotals[k]) productTotals[k] = { qty: 0, total: 0 };
+        const q = i.quantity || 1;
+        productTotals[k].qty   += q;
+        productTotals[k].total += i.price || 0;
+      });
+    });
+
+    // Totais por categoria
+    const categoryTotals: Record<string, { qty: number; total: number }> = {};
+    finishedOrders.forEach((o: any) => {
+      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
+        const cat = (i.type || 'outros').toUpperCase();
+        if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
+        categoryTotals[cat].qty   += i.quantity || 1;
+        categoryTotals[cat].total += i.price || 0;
+      });
+    });
+
+    const totalBruto = Object.values(productTotals).reduce((s, v) => s + v.total, 0);
+    const totalDesc  = finishedOrders.reduce((s: number, o: any) => {
+      const disc = o.discount ? (o.discountType === 'percentage' ? totalBruto * o.discount / 100 : o.discount) : 0;
+      return s + disc;
+    }, 0);
+    const totalLiq   = totalBruto - totalDesc;
+    const totalPaid  = Object.values(methodTotals).reduce((s, v) => s + v, 0);
+
+    const now = new Date();
+    const registerName = activeCashRegisterName || pendingCloseRegisterName || '-';
+
+    // ── Montar o documento ESC/POS ──────────────────────────────────────
+    push(0x1B, 0x40); // init
+    center();
+    bold(true); text('RELATORIO DE CAIXA'); lf(); bold(false);
+    lf();
+    left();
+    text(`Cx: ${registerName}`); lf();
+    text(`Abertura:   ${fmtDate(new Date(shiftStartedAt))}`); lf();
+    text(`Fechamento: ${fmtDate(now)}`); lf();
+    ln();
+
+    // Meios de pagamento
+    const methodNames = ['Dinheiro', 'PIX', 'Cartao', 'Cheque', 'Fiado', 'Cashback', 'IFood', 'Devolucao'];
+    const allMethods = Array.from(new Set([...methodNames, ...Object.keys(methodTotals)]));
+    const w1mp = lineLen - 20;
+    bold(true); col3Row('Meio', 'Computado', 'Diferenca', w1mp); bold(false);
+    ln();
+    allMethods.forEach(m => {
+      const computado = methodTotals[m] || 0;
+      col3Row(m, computado.toFixed(2), (0 - computado).toFixed(2), w1mp);
+    });
+    ln();
+
+    // Vendas
+    dln(); center(); bold(true); text('VENDAS'); lf(); bold(false); dln(); left();
+    col3Row('Produto', 'Qtde', 'Total', lineLen - 14);
+    ln();
+    Object.entries(productTotals).sort((a, b) => b[1].total - a[1].total).forEach(([name, v]) => {
+      const qtyStr   = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
+      const totStr   = v.total.toFixed(2).replace('.', ',');
+      col3Row(name.substring(0, lineLen - 14), qtyStr, totStr, lineLen - 14);
+    });
+    ln();
+    bold(true);
+    colRow('TOTAL VENDIDO BRUTO:', fmtMoney(totalBruto));
+    if (totalDesc > 0) colRow('Descontos:', `-${fmtMoney(totalDesc)}`);
+    colRow('TOTAL VENDIDO LIQUIDO:', fmtMoney(totalLiq));
+    colRow('TOTAL PAGO:', fmtMoney(totalPaid));
+    bold(false);
+    if (Object.keys(methodTotals).length > 0) {
+      lf();
+      Object.entries(methodTotals).forEach(([m, v]) => {
+        text(`  Tot. ${m}: `);
+        right(); text(fmtMoney(v)); lf(); left();
+      });
+    }
+    ln();
+
+    // Classes
+    if (Object.keys(categoryTotals).length > 0) {
+      dln(); center(); bold(true); text('CLASSES'); lf(); bold(false); dln(); left();
+      col3Row('Classes', 'Qtde', 'Total', lineLen - 14);
+      ln();
+      Object.entries(categoryTotals).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
+        const qStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
+        col3Row(cat.substring(0, lineLen - 14), qStr, v.total.toFixed(2).replace('.', ','), lineLen - 14);
+      });
+      ln();
+      bold(true); colRow('TOTAL Classes:', fmtMoney(totalLiq)); bold(false);
+      ln();
+    }
+
+    // Footer
+    bold(true); colRow('TOTAL VALES:', fmtMoney(0)); bold(false);
+    lf();
+    text(`Usuario: ${registerName}`); lf();
+    if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
+    push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
+
+    if (printer) {
+      if (printer.ip) {
+        socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+      } else {
+        socket.emit('print_escpos', { localName: printer.name, data: b });
+      }
+      toast.success('Relatório de caixa enviado para impressão');
+    } else {
+      // Fallback: janela de impressão do navegador
+      const lines: string[] = [];
+      const addLine = (s = '') => lines.push(s);
+      addLine('RELATORIO DE CAIXA');
+      addLine(`Cx: ${registerName}`);
+      addLine(`Abertura: ${fmtDate(new Date(shiftStartedAt))}`);
+      addLine(`Fechamento: ${fmtDate(now)}`);
+      addLine('-'.repeat(40));
+      addLine('VENDAS');
+      addLine('-'.repeat(40));
+      Object.entries(productTotals).forEach(([n, v]) => addLine(`${n}: ${v.qty}x ${fmtMoney(v.total)}`));
+      addLine('-'.repeat(40));
+      addLine(`TOTAL: ${fmtMoney(totalLiq)}`);
+      Object.entries(methodTotals).forEach(([m, v]) => addLine(`  ${m}: ${fmtMoney(v)}`));
+      const pw = window.open('', '_blank');
+      if (pw) {
+        pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:12px;white-space:pre}@media print{body{margin:0}}</style></head><body>${lines.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+        pw.document.close();
+      }
+    }
+  };
 
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
     const targetPrinterName = printerConfig.receipts;
@@ -2805,7 +2992,8 @@ export default function Dashboard({
                     if (activeTables || activeComandas) {
                       toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
                     } else {
-                      toggleCashRegister(false, activeCashRegisterName ?? undefined);
+                      setPendingCloseRegisterName(activeCashRegisterName ?? undefined);
+                      setCashRegisterReportModal(true);
                     }
                   }
                 }}
@@ -2821,6 +3009,55 @@ export default function Dashboard({
             </div>
             <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
             <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
+          </div>
+        )}
+
+        {/* Modal: Relatório ao fechar caixa */}
+        {cashRegisterReportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setCashRegisterReportModal(false)} />
+            <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-80 max-w-full flex flex-col gap-4 z-10">
+              <div className="flex flex-col items-center gap-1 text-center">
+                <div className="w-12 h-12 rounded-full bg-[#141414]/5 flex items-center justify-center mb-1">
+                  <Printer size={22} className="text-[#141414]/60" />
+                </div>
+                <h3 className="font-black text-sm text-[#141414]">Fechar Caixa</h3>
+                {pendingCloseRegisterName && (
+                  <p className="text-[10px] text-[#141414]/50 font-semibold">{pendingCloseRegisterName}</p>
+                )}
+                <p className="text-[11px] text-[#141414]/60 mt-1">Deseja imprimir o relatório de caixa antes de fechar?</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    buildAndPrintCashRegisterReport();
+                    toggleCashRegister(false, pendingCloseRegisterName);
+                    setCashRegisterReportModal(false);
+                    setPendingCloseRegisterName(undefined);
+                  }}
+                  className="w-full py-2.5 bg-[#141414] text-white text-[11px] font-black rounded-xl flex items-center justify-center gap-2 hover:bg-[#141414]/80 transition-colors"
+                >
+                  <Printer size={14} />
+                  Imprimir e Fechar
+                </button>
+                <button
+                  onClick={() => {
+                    toggleCashRegister(false, pendingCloseRegisterName);
+                    setCashRegisterReportModal(false);
+                    setPendingCloseRegisterName(undefined);
+                  }}
+                  className="w-full py-2.5 bg-[#141414]/8 text-[#141414] text-[11px] font-bold rounded-xl hover:bg-[#141414]/12 transition-colors"
+                >
+                  Fechar sem imprimir
+                </button>
+                <button
+                  onClick={() => { setCashRegisterReportModal(false); setPendingCloseRegisterName(undefined); }}
+                  className="w-full py-2 text-[#141414]/40 text-[10px] font-semibold hover:text-[#141414]/60 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
