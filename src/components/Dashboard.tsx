@@ -6688,6 +6688,14 @@ export default function Dashboard({
                                 <span className="font-mono text-[6.5px] text-[#141414]/30 ml-1.5">{n.chave_acesso.slice(-9)}</span>
                               )}
                             </div>
+                            {n.chave_acesso && st !== 'INUTILIZADO' && st !== 'REJEITADO' && (
+                              <a
+                                href={`/danfe/${n.modelo === '55' ? 'nfe' : 'nfce'}/${n.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors"
+                              >DANFE</a>
+                            )}
                             {canCancel && (
                               <button
                                 onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id }); setCancelMotivo(''); }}
