@@ -6539,7 +6539,7 @@ export default function Dashboard({
                                 const res = await fetch(`/api/fiscal/status/${tenantId}`);
                                 const d = await res.json();
                                 const parse = (svc: any) => svc
-                                  ? { online: svc.cStat === '107', cStat: svc.cStat || '', xMotivo: svc.xMotivo || d.error || 'Sem resposta' }
+                                  ? { online: svc.online ?? (svc.cStat === '107'), cStat: svc.cStat || '', xMotivo: svc.xMotivo || d.error || 'Sem resposta' }
                                   : { online: false, cStat: '', xMotivo: d.error || 'Sem resposta' };
                                 setSefazStatus({ checking: false, nfce: parse(d.nfce), nfe: parse(d.nfe), checkedAt: new Date().toLocaleTimeString('pt-BR') });
                               } catch (e: any) {
