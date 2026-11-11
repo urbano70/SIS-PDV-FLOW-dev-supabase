@@ -3044,6 +3044,8 @@ async function startServer() {
     try {
       const result = await autorizarNFCe(intencao, cert, highWaterMark, db ?? null);
 
+      const intencaoParaDanfe = { ...intencao, xmlAssinado: undefined, xmlProcNfe: undefined };
+
       if (db) {
         await db.from('fiscal_notes').update({
           chave_acesso: result.chaveAcesso,
@@ -3056,16 +3058,19 @@ async function startServer() {
           xml_assinado: intencao.xmlAssinado,
           xml_proc_nfe: result.xmlProcNfe,
           cpf_consumidor: cpfConsumidor || null,
+          intencao_json: intencaoParaDanfe,
           updated_at: new Date().toISOString(),
         }).eq('id', intencao.id);
       }
 
+      const urlDanfe = `/danfe/nfce/${result.chaveAcesso}?tenant=${encodeURIComponent(tenantId)}`;
+
       io.to('tenant:' + tenantId).emit('fiscal_note_emitted', {
         orderId, status: result.status, chaveAcesso: result.chaveAcesso,
         qrCode: result.qrCode, protocolo: result.protocolo,
-        cStat: result.cStat, xMotivo: result.xMotivo,
+        cStat: result.cStat, xMotivo: result.xMotivo, urlDanfe,
       });
-      return res.json({ ...result, intencaoId: intencao.id });
+      return res.json({ ...result, intencaoId: intencao.id, urlDanfe });
 
     } catch (err: any) {
       const errMsg = err.message || 'Erro desconhecido';
@@ -3106,6 +3111,34 @@ async function startServer() {
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
+  });
+
+  // GET /api/fiscal/danfe/:chaveAcesso — público, sem autenticação
+  app.get("/api/fiscal/danfe/:chaveAcesso", async (req, res) => {
+    const { chaveAcesso } = req.params;
+    const { tenant } = req.query as { tenant: string };
+    if (!tenant) return res.status(400).json({ error: 'tenant obrigatório' });
+    if (!db) return res.status(503).json({ error: 'Banco indisponível' });
+
+    const { data, error } = await db.from('fiscal_notes')
+      .select('intencao_json,protocolo,status,cstat,xmotivo,xml_assinado')
+      .eq('chave_acesso', chaveAcesso)
+      .eq('tenant_id', tenant)
+      .maybeSingle();
+
+    if (error || !data) return res.status(404).json({ error: 'Nota não encontrada' });
+    if (!data.intencao_json) return res.status(404).json({ error: 'DANFE indisponível para esta nota' });
+
+    const intencao = {
+      ...data.intencao_json,
+      protocolo: data.protocolo ?? data.intencao_json.protocolo,
+      status:    data.status    ?? data.intencao_json.status,
+      cStat:     data.cstat     ?? data.intencao_json.cStat,
+      xMotivo:   data.xmotivo   ?? data.intencao_json.xMotivo,
+      xmlAssinado: data.xml_assinado ?? data.intencao_json.xmlAssinado,
+    };
+
+    return res.json({ intencao });
   });
 
   // GET /api/fiscal/consultar/:chaveAcesso
