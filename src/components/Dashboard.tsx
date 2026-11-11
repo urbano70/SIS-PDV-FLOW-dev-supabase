@@ -1297,6 +1297,9 @@ export default function Dashboard({
   const [cancelModal, setCancelModal] = useState<{ chaveAcesso: string; modelo: string; orderId: string | number } | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [inutilizarModal, setInutilizarModal] = useState(false);
+  const [inutilizarForm, setInutilizarForm] = useState({ modelo: '65' as '55' | '65', serie: '', nNFIni: '', nNFFin: '', xJust: '' });
+  const [inutilizarLoading, setInutilizarLoading] = useState(false);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -6620,11 +6623,14 @@ export default function Dashboard({
                       <FileText className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Notas Emitidas</h3>
                     </div>
-                    <button onClick={async () => {
-                      if (!tenantId) return;
-                      const res = await fetch(`/api/fiscal/notes/${tenantId}`);
-                      if (res.ok) { const d = await res.json(); setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }
-                    }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setInutilizarModal(true)} className="text-[7px] font-bold uppercase text-orange-500 hover:text-orange-700 border border-orange-200 rounded px-1.5 py-0.5 transition-colors">Inutilizar</button>
+                      <button onClick={async () => {
+                        if (!tenantId) return;
+                        const res = await fetch(`/api/fiscal/notes/${tenantId}`);
+                        if (res.ok) { const d = await res.json(); setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }
+                      }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
+                    </div>
                   </div>
                   {fiscalNotes.length === 0 ? (
                     <p className="text-[8px] text-[#141414]/40 text-center py-2">Nenhuma nota emitida.</p>
@@ -6744,6 +6750,136 @@ export default function Dashboard({
                   className="flex-1 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-40"
                 >
                   {cancelLoading ? 'Cancelando...' : 'Confirmar Cancelamento'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Inutilização de NF-e / NFC-e */}
+      <AnimatePresence>
+        {inutilizarModal && (
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => { if (!inutilizarLoading) setInutilizarModal(false); }} />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 z-10">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="font-serif italic text-xl">Inutilizar Numeração</h3>
+                  <p className="text-[9px] opacity-40 mt-0.5">Prazo: até o 10º dia do mês seguinte</p>
+                </div>
+                <button onClick={() => { if (!inutilizarLoading) setInutilizarModal(false); }}
+                  className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Modelo</label>
+                    <select
+                      value={inutilizarForm.modelo}
+                      onChange={e => setInutilizarForm(f => ({ ...f, modelo: e.target.value as '55' | '65' }))}
+                      disabled={inutilizarLoading}
+                      className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                    >
+                      <option value="65">65 — NFC-e</option>
+                      <option value="55">55 — NF-e</option>
+                    </select>
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Série</label>
+                    <input
+                      value={inutilizarForm.serie}
+                      onChange={e => setInutilizarForm(f => ({ ...f, serie: e.target.value }))}
+                      disabled={inutilizarLoading}
+                      placeholder="ex: 1"
+                      className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Nº Inicial</label>
+                    <input
+                      type="number" min={1}
+                      value={inutilizarForm.nNFIni}
+                      onChange={e => setInutilizarForm(f => ({ ...f, nNFIni: e.target.value }))}
+                      disabled={inutilizarLoading}
+                      placeholder="1"
+                      className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Nº Final</label>
+                    <input
+                      type="number" min={1}
+                      value={inutilizarForm.nNFFin}
+                      onChange={e => setInutilizarForm(f => ({ ...f, nNFFin: e.target.value }))}
+                      disabled={inutilizarLoading}
+                      placeholder="1"
+                      className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Justificativa</label>
+                  <textarea
+                    value={inutilizarForm.xJust}
+                    onChange={e => setInutilizarForm(f => ({ ...f, xJust: e.target.value }))}
+                    disabled={inutilizarLoading}
+                    placeholder="Descreva o motivo da inutilização (mínimo 15 caracteres)..."
+                    rows={3}
+                    className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                  />
+                  <p className={`text-[8px] mt-0.5 text-right ${inutilizarForm.xJust.length < 15 ? 'text-red-400' : 'text-green-600'}`}>
+                    {inutilizarForm.xJust.length}/15 mín.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => setInutilizarModal(false)} disabled={inutilizarLoading}
+                  className="flex-1 py-2 border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/50 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Voltar
+                </button>
+                <button
+                  disabled={inutilizarLoading || inutilizarForm.xJust.length < 15 || !inutilizarForm.serie || !inutilizarForm.nNFIni || !inutilizarForm.nNFFin}
+                  onClick={async () => {
+                    if (!tenantId) return;
+                    const nIni = Number(inutilizarForm.nNFIni);
+                    const nFin = Number(inutilizarForm.nNFFin);
+                    if (!nIni || !nFin || nIni > nFin) { toast.error('Faixa numérica inválida.'); return; }
+                    setInutilizarLoading(true);
+                    try {
+                      const res = await fetch('/api/fiscal/inutilizar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId, modelo: inutilizarForm.modelo, serie: inutilizarForm.serie, nNFIni: nIni, nNFFin: nFin, xJust: inutilizarForm.xJust }),
+                      });
+                      const d = await res.json();
+                      if (!res.ok) { toast.error(d.error || 'Erro ao inutilizar.'); return; }
+                      toast.success(`Inutilização aceita — cStat ${d.cStat} (${nIni === nFin ? `nº ${nIni}` : `nºs ${nIni}–${nFin}`})`);
+                      setInutilizarModal(false);
+                      setInutilizarForm({ modelo: '65', serie: '', nNFIni: '', nNFFin: '', xJust: '' });
+                      const r2 = await fetch(`/api/fiscal/notes/${tenantId}`);
+                      if (r2.ok) { const d2 = await r2.json(); setFiscalNotes(Array.isArray(d2) ? d2 : (d2.notes || [])); }
+                    } catch (e: any) {
+                      toast.error(e.message || 'Erro de rede.');
+                    } finally {
+                      setInutilizarLoading(false);
+                    }
+                  }}
+                  className="flex-1 py-2 bg-orange-600 text-white rounded-xl text-xs font-bold hover:bg-orange-700 transition-colors disabled:opacity-40"
+                >
+                  {inutilizarLoading ? 'Inutilizando...' : 'Confirmar Inutilização'}
                 </button>
               </div>
             </motion.div>
