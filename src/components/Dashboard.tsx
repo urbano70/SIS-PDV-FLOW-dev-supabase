@@ -1294,6 +1294,9 @@ export default function Dashboard({
   const [nfceEmitting, setNfceEmitting] = useState(false);
   const [nfceResult, setNfceResult] = useState<any>(null);
   const [fiscalNotes, setFiscalNotes] = useState<any[]>([]);
+  const [cancelModal, setCancelModal] = useState<{ chaveAcesso: string; modelo: string; orderId: string | number } | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState('');
+  const [cancelLoading, setCancelLoading] = useState(false);
 
   const handleFixTables = async () => {
     try {
@@ -6617,22 +6620,44 @@ export default function Dashboard({
                     <button onClick={async () => {
                       if (!tenantId) return;
                       const res = await fetch(`/api/fiscal/notes/${tenantId}`);
-                      if (res.ok) { const d = await res.json(); setFiscalNotes(d); }
+                      if (res.ok) { const d = await res.json(); setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }
                     }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
                   </div>
                   {fiscalNotes.length === 0 ? (
                     <p className="text-[8px] text-[#141414]/40 text-center py-2">Nenhuma nota emitida.</p>
                   ) : (
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {fiscalNotes.map((n: any) => (
-                        <div key={n.id} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1 text-[7.5px]">
-                          <div>
-                            <span className={`font-bold ${n.status === 'autorizada' ? 'text-green-700' : n.status === 'cancelada' ? 'text-red-600' : 'text-yellow-600'}`}>{n.status?.toUpperCase()}</span>
-                            <span className="text-[#141414]/50 ml-2">Pedido #{n.order_id}</span>
+                    <div className="space-y-1 max-h-56 overflow-y-auto">
+                      {fiscalNotes.map((n: any) => {
+                        const st = (n.status || '').toUpperCase();
+                        const canCancel = st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA';
+                        const statusColor =
+                          st === 'AUTORIZADO' ? 'text-green-700' :
+                          st === 'AUTORIZADO_COM_ALERTA' ? 'text-green-600' :
+                          st === 'CANCELADO' ? 'text-red-600' :
+                          st === 'REJEITADO' ? 'text-orange-600' :
+                          st === 'INUTILIZADO' ? 'text-gray-500' :
+                          st === 'EPEC_AUTORIZADO' ? 'text-blue-700' :
+                          st === 'CONTINGENCIA_PENDENTE_TRANSMISSAO' ? 'text-amber-600' :
+                          'text-yellow-600';
+                        return (
+                          <div key={n.id} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1 text-[7.5px]">
+                            <div className="flex-1 min-w-0">
+                              <span className={`font-bold ${statusColor}`}>{st}</span>
+                              <span className="text-[#141414]/50 ml-1.5">#{n.order_id}</span>
+                              {n.modelo && <span className="text-[#141414]/30 ml-1">mod.{n.modelo}</span>}
+                              {n.chave_acesso && (
+                                <span className="font-mono text-[6.5px] text-[#141414]/30 ml-1.5">{n.chave_acesso.slice(-9)}</span>
+                              )}
+                            </div>
+                            {canCancel && (
+                              <button
+                                onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id }); setCancelMotivo(''); }}
+                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                              >Cancelar</button>
+                            )}
                           </div>
-                          <span className="font-mono text-[7px] text-[#141414]/40 truncate max-w-[120px]">{n.chave_acesso?.slice(-9)}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -6645,6 +6670,83 @@ export default function Dashboard({
             )}
         </AnimatePresence>
       </main>
+
+      {/* Modal Cancelamento de NF-e / NFC-e */}
+      <AnimatePresence>
+        {cancelModal && (
+          <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => { if (!cancelLoading) setCancelModal(null); }} />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 16 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 z-10">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="font-serif italic text-xl">Cancelar Nota</h3>
+                  <p className="text-[9px] opacity-40 mt-0.5">
+                    Pedido #{cancelModal.orderId} · mod.{cancelModal.modelo} · …{cancelModal.chaveAcesso?.slice(-9)}
+                  </p>
+                </div>
+                <button onClick={() => { if (!cancelLoading) setCancelModal(null); }}
+                  className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="mb-1">
+                <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Motivo do cancelamento</label>
+                <textarea
+                  value={cancelMotivo}
+                  onChange={e => setCancelMotivo(e.target.value)}
+                  disabled={cancelLoading}
+                  placeholder="Descreva o motivo (mínimo 15 caracteres)..."
+                  rows={3}
+                  className="w-full text-xs border border-[#141414]/15 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[#141414]/20 disabled:opacity-50"
+                />
+                <p className={`text-[8px] mt-0.5 text-right ${cancelMotivo.length < 15 ? 'text-red-400' : 'text-green-600'}`}>
+                  {cancelMotivo.length}/15 mín.
+                </p>
+              </div>
+
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => setCancelModal(null)} disabled={cancelLoading}
+                  className="flex-1 py-2 border border-[#141414]/15 rounded-xl text-xs font-bold text-[#141414]/50 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  Voltar
+                </button>
+                <button
+                  disabled={cancelLoading || cancelMotivo.length < 15}
+                  onClick={async () => {
+                    if (!cancelModal || !tenantId) return;
+                    setCancelLoading(true);
+                    try {
+                      const res = await fetch(`/api/fiscal/cancel/${encodeURIComponent(cancelModal.chaveAcesso)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId, motivo: cancelMotivo }),
+                      });
+                      const d = await res.json();
+                      if (!res.ok) { toast.error(d.error || 'Erro ao cancelar nota.'); return; }
+                      toast.success(`Nota cancelada — cStat ${d.cStat}`);
+                      setCancelModal(null);
+                      // Atualizar lista de notas
+                      const r2 = await fetch(`/api/fiscal/notes/${tenantId}`);
+                      if (r2.ok) { const d2 = await r2.json(); setFiscalNotes(Array.isArray(d2) ? d2 : (d2.notes || [])); }
+                    } catch (e: any) {
+                      toast.error(e.message || 'Erro de rede.');
+                    } finally {
+                      setCancelLoading(false);
+                    }
+                  }}
+                  className="flex-1 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-colors disabled:opacity-40"
+                >
+                  {cancelLoading ? 'Cancelando...' : 'Confirmar Cancelamento'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Modal Scan de Impressoras */}
       <AnimatePresence>
