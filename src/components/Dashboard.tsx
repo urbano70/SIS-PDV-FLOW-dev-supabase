@@ -1145,7 +1145,6 @@ export default function Dashboard({
   const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
-  const [cashRegisterPickerName, setCashRegisterPickerName] = useState('');
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
   const [newRegisterName, setNewRegisterName] = useState('');
 
@@ -2806,7 +2805,6 @@ export default function Dashboard({
               <button
                 onClick={() => {
                   if (!isCashRegisterOpen) {
-                    setCashRegisterPickerName('');
                     setCashRegisterPickerOpen(v => !v);
                   } else {
                     const activeTables = tables.find(t => t.status !== "free");
@@ -2833,56 +2831,27 @@ export default function Dashboard({
                   onClick={e => e.stopPropagation()}
                 >
                   <div className="px-3 py-2 border-b border-[#141414]/5">
-                    <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Identificar Caixa</span>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Selecionar Caixa</span>
                   </div>
-                  {(pizzariaConfig.cashRegisters ?? []).length > 0 && (
-                    <>
-                      {(pizzariaConfig.cashRegisters ?? []).map(reg => (
-                        <button
-                          key={reg.id}
-                          onClick={() => {
-                            setCashRegisterPickerOpen(false);
-                            toggleCashRegister(true, reg.name);
-                          }}
-                          className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2"
-                        >
-                          <Wallet size={10} className="text-[#141414]/40 shrink-0" />
-                          {reg.name}
-                        </button>
-                      ))}
-                      <div className="border-t border-[#141414]/5 mx-2" />
-                    </>
-                  )}
-                  <div className="px-2 py-2 flex gap-1">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={cashRegisterPickerName}
-                      onChange={e => setCashRegisterPickerName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          const name = cashRegisterPickerName.trim();
-                          if (!name) return;
+                  {(pizzariaConfig.cashRegisters ?? []).length === 0 ? (
+                    <div className="px-3 py-3 text-center">
+                      <p className="text-[8px] text-[#141414]/40 leading-tight">Nenhum caixa cadastrado.<br />Configure em <strong>Configurações → Salão</strong>.</p>
+                    </div>
+                  ) : (
+                    (pizzariaConfig.cashRegisters ?? []).map(reg => (
+                      <button
+                        key={reg.id}
+                        onClick={() => {
                           setCashRegisterPickerOpen(false);
-                          toggleCashRegister(true, name);
-                        }
-                        if (e.key === 'Escape') setCashRegisterPickerOpen(false);
-                      }}
-                      placeholder="Outro nome..."
-                      className="flex-1 bg-[#141414]/5 rounded-lg px-2 py-1.5 text-[9px] font-medium outline-none focus:ring-1 focus:ring-[#141414] min-w-0"
-                    />
-                    <button
-                      onClick={() => {
-                        const name = cashRegisterPickerName.trim();
-                        if (!name) return;
-                        setCashRegisterPickerOpen(false);
-                        toggleCashRegister(true, name);
-                      }}
-                      className="bg-[#141414] text-white px-2 py-1.5 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity shrink-0"
-                    >
-                      OK
-                    </button>
-                  </div>
+                          toggleCashRegister(true, reg.name);
+                        }}
+                        className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2"
+                      >
+                        <Wallet size={10} className="text-[#141414]/40 shrink-0" />
+                        {reg.name}
+                      </button>
+                    ))
+                  )}
                 </div>
               )}
             </div>
