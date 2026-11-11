@@ -1282,7 +1282,12 @@ export default function Dashboard({
   const [fiscalConfig, setFiscalConfig] = useState<any>(null);
   const [fiscalConfigLoading, setFiscalConfigLoading] = useState(false);
   const [fiscalConfigSaving, setFiscalConfigSaving] = useState(false);
-  const [sefazStatus, setSefazStatus] = useState<{ checking: boolean; online: boolean | null; motivo: string; dhRecbto: string; checkedAt: string | null }>({ checking: false, online: null, motivo: '', dhRecbto: '', checkedAt: null });
+  const [sefazStatus, setSefazStatus] = useState<{
+    checking: boolean;
+    nfce: { online: boolean; cStat: string; xMotivo: string } | null;
+    nfe:  { online: boolean; cStat: string; xMotivo: string } | null;
+    checkedAt: string | null;
+  }>({ checking: false, nfce: null, nfe: null, checkedAt: null });
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
@@ -6516,9 +6521,13 @@ export default function Dashboard({
                               try {
                                 const res = await fetch(`/api/fiscal/status/${tenantId}`);
                                 const d = await res.json();
-                                setSefazStatus({ checking: false, online: d.online ?? false, motivo: d.xMotivo || d.error || 'Sem resposta', dhRecbto: d.dhRecbto || '', checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                                const parse = (svc: any) => svc
+                                  ? { online: svc.cStat === '107', cStat: svc.cStat || '', xMotivo: svc.xMotivo || d.error || 'Sem resposta' }
+                                  : { online: false, cStat: '', xMotivo: d.error || 'Sem resposta' };
+                                setSefazStatus({ checking: false, nfce: parse(d.nfce), nfe: parse(d.nfe), checkedAt: new Date().toLocaleTimeString('pt-BR') });
                               } catch (e: any) {
-                                setSefazStatus({ checking: false, online: false, motivo: e.message || 'Falha na requisição', dhRecbto: '', checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                                const err = { online: false, cStat: '', xMotivo: e.message || 'Falha na requisição' };
+                                setSefazStatus({ checking: false, nfce: err, nfe: err, checkedAt: new Date().toLocaleTimeString('pt-BR') });
                               }
                             }}
                             disabled={sefazStatus.checking}
@@ -6544,40 +6553,59 @@ export default function Dashboard({
                 </div>
 
                 {/* Painel de status SEFAZ */}
-                {(sefazStatus.online !== null || sefazStatus.checking) && (
-                  <div className={`mt-2 p-3 rounded-xl border ${sefazStatus.checking ? 'bg-blue-50 border-blue-200' : sefazStatus.online ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                    <div className="flex items-start gap-2">
-                      <div className={`mt-0.5 w-2.5 h-2.5 rounded-full shrink-0 ${sefazStatus.checking ? 'bg-blue-400 animate-pulse' : sefazStatus.online ? 'bg-green-500' : 'bg-red-500'}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className={`text-[9px] font-black uppercase tracking-wide ${sefazStatus.checking ? 'text-blue-700' : sefazStatus.online ? 'text-green-700' : 'text-red-700'}`}>
-                            {sefazStatus.checking ? 'Verificando conexão com SEFAZ-MT...' : sefazStatus.online ? 'SEFAZ-MT — Serviço em Operação' : 'SEFAZ-MT — Serviço Indisponível'}
-                          </p>
-                          {sefazStatus.checkedAt && (
-                            <span className="text-[7px] opacity-50 shrink-0">{sefazStatus.checkedAt}</span>
+                {(sefazStatus.nfce !== null || sefazStatus.nfe !== null || sefazStatus.checking) && (() => {
+                  const allOnline = sefazStatus.nfce?.online && sefazStatus.nfe?.online;
+                  const anyOnline = sefazStatus.nfce?.online || sefazStatus.nfe?.online;
+                  const bg = sefazStatus.checking
+                    ? 'bg-blue-50 border-blue-200'
+                    : allOnline ? 'bg-green-50 border-green-200'
+                    : anyOnline ? 'bg-amber-50 border-amber-200'
+                    : 'bg-red-50 border-red-200';
+                  const headerColor = sefazStatus.checking ? 'text-blue-700' : allOnline ? 'text-green-700' : anyOnline ? 'text-amber-700' : 'text-red-700';
+                  return (
+                    <div className={`mt-2 p-3 rounded-xl border ${bg}`}>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className={`text-[9px] font-black uppercase tracking-wide ${headerColor}`}>
+                          {sefazStatus.checking ? 'Verificando SEFAZ-MT...' : 'SEFAZ-MT — Status dos Serviços'}
+                        </p>
+                        {sefazStatus.checkedAt && <span className="text-[7px] opacity-50 shrink-0">{sefazStatus.checkedAt}</span>}
+                      </div>
+                      {sefazStatus.checking ? (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                          <span className="text-[8px] text-blue-600">Consultando autorizadores NFC-e e NF-e em paralelo...</span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {([
+                            { label: 'NFC-e (mod. 65)', s: sefazStatus.nfce },
+                            { label: 'NF-e  (mod. 55)', s: sefazStatus.nfe  },
+                          ] as const).map(({ label, s }) => (
+                            <div key={label} className="flex items-start gap-1.5">
+                              <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${s?.online ? 'bg-green-500' : 'bg-red-500'}`} />
+                              <div className="flex-1 min-w-0">
+                                <span className={`text-[8px] font-bold ${s?.online ? 'text-green-700' : 'text-red-700'}`}>{label}</span>
+                                <span className={`text-[7px] ml-1.5 ${s?.online ? 'text-green-600' : 'text-red-600'}`}>
+                                  {s?.online ? '— Em Operação' : s?.cStat ? `— cStat ${s.cStat}` : '— Indisponível'}
+                                </span>
+                                {s?.xMotivo && (
+                                  <p className={`text-[7px] mt-0.5 opacity-70 truncate ${s.online ? 'text-green-600' : 'text-red-600'}`}>{s.xMotivo}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {!allOnline && (
+                            <div className="mt-1.5 flex items-center gap-3 pt-1 border-t border-current/10">
+                              <a href="https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx" target="_blank" rel="noopener noreferrer"
+                                className="text-[7px] text-red-600 underline font-bold">Ver status oficial Portal NF-e →</a>
+                              <span className="text-[7px] text-red-500 opacity-70">Pode ser bloqueio de rede do servidor</span>
+                            </div>
                           )}
                         </div>
-                        {!sefazStatus.checking && sefazStatus.motivo && (
-                          <p className={`text-[8px] mt-0.5 break-all ${sefazStatus.online ? 'text-green-600' : 'text-red-600'}`}>
-                            {sefazStatus.motivo.length > 300 ? sefazStatus.motivo.slice(0, 300) + '…' : sefazStatus.motivo}
-                          </p>
-                        )}
-                        {sefazStatus.online && (
-                          <p className="text-[7px] text-green-600 mt-1 font-bold">✓ NFC-e pode ser emitida neste ambiente</p>
-                        )}
-                        {!sefazStatus.checking && !sefazStatus.online && sefazStatus.checkedAt && (
-                          <div className="mt-1.5 flex items-center gap-3">
-                            <a href="https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx" target="_blank" rel="noopener noreferrer"
-                              className="text-[7px] text-red-600 underline font-bold">
-                              Ver status oficial Portal NF-e →
-                            </a>
-                            <span className="text-[7px] text-red-500 opacity-70">Pode ser bloqueio de rede do servidor</span>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Notas Fiscais */}
                 <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
