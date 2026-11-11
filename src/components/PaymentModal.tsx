@@ -147,7 +147,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   useEffect(() => {
     if (isOpen) {
-      if (activeItems.length === 0 || remainingOrderTotal <= 0.01) {
+      if (activeItems.length === 0 || remainingOrderTotal < 0.01) {
         toast.error('Esta comanda/mesa não possui valores pendentes de pagamento!');
         onCloseRef.current();
         return;
