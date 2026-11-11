@@ -26,6 +26,7 @@ import {
 import { reconciliarResultadoDesconhecido } from "./src/lib/fiscal/reconciliacao.ts";
 import { emitirEpecNFe } from "./src/lib/fiscal/epec.ts";
 import { emitirNFeSvcRs } from "./src/lib/fiscal/svcrs.ts";
+import { emitirNFCeOffline } from "./src/lib/fiscal/nfce-offline.ts";
 import type { IntencaoFiscal, EstabelecimentoFiscal, ItemNota, PagamentoNota, AmbienteFiscal } from "./src/lib/fiscal/types.ts";
 import { T_PAG, TP_AMB } from "./src/lib/fiscal/endpoints.ts";
 // Tipos legados mantidos apenas para compatibilidade de campos salvos no banco
@@ -3646,6 +3647,196 @@ async function startServer() {
         modelo: '55', tpEmis: '7', urlDanfe,
       });
       return res.json({ ...result, intencaoId: intencao.id, urlDanfe, svcrs: true });
+
+    } catch (err: any) {
+      const errMsg = err.message || 'Erro desconhecido';
+      if (db) {
+        await db.from('fiscal_notes').update({
+          status: 'REJEITADO', error_detail: errMsg,
+          updated_at: new Date().toISOString(),
+        }).eq('id', intencao.id);
+      }
+      return res.status(500).json({ error: errMsg });
+    }
+  });
+
+  // POST /api/fiscal/nfce-offline/:orderId — contingência offline NFC-e (tpEmis='9')
+  // NFC-e gerada e assinada localmente; transmissão ao SEFAZ-MT ocorre via reconciliação.
+  app.post("/api/fiscal/nfce-offline/:orderId", express.json(), async (req, res) => {
+    const { orderId } = req.params;
+    const {
+      tenantId, pagamento,
+      cpfConsumidor, cnpjConsumidor, xNomeConsumidor,
+      dhCont, xJust,
+    } = req.body as {
+      tenantId: string; pagamento: string;
+      cpfConsumidor?: string; cnpjConsumidor?: string; xNomeConsumidor?: string;
+      dhCont: string;  // ISO 8601 início da contingência ex: "2026-11-11T10:00:00-04:00"
+      xJust: string;   // justificativa 15–256 chars
+    };
+
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!dhCont)   return res.status(400).json({ error: 'dhCont obrigatório (início da contingência)' });
+    if (!xJust || xJust.length < 15) return res.status(400).json({ error: 'xJust deve ter pelo menos 15 caracteres' });
+
+    // Configuração fiscal
+    let fiscalConfig: FiscalConfig = tenants.get(tenantId)?.fiscalConfig;
+    if (!fiscalConfig && db) {
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+      fiscalConfig = data?.data || null;
+    }
+    if (!fiscalConfig?.cnpj) return res.status(400).json({ error: 'Configuração fiscal incompleta.' });
+
+    // Certificado
+    let cert = getCertificado(tenantId);
+    if (!cert) {
+      try {
+        if (fiscalConfig.pfxEncrypted && fiscalConfig.senhaCifrada) {
+          const pfxBuf = decryptPfx(fiscalConfig.pfxEncrypted);
+          const senha  = decryptText(fiscalConfig.senhaCifrada);
+          if (pfxBuf && senha) cert = carregarCertificado(tenantId, pfxBuf.toString('base64'), senha);
+        } else if (fiscalConfig.certificadoA1Base64 && fiscalConfig.certificadoSenha) {
+          cert = carregarCertificado(tenantId, fiscalConfig.certificadoA1Base64, fiscalConfig.certificadoSenha);
+        }
+      } catch (e: any) {
+        return res.status(400).json({ error: `Certificado inválido: ${e.message}` });
+      }
+    }
+    if (!cert) return res.status(400).json({ error: 'Certificado A1 não carregado.' });
+
+    // Pedido
+    const st = tenants.get(tenantId);
+    let order: any = st?.orders.find((o: any) => String(o.id) === String(orderId));
+    if (!order && db) {
+      const { data } = await db.from('orders').select('*').eq('id', orderId).eq('tenant_id', tenantId).maybeSingle();
+      if (data) order = rowToOrder(data);
+    }
+    if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
+
+    // Verificar duplicata
+    if (db) {
+      const { data: existing } = await db.from('fiscal_notes')
+        .select('chave_acesso,status').eq('tenant_id', tenantId).eq('order_id', String(orderId))
+        .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'CONTINGENCIA_PENDENTE_TRANSMISSAO']).maybeSingle();
+      if (existing) return res.status(409).json({ error: 'Nota já emitida para este pedido.', chaveAcesso: existing.chave_acesso });
+    }
+
+    const ambiente: AmbienteFiscal = fiscalConfig.ambiente || 'homologacao';
+    const serie = ambiente === 'producao' ? (fiscalConfig.serieNFCeProd || '1') : (fiscalConfig.serieNFCeHom || '1');
+
+    let highWaterMark = 0;
+    if (db) {
+      const { data: hwRow } = await db.from('fiscal_notes')
+        .select('numero').eq('tenant_id', tenantId).eq('modelo', '65').eq('serie', serie).eq('ambiente', ambiente)
+        .order('numero', { ascending: false }).limit(1).maybeSingle();
+      highWaterMark = hwRow?.numero ?? 0;
+    }
+    await sincronizarContador(tenantId, '65', serie, ambiente, highWaterMark, db ?? null);
+
+    const items: ItemNota[] = (order.items || [])
+      .filter((i: any) => !i.removed)
+      .map((i: any, idx: number) => ({
+        seq: idx + 1,
+        codigo: String(i.id || idx + 1).slice(0, 60),
+        descricao: (i.name || 'Item').substring(0, 120),
+        ncm: i.ncm || '21069090',
+        cfop: i.cfop || '5102',
+        csosn: i.csosn || '400',
+        cst: i.cst,
+        unidade: i.unidade || 'UN',
+        origem: i.origem || '0',
+        quantidade: i.quantity ?? 1,
+        valorUnitario: i.price / (i.quantity ?? 1),
+        valorTotal: i.price,
+        piscofins: { cst: i.pisCofinsCst || '07' },
+        gtin: i.gtin || undefined,
+      }));
+
+    if (items.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
+    const total = items.reduce((s, i) => s + i.valorTotal, 0);
+
+    const tPag = T_PAG[pagamento] || T_PAG.outros;
+    const pagamentos: PagamentoNota[] = [{ tPag, vPag: total }];
+
+    const emitente: EstabelecimentoFiscal = {
+      tenantId,
+      cnpj: fiscalConfig.cnpj.replace(/\D/g, ''),
+      ie: fiscalConfig.ie || '',
+      razaoSocial: fiscalConfig.razaoSocial,
+      nomeFantasia: fiscalConfig.nomeFantasia,
+      uf: fiscalConfig.uf || 'MT',
+      codigoMunicipio: fiscalConfig.codigoMunicipio || '5103403',
+      municipio: fiscalConfig.municipio || 'Cuiabá',
+      logradouro: fiscalConfig.logradouro || '',
+      numero: fiscalConfig.numero || 'SN',
+      bairro: fiscalConfig.bairro || '',
+      cep: (fiscalConfig.cep || '').replace(/\D/g, ''),
+      telefone: fiscalConfig.telefone,
+      crt: fiscalConfig.crt || '1',
+      cnaePrincipal: fiscalConfig.cnae || '5611201',
+      serieNFCeHom: fiscalConfig.serieNFCeHom || '1',
+      serieNFCeProd: fiscalConfig.serieNFCeProd || '1',
+      serieNFEHom:  fiscalConfig.serieNFEHom  || '1',
+      serieNFEProd: fiscalConfig.serieNFEProd || '1',
+      cscHomId: fiscalConfig.cscId || fiscalConfig.cscHomId || '',
+      cscHom:   fiscalConfig.csc  || fiscalConfig.cscHom   || '',
+      cscProdId: fiscalConfig.cscProdId || '',
+      cscProd:   fiscalConfig.cscProd   || '',
+      ambiente,
+    };
+
+    const intencao: IntencaoFiscal = {
+      id: crypto.randomUUID(),
+      tenantId, orderId: String(orderId),
+      modelo: '65', ambiente, serie, tpEmis: '9',
+      status: 'VALIDACAO_PENDENTE',
+      emitente, items, pagamentos, total,
+      cpfConsumidor:  cpfConsumidor?.replace(/\D/g, '')  || undefined,
+      cnpjConsumidor: cnpjConsumidor?.replace(/\D/g, '') || undefined,
+      xNomeConsumidor: xNomeConsumidor || undefined,
+      observacoes: order.observations,
+      hashPayload: createHash('sha256')
+        .update(JSON.stringify({ orderId, items, total })).digest('hex'),
+      criadoEm: new Date().toISOString(),
+      atualizadoEm: new Date().toISOString(),
+      tentativas: [],
+    };
+
+    if (db) {
+      await db.from('fiscal_notes').upsert({
+        id: intencao.id, tenant_id: tenantId, order_id: String(orderId),
+        status: 'VALIDACAO_PENDENTE', modelo: '65',
+        serie, ambiente, total, hash_payload: intencao.hashPayload,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    }
+
+    try {
+      const result = await emitirNFCeOffline(intencao, cert, highWaterMark, dhCont, xJust, db ?? null);
+
+      const intencaoParaDanfe = {
+        ...intencao, xmlAssinado: undefined, xmlProcNfe: undefined,
+        qrCodeUrl: result.qrCode,  // necessário para o DANFE offline
+      };
+
+      if (db) {
+        await db.from('fiscal_notes').update({
+          chave_acesso: result.chaveAcesso,
+          status:       result.status,
+          numero:       intencao.numero,
+          xml_assinado: result.xmlAssinado,  // obrigatório para transmissão posterior
+          intencao_json: { ...intencaoParaDanfe, contingencia: true },
+          updated_at:   new Date().toISOString(),
+        }).eq('id', intencao.id);
+      }
+
+      const urlDanfe = `/danfe/nfce/${result.chaveAcesso}?tenant=${encodeURIComponent(tenantId)}`;
+
+      io.to('tenant:' + tenantId).emit('fiscal_note_emitted', {
+        orderId, status: result.status, chaveAcesso: result.chaveAcesso,
+        modelo: '65', tpEmis: '9', urlDanfe,
+      });
+      return res.json({ ...result, intencaoId: intencao.id, urlDanfe, offline: true });
 
     } catch (err: any) {
       const errMsg = err.message || 'Erro desconhecido';
