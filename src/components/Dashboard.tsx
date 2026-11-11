@@ -1297,6 +1297,9 @@ export default function Dashboard({
   const [cancelModal, setCancelModal] = useState<{ chaveAcesso: string; modelo: string; orderId: string | number } | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
+  const [nfceDhCont, setNfceDhCont] = useState('');
+  const [nfceXJust, setNfceXJust] = useState('');
 
   const handleFixTables = async () => {
     try {
@@ -9845,14 +9848,14 @@ export default function Dashboard({
       {/* Modal NFC-e */}
       <AnimatePresence>
         {nfceModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget && !nfceEmitting) { setNfceModal(null); setNfceResult(null); } }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget && !nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); } }}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-              <div className="bg-blue-600 p-4 flex items-center justify-between">
+              <div className={`${nfceContingenciaMode === 'normal' ? 'bg-blue-600' : 'bg-amber-600'} p-4 flex items-center justify-between`}>
                 <div className="flex items-center gap-2">
                   <FileText className="text-white" size={16} />
-                  <h2 className="text-white font-bold text-sm">Emitir NFC-e</h2>
+                  <h2 className="text-white font-bold text-sm">{nfceContingenciaMode === 'normal' ? 'Emitir NFC-e' : nfceContingenciaMode === 'offline' ? 'NFC-e Offline' : nfceContingenciaMode === 'epec' ? 'NF-e EPEC' : 'NF-e SVC-RS'}</h2>
                 </div>
-                <button onClick={() => { if (!nfceEmitting) { setNfceModal(null); setNfceResult(null); } }} className="text-white/70 hover:text-white p-1"><X size={16} /></button>
+                <button onClick={() => { if (!nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); } }} className="text-white/70 hover:text-white p-1"><X size={16} /></button>
               </div>
               <div className="p-4 space-y-3">
                 {nfceResult ? (
@@ -9860,11 +9863,13 @@ export default function Dashboard({
                     {(() => {
                       const ok = nfceResult.status === 'AUTORIZADO' || nfceResult.status === 'AUTORIZADO_COM_ALERTA';
                       const labels: Record<string, string> = {
-                        AUTORIZADO: '✓ NFC-e Autorizada!',
-                        AUTORIZADO_COM_ALERTA: '✓ Autorizada com alerta',
-                        REJEITADO: '✗ Rejeitada pela SEFAZ',
+                        AUTORIZADO: '✓ Autorizado pela SEFAZ!',
+                        AUTORIZADO_COM_ALERTA: '✓ Autorizado com alerta',
+                        REJEITADO: '✗ Rejeitado pela SEFAZ',
                         RESULTADO_DESCONHECIDO: '⚠ Em processamento — consulte pela chave',
                         RETORNO_NAO_CLASSIFICADO: '⚠ Retorno não classificado',
+                        EPEC_AUTORIZADO: '✓ EPEC autorizado — NF-e pendente transmissão',
+                        CONTINGENCIA_PENDENTE_TRANSMISSAO: '✓ Offline gerada — pendente transmissão',
                       };
                       return (
                         <>
@@ -9887,7 +9892,7 @@ export default function Dashboard({
                       </div>
                     )}
                     {nfceResult.urlDanfe && <a href={nfceResult.urlDanfe} target="_blank" rel="noopener noreferrer" className="block text-center text-[9px] text-blue-600 underline">Abrir DANFE</a>}
-                    <button onClick={() => { setNfceModal(null); setNfceResult(null); }} className="w-full py-2 bg-[#141414] text-white rounded-lg text-[9px] font-bold uppercase">Fechar</button>
+                    <button onClick={() => { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); }} className="w-full py-2 bg-[#141414] text-white rounded-lg text-[9px] font-bold uppercase">Fechar</button>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -9896,39 +9901,92 @@ export default function Dashboard({
                       <p className="text-lg font-bold text-[#141414]">R$ {nfceModal.total.toFixed(2)}</p>
                     </div>
                     <div>
-                      <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
-                      <input value={nfceCpf} onChange={e => setNfceCpf(e.target.value)} placeholder="000.000.000-00" className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
-                    </div>
-                    <div>
-                      <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
-                      <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
-                        <option value="dinheiro">Dinheiro</option>
-                        <option value="cartao_credito">Cartão de Crédito</option>
-                        <option value="cartao_debito">Cartão de Débito</option>
-                        <option value="pix">PIX</option>
-                        <option value="outros">Outros</option>
+                      <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Modo de Emissão</label>
+                      <select value={nfceContingenciaMode} onChange={e => setNfceContingenciaMode(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
+                        <option value="normal">Normal (NFC-e)</option>
+                        <option value="offline">Contingência Offline (NFC-e tpEmis=9)</option>
+                        <option value="epec">Contingência EPEC (NF-e tpEmis=4)</option>
+                        <option value="svcrs">Contingência SVC-RS (NF-e tpEmis=7)</option>
                       </select>
                     </div>
+                    {nfceContingenciaMode === 'normal' && (
+                      <>
+                        <div>
+                          <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
+                          <input value={nfceCpf} onChange={e => setNfceCpf(e.target.value)} placeholder="000.000.000-00" className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                        </div>
+                        <div>
+                          <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
+                          <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
+                            <option value="dinheiro">Dinheiro</option>
+                            <option value="cartao_credito">Cartão de Crédito</option>
+                            <option value="cartao_debito">Cartão de Débito</option>
+                            <option value="pix">PIX</option>
+                            <option value="outros">Outros</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
+                    {nfceContingenciaMode !== 'normal' && (
+                      <>
+                        <div className="bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                          <p className="text-[7px] text-amber-700 font-bold uppercase">Modo contingência — {nfceContingenciaMode === 'offline' ? 'NFC-e gerada offline, transmitida ao SEFAZ automaticamente quando o serviço voltar.' : nfceContingenciaMode === 'epec' ? 'Evento EPEC enviado ao SVC-RS; NF-e re-transmitida ao SEFAZ-MT quando voltar.' : 'NF-e completa enviada ao SVC-RS para autorização imediata.'}</p>
+                        </div>
+                        <div>
+                          <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Início da Contingência</label>
+                          <input type="datetime-local" value={nfceDhCont} onChange={e => setNfceDhCont(e.target.value)} className="w-full border border-amber-300 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-amber-400" />
+                        </div>
+                        <div>
+                          <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Justificativa (mín. 15 chars)</label>
+                          <textarea value={nfceXJust} onChange={e => setNfceXJust(e.target.value)} rows={2} placeholder="Descreva o motivo da contingência..." className="w-full border border-amber-300 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none" />
+                          {nfceXJust.length > 0 && nfceXJust.length < 15 && <p className="text-[7px] text-red-500 mt-0.5">{15 - nfceXJust.length} caracteres restantes</p>}
+                        </div>
+                      </>
+                    )}
                     <button
                       disabled={nfceEmitting}
                       onClick={async () => {
                         if (!tenantId) { toast.error('Faça login.'); return; }
+                        if (nfceContingenciaMode !== 'normal') {
+                          if (!nfceDhCont) { toast.error('Informe o início da contingência.'); return; }
+                          if (nfceXJust.length < 15) { toast.error('Justificativa deve ter pelo menos 15 caracteres.'); return; }
+                        }
                         setNfceEmitting(true);
                         try {
-                          const res = await fetch(`/api/fiscal/nfce/${nfceModal!.orderId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined }) });
+                          const orderId = nfceModal!.orderId;
+                          let endpoint: string;
+                          let body: object;
+                          if (nfceContingenciaMode === 'normal') {
+                            endpoint = `/api/fiscal/nfce/${orderId}`;
+                            body = { tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined };
+                          } else if (nfceContingenciaMode === 'offline') {
+                            endpoint = `/api/fiscal/nfce-offline/${orderId}`;
+                            body = { tenantId, dhCont: nfceDhCont, xJust: nfceXJust };
+                          } else if (nfceContingenciaMode === 'epec') {
+                            endpoint = `/api/fiscal/nfe-epec/${orderId}`;
+                            body = { tenantId, dhCont: nfceDhCont, xJust: nfceXJust };
+                          } else {
+                            endpoint = `/api/fiscal/nfe-svcrs/${orderId}`;
+                            body = { tenantId, dhCont: nfceDhCont, xJust: nfceXJust };
+                          }
+                          const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
                           const data = await res.json();
-                          if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir NFC-e');
+                          if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir');
                           setNfceResult(data);
                           if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
-                            toast.success('NFC-e Autorizada pela SEFAZ!');
+                            toast.success('Documento autorizado pela SEFAZ!');
+                          } else if (data.status === 'EPEC_AUTORIZADO') {
+                            toast.success('EPEC autorizado pelo SVC-RS!');
+                          } else if (data.status === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') {
+                            toast.success('NFC-e offline gerada — pendente transmissão.');
                           } else {
-                            toast.warning(`NFC-e transmitida — cStat ${data.cStat || '?'}: ${data.xMotivo || data.status}`);
+                            toast.warning(`Transmissão — cStat ${data.cStat || '?'}: ${data.xMotivo || data.status}`);
                           }
-                        } catch (e: any) { toast.error('Erro NFC-e: ' + e.message); }
+                        } catch (e: any) { toast.error('Erro: ' + e.message); }
                         setNfceEmitting(false);
                       }}
-                      className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-bold uppercase transition-colors disabled:opacity-50"
-                    >{nfceEmitting ? 'Emitindo...' : 'Emitir NFC-e'}</button>
+                      className={`w-full py-2 ${nfceContingenciaMode === 'normal' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'} text-white rounded-lg text-[9px] font-bold uppercase transition-colors disabled:opacity-50`}
+                    >{nfceEmitting ? 'Emitindo...' : nfceContingenciaMode === 'normal' ? 'Emitir NFC-e' : nfceContingenciaMode === 'offline' ? 'Emitir Offline' : nfceContingenciaMode === 'epec' ? 'Emitir via EPEC' : 'Emitir via SVC-RS'}</button>
                   </div>
                 )}
               </div>
