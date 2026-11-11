@@ -46,20 +46,29 @@ export function getEndpoint(modelo: ModeloKey, ambiente: AmbienteKey, servico: S
   return SEFAZ_MT[modelo][ambiente][servico];
 }
 
-// ── SVC-RS — contingência EPEC para NF-e (MT usa SVC-RS) ─────────────────────
-// tpEvento=110140; infEvento/cOrgao=91; detEvento/cOrgaoAutor=51 (MT)
-// Fonte: Portal Nacional NF-e / NT 2015.001 / MOC NF-e 7.0
+// ── SVC-RS — contingência NF-e para MT (tpEmis='7' e EPEC tpEmis='4') ────────
+// tpEmis='7': NF-e transmitida ao SVC-RS para autorização imediata
+// tpEmis='4' (EPEC): evento 110140 ao SVC-RS; NF-e re-transmitida ao SEFAZ-MT depois
+// Fonte: Portal Nacional NF-e / NT 2015.001 / NT 2024.001 / MOC NF-e 7.0
 export const SVC_RS = {
   homologacao: {
-    recepcaoEvento: 'https://hom.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
+    autorizacao:       'https://hom.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
+    statusServico:     'https://hom.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
+    consultaProtocolo: 'https://hom.svrs.rs.gov.br/ws/NfeConsulta/NFeConsulta4.asmx',
+    recepcaoEvento:    'https://hom.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
   },
   producao: {
-    recepcaoEvento: 'https://nfe.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
+    autorizacao:       'https://nfe.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
+    statusServico:     'https://nfe.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
+    consultaProtocolo: 'https://nfe.svrs.rs.gov.br/ws/NfeConsulta/NFeConsulta4.asmx',
+    recepcaoEvento:    'https://nfe.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
   },
 } as const;
 
-export function getSvcRsEndpoint(ambiente: AmbienteKey): string {
-  return SVC_RS[ambiente].recepcaoEvento;
+export type SvcRsServicoKey = keyof typeof SVC_RS.homologacao;
+
+export function getSvcRsEndpoint(ambiente: AmbienteKey, servico: SvcRsServicoKey = 'recepcaoEvento'): string {
+  return SVC_RS[ambiente][servico];
 }
 
 // cOrgao no infEvento do evento EPEC (SVC-RS)
