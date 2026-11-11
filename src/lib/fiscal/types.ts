@@ -21,7 +21,7 @@ export type FiscalDocStatus =
 
 export type AmbienteFiscal = 'homologacao' | 'producao';
 export type ModeloFiscal = '55' | '65'; // NF-e | NFC-e
-export type TipoEmissao = '1' | '9'; // normal | contingência offline
+export type TipoEmissao = '1' | '4' | '7' | '9'; // normal | EPEC | SVC-RS | contingência offline NFC-e
 
 // ── Configuração do estabelecimento emitente ─────────────────────────────────
 export interface EstabelecimentoFiscal {

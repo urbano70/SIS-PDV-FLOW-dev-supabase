@@ -49,6 +49,14 @@ export function getEndpoint(modelo: ModeloKey, ambiente: AmbienteKey, servico: S
 // Versão do layout NF-e/NFC-e usada na geração do XML
 export const VERSAO_NFE = '4.00';
 
+// URL de consulta NFC-e embutida no QR Code — deve ser validada em homologação
+// antes de ativar produção (confirmar verAplic e URL aceita pelo autorizador MT).
+// Fonte: SEFAZ-MT portal NFC-e [levantamento-fiscal-sefaz-mt §Web Services]
+export const URL_QR_CONSULTA: Record<AmbienteKey, string> = {
+  homologacao: 'https://homologacao.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf',
+  producao:    'https://www.sefaz.mt.gov.br/nfce/consultanfce',
+};
+
 // cUF — código da UF Mato Grosso
 export const C_UF_MT = '51';
 

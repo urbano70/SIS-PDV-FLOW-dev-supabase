@@ -5,10 +5,11 @@
 import crypto from 'node:crypto';
 import type { IntencaoFiscal, FiscalDocStatus, AmbienteFiscal, ModeloFiscal } from './types.js';
 import type { CertificadoCarregado } from './certificate.js';
-import { getEndpoint, C_UF_MT, TP_AMB, T_PAG } from './endpoints.js';
+import { getEndpoint, C_UF_MT, TP_AMB, T_PAG, URL_QR_CONSULTA } from './endpoints.js';
 import {
   gerarChaveAcesso, gerarXmlNFCe, assinarXml, gerarQRCode, montarInfoNFeSupl,
 } from './xml-nfce.js';
+import { gerarChaveAcessoNFe, gerarXmlNFe, type OpcoesNFe } from './xml-nfe.js';
 import {
   montarEnvelopeAutorizacao, montarEnvelopeStatusServico,
   montarEnvelopeCancelamento, soapCall, extrairCampo,
@@ -117,9 +118,7 @@ export async function autorizarNFCe(
   // 5. Gerar QR Code e inserir <infNFeSupl> no XML antes de enviar (obrigatório NFC-e)
   const cscId    = intencao.ambiente === 'producao' ? intencao.emitente.cscProdId : intencao.emitente.cscHomId;
   const csc      = intencao.ambiente === 'producao' ? intencao.emitente.cscProd   : intencao.emitente.cscHom;
-  const urlQrBase = intencao.ambiente === 'producao'
-    ? 'https://nfce.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf'
-    : 'https://homologacao.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf';
+  const urlQrBase = URL_QR_CONSULTA[intencao.ambiente];
   const urlConsulta = urlQrBase;
   const digestVal = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
   const total = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
@@ -165,7 +164,8 @@ export async function autorizarNFCe(
   const cStatN = parseInt(cStat || '0');
   if (cStat === '100') {
     status = 'AUTORIZADO';
-  } else if (cStatN >= 150 && cStatN <= 199) {
+  } else if (cStat === '120' || (cStatN >= 150 && cStatN <= 199)) {
+    // 120 = autorização com alerta (NT 2026.002); 150-199 = faixa de alerta
     status = 'AUTORIZADO_COM_ALERTA';
   } else if (cStat === '105') {
     status = 'RESULTADO_DESCONHECIDO'; // lote em processamento async
@@ -239,6 +239,137 @@ export async function cancelarNFCe(
 // helper
 function pad(v: string | number, len: number): string {
   return String(v).padStart(len, '0');
+}
+
+// ── Autorizar NF-e ──────────────────────────────────────────────────────────
+
+export async function autorizarNFe(
+  intencao: IntencaoFiscal,
+  cert: CertificadoCarregado,
+  highWaterMark: number,
+  db: any | null = null,
+  opts: OpcoesNFe = {},
+): Promise<AutorizacaoResult> {
+  const tpAmb = TP_AMB[intencao.ambiente];
+  const serie = intencao.ambiente === 'producao'
+    ? intencao.emitente.serieNFEProd
+    : intencao.emitente.serieNFEHom;
+
+  // 1. Reservar número
+  const numero = await reservarNumero(intencao.tenantId, '55', serie, intencao.ambiente, highWaterMark, db);
+  intencao.numero = numero;
+  intencao.serie = serie;
+
+  // 2. Chave de acesso
+  const cNF = pad(crypto.randomInt(1, 99999999), 8);
+  const dhEmi = new Date();
+  intencao.chaveAcesso = gerarChaveAcessoNFe(C_UF_MT, dhEmi, intencao.emitente.cnpj, serie, numero, intencao.tpEmis, cNF);
+
+  // 3. Gerar e assinar XML
+  const xmlBase = gerarXmlNFe(intencao, opts);
+  const xmlAssinado = assinarXml(xmlBase, cert.privateKeyPem, cert.certificatePem);
+  intencao.xmlAssinado = xmlAssinado;
+  intencao.status = 'ASSINADO';
+
+  // 4. Transmitir
+  const nfeStart = xmlAssinado.indexOf('<NFe');
+  const nfeEnd   = xmlAssinado.lastIndexOf('</NFe>') + '</NFe>'.length;
+  const xmlNFe   = (nfeStart >= 0 && nfeEnd > nfeStart) ? xmlAssinado.slice(nfeStart, nfeEnd) : xmlAssinado;
+  const url = getEndpoint('nfe', intencao.ambiente, 'autorizacao');
+  const envelope = montarEnvelopeAutorizacao(xmlNFe);
+  intencao.status = 'ENVIANDO';
+
+  let soapResp: Awaited<ReturnType<typeof soapCall>>;
+  try {
+    soapResp = await soapCall(url, envelope, cert, 30_000);
+  } catch (err: any) {
+    if (err.message === 'SOAP_TIMEOUT') {
+      intencao.status = 'RESULTADO_DESCONHECIDO';
+      return {
+        status: 'RESULTADO_DESCONHECIDO', cStat: '', xMotivo: 'Timeout na transmissão — consulte pela chave.',
+        protocolo: '', dhRecbto: '', chaveAcesso: intencao.chaveAcesso, qrCode: '',
+      };
+    }
+    throw err;
+  }
+
+  // 5. Classificar retorno (mesma lógica da NFC-e)
+  const cStat    = extrairCampo(soapResp.body, 'cStat');
+  const xMotivo  = extrairCampo(soapResp.body, 'xMotivo');
+  const nProt    = extrairCampo(soapResp.body, 'nProt');
+  const dhRecbto = extrairCampo(soapResp.body, 'dhRecbto');
+  const cStatN   = parseInt(cStat || '0');
+
+  let status: FiscalDocStatus;
+  if (cStat === '100') {
+    status = 'AUTORIZADO';
+  } else if (cStat === '120' || (cStatN >= 150 && cStatN <= 199)) {
+    status = 'AUTORIZADO_COM_ALERTA';
+  } else if (cStat === '105') {
+    status = 'PROCESSANDO';
+  } else if (cStat === '') {
+    status = 'RETORNO_NAO_CLASSIFICADO';
+  } else {
+    status = 'REJEITADO';
+  }
+
+  intencao.status = status;
+  intencao.cStat = cStat;
+  intencao.xMotivo = xMotivo;
+  intencao.protocolo = nProt;
+  intencao.dhRecbto = dhRecbto;
+
+  let xmlProcNfe: string | undefined;
+  if (status === 'AUTORIZADO' || status === 'AUTORIZADO_COM_ALERTA') {
+    const retProc = soapResp.body.match(/<retNFeProc[\s\S]*?<\/retNFeProc>/)?.[0] ?? '';
+    xmlProcNfe = xmlAssinado.replace(/<\/NFe>/, `</NFe>${retProc}`);
+    intencao.xmlProcNfe = xmlProcNfe;
+  }
+
+  return { status, cStat, xMotivo, protocolo: nProt, dhRecbto, xmlProcNfe, chaveAcesso: intencao.chaveAcesso, qrCode: '' };
+}
+
+// ── Cancelar NF-e (prazo MT: 8 horas após autorização) ──────────────────────
+
+export async function cancelarNFe(
+  chaveAcesso: string, protocolo: string, motivo: string,
+  ambiente: AmbienteFiscal, cert: CertificadoCarregado,
+): Promise<{ cStat: string; xMotivo: string }> {
+  const url = getEndpoint('nfe', ambiente, 'cancelamento');
+  const tpAmb = TP_AMB[ambiente];
+  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const envelope = montarEnvelopeCancelamento(chaveAcesso, protocolo, motivo, tpAmb, dhEvento);
+
+  const { body } = await soapCall(url, envelope, cert, 15_000);
+  const cStat   = extrairCampo(body, 'cStat');
+  const xMotivo = extrairCampo(body, 'xMotivo');
+
+  if (cStat !== '135' && cStat !== '155') {
+    throw new Error(`Cancelamento NF-e rejeitado: ${cStat} — ${xMotivo}`);
+  }
+  return { cStat, xMotivo };
+}
+
+// ── Consultar NF-e por chave de acesso ──────────────────────────────────────
+
+export async function consultarNFe(
+  chaveAcesso: string, ambiente: AmbienteFiscal, cert: CertificadoCarregado,
+): Promise<{ cStat: string; xMotivo: string; protocolo: string }> {
+  const url = getEndpoint('nfe', ambiente, 'consultaProtocolo');
+  const tpAmb = TP_AMB[ambiente];
+  const envelope =
+    `<?xml version="1.0" encoding="UTF-8"?><soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body>` +
+    `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeConsulta4">` +
+    `<consSitNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
+    `<tpAmb>${tpAmb}</tpAmb><xServ>CONSULTAR</xServ><chNFe>${chaveAcesso}</chNFe>` +
+    `</consSitNFe></nfeDadosMsg></soap12:Body></soap12:Envelope>`;
+
+  const { body } = await soapCall(url, envelope, cert, 15_000);
+  return {
+    cStat: extrairCampo(body, 'cStat'),
+    xMotivo: extrairCampo(body, 'xMotivo'),
+    protocolo: extrairCampo(body, 'nProt'),
+  };
 }
 
 export { T_PAG };
