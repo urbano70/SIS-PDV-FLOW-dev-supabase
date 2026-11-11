@@ -261,8 +261,9 @@ export function gerarQRCode(
 ): string {
   const valor = dec(vNF, 2);
   const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
-  // digVal sem URL-encode: SEFAZ-MT rejeita %3D com cStat 215 (cvc-type.3.1.3 no qrCode)
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgest}&cIdToken=${cscId}`;
+  // SEFAZ-MT: encode apenas + → %2B e / → %2F do base64; manter = sem encode (rejeita %3D)
+  const dIgestSafe = dIgest.replace(/\+/g, '%2B').replace(/\//g, '%2F');
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestSafe}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
 }
