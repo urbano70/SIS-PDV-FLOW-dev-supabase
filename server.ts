@@ -1,4 +1,5 @@
 ﻿import 'dotenv/config';
+import { zipSync, strToU8 } from "fflate";
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -4020,6 +4021,53 @@ async function startServer() {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     return res.send(xml);
+  });
+
+  // GET /api/fiscal/xml-lote — ZIP com todos os XMLs do mês (entrega à contabilidade)
+  // Query: tenant=<tenantId>&ano=YYYY&mes=MM  (mes 1-based)
+  app.get("/api/fiscal/xml-lote", async (req, res) => {
+    const { tenant, ano, mes } = req.query as { tenant: string; ano: string; mes: string };
+    if (!tenant || !ano || !mes) return res.status(400).json({ error: 'tenant, ano e mes são obrigatórios' });
+    if (!db) return res.status(503).json({ error: 'Banco indisponível' });
+
+    const anoN = parseInt(ano);
+    const mesN = parseInt(mes); // 1-based
+    if (isNaN(anoN) || isNaN(mesN) || mesN < 1 || mesN > 12)
+      return res.status(400).json({ error: 'ano/mes inválidos' });
+
+    const inicio = new Date(anoN, mesN - 1, 1).toISOString();
+    const fim    = new Date(anoN, mesN,     1).toISOString(); // exclusive
+
+    const { data, error } = await db.from('fiscal_notes')
+      .select('chave_acesso,xml_assinado,xml_proc_nfe,modelo,status,created_at')
+      .eq('tenant_id', tenant)
+      .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'CANCELADO', 'EPEC_AUTORIZADO', 'CONTINGENCIA_PENDENTE_TRANSMISSAO'])
+      .gte('created_at', inicio)
+      .lt('created_at', fim)
+      .order('created_at', { ascending: true });
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data || data.length === 0)
+      return res.status(404).json({ error: `Nenhum XML encontrado para ${String(mesN).padStart(2,'0')}/${anoN}` });
+
+    const files: Record<string, Uint8Array> = {};
+    for (const nota of data) {
+      const xml = nota.xml_proc_nfe || nota.xml_assinado;
+      if (!xml) continue;
+      const sufixo = nota.xml_proc_nfe ? 'procNFe' : 'NFe';
+      const filename = `${nota.chave_acesso}-${sufixo}.xml`;
+      files[filename] = strToU8(xml);
+    }
+
+    if (Object.keys(files).length === 0)
+      return res.status(404).json({ error: 'Nenhum XML disponível para o período' });
+
+    const zip = zipSync(files, { level: 6 });
+    const zipName = `xmls-${String(mesN).padStart(2,'0')}-${anoN}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+    return res.send(Buffer.from(zip));
   });
 
   // GET /api/fiscal/consultar/:chaveAcesso
