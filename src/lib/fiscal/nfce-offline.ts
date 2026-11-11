@@ -79,7 +79,7 @@ export async function emitirNFCeOffline(
   const digestVal  = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
   const totalNota  = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
   const qrCode = (cscId && csc)
-    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, totalNota, digestVal, cscId, csc, urlQrBase)
+    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, totalNota, digestVal, cscId, csc, urlQrBase, intencao.cpfConsumidor || undefined)
     : '';
 
   const infoSupl = montarInfoNFeSupl(qrCode, urlConsulta);
