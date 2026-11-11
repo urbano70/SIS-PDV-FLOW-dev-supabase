@@ -20,9 +20,10 @@ import {
   encryptPfx, decryptPfx, encryptText, decryptText,
 } from "./src/lib/fiscal/certificate.ts";
 import {
-  autorizarNFCe, cancelarNFCe, consultarNFCe, verificarServico,
+  autorizarNFCe, cancelarNFCe, consultarNFCe, consultarNFe, verificarServico,
   reservarNumero, sincronizarContador, autorizarNFe,
 } from "./src/lib/fiscal/sefaz-direct.ts";
+import { reconciliarResultadoDesconhecido } from "./src/lib/fiscal/reconciliacao.ts";
 import type { IntencaoFiscal, EstabelecimentoFiscal, ItemNota, PagamentoNota, AmbienteFiscal } from "./src/lib/fiscal/types.ts";
 import { T_PAG, TP_AMB } from "./src/lib/fiscal/endpoints.ts";
 // Tipos legados mantidos apenas para compatibilidade de campos salvos no banco
@@ -3339,24 +3340,71 @@ async function startServer() {
     if (!cert) return res.status(400).json({ error: 'Certificado não carregado.' });
 
     let ambiente: AmbienteFiscal = 'homologacao';
+    let modelo = '65';
     if (db) {
-      const { data } = await db.from('fiscal_notes').select('ambiente').eq('chave_acesso', chaveAcesso).maybeSingle();
+      const { data } = await db.from('fiscal_notes')
+        .select('ambiente,modelo').eq('chave_acesso', chaveAcesso).maybeSingle();
       ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
+      modelo   = data?.modelo ?? '65';
     }
 
     try {
-      const result = await consultarNFCe(chaveAcesso, ambiente, cert);
-      // Se SEFAZ confirmou autorização mas tínhamos RESULTADO_DESCONHECIDO, atualizar
-      if (db && (result.cStat === '100' || result.cStat === '101')) {
-        await db.from('fiscal_notes').update({
-          status: result.cStat === '100' ? 'AUTORIZADO' : 'CANCELADO',
-          protocolo: result.protocolo,
-          cstat: result.cStat,
-          xmotivo: result.xMotivo,
-          updated_at: new Date().toISOString(),
-        }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+      const result = modelo === '55'
+        ? await consultarNFe(chaveAcesso, ambiente, cert)
+        : await consultarNFCe(chaveAcesso, ambiente, cert);
+
+      // Resolver RESULTADO_DESCONHECIDO automaticamente
+      if (db) {
+        const statusMap: Record<string, string> = {
+          '100': 'AUTORIZADO', '101': 'CANCELADO', '102': 'INUTILIZADO',
+          '110': 'REJEITADO',  '150': 'AUTORIZADO_COM_ALERTA',
+          '301': 'REJEITADO',  '302': 'REJEITADO',
+        };
+        const novoStatus = statusMap[result.cStat];
+        if (novoStatus) {
+          await db.from('fiscal_notes').update({
+            status: novoStatus,
+            protocolo: result.protocolo || undefined,
+            cstat: result.cStat,
+            xmotivo: result.xMotivo,
+            updated_at: new Date().toISOString(),
+          }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+        }
       }
       return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/fiscal/reconciliar — acionamento manual da reconciliação
+  app.post("/api/fiscal/reconciliar", express.json(), async (req, res) => {
+    const { tenantId } = req.body as { tenantId: string };
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!db) return res.status(503).json({ error: 'Banco indisponível' });
+
+    const cert = getCertificado(tenantId);
+    if (!cert) return res.status(400).json({ error: 'Certificado não carregado. Faça login no PDV primeiro.' });
+
+    try {
+      const resultado = await reconciliarResultadoDesconhecido(tenantId, cert, db);
+
+      // Emitir eventos de socket para notas que passaram para autorizado
+      for (const d of resultado.detalhes) {
+        if (d.statusNovo === 'AUTORIZADO' || d.statusNovo === 'AUTORIZADO_COM_ALERTA') {
+          io.to('tenant:' + tenantId).emit('fiscal_note_reconciliada', {
+            orderId:     d.orderId,
+            status:      d.statusNovo,
+            chaveAcesso: d.chaveAcesso,
+            protocolo:   d.protocolo,
+            cStat:       d.cStat,
+            xMotivo:     d.xMotivo,
+            retransmitida: d.retransmitida,
+          });
+        }
+      }
+
+      return res.json(resultado);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -3923,6 +3971,51 @@ async function startServer() {
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
+
+  // Reconciliação automática de RESULTADO_DESCONHECIDO a cada 5 minutos.
+  // Só processa tenants cujos certificados já estejam carregados em memória.
+  const RECON_INTERVAL_MS = 5 * 60_000;
+  setInterval(async () => {
+    if (!db) return;
+    try {
+      // Descobrir tenants com notas pendentes
+      const { data: rows } = await db.from('fiscal_notes')
+        .select('tenant_id')
+        .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO'])
+        .not('chave_acesso', 'is', null);
+
+      const uniqueTenants = [...new Set((rows ?? []).map((r: any) => r.tenant_id as string))];
+
+      for (const tid of uniqueTenants) {
+        const cert = getCertificado(tid);
+        if (!cert) continue; // Certificado não carregado — aguardar próximo ciclo
+
+        try {
+          const resultado = await reconciliarResultadoDesconhecido(tid, cert, db);
+          if (resultado.resolvidos > 0) {
+            console.log(`[Reconciliação] tenant=${tid} total=${resultado.total} resolvidos=${resultado.resolvidos} autorizados=${resultado.autorizados} rejeitados=${resultado.rejeitados}`);
+            for (const d of resultado.detalhes) {
+              if (d.statusNovo === 'AUTORIZADO' || d.statusNovo === 'AUTORIZADO_COM_ALERTA') {
+                io.to('tenant:' + tid).emit('fiscal_note_reconciliada', {
+                  orderId:     d.orderId,
+                  status:      d.statusNovo,
+                  chaveAcesso: d.chaveAcesso,
+                  protocolo:   d.protocolo,
+                  cStat:       d.cStat,
+                  xMotivo:     d.xMotivo,
+                  retransmitida: d.retransmitida,
+                });
+              }
+            }
+          }
+        } catch (e: any) {
+          console.error(`[Reconciliação] tenant=${tid} erro:`, e.message);
+        }
+      }
+    } catch (e: any) {
+      console.error('[Reconciliação] erro geral:', e.message);
+    }
+  }, RECON_INTERVAL_MS);
 }
 
 startServer();
