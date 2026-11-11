@@ -184,8 +184,8 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
 // ── Assinatura XMLDSig ───────────────────────────────────────────────────────
 
 /**
- * Assina qualquer elemento XML usando XMLDSig enveloped (RSA-SHA256, C14N).
- * NFe/NFC-e 4.00 exige SHA-256 (NT 2015.001 / MOC NFC-e 7.0).
+ * Assina qualquer elemento XML usando XMLDSig enveloped (RSA-SHA1, C14N).
+ * SEFAZ-MT exige SHA-1 — o XSD deles define Algorithm como fixed=sha1.
  * Reutilizado por NF-e, NFC-e, eventos de cancelamento e inutilização.
  * A assinatura é inserida imediatamente após o `</elementoTag>` no documento.
  */
@@ -203,26 +203,26 @@ export function assinarXmlElemento(
   if (!elementoXml) throw new Error(`Elemento <${elementoTag}> não encontrado.`);
 
   const digestValue = crypto
-    .createHash('sha256')
+    .createHash('sha1')
     .update(Buffer.from(elementoXml, 'utf8'))
     .digest('base64');
 
   const signedInfo =
     `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
     `<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
-    `<SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>` +
+    `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
     `<Reference URI="#${refId}">` +
     `<Transforms>` +
     `<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>` +
     `<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
     `</Transforms>` +
-    `<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>` +
+    `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
     `<DigestValue>${digestValue}</DigestValue>` +
     `</Reference>` +
     `</SignedInfo>`;
 
   const signatureValue = crypto
-    .createSign('RSA-SHA256')
+    .createSign('RSA-SHA1')
     .update(Buffer.from(signedInfo, 'utf8'))
     .sign(privateKeyPem, 'base64');
 
