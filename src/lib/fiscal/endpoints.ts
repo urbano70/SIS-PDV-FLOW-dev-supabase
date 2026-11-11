@@ -46,6 +46,25 @@ export function getEndpoint(modelo: ModeloKey, ambiente: AmbienteKey, servico: S
   return SEFAZ_MT[modelo][ambiente][servico];
 }
 
+// ── SVC-RS — contingência EPEC para NF-e (MT usa SVC-RS) ─────────────────────
+// tpEvento=110140; infEvento/cOrgao=91; detEvento/cOrgaoAutor=51 (MT)
+// Fonte: Portal Nacional NF-e / NT 2015.001 / MOC NF-e 7.0
+export const SVC_RS = {
+  homologacao: {
+    recepcaoEvento: 'https://hom.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
+  },
+  producao: {
+    recepcaoEvento: 'https://nfe.svrs.rs.gov.br/ws/NfeRecepcaoEvento/NfeRecepcaoEvento4.asmx',
+  },
+} as const;
+
+export function getSvcRsEndpoint(ambiente: AmbienteKey): string {
+  return SVC_RS[ambiente].recepcaoEvento;
+}
+
+// cOrgao no infEvento do evento EPEC (SVC-RS)
+export const C_ORGAO_SVC_RS = '91';
+
 // Versão do layout NF-e/NFC-e usada na geração do XML
 export const VERSAO_NFE = '4.00';
 
