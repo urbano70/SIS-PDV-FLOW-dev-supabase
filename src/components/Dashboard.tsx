@@ -2006,73 +2006,101 @@ export default function Dashboard({
     const now = new Date();
     const registerName = activeCashRegisterName || pendingCloseRegisterName || '-';
 
+    // ── Helpers de layout ───────────────────────────────────────────────
+    // Título de seção: "===== TITULO =====" centralizado
+    const secTitle = (t: string) => {
+      const inner = ` ${t} `;
+      const sides = Math.floor((lineLen - inner.length) / 2);
+      const eqR = '='.repeat(Math.max(0, lineLen - sides - inner.length));
+      text('='.repeat(Math.max(0, sides)) + inner + eqR); lf();
+    };
+    // 2 colunas: label esquerda, valor direita
+    const col2 = (label: string, value: string) => {
+      const sp = Math.max(1, lineLen - label.length - value.length);
+      text(label + ' '.repeat(sp) + value); lf();
+    };
+    // 3 colunas: nome | qtde | total (colunas 2 e 3 alinhadas à direita)
+    const w1 = is50mm ? 14 : 24;
+    const w2 = is50mm ? 6  : 8;
+    const w3 = lineLen - w1 - w2;
+    const col3 = (c1: string, c2: string, c3: string) => {
+      text(c1.substring(0, w1).padEnd(w1) + c2.substring(0, w2).padStart(w2) + c3.padStart(w3)); lf();
+    };
+    // Linha de pagamento: nome à esquerda, valor à direita (12 chars)
+    const payRow = (label: string, value: string) => {
+      const vLen = Math.min(12, lineLen - 2);
+      text(label.substring(0, lineLen - vLen - 1).padEnd(lineLen - vLen) + value.padStart(vLen)); lf();
+    };
+
     // ── Montar o documento ESC/POS ──────────────────────────────────────
     push(0x1B, 0x40); // init
+    push(0x1B, 0x74, 0x02); // CP437
+
+    // Cabeçalho
     center();
-    bold(true); text('RELATORIO DE CAIXA'); lf(); bold(false);
+    dbl(true); bold(true); text('RELATORIO DE CAIXA'); lf(); dbl(false); bold(false);
     lf();
     left();
     text(`Cx: ${registerName}`); lf();
-    text(`Abertura:   ${fmtDate(new Date(shiftStartedAt))}`); lf();
-    text(`Fechamento: ${fmtDate(now)}`); lf();
-    ln();
+    col2('Abertura:', fmtDate(new Date(shiftStartedAt)));
+    col2('Fechamento:', fmtDate(now));
+    col2('Fundo de Caixa:', fmtMoney(0));
+    dln();
 
-    // Meios de pagamento
-    const methodNames = ['Dinheiro', 'PIX', 'Cartao', 'Cheque', 'Fiado', 'Cashback', 'IFood', 'Devolucao'];
-    const allMethods = Array.from(new Set([...methodNames, ...Object.keys(methodTotals)]));
-    const w1mp = lineLen - 20;
-    bold(true); col3Row('Meio', 'Computado', 'Diferenca', w1mp); bold(false);
+    // Formas de pagamento
+    secTitle('PAGAMENTOS');
+    bold(true); payRow('Meio de Pagamento', 'Total'); bold(false);
     ln();
-    allMethods.forEach(m => {
-      const computado = methodTotals[m] || 0;
-      col3Row(m, computado.toFixed(2), (0 - computado).toFixed(2), w1mp);
-    });
+    const payEntries = Object.entries(methodTotals).sort((a, b) => b[1] - a[1]);
+    if (payEntries.length === 0) {
+      text('Nenhum pagamento registrado.'); lf();
+    } else {
+      payEntries.forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
+    }
     ln();
+    bold(true); payRow('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ',')); bold(false);
+    lf();
 
-    // Vendas
-    dln(); center(); bold(true); text('VENDAS'); lf(); bold(false); dln(); left();
-    col3Row('Produto', 'Qtde', 'Total', lineLen - 14);
+    // Itens vendidos
+    secTitle('ITENS VENDIDOS');
+    bold(true); col3('Produto', 'Qtde', 'Total'); bold(false);
     ln();
-    Object.entries(productTotals).sort((a, b) => b[1].total - a[1].total).forEach(([name, v]) => {
-      const qtyStr   = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-      const totStr   = v.total.toFixed(2).replace('.', ',');
-      col3Row(name.substring(0, lineLen - 14), qtyStr, totStr, lineLen - 14);
-    });
-    ln();
-    bold(true);
-    colRow('TOTAL VENDIDO BRUTO:', fmtMoney(totalBruto));
-    if (totalDesc > 0) colRow('Descontos:', `-${fmtMoney(totalDesc)}`);
-    colRow('TOTAL VENDIDO LIQUIDO:', fmtMoney(totalLiq));
-    colRow('TOTAL PAGO:', fmtMoney(totalPaid));
-    bold(false);
-    if (Object.keys(methodTotals).length > 0) {
-      lf();
-      Object.entries(methodTotals).forEach(([m, v]) => {
-        text(`  Tot. ${m}: `);
-        right(); text(fmtMoney(v)); lf(); left();
+    if (Object.keys(productTotals).length === 0) {
+      text('Nenhum item vendido.'); lf();
+    } else {
+      Object.entries(productTotals).sort((a, b) => b[1].total - a[1].total).forEach(([name, v]) => {
+        const qtyStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
+        col3(name, qtyStr, v.total.toFixed(2).replace('.', ','));
       });
     }
     ln();
+    bold(true);
+    col2('TOTAL VENDIDO BRUTO:', fmtMoney(totalBruto));
+    if (totalDesc > 0) col2('Descontos:', `-${fmtMoney(totalDesc)}`);
+    col2('TOTAL VENDIDO LIQUIDO:', fmtMoney(totalLiq));
+    bold(false);
+    lf();
 
-    // Classes
+    // Categorias
     if (Object.keys(categoryTotals).length > 0) {
-      dln(); center(); bold(true); text('CLASSES'); lf(); bold(false); dln(); left();
-      col3Row('Classes', 'Qtde', 'Total', lineLen - 14);
+      secTitle('CATEGORIAS');
+      bold(true); col3('Categoria', 'Qtde', 'Total'); bold(false);
       ln();
       Object.entries(categoryTotals).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
         const qStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        col3Row(cat.substring(0, lineLen - 14), qStr, v.total.toFixed(2).replace('.', ','), lineLen - 14);
+        col3(cat, qStr, v.total.toFixed(2).replace('.', ','));
       });
       ln();
-      bold(true); colRow('TOTAL Classes:', fmtMoney(totalLiq)); bold(false);
-      ln();
+      bold(true); col2('TOTAL CLASSES:', fmtMoney(totalLiq)); bold(false);
+      lf();
     }
 
-    // Footer
-    bold(true); colRow('TOTAL VALES:', fmtMoney(0)); bold(false);
+    // Rodapé
+    dln();
+    bold(true); col2('TOTAL VALES:', fmtMoney(0)); bold(false);
     lf();
     text(`Usuario: ${registerName}`); lf();
-    if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
+    if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); left(); lf(); }
     push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
 
     if (printer) {
@@ -2084,22 +2112,58 @@ export default function Dashboard({
       toast.success('Relatório de caixa enviado para impressão');
     } else {
       // Fallback: janela de impressão do navegador
-      const lines: string[] = [];
-      const addLine = (s = '') => lines.push(s);
-      addLine('RELATORIO DE CAIXA');
-      addLine(`Cx: ${registerName}`);
-      addLine(`Abertura: ${fmtDate(new Date(shiftStartedAt))}`);
-      addLine(`Fechamento: ${fmtDate(now)}`);
-      addLine('-'.repeat(40));
-      addLine('VENDAS');
-      addLine('-'.repeat(40));
-      Object.entries(productTotals).forEach(([n, v]) => addLine(`${n}: ${v.qty}x ${fmtMoney(v.total)}`));
-      addLine('-'.repeat(40));
-      addLine(`TOTAL: ${fmtMoney(totalLiq)}`);
-      Object.entries(methodTotals).forEach(([m, v]) => addLine(`  ${m}: ${fmtMoney(v)}`));
+      const fmtDateFb = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const sep = '='.repeat(42);
+      const dash = '-'.repeat(42);
+      const rows: string[] = [];
+      const add = (s = '') => rows.push(s);
+      const fb2 = (l: string, r: string) => add(l.padEnd(42 - r.length) + r);
+      const fb3 = (c1: string, c2: string, c3: string) => add(c1.padEnd(24) + c2.padStart(8) + c3.padStart(10));
+      const fbPay = (l: string, r: string) => add(l.padEnd(30) + r.padStart(12));
+      add('         RELATORIO DE CAIXA');
+      add('');
+      add(`Cx: ${registerName}`);
+      fb2('Abertura:', fmtDateFb(new Date(shiftStartedAt)));
+      fb2('Fechamento:', fmtDateFb(now));
+      fb2('Fundo de Caixa:', 'R$ 0,00');
+      add(sep);
+      add('===== PAGAMENTOS =====');
+      fbPay('Meio de Pagamento', 'Total');
+      add(dash);
+      payEntries.forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
+      add(dash);
+      fbPay('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ','));
+      add('');
+      add('===== ITENS VENDIDOS =====');
+      fb3('Produto', 'Qtde', 'Total');
+      add(dash);
+      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n, v]) => {
+        const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
+        fb3(n, q, v.total.toFixed(2).replace('.', ','));
+      });
+      add(dash);
+      fb2('TOTAL VENDIDO BRUTO:', `R$ ${totalBruto.toFixed(2)}`);
+      if (totalDesc > 0) fb2('Descontos:', `-R$ ${totalDesc.toFixed(2)}`);
+      fb2('TOTAL VENDIDO LIQUIDO:', `R$ ${totalLiq.toFixed(2)}`);
+      add('');
+      if (Object.keys(categoryTotals).length > 0) {
+        add('===== CATEGORIAS =====');
+        fb3('Categoria', 'Qtde', 'Total');
+        add(dash);
+        Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat, v]) => {
+          const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
+          fb3(cat, q, v.total.toFixed(2).replace('.', ','));
+        });
+        add(dash);
+        fb2('TOTAL CLASSES:', `R$ ${totalLiq.toFixed(2)}`);
+        add('');
+      }
+      add(sep);
+      fb2('TOTAL VALES:', 'R$ 0,00');
+      add(`Usuario: ${registerName}`);
       const pw = window.open('', '_blank');
       if (pw) {
-        pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:12px;white-space:pre}@media print{body{margin:0}}</style></head><body>${lines.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
+        pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
         pw.document.close();
       }
     }
@@ -5208,69 +5272,100 @@ export default function Dashboard({
                                 const categoryTotals: Record<string, { qty: number; total: number }> = rd.categoryTotals || {};
 
                                 const printReport = () => {
-                                  const printerConfig: any = (() => { try { return JSON.parse(localStorage.getItem('printerConfig') || '{}'); } catch { return {}; } })();
-                                  const receiptPrinterName = printerConfig.receipts;
-                                  const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName);
-                                  const is50mm = printerConfig.paperWidth === '50mm';
-                                  const lineLen = is50mm ? 32 : 48;
+                                  const pc: any = (() => { try { return JSON.parse(localStorage.getItem('printerConfig') || '{}'); } catch { return {}; } })();
+                                  const printer = (pc.registeredPrinters || []).find((p: any) => p.name === pc.receipts);
+                                  const is50 = pc.paperWidth === '50mm';
+                                  const LL = is50 ? 32 : 48;
                                   const ESC = 0x1b; const GS = 0x1d;
-                                  const bytes: number[] = [];
-                                  const push = (...a: number[]) => a.forEach(b => bytes.push(b));
-                                  const lf = () => push(0x0a);
-                                  const escStr = (s: string) => { const b: number[] = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); b.push(c < 128 ? c : (c === 231 ? 135 : c === 199 ? 199 : c === 227 ? 227 : c === 195 ? 195 : c === 245 ? 245 : c === 213 ? 213 : c === 233 ? 130 : c === 201 ? 201 : c === 225 ? 160 : c === 193 ? 193 : c === 237 ? 161 : c === 205 ? 205 : c === 243 ? 162 : c === 211 ? 211 : c === 250 ? 163 : c === 218 ? 218 : c === 252 ? 129 : c === 220 ? 154 : c === 226 ? 131 : c === 234 ? 136 : c === 244 ? 147 : c === 322 ? 63 : 63)); } return b; };
-                                  const text = (s: string) => { push(...escStr(s)); lf(); };
-                                  const ln = () => text('-'.repeat(lineLen));
-                                  const dln = () => text('='.repeat(lineLen));
-                                  const center = (s: string) => { push(ESC, 0x61, 1); text(s); push(ESC, 0x61, 0); };
-                                  const bold = (on: boolean) => push(ESC, 0x45, on ? 1 : 0);
-                                  const fmtM = (v: number) => `R$ ${(v || 0).toFixed(2).replace('.', ',')}`;
-                                  const colRow = (l: string, r: string) => { const pad = lineLen - l.length - r.length; text(l + ' '.repeat(Math.max(1, pad)) + r); };
+                                  const by: number[] = [];
+                                  const pu = (...a: number[]) => a.forEach(x => by.push(x));
+                                  const lf = () => pu(0x0a);
+                                  const eS = (s: string) => { const r: number[] = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); r.push(c < 128 ? c : (c===231?135:c===199?199:c===227?227:c===195?195:c===245?245:c===213?213:c===233?130:c===201?201:c===225?160:c===193?193:c===237?161:c===205?205:c===243?162:c===211?211:c===250?163:c===218?218:c===252?129:c===220?154:c===226?131:c===234?136:c===244?147:63)); } return r; };
+                                  const tx = (s: string) => { pu(...eS(s)); lf(); };
+                                  const ln = () => tx('-'.repeat(LL));
+                                  const dln = () => tx('='.repeat(LL));
+                                  const aln = (a: 0|1|2) => pu(ESC, 0x61, a);
+                                  const bold = (on: boolean) => pu(ESC, 0x45, on ? 1 : 0);
+                                  const dbl = (on: boolean) => pu(GS, 0x21, on ? 0x11 : 0x00);
+                                  const fmtM = (v: number) => `R$ ${(v||0).toFixed(2).replace('.', ',')}`;
+                                  const fmtDT2 = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
+                                  const col2 = (l: string, r: string) => { tx(l + ' '.repeat(Math.max(1, LL-l.length-r.length)) + r); };
+                                  const secT = (t: string) => { const inner=` ${t} `; const s=Math.floor((LL-inner.length)/2); tx('='.repeat(Math.max(0,s))+inner+'='.repeat(Math.max(0,LL-s-inner.length))); };
+                                  const w1r = is50 ? 14 : 24; const w2r = is50 ? 6 : 8; const w3r = LL-w1r-w2r;
+                                  const col3 = (c1: string, c2: string, c3: string) => tx(c1.substring(0,w1r).padEnd(w1r)+c2.substring(0,w2r).padStart(w2r)+c3.padStart(w3r));
+                                  const payR = (l: string, r: string) => { const vL=Math.min(12,LL-2); tx(l.substring(0,LL-vL-1).padEnd(LL-vL)+r.padStart(vL)); };
 
-                                  push(ESC, 0x40);
-                                  push(ESC, 0x74, 2);
-                                  bold(true); center('RELATORIO DE CAIXA'); bold(false);
-                                  if (report.cash_register_name) { center(report.cash_register_name); }
-                                  ln();
-                                  colRow('Tipo:', isClose ? 'FECHAMENTO' : 'ABERTURA');
-                                  colRow('Horario:', fmtDT(report.created_at));
-                                  if (report.shift_started_at) colRow('Abertura turno:', fmtDT(report.shift_started_at));
-                                  if (isClose && rd.orderCount !== undefined) colRow('Pedidos finalizados:', String(rd.orderCount));
+                                  pu(ESC, 0x40); pu(ESC, 0x74, 2);
+                                  // Cabeçalho
+                                  aln(1); dbl(true); bold(true); tx('RELATORIO DE CAIXA'); dbl(false); bold(false);
+                                  lf(); aln(0);
+                                  tx(`Cx: ${report.cash_register_name || '-'}`);
+                                  col2('Abertura:', fmtDT2(report.shift_started_at));
+                                  col2('Fechamento:', fmtDT2(report.created_at));
+                                  col2('Fundo de Caixa:', fmtM(0));
                                   dln();
-
-                                  if (isClose && Object.keys(methodTotals).length > 0) {
-                                    bold(true); center('MEIOS DE PAGAMENTO'); bold(false);
-                                    ln();
-                                    Object.entries(methodTotals).forEach(([m, v]) => colRow(m, fmtM(v as number)));
-                                    ln();
-                                    bold(true); colRow('TOTAL RECEBIDO:', fmtM(rd.totalPaid || 0)); bold(false);
-                                    dln();
-                                  }
-
+                                  // Pagamentos
+                                  secT('PAGAMENTOS');
+                                  bold(true); payR('Meio de Pagamento', 'Total'); bold(false);
+                                  ln();
+                                  const payE = Object.entries(methodTotals).sort((a,b)=>b[1]-a[1]);
+                                  if (payE.length === 0) { tx('Nenhum pagamento.'); } else { payE.forEach(([m,v])=>payR(m,(v as number).toFixed(2).replace('.',','))); }
+                                  ln(); bold(true); payR('TOTAL RECEBIDO:', (rd.totalPaid||0).toFixed(2).replace('.',',')); bold(false); lf();
+                                  // Itens
                                   if (isClose && Object.keys(productTotals).length > 0) {
-                                    bold(true); center('VENDAS'); bold(false);
-                                    ln();
-                                    Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([name, v]) => {
-                                      const left = `${v.qty}x ${name}`.substring(0, lineLen - 10);
-                                      colRow(left, fmtM(v.total));
+                                    secT('ITENS VENDIDOS');
+                                    bold(true); col3('Produto','Qtde','Total'); bold(false); ln();
+                                    Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{
+                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
+                                      col3(n,q,v.total.toFixed(2).replace('.',','));
                                     });
-                                    dln();
-                                  }
-
-                                  if (isClose && Object.keys(categoryTotals).length > 0) {
-                                    bold(true); center('CLASSES'); bold(false);
                                     ln();
-                                    Object.entries(categoryTotals).forEach(([cat, v]) => colRow(cat.toUpperCase(), fmtM(v.total)));
-                                    dln();
+                                    bold(true); col2('TOTAL VENDIDO BRUTO:', fmtM(rd.totalPaid||0)); bold(false); lf();
                                   }
-
-                                  lf(); lf(); push(GS, 0x56, 0x41, 0x03); // cut
+                                  // Categorias
+                                  if (isClose && Object.keys(categoryTotals).length > 0) {
+                                    secT('CATEGORIAS');
+                                    bold(true); col3('Categoria','Qtde','Total'); bold(false); ln();
+                                    Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{
+                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
+                                      col3(cat,q,v.total.toFixed(2).replace('.',','));
+                                    });
+                                    ln(); bold(true); col2('TOTAL CLASSES:', fmtM(rd.totalPaid||0)); bold(false); lf();
+                                  }
+                                  // Rodapé
+                                  dln(); bold(true); col2('TOTAL VALES:', fmtM(0)); bold(false);
+                                  lf(); tx(`Usuario: ${report.cash_register_name || '-'}`);
+                                  pu(0x0a,0x0a,0x0a,GS,0x56,0x41,0x10);
 
                                   if (printer) {
-                                    if (printer.ip) socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: bytes });
-                                    else socket.emit('print_escpos', { localName: printer.name, data: bytes });
+                                    if (printer.ip) socket.emit('print_escpos', { ip: printer.ip, port: printer.port||9100, data: by });
+                                    else socket.emit('print_escpos', { localName: printer.name, data: by });
                                   } else {
-                                    const html = `<html><body style="font-family:monospace;font-size:12px;white-space:pre">${String.fromCharCode(...bytes.filter(b=>b>=32&&b<127||b===10))}</body></html>`;
-                                    const w = window.open('', '_blank'); if (w) { w.document.write(html); w.print(); }
+                                    const sep='='.repeat(42); const dash='-'.repeat(42);
+                                    const rows: string[]=[]; const add=(s='')=>rows.push(s);
+                                    const fb2=(l:string,r:string)=>add(l.padEnd(42-r.length)+r);
+                                    const fb3=(c1:string,c2:string,c3:string)=>add(c1.padEnd(24)+c2.padStart(8)+c3.padStart(10));
+                                    const fbP=(l:string,r:string)=>add(l.padEnd(30)+r.padStart(12));
+                                    add('         RELATORIO DE CAIXA'); add('');
+                                    add(`Cx: ${report.cash_register_name||'-'}`);
+                                    fb2('Abertura:', fmtDT2(report.shift_started_at));
+                                    fb2('Fechamento:', fmtDT2(report.created_at));
+                                    fb2('Fundo de Caixa:', 'R$ 0,00'); add(sep);
+                                    add('===== PAGAMENTOS ====='); fbP('Meio de Pagamento','Total'); add(dash);
+                                    payE.forEach(([m,v])=>fbP(m,(v as number).toFixed(2).replace('.',',')));
+                                    add(dash); fbP('TOTAL RECEBIDO:',(rd.totalPaid||0).toFixed(2).replace('.',',')); add('');
+                                    if (isClose && Object.keys(productTotals).length>0) {
+                                      add('===== ITENS VENDIDOS ====='); fb3('Produto','Qtde','Total'); add(dash);
+                                      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(n,q,v.total.toFixed(2).replace('.',','));});
+                                      add(dash); fb2('TOTAL VENDIDO BRUTO:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
+                                    }
+                                    if (isClose && Object.keys(categoryTotals).length>0) {
+                                      add('===== CATEGORIAS ====='); fb3('Categoria','Qtde','Total'); add(dash);
+                                      Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(cat,q,v.total.toFixed(2).replace('.',','));});
+                                      add(dash); fb2('TOTAL CLASSES:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
+                                    }
+                                    add(sep); fb2('TOTAL VALES:','R$ 0,00'); add(`Usuario: ${report.cash_register_name||'-'}`);
+                                    const pw=window.open('','_blank'); if(pw){pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);pw.document.close();}
                                   }
                                 };
 
