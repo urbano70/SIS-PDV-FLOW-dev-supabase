@@ -270,5 +270,8 @@ export function gerarQRCode(
 
 /** Monta a seção <infNFeSupl> obrigatória para NFC-e (fora da área assinada) */
 export function montarInfoNFeSupl(qrCode: string, urlConsulta: string): string {
-  return `<infNFeSupl><qrCode><![CDATA[${qrCode}]]></qrCode><urlChave>${urlConsulta}</urlChave></infNFeSupl>`;
+  // NÃO usar CDATA: o validador XSD da SEFAZ-MT lê o conteúdo literalmente com os marcadores CDATA
+  // e rejeita com cvc-type.3.1.3. Usar &amp; para os & da URL do QR Code.
+  const qrEscaped = qrCode.replace(/&/g, '&amp;');
+  return `<infNFeSupl><qrCode>${qrEscaped}</qrCode><urlChave>${urlConsulta}</urlChave></infNFeSupl>`;
 }
