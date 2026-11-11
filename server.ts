@@ -20,12 +20,12 @@ import {
   encryptPfx, decryptPfx, encryptText, decryptText,
 } from "./src/lib/fiscal/certificate.ts";
 import {
-  autorizarNFCe, cancelarNFCe, consultarNFCe, consultarNFe, verificarServico,
+  autorizarNFCe, cancelarNFCe, cancelarNFe, consultarNFCe, consultarNFe, verificarServico,
   reservarNumero, sincronizarContador, autorizarNFe,
 } from "./src/lib/fiscal/sefaz-direct.ts";
 import { reconciliarResultadoDesconhecido } from "./src/lib/fiscal/reconciliacao.ts";
 import { emitirEpecNFe } from "./src/lib/fiscal/epec.ts";
-import { emitirNFeSvcRs } from "./src/lib/fiscal/svcrs.ts";
+import { emitirNFeSvcRs, cancelarNFeSvcRs } from "./src/lib/fiscal/svcrs.ts";
 import { emitirNFCeOffline } from "./src/lib/fiscal/nfce-offline.ts";
 import type { IntencaoFiscal, EstabelecimentoFiscal, ItemNota, PagamentoNota, AmbienteFiscal } from "./src/lib/fiscal/types.ts";
 import { T_PAG, TP_AMB } from "./src/lib/fiscal/endpoints.ts";
@@ -3860,18 +3860,27 @@ async function startServer() {
     const cert = getCertificado(tenantId);
     if (!cert) return res.status(400).json({ error: 'Certificado não carregado.' });
 
-    // Buscar protocolo e ambiente da nota
-    let protocolo = '', ambiente: AmbienteFiscal = 'homologacao';
+    // Buscar protocolo, ambiente, modelo e tpEmis da nota
+    let protocolo = '', ambiente: AmbienteFiscal = 'homologacao', modelo = '', tpEmis = '';
     if (db) {
       const { data } = await db.from('fiscal_notes')
-        .select('protocolo,ambiente').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
+        .select('protocolo,ambiente,modelo,intencao_json').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
       protocolo = data?.protocolo ?? '';
       ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
+      modelo = data?.modelo ?? '';
+      tpEmis = data?.intencao_json?.tpEmis ?? '';
     }
     if (!protocolo) return res.status(400).json({ error: 'Protocolo não encontrado. A nota pode não ter sido autorizada.' });
 
     try {
-      const result = await cancelarNFCe(chaveAcesso, protocolo, motivo, ambiente, cert);
+      let result: { cStat: string; xMotivo: string };
+      if (modelo === '55' && tpEmis === '7') {
+        result = await cancelarNFeSvcRs(chaveAcesso, protocolo, motivo, ambiente, cert);
+      } else if (modelo === '55') {
+        result = await cancelarNFe(chaveAcesso, protocolo, motivo, ambiente, cert);
+      } else {
+        result = await cancelarNFCe(chaveAcesso, protocolo, motivo, ambiente, cert);
+      }
       if (db) await db.from('fiscal_notes').update({ status: 'CANCELADO', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
       return res.json({ ok: true, ...result });
     } catch (err: any) {
