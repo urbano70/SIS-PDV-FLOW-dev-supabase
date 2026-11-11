@@ -1906,6 +1906,7 @@ export default function Dashboard({
     };
     const handleReconnect = () => {
       socket.emit('request_agent_status');
+      socket.emit('register_print_socket');
     };
     const handleCashRegReports = (data: any[]) => {
       setCashRegReportList(data);
