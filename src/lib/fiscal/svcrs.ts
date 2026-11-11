@@ -12,12 +12,15 @@
 //   Para curtas interrupções (<30min) prefira EPEC (tpEmis='4').
 
 import crypto from 'node:crypto';
-import type { IntencaoFiscal, FiscalDocStatus } from './types.js';
+import type { IntencaoFiscal, FiscalDocStatus, AmbienteFiscal } from './types.js';
 import type { CertificadoCarregado } from './certificate.js';
-import { C_UF_MT, TP_AMB, getSvcRsEndpoint } from './endpoints.js';
+import { C_UF_MT, TP_AMB, getSvcRsEndpoint, C_ORGAO_SVC_RS } from './endpoints.js';
 import { gerarChaveAcessoNFe, gerarXmlNFe, type OpcoesNFe } from './xml-nfe.js';
-import { assinarXml } from './xml-nfce.js';
-import { montarEnvelopeAutorizacao, soapCall, extrairCampo } from './sefaz-soap.js';
+import { assinarXml, assinarXmlElemento } from './xml-nfce.js';
+import {
+  montarEnvelopeAutorizacao, montarXmlEvento, montarEnvelopeEvento,
+  detCancelamento, soapCall, extrairCampo,
+} from './sefaz-soap.js';
 import { reservarNumero } from './sefaz-direct.js';
 import type { AutorizacaoResult } from './sefaz-direct.js';
 
@@ -122,6 +125,29 @@ export async function emitirNFeSvcRs(
   }
 
   return { status, cStat, xMotivo, protocolo: nProt, dhRecbto, xmlProcNfe, chaveAcesso: intencao.chaveAcesso, qrCode: '' };
+}
+
+// ── Cancelar NF-e autorizada via SVC-RS (prazo: conforme NT SVC-RS) ──────────
+
+export async function cancelarNFeSvcRs(
+  chaveAcesso: string, protocolo: string, motivo: string,
+  ambiente: AmbienteFiscal, cert: CertificadoCarregado,
+): Promise<{ cStat: string; xMotivo: string }> {
+  const url = getSvcRsEndpoint(ambiente, 'recepcaoEvento');
+  const tpAmb = TP_AMB[ambiente];
+  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo), '1', C_ORGAO_SVC_RS);
+  const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
+  const envelope = montarEnvelopeEvento(eventoAssinado);
+
+  const { body } = await soapCall(url, envelope, cert, 15_000);
+  const cStat   = extrairCampo(body, 'cStat');
+  const xMotivo = extrairCampo(body, 'xMotivo');
+
+  if (cStat !== '135' && cStat !== '155') {
+    throw new Error(`Cancelamento NF-e SVC-RS rejeitado: ${cStat} — ${xMotivo}`);
+  }
+  return { cStat, xMotivo };
 }
 
 function pad(v: string | number, len: number): string {
