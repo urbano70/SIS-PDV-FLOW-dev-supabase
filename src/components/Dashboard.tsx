@@ -1123,7 +1123,10 @@ export default function Dashboard({
   const [showItemSuggestions, setShowItemSuggestions] = useState(false);
   const [reportSelectedPaymentMethod, setReportSelectedPaymentMethod] = useState<string>('todos');
   const [reportSelectedWaiter, setReportSelectedWaiter] = useState<string>('todos');
-  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | 'table_sales' | 'delivery_time' | null>(null);
+  const [currentReportView, setCurrentReportView] = useState<'items_specific' | 'items_all' | 'sales_by_day' | 'sales_by_payment' | 'waiter_performance' | 'table_sales' | 'delivery_time' | 'cash_register' | null>(null);
+  const [cashRegReportDate, setCashRegReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [cashRegReportList, setCashRegReportList] = useState<any[]>([]);
+  const [cashRegReportLoading, setCashRegReportLoading] = useState(false);
   const [reportSelectedTable, setReportSelectedTable] = useState<string>('todas');
   const [snoozeMap, setSnoozeMap] = useState<Record<string, number>>({});
   const [inactivityPopup, setInactivityPopup] = useState<{ tableId: number; isComanda: boolean; minutes: number } | null>(null);
@@ -1881,12 +1884,17 @@ export default function Dashboard({
     const handleReconnect = () => {
       socket.emit('request_agent_status');
     };
+    const handleCashRegReports = (data: any[]) => {
+      setCashRegReportList(data);
+      setCashRegReportLoading(false);
+    };
     socket.on('printer_agent_status', handleAgentStatus);
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
     socket.on('agent_code_result', handleAgentCodeResult);
     socket.on('printer_agent_pairing_available', handlePairingAvailable);
     socket.on('connect', handleReconnect);
+    socket.on('cash_register_reports_response', handleCashRegReports);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1894,6 +1902,7 @@ export default function Dashboard({
       socket.off('agent_code_result', handleAgentCodeResult);
       socket.off('printer_agent_pairing_available', handlePairingAvailable);
       socket.off('connect', handleReconnect);
+      socket.off('cash_register_reports_response', handleCashRegReports);
     };
   }, []);
 
@@ -4356,6 +4365,17 @@ export default function Dashboard({
                         <h4 className="font-bold text-[10px] uppercase mb-0.5">Tempo de Pedido</h4>
                         <p className="text-[8px] opacity-50 leading-tight">Pedido até entrega por item.</p>
                       </button>
+
+                      <button
+                        onClick={() => { setCurrentReportView('cash_register'); setCashRegReportLoading(true); socket.emit('get_cash_register_reports', { date: cashRegReportDate }); }}
+                        className="p-3 bg-white border border-[#141414]/10 rounded-xl hover:border-[#141414] hover:shadow-md transition-all text-left group"
+                      >
+                        <div className="w-8 h-8 bg-[#141414] text-white rounded-lg flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                          <Wallet size={16} />
+                        </div>
+                        <h4 className="font-bold text-[10px] uppercase mb-0.5">Relatório de Caixa</h4>
+                        <p className="text-[8px] opacity-50 leading-tight">Abertura e fechamento por dia.</p>
+                      </button>
                     </div>
                   </div>
                 </>
@@ -4378,6 +4398,7 @@ export default function Dashboard({
                           {currentReportView === 'waiter_performance' && 'Performance Garçons'}
                           {currentReportView === 'table_sales' && 'Relatório por Mesas'}
                           {currentReportView === 'delivery_time' && 'Tempo de Pedido'}
+                          {currentReportView === 'cash_register' && 'Relatório de Caixa'}
                         </h2>
                         <p className="text-[9px] opacity-60">Filtre para gerar o relatório.</p>
                       </div>
@@ -5132,6 +5153,167 @@ export default function Dashboard({
                                  </div>
                                ));
                           })()}
+                        </div>
+                      )}
+
+                      {currentReportView === 'cash_register' && (
+                        <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 bg-white border border-[#141414]/10 rounded-xl px-3 py-2">
+                              <Calendar size={13} className="opacity-40" />
+                              <input
+                                type="date"
+                                value={cashRegReportDate}
+                                onChange={e => {
+                                  setCashRegReportDate(e.target.value);
+                                  setCashRegReportLoading(true);
+                                  socket.emit('get_cash_register_reports', { date: e.target.value });
+                                }}
+                                className="bg-transparent border-none font-bold outline-none text-xs"
+                              />
+                            </div>
+                            <button
+                              onClick={() => { setCashRegReportLoading(true); socket.emit('get_cash_register_reports', { date: cashRegReportDate }); }}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-[#141414] text-white text-[10px] font-bold rounded-xl hover:bg-[#141414]/80 transition-colors"
+                            >
+                              <Search size={11} /> Buscar
+                            </button>
+                          </div>
+
+                          {cashRegReportLoading ? (
+                            <div className="p-12 text-center bg-white rounded-2xl border border-[#141414]/10">
+                              <p className="text-[11px] text-[#141414]/40 font-semibold">Carregando...</p>
+                            </div>
+                          ) : cashRegReportList.length === 0 ? (
+                            <div className="p-16 text-center bg-white rounded-2xl border border-dashed border-[#141414]/10">
+                              <div className="w-14 h-14 bg-[#141414]/5 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <Wallet size={28} className="text-[#141414]/20" />
+                              </div>
+                              <p className="text-[#141414]/40 italic font-serif text-sm">Nenhum relatório para esta data.</p>
+                              <p className="text-[9px] text-[#141414]/25 mt-1">Relatórios são gerados automaticamente ao abrir/fechar o caixa.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {cashRegReportList.map((report: any) => {
+                                const isClose = report.type === 'close';
+                                const rd = report.report_data || {};
+                                const fmtMoney = (v: number) => `R$ ${(v || 0).toFixed(2).replace('.', ',')}`;
+                                const fmtDT = (iso: string) => {
+                                  if (!iso) return '—';
+                                  const d = new Date(iso);
+                                  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                                };
+                                const methodTotals: Record<string, number> = rd.methodTotals || {};
+                                const productTotals: Record<string, { qty: number; total: number }> = rd.productTotals || {};
+                                const categoryTotals: Record<string, { qty: number; total: number }> = rd.categoryTotals || {};
+
+                                const printReport = () => {
+                                  const printerConfig: any = (() => { try { return JSON.parse(localStorage.getItem('printerConfig') || '{}'); } catch { return {}; } })();
+                                  const receiptPrinterName = printerConfig.receipts;
+                                  const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName);
+                                  const is50mm = printerConfig.paperWidth === '50mm';
+                                  const lineLen = is50mm ? 32 : 48;
+                                  const ESC = 0x1b; const GS = 0x1d;
+                                  const bytes: number[] = [];
+                                  const push = (...a: number[]) => a.forEach(b => bytes.push(b));
+                                  const lf = () => push(0x0a);
+                                  const escStr = (s: string) => { const b: number[] = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); b.push(c < 128 ? c : (c === 231 ? 135 : c === 199 ? 199 : c === 227 ? 227 : c === 195 ? 195 : c === 245 ? 245 : c === 213 ? 213 : c === 233 ? 130 : c === 201 ? 201 : c === 225 ? 160 : c === 193 ? 193 : c === 237 ? 161 : c === 205 ? 205 : c === 243 ? 162 : c === 211 ? 211 : c === 250 ? 163 : c === 218 ? 218 : c === 252 ? 129 : c === 220 ? 154 : c === 226 ? 131 : c === 234 ? 136 : c === 244 ? 147 : c === 322 ? 63 : 63)); } return b; };
+                                  const text = (s: string) => { push(...escStr(s)); lf(); };
+                                  const ln = () => text('-'.repeat(lineLen));
+                                  const dln = () => text('='.repeat(lineLen));
+                                  const center = (s: string) => { push(ESC, 0x61, 1); text(s); push(ESC, 0x61, 0); };
+                                  const bold = (on: boolean) => push(ESC, 0x45, on ? 1 : 0);
+                                  const fmtM = (v: number) => `R$ ${(v || 0).toFixed(2).replace('.', ',')}`;
+                                  const colRow = (l: string, r: string) => { const pad = lineLen - l.length - r.length; text(l + ' '.repeat(Math.max(1, pad)) + r); };
+
+                                  push(ESC, 0x40);
+                                  push(ESC, 0x74, 2);
+                                  bold(true); center('RELATORIO DE CAIXA'); bold(false);
+                                  if (report.cash_register_name) { center(report.cash_register_name); }
+                                  ln();
+                                  colRow('Tipo:', isClose ? 'FECHAMENTO' : 'ABERTURA');
+                                  colRow('Horario:', fmtDT(report.created_at));
+                                  if (report.shift_started_at) colRow('Abertura turno:', fmtDT(report.shift_started_at));
+                                  if (isClose && rd.orderCount !== undefined) colRow('Pedidos finalizados:', String(rd.orderCount));
+                                  dln();
+
+                                  if (isClose && Object.keys(methodTotals).length > 0) {
+                                    bold(true); center('MEIOS DE PAGAMENTO'); bold(false);
+                                    ln();
+                                    Object.entries(methodTotals).forEach(([m, v]) => colRow(m, fmtM(v as number)));
+                                    ln();
+                                    bold(true); colRow('TOTAL RECEBIDO:', fmtM(rd.totalPaid || 0)); bold(false);
+                                    dln();
+                                  }
+
+                                  if (isClose && Object.keys(productTotals).length > 0) {
+                                    bold(true); center('VENDAS'); bold(false);
+                                    ln();
+                                    Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([name, v]) => {
+                                      const left = `${v.qty}x ${name}`.substring(0, lineLen - 10);
+                                      colRow(left, fmtM(v.total));
+                                    });
+                                    dln();
+                                  }
+
+                                  if (isClose && Object.keys(categoryTotals).length > 0) {
+                                    bold(true); center('CLASSES'); bold(false);
+                                    ln();
+                                    Object.entries(categoryTotals).forEach(([cat, v]) => colRow(cat.toUpperCase(), fmtM(v.total)));
+                                    dln();
+                                  }
+
+                                  lf(); lf(); push(GS, 0x56, 0x41, 0x03); // cut
+
+                                  if (printer) {
+                                    if (printer.ip) socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: bytes });
+                                    else socket.emit('print_escpos', { localName: printer.name, data: bytes });
+                                  } else {
+                                    const html = `<html><body style="font-family:monospace;font-size:12px;white-space:pre">${String.fromCharCode(...bytes.filter(b=>b>=32&&b<127||b===10))}</body></html>`;
+                                    const w = window.open('', '_blank'); if (w) { w.document.write(html); w.print(); }
+                                  }
+                                };
+
+                                return (
+                                  <div key={report.id} className="bg-white border border-[#141414]/10 rounded-2xl overflow-hidden shadow-sm">
+                                    <div className={`flex items-center justify-between px-4 py-3 ${isClose ? 'bg-[#141414]' : 'bg-[#141414]/5'}`}>
+                                      <div className="flex items-center gap-3">
+                                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isClose ? 'bg-white/10' : 'bg-[#141414]/10'}`}>
+                                          <Wallet size={14} className={isClose ? 'text-white' : 'text-[#141414]'} />
+                                        </div>
+                                        <div>
+                                          <p className={`text-[10px] font-black uppercase tracking-widest ${isClose ? 'text-white' : 'text-[#141414]'}`}>{isClose ? 'Fechamento' : 'Abertura'}</p>
+                                          {report.cash_register_name && <p className={`text-[9px] font-semibold ${isClose ? 'text-white/60' : 'text-[#141414]/50'}`}>{report.cash_register_name}</p>}
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-3">
+                                        <span className={`text-[10px] font-mono ${isClose ? 'text-white/70' : 'text-[#141414]/50'}`}>{fmtDT(report.created_at)}</span>
+                                        <button onClick={printReport} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold transition-colors ${isClose ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-[#141414]/10 text-[#141414] hover:bg-[#141414]/20'}`}>
+                                          <Printer size={11} /> Imprimir
+                                        </button>
+                                      </div>
+                                    </div>
+                                    {isClose && (
+                                      <div className="px-4 py-3 space-y-2">
+                                        {Object.keys(methodTotals).length > 0 && (
+                                          <div className="flex flex-wrap gap-2">
+                                            {Object.entries(methodTotals).map(([m, v]) => (
+                                              <span key={m} className="text-[9px] bg-[#141414]/5 rounded-lg px-2 py-1 font-semibold">
+                                                {m}: <span className="font-black text-green-700">{fmtMoney(v as number)}</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        )}
+                                        {rd.orderCount !== undefined && (
+                                          <p className="text-[9px] text-[#141414]/40 font-semibold">{rd.orderCount} pedidos finalizados · Total: <span className="text-[#141414] font-black">{fmtMoney(rd.totalPaid || 0)}</span></p>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

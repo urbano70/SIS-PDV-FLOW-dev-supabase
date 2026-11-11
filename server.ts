@@ -237,6 +237,57 @@ async function startServer() {
     }, debounceMs));
   };
 
+  const saveCashRegisterReport = async (tenantId: string, type: 'open' | 'close', cashRegisterName: string | null, st: TenantState) => {
+    if (!db) return;
+    const now = new Date().toISOString();
+    let reportData: any = {};
+    if (type === 'close') {
+      // Compute sales data from orders in the current shift
+      const shiftOrders = st.orders.filter((o: any) => {
+        if (!st.shiftStartedAt) return false;
+        return o.timestamp >= st.shiftStartedAt;
+      });
+      const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
+      const methodTotals: Record<string, number> = {};
+      const productTotals: Record<string, { qty: number; total: number }> = {};
+      const categoryTotals: Record<string, { qty: number; total: number }> = {};
+      let totalPaid = 0;
+      for (const order of finishedOrders) {
+        const payments = [...(order.paymentLog || []), ...(order.partialPayments || [])];
+        for (const p of payments) {
+          const m = p.method || 'Outros';
+          methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
+          totalPaid += p.amount || 0;
+        }
+        for (const item of (order.items || [])) {
+          if (item.removed) continue;
+          const qty = item.quantity || 1;
+          const total = (item.price || 0) * qty;
+          if (!productTotals[item.name]) productTotals[item.name] = { qty: 0, total: 0 };
+          productTotals[item.name].qty += qty;
+          productTotals[item.name].total += total;
+          const cat = item.type || 'outros';
+          if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
+          categoryTotals[cat].qty += qty;
+          categoryTotals[cat].total += total;
+        }
+      }
+      reportData = { methodTotals, productTotals, categoryTotals, totalPaid, orderCount: finishedOrders.length };
+    }
+    try {
+      await db.from('cash_register_reports').insert({
+        tenant_id: tenantId,
+        type,
+        cash_register_name: cashRegisterName,
+        shift_started_at: st.shiftStartedAt || now,
+        created_at: now,
+        report_data: reportData,
+      });
+    } catch (e) {
+      console.error('[crr] erro ao salvar relatório:', e);
+    }
+  };
+
   const saveMenuToSupabase = (st: TenantState, tenantId: string) => {
     st.menu.forEach((cat: any, idx: number) => {
       saveToSupabase('menu', { ...cat, position: idx }, cat.name, tenantId).catch(() => {});
@@ -1173,6 +1224,29 @@ async function startServer() {
         socket.emit("update_my_cash_register_name", isOpen ? cashRegisterName : null);
       }
       await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt: _st().shiftStartedAt } : {}) }, 'app', _tid());
+
+      // Save a report snapshot to cash_register_reports (non-blocking)
+      saveCashRegisterReport(_tid(), isOpen ? 'open' : 'close', cashRegisterName ?? null, _st()).catch(() => {});
+    }));
+
+    socket.on("get_cash_register_reports", requireAdmin(async (payload: { date?: string }) => {
+      if (!db) { socket.emit("cash_register_reports_response", []); return; }
+      try {
+        const date = payload?.date || new Date().toISOString().split('T')[0];
+        const start = `${date}T00:00:00.000Z`;
+        const end   = `${date}T23:59:59.999Z`;
+        const { data, error } = await db.from('cash_register_reports')
+          .select('id, type, cash_register_name, shift_started_at, created_at, report_data')
+          .eq('tenant_id', _tid())
+          .gte('created_at', start)
+          .lte('created_at', end)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
+        socket.emit("cash_register_reports_response", data || []);
+      } catch (e) {
+        console.error('[crr] erro ao buscar relatórios:', e);
+        socket.emit("cash_register_reports_response", []);
+      }
     }));
 
     socket.on("toggle_waiter_status", requireAdmin(({ waiterId, status }) => {
