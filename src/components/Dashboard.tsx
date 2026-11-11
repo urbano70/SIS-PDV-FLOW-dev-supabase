@@ -1291,6 +1291,7 @@ export default function Dashboard({
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
+  const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfceEmitting, setNfceEmitting] = useState(false);
   const [nfceResult, setNfceResult] = useState<any>(null);
   const [fiscalNotes, setFiscalNotes] = useState<any[]>([]);
@@ -2204,7 +2205,19 @@ export default function Dashboard({
     }
   };
 
+  const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros' => {
+    if (!m) return 'dinheiro';
+    const l = m.toLowerCase();
+    if (l.includes('créd') || l.includes('cred')) return 'cartao_credito';
+    if (l.includes('déb') || l.includes('deb')) return 'cartao_debito';
+    if (l.includes('pix')) return 'pix';
+    if (l.includes('din')) return 'dinheiro';
+    return 'outros';
+  };
+
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
+    const mapped = mapPaymentMethod(paymentMethod);
+    setLastPaymentMethod(mapped);
     socket.emit('pay_items', {
       orderId,
       selectedItems,
@@ -3510,7 +3523,7 @@ export default function Dashboard({
                           printerConfig={printerConfig}
                           firstSeenRef={firstSeenRef}
                           fiscalConfig={fiscalConfig}
-                          onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro'); setNfceModal({ orderId, total }); }}
+                          onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); setNfcePagamento(lastPaymentMethod); setNfceModal({ orderId, total }); }}
                         />
                       </motion.div>
                     )}
@@ -8046,7 +8059,7 @@ export default function Dashboard({
                               if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
                               return acc + price;
                             }, 0);
-                            setNfceResult(null); setNfceCpf(''); setNfcePagamento('dinheiro');
+                            setNfceResult(null); setNfceCpf(''); setNfcePagamento(lastPaymentMethod);
                             setNfceModal({ orderId: order.id, total });
                           }}
                           className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase transition-colors"
