@@ -5121,21 +5121,7 @@ export default function Dashboard({
                 <div className="flex items-center gap-2 mb-3">
                   <Wallet className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Configuração de Caixas</h3>
-                  <button
-                    onClick={() => {
-                      updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: localCashRegisters });
-                      toast.success('Caixas salvos!');
-                    }}
-                    disabled={isCashRegisterOpen || JSON.stringify(localCashRegisters) === JSON.stringify(pizzariaConfig.cashRegisters ?? [])}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase transition-all ${
-                      !isCashRegisterOpen && JSON.stringify(localCashRegisters) !== JSON.stringify(pizzariaConfig.cashRegisters ?? [])
-                        ? 'bg-[#141414] text-white hover:opacity-80'
-                        : 'bg-[#141414]/10 text-[#141414]/40 cursor-not-allowed'
-                    }`}
-                  >
-                    <Save size={9} />
-                    Salvar
-                  </button>
+                  <span className="text-[7px] text-green-600 font-bold uppercase opacity-0 select-none" id="cr-saved-badge" />
                 </div>
                 {isCashRegisterOpen && (
                   <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1 mb-2">
@@ -5156,7 +5142,12 @@ export default function Dashboard({
                       <span className="text-[9px] font-semibold text-[#141414] flex-1">{reg.name}</span>
                       <button
                         disabled={isCashRegisterOpen}
-                        onClick={() => !isCashRegisterOpen && setLocalCashRegisters(prev => prev.filter(r => r.id !== reg.id))}
+                        onClick={() => {
+                          if (isCashRegisterOpen) return;
+                          const updated = localCashRegisters.filter(r => r.id !== reg.id);
+                          setLocalCashRegisters(updated);
+                          updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
+                        }}
                         className={`p-0.5 rounded transition-colors ${isCashRegisterOpen ? 'text-[#141414]/20 cursor-not-allowed' : 'text-[#141414]/30 hover:text-red-500'}`}
                       >
                         <Trash2 size={9} />
@@ -5177,8 +5168,11 @@ export default function Dashboard({
                             toast.error('Já existe um caixa com esse nome.');
                             return;
                           }
-                          setLocalCashRegisters(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name: trimmed }]);
+                          const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
+                          setLocalCashRegisters(updated);
+                          updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
                           setNewRegisterName('');
+                          toast.success(`"${trimmed}" salvo!`);
                         }
                       }}
                       placeholder="Nome do caixa..."
@@ -5192,8 +5186,11 @@ export default function Dashboard({
                           toast.error('Já existe um caixa com esse nome.');
                           return;
                         }
-                        setLocalCashRegisters(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), name: trimmed }]);
+                        const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
+                        setLocalCashRegisters(updated);
+                        updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
                         setNewRegisterName('');
+                        toast.success(`"${trimmed}" salvo!`);
                       }}
                       className="bg-[#141414] text-white px-2 py-1.5 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity flex items-center gap-1"
                     >
