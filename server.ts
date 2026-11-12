@@ -2732,6 +2732,10 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/version", (_req, res) => {
+    res.json({ version: '1.1.0', pr: 294 });
+  });
+
   // ── Sessão do cliente ──────────────────────────────────────────
   app.get("/api/cliente-session/:tenantId/:mesaId", (req, res) => {
     const { tenantId, mesaId } = req.params;
