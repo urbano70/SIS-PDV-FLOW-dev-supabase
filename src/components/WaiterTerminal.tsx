@@ -373,11 +373,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     return trimmed;
   };
 
-  const getMaxFlavors = (itemName: string) => {
-    // Tenta usar pizzaSizes pelo nome do item
+  const getMaxFlavors = (item: any) => {
+    // Prioridade: valor cadastrado no produto > tamanho correspondente > palavras-chave
+    if (item?.maxFlavors) return item.maxFlavors;
+    const itemName = item?.name || item || '';
     const match = pizzaSizes.find((s: any) => itemName.toLowerCase().includes(s.name.toLowerCase()));
     if (match) return match.maxFlavors;
-    // Fallback por palavras-chave
     const name = itemName.toUpperCase();
     if (name.includes('METRO') && !name.includes('MEIO')) return 6;
     if (name.includes('MEIO METRO')) return 4;
@@ -407,7 +408,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
         : pizza.name.toLowerCase().includes('com borda');
       // Pré-configura o modal de sabores (aberto só após confirmar quantidade)
       setSelectedPizzaItem(pizza);
-      setMaxFlavors(getMaxFlavors(pizza.name));
+      setMaxFlavors(getMaxFlavors(pizza));
       setSelectedFlavors([]);
       setSelectedCrusts([]);
       setPizzaHasBorder(hasBorder);

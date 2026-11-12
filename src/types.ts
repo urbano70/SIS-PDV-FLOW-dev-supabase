@@ -108,6 +108,7 @@ export interface MenuItem {
   videoUrl?: string;
   originalPrice?: number;
   available?: boolean;
+  maxFlavors?: number;
   ncm?: string;
   cfop?: string;
   csosn?: string;
