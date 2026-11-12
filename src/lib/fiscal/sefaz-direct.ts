@@ -109,8 +109,12 @@ export async function autorizarNFCe(
 
   // 2. Gerar chave de acesso
   const cNF = pad(crypto.randomInt(1, 99999999), 8);
-  const dhEmi = new Date();
-  intencao.chaveAcesso = gerarChaveAcesso(C_UF_MT, dhEmi, intencao.emitente.cnpj, '65', serie, numero, intencao.tpEmis, cNF, tpAmb);
+  const utcNow = new Date();
+  // dhEmiMT: data/hora em MT (UTC-4) para calcular AAMM correto na chave de acesso
+  const dhEmiMT = new Date(utcNow.getTime() - 4 * 60 * 60 * 1000);
+  // dhEmi: data UTC real, usada apenas para o Unix timestamp do QR Code
+  const dhEmi = utcNow;
+  intencao.chaveAcesso = gerarChaveAcesso(C_UF_MT, dhEmiMT, intencao.emitente.cnpj, '65', serie, numero, intencao.tpEmis, cNF, tpAmb);
 
   // 3. Gerar XML
   const xmlBase = gerarXmlNFCe(intencao, opts);
@@ -268,8 +272,8 @@ export async function autorizarNFe(
 
   // 2. Chave de acesso
   const cNF = pad(crypto.randomInt(1, 99999999), 8);
-  const dhEmi = new Date();
-  intencao.chaveAcesso = gerarChaveAcessoNFe(C_UF_MT, dhEmi, intencao.emitente.cnpj, serie, numero, intencao.tpEmis, cNF);
+  const dhEmiMTNFe = new Date(new Date().getTime() - 4 * 60 * 60 * 1000); // MT (UTC-4) para AAMM
+  intencao.chaveAcesso = gerarChaveAcessoNFe(C_UF_MT, dhEmiMTNFe, intencao.emitente.cnpj, serie, numero, intencao.tpEmis, cNF);
 
   // 3. Gerar e assinar XML
   const xmlBase = gerarXmlNFe(intencao, opts);

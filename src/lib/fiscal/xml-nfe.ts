@@ -36,7 +36,8 @@ export function gerarChaveAcessoNFe(
   serie: string, nNF: number,
   tpEmis: string, cNF: string,
 ): string {
-  const aamm = `${dhEmi.getFullYear()}${pad(dhEmi.getMonth() + 1, 2)}`;
+  // 2 dígitos do ano (AA) conforme NT NF-e: base43 = 43 chars → chave = 44 chars
+  const aamm = `${String(dhEmi.getFullYear()).slice(-2)}${pad(dhEmi.getMonth() + 1, 2)}`;
   const cnpjL = cnpj.replace(/\D/g, '');
   const base43 =
     pad(cUF, 2) + aamm + pad(cnpjL, 14) + '55' +
@@ -134,7 +135,7 @@ export function gerarXmlNFe(intencao: IntencaoFiscal, opts: OpcoesNFe = {}): str
   if (!intencao.chaveAcesso) throw new Error('Chave de acesso não gerada.');
 
   const tpAmb = TP_AMB[intencao.ambiente];
-  const dhEmi = new Date().toISOString().replace('Z', '-04:00'); // MT = UTC-4
+  const dhEmi = new Date(new Date().getTime() - 4 * 60 * 60 * 1000).toISOString().replace('Z', '') + '-04:00';
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
   const natOp  = opts.natOp  ?? 'VENDA DE MERCADORIA';
