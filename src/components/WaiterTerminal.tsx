@@ -264,6 +264,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [drinkIce, setDrinkIce] = useState(false);
   const [drinkLemon, setDrinkLemon] = useState(false);
   const [drinkWithOrder, setDrinkWithOrder] = useState(false);
+  const [drinkServings, setDrinkServings] = useState<{id: string; cups: number; ice: boolean; lemon: boolean}[]>([]);
 
   // ── Bluetooth printer state ───────────────────────────────────────────────
   const [btDevice, setBtDevice] = useState<BTPrinterDevice | null>(() => {
@@ -422,10 +423,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setSelectedQuantityItem(pizza);
       setItemQuantity(1);
       setItemObservations('');
-      setDrinkCups(0);
+      setDrinkCups(1);
       setDrinkIce(false);
       setDrinkLemon(false);
       setDrinkWithOrder(false);
+      setDrinkServings([]);
       setIsQuantityModalOpen(true);
       return;
     }
@@ -486,13 +488,19 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const itemToAdd = {
       ...selectedQuantityItem,
       type: selectedQuantityItem.type || category?.type,
-      observations: [
-        itemObservations,
-        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkCups > 0 ? `${drinkCups} copo${drinkCups > 1 ? 's' : ''}` : '',
-        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkIce ? 'Com gelo' : '',
-        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkLemon ? 'Com limão' : '',
-        (selectedQuantityItem?.type || category?.type) === 'bebidas' && drinkWithOrder ? 'Junto com pedido' : '',
-      ].filter(Boolean).join(' · '),
+      observations: (() => {
+        const isBeverage = (selectedQuantityItem?.type || category?.type) === 'bebidas';
+        const parts: string[] = [];
+        if (isBeverage && drinkServings.length > 0) {
+          drinkServings.forEach(s => {
+            const opts = [s.ice ? 'Gelo' : '', s.lemon ? 'Limão' : ''].filter(Boolean).join('+');
+            parts.push(`${s.cups} copo${s.cups !== 1 ? 's' : ''}${opts ? ` (${opts})` : ''}`);
+          });
+        }
+        if (isBeverage && drinkWithOrder) parts.push('Junto com pedido');
+        if (itemObservations) parts.push(itemObservations);
+        return parts.join(' · ');
+      })(),
       quantity: itemQuantity,
       guestName: guestModeActive && selectedGuestForItem ? selectedGuestForItem : undefined,
     };
@@ -1620,54 +1628,81 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </button>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
-                  <textarea
-                    value={itemObservations}
-                    onChange={(e) => setItemObservations(e.target.value)}
-                    placeholder="Ex: Sem cebola, gelo e limão..."
-                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                    rows={2}
-                  />
-                </div>
-
-                {(selectedQuantityItem?.type === 'bebidas' || (menu.find(c => c.items?.some((i:any) => i.id === selectedQuantityItem?.id))?.type === 'bebidas')) && (
+                {(selectedQuantityItem?.type === 'bebidas' || (menu.find(c => c.items?.some((i:any) => i.id === selectedQuantityItem?.id))?.type === 'bebidas')) ? (
                   <div className="space-y-3">
-                    <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Extras</label>
-                    <div className="flex items-center justify-between bg-gray-50 rounded-2xl px-4 py-3">
-                      <span className="text-sm font-bold">Copos</span>
-                      <div className="flex items-center gap-3">
+                    {/* Configurador de copo */}
+                    <div className="bg-gray-50 rounded-2xl p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-bold">Copos</span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => setDrinkCups(Math.max(1, drinkCups - 1))}
+                            className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
+                          >-</button>
+                          <span className="text-lg font-bold w-6 text-center">{drinkCups}</span>
+                          <button
+                            onClick={() => setDrinkCups(drinkCups + 1)}
+                            className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
+                          >+</button>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
                         <button
-                          onClick={() => setDrinkCups(Math.max(0, drinkCups - 1))}
-                          className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
-                        >-</button>
-                        <span className="text-lg font-bold w-6 text-center">{drinkCups}</span>
+                          onClick={() => setDrinkIce(!drinkIce)}
+                          className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm transition-all ${drinkIce ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                        >🧊 Gelo</button>
                         <button
-                          onClick={() => setDrinkCups(drinkCups + 1)}
-                          className="w-8 h-8 rounded-full border-2 border-[#141414] flex items-center justify-center font-bold text-lg hover:bg-gray-100 transition-colors"
-                        >+</button>
+                          onClick={() => setDrinkLemon(!drinkLemon)}
+                          className={`flex-1 py-2 rounded-xl border-2 font-bold text-sm transition-all ${drinkLemon ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                        >🍋 Limão</button>
+                        <button
+                          onClick={() => {
+                            const id = Math.random().toString(36).substr(2, 6);
+                            setDrinkServings(prev => [...prev, { id, cups: drinkCups, ice: drinkIce, lemon: drinkLemon }]);
+                            setDrinkCups(1);
+                            setDrinkIce(false);
+                            setDrinkLemon(false);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm transition-all hover:bg-black/80"
+                        >OK</button>
                       </div>
                     </div>
-                    <div className="flex gap-3">
-                      <button
-                        onClick={() => setDrinkIce(!drinkIce)}
-                        className={`flex-1 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkIce ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
-                      >
-                        🧊 Gelo
-                      </button>
-                      <button
-                        onClick={() => setDrinkLemon(!drinkLemon)}
-                        className={`flex-1 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkLemon ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
-                      >
-                        🍋 Limão
-                      </button>
-                    </div>
+
+                    {/* Servings gravados */}
+                    {drinkServings.length > 0 && (
+                      <div className="space-y-2">
+                        {drinkServings.map(s => {
+                          const opts = [s.ice ? 'Gelo' : '', s.lemon ? 'Limão' : ''].filter(Boolean).join(' + ');
+                          return (
+                            <div key={s.id} className="flex items-center justify-between bg-white border border-[#141414]/10 rounded-xl px-3 py-2">
+                              <span className="text-sm font-bold">
+                                {s.cups} copo{s.cups !== 1 ? 's' : ''}{opts ? ` · ${opts}` : ''}
+                              </span>
+                              <button
+                                onClick={() => setDrinkServings(prev => prev.filter(x => x.id !== s.id))}
+                                className="text-[#141414]/30 hover:text-red-500 transition-colors ml-3"
+                              >✕</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     <button
                       onClick={() => setDrinkWithOrder(!drinkWithOrder)}
-                      className={`w-full py-3 rounded-2xl border-2 font-bold text-sm transition-all ${drinkWithOrder ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
-                    >
-                      🍽️ Junto com pedido
-                    </button>
+                      className={`w-full py-2.5 rounded-2xl border-2 font-bold text-sm transition-all ${drinkWithOrder ? 'bg-[#141414] text-[#E4E3E0] border-[#141414]' : 'border-[#141414]/20 text-[#141414]/60'}`}
+                    >🍽️ Junto com pedido</button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
+                    <textarea
+                      value={itemObservations}
+                      onChange={(e) => setItemObservations(e.target.value)}
+                      placeholder="Ex: Sem cebola..."
+                      className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                      rows={2}
+                    />
                   </div>
                 )}
 
