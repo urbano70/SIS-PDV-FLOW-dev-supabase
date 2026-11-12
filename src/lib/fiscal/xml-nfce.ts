@@ -53,8 +53,10 @@ function xmlItem(item: ItemNota, idx: number, crt: string): string {
     ? `<ICMS><ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}><orig>${item.origem}</orig><CSOSN>${item.csosn ?? '102'}</CSOSN></ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}></ICMS>`
     : `<ICMS><ICMS00><orig>${item.origem}</orig><CST>${item.cst ?? '00'}</CST><modBC>3</modBC><vBC>${dec(item.valorTotal, 2)}</vBC><pICMS>12.00</pICMS><vICMS>${dec(item.valorTotal * 0.12, 2)}</vICMS></ICMS00></ICMS>`;
 
-  const pis = item.piscofins.cst === '07' || item.piscofins.cst === '08' || item.piscofins.cst === '09'
-    ? `<PIS><PISNTrib><CST>${item.piscofins.cst}</CST></PISNTrib></PIS><COFINS><COFINSNTrib><CST>${item.piscofins.cst}</CST></COFINSNTrib></COFINS>`
+  // CSTs 04-09 → PISNT/COFINSNT (não tributado/isento/zero/suspenso); 01-02 → Aliq; 99 → Outr
+  const cstNT = ['04', '05', '06', '07', '08', '09'].includes(item.piscofins.cst ?? '');
+  const pis = cstNT
+    ? `<PIS><PISNT><CST>${item.piscofins.cst}</CST></PISNT></PIS><COFINS><COFINSNT><CST>${item.piscofins.cst}</CST></COFINSNT></COFINS>`
     : `<PIS><PISAliq><CST>${item.piscofins.cst}</CST><vBC>${dec(item.valorTotal, 2)}</vBC><pPIS>${dec(item.piscofins.pPIS ?? 0, 4)}</pPIS><vPIS>${dec(item.piscofins.vPIS ?? 0, 2)}</vPIS></PISAliq></PIS><COFINS><COFINSAliq><CST>${item.piscofins.cst}</CST><vBC>${dec(item.valorTotal, 2)}</vBC><pCOFINS>${dec(item.piscofins.pCOFINS ?? 0, 4)}</pCOFINS><vCOFINS>${dec(item.piscofins.vCOFINS ?? 0, 2)}</vCOFINS></COFINSAliq></COFINS>`;
 
   return `<det nItem="${nItem}">` +
