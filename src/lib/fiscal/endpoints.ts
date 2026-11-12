@@ -77,12 +77,12 @@ export const C_ORGAO_SVC_RS = '91';
 // Versão do layout NF-e/NFC-e usada na geração do XML
 export const VERSAO_NFE = '4.00';
 
-// URL de consulta NFC-e embutida no QR Code — deve ser validada em homologação
-// antes de ativar produção (confirmar verAplic e URL aceita pelo autorizador MT).
-// Fonte: SEFAZ-MT portal NFC-e [levantamento-fiscal-sefaz-mt §Web Services]
+// URL de consulta NFC-e embutida no QR Code e em <urlChave> do <infNFeSupl>.
+// SEFAZ-MT valida contra o valor registrado (cStat 878 se divergir).
+// Fonte: TecnoSpeed/OOBJ — padrão pós-2019 para MT (NT 2025.001 QR Code v3).
 export const URL_QR_CONSULTA: Record<AmbienteKey, string> = {
-  homologacao: 'https://homologacao.sefaz.mt.gov.br/nfceweb/consultarNFCe.jsf',
-  producao:    'https://www.sefaz.mt.gov.br/nfce/consultanfce',
+  homologacao: 'http://homologacao.sefaz.mt.gov.br/nfce/consultanfce',
+  producao:    'http://www.sefaz.mt.gov.br/nfce/consultanfce',
 };
 
 // cUF — código da UF Mato Grosso
