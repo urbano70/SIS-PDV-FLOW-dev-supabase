@@ -828,7 +828,7 @@ async function startServer() {
       if (entry) {
         st.stock = st.stock.map((s: any) => {
           if (s.id === entry.id) {
-            const newQty = Math.max(0, s.quantity - qty);
+            const newQty = s.quantity - qty;
             newEntries.push({ id: randomUUID(), itemName: s.name, change: -qty, reason: 'Venda', timestamp: new Date().toISOString() });
             // Alert when stock reaches or drops below minQuantity
             if (s.minQuantity > 0 && newQty <= s.minQuantity && s.quantity > s.minQuantity) {
