@@ -6,6 +6,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import socket from './lib/socket';
+import { LATEST_PR } from './version';
 import Dashboard from './components/Dashboard';
 import WaiterTerminal from './components/WaiterTerminal';
 import KitchenDisplay from './components/KitchenDisplay';
@@ -26,6 +27,47 @@ import FinanceiroDashboard from './pages/FinanceiroDashboard';
 import AttendancePage from './pages/AttendancePage';
 import { ChamarGarcomPage } from './pages/ChamarGarcomPage';
 import { ClientePage } from './pages/ClientePage';
+
+// Exibe banner de atualização quando o servidor está em versão mais recente que o cliente.
+// Conta regressiva de 30s e recarrega automaticamente para garantir sincronia.
+function UpdateBanner() {
+  const [show, setShow] = useState(false);
+  const [countdown, setCountdown] = useState(30);
+
+  useEffect(() => {
+    const handler = (ver: number) => {
+      if (ver > LATEST_PR) setShow(true);
+    };
+    socket.on('server_version', handler);
+    return () => { socket.off('server_version', handler); };
+  }, []);
+
+  useEffect(() => {
+    if (!show) return;
+    if (countdown <= 0) { window.location.reload(); return; }
+    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [show, countdown]);
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-[9999] p-4 pointer-events-none">
+      <div className="bg-[#141414] text-[#E4E3E0] rounded-2xl p-4 flex items-center justify-between gap-3 shadow-2xl pointer-events-auto max-w-lg mx-auto">
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm leading-tight">Sistema atualizado</p>
+          <p className="text-xs opacity-60 mt-0.5">Recarregando em {countdown}s para manter a sincronia com o painel ADM</p>
+        </div>
+        <button
+          onClick={() => window.location.reload()}
+          className="shrink-0 bg-white text-[#141414] font-bold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform"
+        >
+          Agora
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -249,6 +291,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans selection:bg-[#141414] selection:text-[#E4E3E0]">
+      <UpdateBanner />
       <Routes>
         {/* Dashboard e outras rotas administrativas */}
         <Route
@@ -351,23 +394,28 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
     };
   }, []);
 
-  return isApproved ? (
-    <WaiterTerminal
-      tables={tables}
-      comandas={comandas}
-      orders={orders}
-      menu={menu}
-      pizzaFlavors={pizzaFlavors}
-      pizzaCrusts={pizzaCrusts}
-      pizzaSizes={pizzaSizes}
-      isCashRegisterOpen={isCashRegisterOpen}
-      printerConfig={printerConfig}
-      pizzariaConfig={pizzariaConfig}
-      shiftStartedAt={shiftStartedAt}
-      clockOffset={clockOffset}
-    />
-  ) : (
-    <SelfOnboarding waiters={waiters} />
+  return (
+    <>
+      <UpdateBanner />
+      {isApproved ? (
+        <WaiterTerminal
+          tables={tables}
+          comandas={comandas}
+          orders={orders}
+          menu={menu}
+          pizzaFlavors={pizzaFlavors}
+          pizzaCrusts={pizzaCrusts}
+          pizzaSizes={pizzaSizes}
+          isCashRegisterOpen={isCashRegisterOpen}
+          printerConfig={printerConfig}
+          pizzariaConfig={pizzariaConfig}
+          shiftStartedAt={shiftStartedAt}
+          clockOffset={clockOffset}
+        />
+      ) : (
+        <SelfOnboarding waiters={waiters} />
+      )}
+    </>
   );
 }
 
