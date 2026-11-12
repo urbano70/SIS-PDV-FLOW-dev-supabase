@@ -863,8 +863,14 @@ async function startServer() {
   // Em dev local (sem env vars de produção), todo socket é admin automaticamente
   const isDevMode = !process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NODE_ENV !== 'production';
 
+  // Versão do servidor — manter em sincronia com src/version.ts LATEST_PR.
+  // Clientes comparam com sua versão local e pedem atualização se divergirem.
+  const SERVER_VERSION = 271;
+
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
+    // Informa a versão do servidor imediatamente — clientes outdated exibem aviso de atualização
+    socket.emit("server_version", SERVER_VERSION);
 
     // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes
     const queryTenant = (socket.handshake.query?.tenant as string) || '';
