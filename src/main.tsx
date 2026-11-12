@@ -16,6 +16,11 @@ import './index.css';
               : 1;
   if (zoom !== 1) {
     (document.documentElement.style as any).zoom = String(zoom);
+    // Zoom no html faz h-screen parecer maior que o viewport e cria
+    // scrollbar no body — bloqueia o scroll do documento para manter o
+    // cabeçalho fixo; o scroll fica nos painéis internos (overflow-y-auto).
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
   }
 })();
 
