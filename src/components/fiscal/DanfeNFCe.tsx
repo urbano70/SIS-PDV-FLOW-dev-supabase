@@ -35,6 +35,7 @@ export default function DanfeNFCe({ dados, largura = '80mm' }: Props) {
           #danfe-nfce-root { display: block !important; }
           @page { margin: 0; size: ${largura === '58mm' ? '58mm' : '80mm'} auto; }
           .danfe-actions { display: none !important; }
+          #danfe-nfce-root .qrcode-wrap { display: flex !important; justify-content: center !important; }
         }
         #danfe-nfce-root {
           font-family: 'Courier New', Courier, monospace;
@@ -101,8 +102,7 @@ export default function DanfeNFCe({ dados, largura = '80mm' }: Props) {
 
         {/* ── ITENS ─────────────────────────────────────────── */}
         <div style={{ display: 'flex', borderBottom: '1px solid #000', paddingBottom: 1, marginBottom: 2, fontSize: 7, fontWeight: 'bold', textTransform: 'uppercase' }}>
-          <span style={{ width: '8%' }}>Cod</span>
-          <span style={{ flex: 1 }}>Descric</span>
+          <span style={{ flex: 1 }}>Cod / Descricao</span>
           <span style={{ width: '10%', textAlign: 'right' }}>Qtde</span>
           <span style={{ width: '7%', textAlign: 'center' }}>Un</span>
           <span style={{ width: '17%', textAlign: 'right' }}>Vl.Unit</span>
@@ -110,10 +110,15 @@ export default function DanfeNFCe({ dados, largura = '80mm' }: Props) {
         </div>
 
         {dados.itens.map(item => (
-          <div key={item.seq} style={{ marginBottom: 2 }}>
+          <div key={item.seq} style={{ marginBottom: 3 }}>
+            {/* Linha 1: código + descrição */}
+            <div style={{ fontSize: 8 }}>
+              <span style={{ fontWeight: 'bold' }}>{item.codigo}</span>
+              {' '}{item.descricao}
+            </div>
+            {/* Linha 2: qtde / un / preços alinhados à direita */}
             <div style={{ display: 'flex', fontSize: 8 }}>
-              <span style={{ width: '8%' }}>{item.codigo}</span>
-              <span style={{ flex: 1, paddingRight: 2 }}>{item.descricao}</span>
+              <span style={{ flex: 1 }} />
               <span style={{ width: '10%', textAlign: 'right' }}>
                 {item.quantidade.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
               </span>
@@ -231,7 +236,7 @@ export default function DanfeNFCe({ dados, largura = '80mm' }: Props) {
 
         {/* ── QR CODE ───────────────────────────────────────── */}
         {dados.qrCodeUrl ? (
-          <div className="center" style={{ margin: '4px 0' }}>
+          <div className="qrcode-wrap" style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
             <QRCodeSVG value={dados.qrCodeUrl} size={qrSize} includeMargin />
           </div>
         ) : (
