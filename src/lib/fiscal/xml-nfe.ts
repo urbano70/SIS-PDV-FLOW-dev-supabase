@@ -154,7 +154,7 @@ export function gerarXmlNFe(intencao: IntencaoFiscal, opts: OpcoesNFe = {}): str
     `<cNF>${intencao.chaveAcesso.substring(35, 43)}</cNF>` +
     `<natOp>${esc(natOp)}</natOp>` +
     `<mod>55</mod>` +
-    `<serie>${intencao.serie}</serie>` +
+    `<serie>${String(parseInt(intencao.serie, 10) || 1)}</serie>` +
     `<nNF>${intencao.numero}</nNF>` +
     `<dhEmi>${dhEmi}</dhEmi>` +
     `<dhSaiEnt>${dhEmi}</dhSaiEnt>` +
