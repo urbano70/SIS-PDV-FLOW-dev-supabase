@@ -1462,17 +1462,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           key={idx}
                           onClick={() => {
                             const totalSelected = selectedFlavors.length;
-                            if (isSelected && totalSelected >= maxFlavors) {
-                              // já no limite: incrementa se ainda cabe, senão remove um
-                              if (flavorCount < maxFlavors) {
+                            if (isSelected) {
+                              // adiciona só se há espaço no total E este sabor ainda não atingiu o limite
+                              if (flavorCount < maxFlavors && totalSelected < maxFlavors) {
                                 setSelectedFlavors([...selectedFlavors, flavor]);
                               } else {
                                 // remove todas as ocorrências deste sabor
                                 setSelectedFlavors(selectedFlavors.filter(f => f.name !== flavor.name));
                               }
-                            } else if (isSelected) {
-                              // adiciona mais uma ocorrência
-                              setSelectedFlavors([...selectedFlavors, flavor]);
                             } else if (totalSelected < maxFlavors) {
                               setSelectedFlavors([...selectedFlavors, flavor]);
                             }
