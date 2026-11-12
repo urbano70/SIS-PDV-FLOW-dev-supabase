@@ -207,21 +207,36 @@ export function assinarXmlElemento(
   const elementoXml = xml.match(new RegExp(`<${elementoTag}[\\s\\S]*?<\\/${elementoTag}>`))?.[0] ?? '';
   if (!elementoXml) throw new Error(`Elemento <${elementoTag}> não encontrado.`);
 
+  // C14N 1.0 — adicionar xmlns herdado do ancestral (NFe/evento/inutNFe → elementos filhos)
+  // O SEFAZ aplica C14N antes de calcular DigestValue e verifica SignatureValue,
+  // portanto o elemento canonicalizado deve incluir o xmlns do escopo ancestral.
+  const docNs = xml.match(/xmlns="([^"]+)"/)?.[1] ?? '';
+  let canonicalElemento = elementoXml;
+  if (docNs && !elementoXml.includes('xmlns=')) {
+    // xmlns deve aparecer antes dos atributos regulares na forma canônica (C14N 1.0)
+    canonicalElemento = canonicalElemento.replace(
+      new RegExp(`^<${elementoTag}\\s`),
+      `<${elementoTag} xmlns="${docNs}" `,
+    );
+  }
+
   const digestValue = crypto
     .createHash('sha1')
-    .update(Buffer.from(elementoXml, 'utf8'))
+    .update(Buffer.from(canonicalElemento, 'utf8'))
     .digest('base64');
 
+  // C14N 1.0 converte tags autofeching (<Foo/>) em pares abertura/fechamento (<Foo></Foo>).
+  // Assinar a forma canônica garante que o SEFAZ verifique os mesmos bytes.
   const signedInfo =
     `<SignedInfo xmlns="http://www.w3.org/2000/09/xmldsig#">` +
-    `<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
-    `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>` +
+    `<CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></CanonicalizationMethod>` +
+    `<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"></SignatureMethod>` +
     `<Reference URI="#${refId}">` +
     `<Transforms>` +
-    `<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>` +
-    `<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/>` +
+    `<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"></Transform>` +
+    `<Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"></Transform>` +
     `</Transforms>` +
-    `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>` +
+    `<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"></DigestMethod>` +
     `<DigestValue>${digestValue}</DigestValue>` +
     `</Reference>` +
     `</SignedInfo>`;
