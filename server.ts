@@ -1437,6 +1437,7 @@ async function startServer() {
           enqueueWrite('orders', existingOrder, existingOrder.id.toString(), _tid());
           // Renovar sessão do cliente ao adicionar itens
           { const s = getClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); }
+          applyStockReduction(_st(), _tid(), itemsWithWaiter);
           console.log("Existing order updated and emitted");
           return;
         }
@@ -1457,6 +1458,9 @@ async function startServer() {
       // Ativar sessão do cliente ao criar nova comanda
       activateClientSession(_tid(), newOrder.tableId, newOrder.isComanda ?? false);
 
+      // Reduz estoque antes de emitir, para o cliente ver já o valor correto
+      applyStockReduction(_st(), _tid(), itemsWithWaiter);
+
       // Emit updates immediately for faster UI
       io.to(_room()).emit("update_orders", _st().orders);
       if (isComanda) {
@@ -1466,7 +1470,6 @@ async function startServer() {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }
-      io.to(_room()).emit("update_stock", _st().stock);
       if ((newOrder.items || []).length > 0) {
         const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
@@ -1508,8 +1511,6 @@ async function startServer() {
         console.log("Emitted final table updates for new order");
       }
 
-      // Dynamic _st().stock reduction
-      applyStockReduction(_st(), _tid(), orderData.items);
     });
 
     socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData, subcategoryId }) => {
