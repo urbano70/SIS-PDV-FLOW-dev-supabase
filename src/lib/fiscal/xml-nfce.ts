@@ -251,24 +251,18 @@ export function assinarXml(xmlSemAssinatura: string, privateKeyPem: string, cert
 
 // ── QR Code NFC-e ────────────────────────────────────────────────────────────
 
+/**
+ * NT 2025.001 — QR Code v3 online (obrigatório desde setembro/2025).
+ * Formato online (tpEmis=1): {urlBase}?p={chNFe}|3|{tpAmb}
+ * O formato antigo v1/v2 (nVersao=100, digVal, cIdToken, cHashQRCode) foi
+ * removido do XSD do SEFAZ-MT e causa cStat 215.
+ */
 export function gerarQRCode(
   chaveAcesso: string,
   tpAmb: '1' | '2',
-  dhEmi: Date,
-  vNF: number,
-  dIgest: string,   // digestValue da assinatura
-  cscId: string,    // ID CSC do portal SEFAZ (ex: "000001")
-  csc: string,      // valor CSC completo
   urlBase: string,
-  cpfConsumidor?: string, // omitir quando não informado (cDest vazio causa rejeição cStat 215)
 ): string {
-  const valor = dec(vNF, 2);
-  const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
-  // NT NFC-e: + → %2B, / → %2F, = → %3D (encoding completo per especificação)
-  const dIgestEnc = dIgest.replace(/\+/g, '%2B').replace(/\//g, '%2F').replace(/=/g, '%3D');
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
-  const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
-  return `${urlBase}?${params}&cHashQRCode=${hash}`;
+  return `${urlBase}?p=${chaveAcesso}|3|${tpAmb}`;
 }
 
 /** Monta a seção <infNFeSupl> obrigatória para NFC-e (fora da área assinada) */
