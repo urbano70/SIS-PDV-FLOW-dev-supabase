@@ -264,8 +264,9 @@ export function gerarQRCode(
 ): string {
   const valor = dec(vNF, 2);
   const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
-  // SEFAZ-MT: pattern do XSD requer base64 literal — NÃO percent-encode +, / nem =
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgest}&cIdToken=${cscId}`;
+  // NT NFC-e: + → %2B, / → %2F, = → %3D (encoding completo per especificação)
+  const dIgestEnc = dIgest.replace(/\+/g, '%2B').replace(/\//g, '%2F').replace(/=/g, '%3D');
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestEnc}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
 }
