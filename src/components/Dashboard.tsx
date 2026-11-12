@@ -2511,8 +2511,10 @@ export default function Dashboard({
     toast.success(`${activeItems.length} item(s) removido(s) da mesa`);
   };
 
-  const getMaxFlavors = (itemName: string) => {
-    const name = itemName.toUpperCase();
+  const getMaxFlavors = (item: any) => {
+    // Prioridade: valor cadastrado no produto > tamanho correspondente > palavras-chave
+    if (item?.maxFlavors) return item.maxFlavors;
+    const name = (item?.name || item || '').toUpperCase();
     if (name.includes('METRO') && !name.includes('MEIO')) return 4;
     if (name.includes('GRANDE') || name.includes('GG') || name.includes('MEIO METRO')) return 3;
     if (name.includes('MINI') || name.includes('PEQUENA') || name.includes('MÉDIA')) return 2;
@@ -2564,7 +2566,7 @@ export default function Dashboard({
       setPizzaHasBorder(hasBorder);
       setPizzaObservations('');
       setCrustObservations('');
-      setMaxFlavors(sizeMatch ? sizeMatch.maxFlavors : 1);
+      setMaxFlavors(item.maxFlavors || (sizeMatch ? sizeMatch.maxFlavors : getMaxFlavors(item)));
       setSelectionStep(fromSubcat ? 'build' : 'border_choice');
       // Abre modal de quantidade primeiro
       setSelectedQuantityItem(item);
@@ -8706,6 +8708,21 @@ export default function Dashboard({
                       className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414] h-28 resize-none"
                     />
                   </div>
+                  {menu.find(c => c.name === editingProduct.categoryName)?.type === 'pizzas' && (
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Quantidade de Sabores</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={(editingProduct.item as any).maxFlavors ?? ''}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, maxFlavors: parseInt(e.target.value) || undefined } as any })}
+                        placeholder="Ex: 2 (deixe vazio para usar padrão por tamanho)"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
+                      />
+                      <p className="text-[10px] opacity-40 mt-1">Limita a seleção de sabores ao lançar este item na mesa.</p>
+                    </div>
+                  )}
                   <div>
                     <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">Preço Original (opcional, para desconto)</label>
                     <input
@@ -8843,6 +8860,7 @@ export default function Dashboard({
                       originalPrice: (editingProduct.item as any).originalPrice || undefined,
                       imageUrl: (editingProduct.item as any).imageUrl || null,
                       videoUrl: (editingProduct.item as any).videoUrl || null,
+                      maxFlavors: (editingProduct.item as any).maxFlavors || undefined,
                       ncm: (editingProduct.item as any).ncm || undefined,
                       cfop: (editingProduct.item as any).cfop || '5102',
                       csosn: (editingProduct.item as any).csosn || '400',
