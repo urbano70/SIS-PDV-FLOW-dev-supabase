@@ -265,6 +265,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [drinkLemon, setDrinkLemon] = useState(false);
   const [drinkWithOrder, setDrinkWithOrder] = useState(false);
   const [drinkServings, setDrinkServings] = useState<{id: string; cups: number; ice: boolean; lemon: boolean}[]>([]);
+  const [lancheSemOpcoes, setLancheSemOpcoes] = useState<string[]>([]);
 
   // ── Bluetooth printer state ───────────────────────────────────────────────
   const [btDevice, setBtDevice] = useState<BTPrinterDevice | null>(() => {
@@ -347,7 +348,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const printReceipt = (order: any) => {
-    const data = buildReceiptTicket({ ...order, items: order.items || [] }, printerConfig);
+    const data = buildReceiptTicket({ ...order, items: order.items || [] }, printerConfig, pizzariaConfig);
     doPrint(data, 'Comprovante');
   };
 
@@ -428,6 +429,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setDrinkLemon(false);
       setDrinkWithOrder(false);
       setDrinkServings([]);
+      setLancheSemOpcoes([]);
       setIsQuantityModalOpen(true);
       return;
     }
@@ -498,6 +500,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           });
         }
         if (isBeverage && drinkWithOrder) parts.push('Junto com pedido');
+        lancheSemOpcoes.forEach(o => parts.push(o));
         if (itemObservations) parts.push(itemObservations);
         return parts.join(' · ');
       })(),
@@ -976,25 +979,19 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               ) : (
                                 <>
                                   {item.timestamp && <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />}
-                                  {(pizzariaConfig?.kdsEnabled ?? false) && (
-                                    (item as any).kitchenStatus === 'ready' ? (
-                                      <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
-                                        ✓ Pronto — Retirar
-                                      </span>
-                                    ) : (item as any).kitchenStatus === 'oven' ? (
-                                      <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                        No Forno...
-                                      </span>
-                                    ) : (item as any).kitchenStatus === 'preparing' ? (
-                                      <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                        Em preparo...
-                                      </span>
-                                    ) : (
-                                      <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                        Na fila
-                                      </span>
-                                    )
-                                  )}
+                                  {(item as any).kitchenStatus === 'ready' ? (
+                                    <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
+                                      ✓ Pronto — Retirar
+                                    </span>
+                                  ) : (item as any).kitchenStatus === 'oven' ? (
+                                    <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                      No Forno...
+                                    </span>
+                                  ) : (item as any).kitchenStatus === 'preparing' ? (
+                                    <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
+                                      Em preparo...
+                                    </span>
+                                  ) : null}
                                 </>
                               )
                             )}
@@ -1694,15 +1691,37 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     >🍽️ Junto com pedido</button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
-                    <textarea
-                      value={itemObservations}
-                      onChange={(e) => setItemObservations(e.target.value)}
-                      placeholder="Ex: Sem cebola..."
-                      className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                      rows={2}
-                    />
+                  <div className="space-y-3">
+                    {(() => {
+                      const selCat = menu.find((c: any) =>
+                        c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
+                        (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
+                      );
+                      if (!selCat?.mostrarOpcionalMilhoCebola) return null;
+                      return (
+                        <div className="space-y-2">
+                          <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Ingredientes</label>
+                          <div className="flex flex-col gap-2">
+                            {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => (
+                              <label key={opt} className="flex items-center gap-2.5 cursor-pointer">
+                                <input type="checkbox" className="w-4 h-4 accent-[#141414]" checked={lancheSemOpcoes.includes(opt)} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
+                                <span className="text-sm font-semibold">{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
+                      <textarea
+                        value={itemObservations}
+                        onChange={(e) => setItemObservations(e.target.value)}
+                        placeholder="Ex: Sem cebola..."
+                        className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
+                        rows={2}
+                      />
+                    </div>
                   </div>
                 )}
 

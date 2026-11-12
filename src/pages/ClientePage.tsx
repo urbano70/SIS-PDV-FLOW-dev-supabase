@@ -548,12 +548,24 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+
+    // Fetch current order immediately via REST to avoid socket race condition
+    // (loadTenantIfNeeded can overwrite in-memory state after first socket connect)
+    fetch(`/api/order-by-table/${tenantId}/${mesaId}`)
+      .then(r => r.json())
+      .then(({ order }) => {
+        if (isMounted) { setOrder(order || null); setLoading(false); }
+      })
+      .catch(() => { if (isMounted) setLoading(false); });
+
     const s = io({ transports: ['websocket', 'polling'], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000 });
     socketRef.current = s;
 
     const doConnect = () => { s.emit('client_connect', { tenantId }); };
 
     s.on('update_orders', (orders: any[]) => {
+      if (!isMounted) return;
       const active = orders.find(
         (o: any) => String(o.tableId) === String(mesaId) && !o.isComanda && o.status !== 'finalizada'
       );
@@ -570,7 +582,7 @@ function ComandaView({ mesaId, tenantId, token, tenantInfo, onBack }: {
     // Re-identify and re-request on reconnect
     s.on('connect', doConnect);
 
-    return () => { s.disconnect(); };
+    return () => { isMounted = false; s.disconnect(); };
   }, [mesaId, tenantId]);
 
   const allItems: any[] = order?.items || [];

@@ -236,6 +236,7 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
 export function buildReceiptTicket(
   order: TicketOrder,
   printerConfig: any,
+  pizzariaConfig?: { servicoGarcomAtivo?: boolean; taxaServico?: number },
 ): Uint8Array {
   const now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
   const items = (order.items || []).filter(i => !i.removed);
@@ -271,6 +272,19 @@ export function buildReceiptTicket(
   const totalStr = `R$ ${total.toFixed(2).replace('.', ',')}`;
   const totalLine = `TOTAL:${' '.repeat(32 - 6 - totalStr.length)}${totalStr}\n`;
   parts.push(BOLD_ON, encode(totalLine), BOLD_OFF);
+
+  if (pizzariaConfig?.servicoGarcomAtivo) {
+    const pct = pizzariaConfig.taxaServico ?? 10;
+    const servicoVal = total * (pct / 100);
+    const servicoStr = `R$ ${servicoVal.toFixed(2).replace('.', ',')}`;
+    const servicoLabel = `Servico(${pct}%):`;
+    const servicoLine = `${servicoLabel}${' '.repeat(Math.max(1, 32 - servicoLabel.length - servicoStr.length))}${servicoStr}\n`;
+    parts.push(encode(servicoLine));
+    const grandStr = `R$ ${(total + servicoVal).toFixed(2).replace('.', ',')}`;
+    const grandLine = `TOTAL c/serv:${' '.repeat(Math.max(1, 32 - 13 - grandStr.length))}${grandStr}\n`;
+    parts.push(BOLD_ON, encode(grandLine), BOLD_OFF);
+  }
+
   parts.push(DASHES);
   if (printerConfig?.receiptFooter) parts.push(CENTER, encode(`${printerConfig.receiptFooter}\n`));
   parts.push(NL, NL, CUT);

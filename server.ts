@@ -2733,7 +2733,17 @@ async function startServer() {
   });
 
   app.get("/api/version", (_req, res) => {
-    res.json({ version: '1.1.0', pr: 294 });
+    res.json({ version: '1.1.0', pr: 295 });
+  });
+
+  app.get("/api/order-by-table/:tenantId/:tableId", (req, res) => {
+    const { tenantId, tableId } = req.params;
+    const st = tenants.get(tenantId);
+    if (!st) return res.json({ order: null });
+    const order = (st.orders || []).find(
+      (o: any) => String(o.tableId) === String(tableId) && !o.isComanda && o.status !== 'finalizada'
+    );
+    res.json({ order: order || null });
   });
 
   // ── Sessão do cliente ──────────────────────────────────────────
