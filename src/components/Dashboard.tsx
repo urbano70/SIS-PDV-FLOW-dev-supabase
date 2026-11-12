@@ -8060,23 +8060,43 @@ export default function Dashboard({
                       </div>
 
                       {/* Botão NFC-e */}
-                      {order.status === 'finalizada' && (
-                        <button
-                          onClick={() => {
-                            const total = (order.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
-                              let price = i.price;
-                              if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
-                              return acc + price;
-                            }, 0);
-                            setNfceResult(null); setNfceCpf(''); setNfcePagamento(lastPaymentMethod);
-                            setNfceModal({ orderId: order.id, total });
-                          }}
-                          className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase transition-colors"
-                        >
-                          <FileText size={13} />
-                          Emitir NFC-e
-                        </button>
-                      )}
+                      {order.status === 'finalizada' && (() => {
+                        const notaAutorizada = fiscalNotes.find((n: any) =>
+                          String(n.order_id) === String(order.id) &&
+                          ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'EPEC_AUTORIZADO'].includes((n.status || '').toUpperCase())
+                        );
+                        if (notaAutorizada?.chave_acesso) {
+                          return (
+                            <a
+                              href={`/danfe/nfce/${notaAutorizada.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-bold uppercase transition-colors"
+                            >
+                              <FileText size={13} />
+                              Imprimir NFC-e
+                            </a>
+                          );
+                        }
+                        const orderPayment = mapPaymentMethod((order.paymentLog || [])[0]?.method);
+                        return (
+                          <button
+                            onClick={() => {
+                              const total = (order.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+                                let price = i.price;
+                                if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
+                                return acc + price;
+                              }, 0);
+                              setNfceResult(null); setNfceCpf(''); setNfcePagamento(orderPayment);
+                              setNfceModal({ orderId: order.id, total });
+                            }}
+                            className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase transition-colors"
+                          >
+                            <FileText size={13} />
+                            Emitir NFC-e
+                          </button>
+                        );
+                      })()}
                     </div>
                   ));
                 })()}
