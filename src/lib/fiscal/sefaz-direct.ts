@@ -155,10 +155,13 @@ export async function autorizarNFCe(
   }
 
   // 7. Classificar retorno
-  const cStat   = extrairCampo(soapResp.body, 'cStat');
-  const xMotivo = extrairCampo(soapResp.body, 'xMotivo');
+  // cStat 104 = lote processado — resultado individual da NFC-e fica em <infProt>
+  const infProt = soapResp.body.match(/<infProt[\s\S]*?<\/infProt>/)?.[0] ?? '';
+  const src     = infProt || soapResp.body;
+  const cStat   = extrairCampo(src, 'cStat');
+  const xMotivo = extrairCampo(src, 'xMotivo');
   const nProt   = extrairCampo(soapResp.body, 'nProt');
-  const dhRecbto = extrairCampo(soapResp.body, 'dhRecbto');
+  const dhRecbto = extrairCampo(src, 'dhRecbto');
 
   let status: FiscalDocStatus;
   const cStatN = parseInt(cStat || '0');
@@ -296,10 +299,13 @@ export async function autorizarNFe(
   }
 
   // 5. Classificar retorno (mesma lógica da NFC-e)
-  const cStat    = extrairCampo(soapResp.body, 'cStat');
-  const xMotivo  = extrairCampo(soapResp.body, 'xMotivo');
+  // cStat 104 = lote processado — resultado individual em <infProt>
+  const infProtNFe = soapResp.body.match(/<infProt[\s\S]*?<\/infProt>/)?.[0] ?? '';
+  const srcNFe     = infProtNFe || soapResp.body;
+  const cStat    = extrairCampo(srcNFe, 'cStat');
+  const xMotivo  = extrairCampo(srcNFe, 'xMotivo');
   const nProt    = extrairCampo(soapResp.body, 'nProt');
-  const dhRecbto = extrairCampo(soapResp.body, 'dhRecbto');
+  const dhRecbto = extrairCampo(srcNFe, 'dhRecbto');
   const cStatN   = parseInt(cStat || '0');
 
   let status: FiscalDocStatus;
