@@ -264,9 +264,8 @@ export function gerarQRCode(
 ): string {
   const valor = dec(vNF, 2);
   const cDestPart = cpfConsumidor ? `&cDest=${cpfConsumidor}` : '';
-  // SEFAZ-MT: encode apenas + → %2B e / → %2F do base64; manter = sem encode (rejeita %3D)
-  const dIgestSafe = dIgest.replace(/\+/g, '%2B').replace(/\//g, '%2F');
-  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgestSafe}&cIdToken=${cscId}`;
+  // SEFAZ-MT: pattern do XSD requer base64 literal — NÃO percent-encode +, / nem =
+  const params = `chNFe=${chaveAcesso}&nVersao=100&tpAmb=${tpAmb}${cDestPart}&dhEmi=${Math.floor(dhEmi.getTime() / 1000)}&vNF=${valor}&vICMS=0.00&digVal=${dIgest}&cIdToken=${cscId}`;
   const hash = crypto.createHash('sha1').update(params + csc).digest('hex').toUpperCase();
   return `${urlBase}?${params}&cHashQRCode=${hash}`;
 }
