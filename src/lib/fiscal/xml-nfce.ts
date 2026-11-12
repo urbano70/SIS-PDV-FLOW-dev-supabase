@@ -113,7 +113,7 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
   const tpAmb = TP_AMB[intencao.ambiente];
   // Converter UTC para horário de MT (UTC-4) deslocando os ms antes de formatar
   const utcNow = new Date();
-  const dhEmi = new Date(utcNow.getTime() - 4 * 60 * 60 * 1000).toISOString().replace('Z', '') + '-04:00';
+  const dhEmi = new Date(utcNow.getTime() - 4 * 60 * 60 * 1000).toISOString().split('.')[0] + '-04:00';
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
   const troco = intencao.troco ?? 0;
 
