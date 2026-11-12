@@ -2314,10 +2314,14 @@ export default function Dashboard({
 
   useEffect(() => {
     if (selectedTableId || selectedComandaId) {
-      // Small delay to ensure the content is rendered before scrolling
-      setTimeout(() => {
-        detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
+      // Only scroll into view on mobile (< md), where columns stack vertically.
+      // On desktop the two columns are side-by-side and scrollIntoView would
+      // scroll the page, pushing the "Painel" header out of view.
+      if (window.innerWidth < 768) {
+        setTimeout(() => {
+          detailsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
     }
   }, [selectedTableId, selectedComandaId, isComandaSelected]);
 
