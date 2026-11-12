@@ -95,8 +95,10 @@ export const TP_AMB: Record<AmbienteKey, '1' | '2'> = { producao: '1', homologac
 export const T_PAG: Record<string, string> = {
   dinheiro:  '01',
   cheque:    '02',
-  credito:   '03',
-  debito:    '04',
+  credito:        '03',
+  cartao_credito: '03',
+  debito:        '04',
+  cartao_debito: '04',
   crediario: '05',
   vale_alimentacao: '10',
   vale_refeicao:    '11',
