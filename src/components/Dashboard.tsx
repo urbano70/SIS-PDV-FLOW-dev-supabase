@@ -1095,7 +1095,6 @@ export default function Dashboard({
   const [editingCrustOriginal, setEditingCrustOriginal] = useState('');
   const [newCrustName, setNewCrustName] = useState('');
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
-  const [isPizzaQtyModal, setIsPizzaQtyModal] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
@@ -2553,7 +2552,7 @@ export default function Dashboard({
     const isPizza = category?.type === 'pizzas' || item.type === 'pizzas';
     const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || category?.type === 'porcoes' || category?.type === 'lacarte' || item.type === 'lanches' || item.type === 'bebidas' || item.type === 'porcoes' || item.type === 'lacarte';
 
-    if (isPizza && !isFlavorModalOpen && !isPizzaQtyModal) {
+    if (isPizza && !isFlavorModalOpen) {
       // Determina borda pelo nome da subcategoria (Com Borda → true, Sem Borda → false)
       const hasBorder = fromSubcat
         ? fromSubcat.name.toLowerCase().includes('com')
@@ -2562,7 +2561,6 @@ export default function Dashboard({
       const sizeMatch = pizzaSizes.find((s: any) =>
         item.name.toLowerCase().includes(s.name.toLowerCase())
       );
-      // Pré-configura modal de sabores (aberto só após confirmar quantidade)
       setSelectedPizzaItem(item);
       setSelectedFlavors([]);
       setSelectedCrusts([]);
@@ -2572,12 +2570,7 @@ export default function Dashboard({
       setCrustObservations('');
       setMaxFlavors(item.maxFlavors || (sizeMatch ? sizeMatch.maxFlavors : getMaxFlavors(item)));
       setSelectionStep(fromSubcat ? 'build' : 'border_choice');
-      // Abre modal de quantidade primeiro
-      setSelectedQuantityItem(item);
-      setItemQuantity(1);
-      setItemObservations('');
-      setIsPizzaQtyModal(true);
-      setIsQuantityModalOpen(true);
+      setIsFlavorModalOpen(true);
       admOpeningSubModal.current = true;
       setIsAddItemModalOpen(false);
       return;
@@ -2640,15 +2633,6 @@ export default function Dashboard({
   const confirmQuantitySelection = () => {
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
-      return;
-    }
-
-    // Fluxo pizza: fecha modal de qtd e abre modal de sabores
-    if (isPizzaQtyModal) {
-      setIsPizzaQtyModal(false);
-      setIsQuantityModalOpen(false);
-      setIsFlavorModalOpen(true);
-      admOpeningSubModal.current = true;
       return;
     }
 
@@ -8528,7 +8512,6 @@ export default function Dashboard({
                     <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
-                        setIsPizzaQtyModal(false);
                         setIsAddItemModalOpen(true);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
@@ -8539,7 +8522,7 @@ export default function Dashboard({
                       onClick={confirmQuantitySelection}
                       className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
                     >
-                      {isPizzaQtyModal ? 'Próximo →' : 'Adicionar'}
+                      Adicionar
                     </button>
                   </div>
                 </div>

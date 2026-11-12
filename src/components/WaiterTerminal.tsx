@@ -257,7 +257,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [flavorObservations, setFlavorObservations] = useState('');
   const [isFlavorObsOpen, setIsFlavorObsOpen] = useState(false);
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
-  const [isPizzaQtyModal, setIsPizzaQtyModal] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
@@ -402,11 +401,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const isPizza = pizza.type === 'pizzas' || category?.type === 'pizzas';
     const isSnackOrDrink = !isPizza;
 
-    if (isPizza && !isFlavorModalOpen && !isPizzaQtyModal) {
+    if (isPizza && !isFlavorModalOpen) {
       const hasBorder = fromSubcat
         ? fromSubcat.name.toLowerCase().includes('com')
         : pizza.name.toLowerCase().includes('com borda');
-      // Pré-configura o modal de sabores (aberto só após confirmar quantidade)
       setSelectedPizzaItem(pizza);
       setMaxFlavors(getMaxFlavors(pizza));
       setSelectedFlavors([]);
@@ -416,12 +414,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setFlavorObservations('');
       setIsFlavorObsOpen(false);
       setSelectionStep(hasBorder ? 'crust' : 'flavors');
-      // Abre modal de quantidade primeiro
-      setSelectedQuantityItem(pizza);
-      setItemQuantity(1);
-      setItemObservations('');
-      setIsPizzaQtyModal(true);
-      setIsQuantityModalOpen(true);
+      setIsFlavorModalOpen(true);
       return;
     }
 
@@ -484,14 +477,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const confirmQuantitySelection = () => {
     if (!selectedQuantityItem) return;
-
-    // Fluxo pizza: fecha modal de qtd e abre modal de sabores
-    if (isPizzaQtyModal) {
-      setIsPizzaQtyModal(false);
-      setIsQuantityModalOpen(false);
-      setIsFlavorModalOpen(true);
-      return;
-    }
 
     const category = menu.find(cat =>
       cat.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name) ||
@@ -1744,7 +1729,6 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
-                        setIsPizzaQtyModal(false);
                         setSelectedQuantityItem(null);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
@@ -1755,7 +1739,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                       onClick={confirmQuantitySelection}
                       className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
                     >
-                      {isPizzaQtyModal ? 'Próximo →' : 'Adicionar'}
+                      Adicionar
                     </button>
                   </div>
                 </div>
