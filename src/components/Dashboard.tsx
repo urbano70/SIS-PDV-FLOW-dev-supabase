@@ -1095,6 +1095,7 @@ export default function Dashboard({
   const [editingCrustOriginal, setEditingCrustOriginal] = useState('');
   const [newCrustName, setNewCrustName] = useState('');
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
+  const [isPizzaQtyModal, setIsPizzaQtyModal] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
@@ -2546,7 +2547,7 @@ export default function Dashboard({
     const isPizza = category?.type === 'pizzas' || item.type === 'pizzas';
     const isSnackOrDrink = category?.type === 'lanches' || category?.type === 'bebidas' || category?.type === 'porcoes' || category?.type === 'lacarte' || item.type === 'lanches' || item.type === 'bebidas' || item.type === 'porcoes' || item.type === 'lacarte';
 
-    if (isPizza && !isFlavorModalOpen) {
+    if (isPizza && !isFlavorModalOpen && !isPizzaQtyModal) {
       // Determina borda pelo nome da subcategoria (Com Borda → true, Sem Borda → false)
       const hasBorder = fromSubcat
         ? fromSubcat.name.toLowerCase().includes('com')
@@ -2555,6 +2556,7 @@ export default function Dashboard({
       const sizeMatch = pizzaSizes.find((s: any) =>
         item.name.toLowerCase().includes(s.name.toLowerCase())
       );
+      // Pré-configura modal de sabores (aberto só após confirmar quantidade)
       setSelectedPizzaItem(item);
       setSelectedFlavors([]);
       setSelectedCrusts([]);
@@ -2563,9 +2565,13 @@ export default function Dashboard({
       setPizzaObservations('');
       setCrustObservations('');
       setMaxFlavors(sizeMatch ? sizeMatch.maxFlavors : 1);
-      // Se vier de subcategoria conhecida, pula a etapa de escolha de borda
       setSelectionStep(fromSubcat ? 'build' : 'border_choice');
-      setIsFlavorModalOpen(true);
+      // Abre modal de quantidade primeiro
+      setSelectedQuantityItem(item);
+      setItemQuantity(1);
+      setItemObservations('');
+      setIsPizzaQtyModal(true);
+      setIsQuantityModalOpen(true);
       admOpeningSubModal.current = true;
       setIsAddItemModalOpen(false);
       return;
@@ -2630,6 +2636,16 @@ export default function Dashboard({
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
     }
+
+    // Fluxo pizza: fecha modal de qtd e abre modal de sabores
+    if (isPizzaQtyModal) {
+      setIsPizzaQtyModal(false);
+      setIsQuantityModalOpen(false);
+      setIsFlavorModalOpen(true);
+      admOpeningSubModal.current = true;
+      return;
+    }
+
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
     if (!selectedQuantityItem || !targetId) return;
 
@@ -2727,6 +2743,7 @@ export default function Dashboard({
     // Acréscimo: cada slot de sabor com preço extra soma seu valor integralmente
     const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0);
     const basePrice = matchedSizeItem?.price ?? selectedPizzaItem?.price ?? 0;
+    const qty = itemQuantity || 1;
 
     const itemWithDetails = {
       ...matchedSizeItem,
@@ -2734,7 +2751,8 @@ export default function Dashboard({
       menuItemId: matchedSizeItem?.id || selectedPizzaItem?.id,
       name: `${sizeLabel} (${flavorNames})${crustLabel}`,
       type: 'pizzas',
-      price: basePrice + extraFlavorPrice,
+      price: (basePrice + extraFlavorPrice) * qty,
+      quantity: qty,
       flavors: selectedFlavors.map(f => f.name),
       ingredients: flavorIngredients,
       crust: selectedCrusts.length > 0 ? selectedCrusts.join(' / ') : null,
@@ -8501,20 +8519,21 @@ export default function Dashboard({
                     <span className="text-2xl font-bold">R$ {( (selectedQuantityItem?.price || 0) * itemQuantity).toFixed(2)}</span>
                   </div>
                   <div className="flex space-x-3">
-                    <button 
+                    <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
+                        setIsPizzaQtyModal(false);
                         setIsAddItemModalOpen(true);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                     >
                       Cancelar
                     </button>
-                    <button 
+                    <button
                       onClick={confirmQuantitySelection}
                       className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
                     >
-                      Adicionar
+                      {isPizzaQtyModal ? 'Próximo →' : 'Adicionar'}
                     </button>
                   </div>
                 </div>

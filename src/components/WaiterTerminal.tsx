@@ -257,6 +257,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [flavorObservations, setFlavorObservations] = useState('');
   const [isFlavorObsOpen, setIsFlavorObsOpen] = useState(false);
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
+  const [isPizzaQtyModal, setIsPizzaQtyModal] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
@@ -400,10 +401,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const isPizza = pizza.type === 'pizzas' || category?.type === 'pizzas';
     const isSnackOrDrink = !isPizza;
 
-    if (isPizza && !isFlavorModalOpen) {
+    if (isPizza && !isFlavorModalOpen && !isPizzaQtyModal) {
       const hasBorder = fromSubcat
         ? fromSubcat.name.toLowerCase().includes('com')
         : pizza.name.toLowerCase().includes('com borda');
+      // Pré-configura o modal de sabores (aberto só após confirmar quantidade)
       setSelectedPizzaItem(pizza);
       setMaxFlavors(getMaxFlavors(pizza.name));
       setSelectedFlavors([]);
@@ -413,7 +415,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setFlavorObservations('');
       setIsFlavorObsOpen(false);
       setSelectionStep(hasBorder ? 'crust' : 'flavors');
-      setIsFlavorModalOpen(true);
+      // Abre modal de quantidade primeiro
+      setSelectedQuantityItem(pizza);
+      setItemQuantity(1);
+      setItemObservations('');
+      setIsPizzaQtyModal(true);
+      setIsQuantityModalOpen(true);
       return;
     }
 
@@ -477,6 +484,14 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const confirmQuantitySelection = () => {
     if (!selectedQuantityItem) return;
 
+    // Fluxo pizza: fecha modal de qtd e abre modal de sabores
+    if (isPizzaQtyModal) {
+      setIsPizzaQtyModal(false);
+      setIsQuantityModalOpen(false);
+      setIsFlavorModalOpen(true);
+      return;
+    }
+
     const category = menu.find(cat =>
       cat.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name) ||
       (cat.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name))
@@ -518,9 +533,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
     // Acréscimo: cada slot de sabor com preço extra soma seu valor integralmente
     const extraFlavorPrice = selectedFlavors.reduce((acc, f) => acc + (f.price || 0), 0);
+    const unitPrice = (selectedPizzaItem.price || 0) + extraFlavorPrice;
+    const qty = itemQuantity || 1;
     const itemWithDetails = {
       ...selectedPizzaItem,
-      price: (selectedPizzaItem.price || 0) + extraFlavorPrice,
+      price: unitPrice * qty,
+      quantity: qty,
       name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : ''}`,
       type: 'pizzas',
       flavors: selectedFlavors.map(f => f.name),
@@ -1725,20 +1743,21 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     <span className="text-2xl font-bold">R$ {( (selectedQuantityItem?.price || 0) * itemQuantity).toFixed(2)}</span>
                   </div>
                   <div className="flex space-x-3">
-                    <button 
+                    <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
+                        setIsPizzaQtyModal(false);
                         setSelectedQuantityItem(null);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                     >
                       Cancelar
                     </button>
-                    <button 
+                    <button
                       onClick={confirmQuantitySelection}
                       className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
                     >
-                      Adicionar
+                      {isPizzaQtyModal ? 'Próximo →' : 'Adicionar'}
                     </button>
                   </div>
                 </div>
