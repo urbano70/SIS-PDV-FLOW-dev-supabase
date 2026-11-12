@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Bloqueia scroll do documento em qualquer situação — o app é uma SPA
+   e todo o scroll fica nos painéis internos (overflow-y-auto).
+   Sem isso, h-screen com zoom CSS ou certas configurações de browser
+   geram scrollbar no body e o cabeçalho "Painel" some ao rolar. */
+html, body {
+  overflow: hidden;
+  height: 100%;
+}
+
 /* Escalonamento para monitores de alta resolução via CSS zoom.
    Aplicado pelo script em main.tsx que detecta a resolução física real. */
 
