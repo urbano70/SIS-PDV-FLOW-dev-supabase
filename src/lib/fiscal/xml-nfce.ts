@@ -33,7 +33,8 @@ export function gerarChaveAcesso(
   mod: '65', serie: string, nNF: number,
   tpEmis: string, cNF: string, tpAmb: string,
 ): string {
-  const aamm = `${dhEmi.getFullYear()}${pad(dhEmi.getMonth() + 1, 2)}`;
+  // Usar apenas 2 dígitos do ano (AA) conforme NT NF-e: base43 = 43 chars → chave = 44 chars
+  const aamm = `${String(dhEmi.getFullYear()).slice(-2)}${pad(dhEmi.getMonth() + 1, 2)}`;
   const cnpjL = cnpj.replace(/\D/g, '');
   const base43 =
     pad(cUF, 2) + aamm + pad(cnpjL, 14) + mod +
@@ -108,7 +109,9 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
   }
 
   const tpAmb = TP_AMB[intencao.ambiente];
-  const dhEmi = new Date().toISOString().replace('Z', '-04:00'); // MT = UTC-4
+  // Converter UTC para horário de MT (UTC-4) deslocando os ms antes de formatar
+  const utcNow = new Date();
+  const dhEmi = new Date(utcNow.getTime() - 4 * 60 * 60 * 1000).toISOString().replace('Z', '') + '-04:00';
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
   const troco = intencao.troco ?? 0;
 
