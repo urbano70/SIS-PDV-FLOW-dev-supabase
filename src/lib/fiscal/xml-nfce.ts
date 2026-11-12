@@ -128,7 +128,7 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
     `<cNF>${intencao.chaveAcesso.substring(35, 43)}</cNF>` +
     `<natOp>VENDA DE MERCADORIA</natOp>` +
     `<mod>65</mod>` +
-    `<serie>${intencao.serie}</serie>` +
+    `<serie>${String(parseInt(intencao.serie, 10) || 1)}</serie>` +
     `<nNF>${intencao.numero}</nNF>` +
     `<dhEmi>${dhEmi}</dhEmi>` +
     `<tpNF>1</tpNF>` +
