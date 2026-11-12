@@ -10,10 +10,15 @@ export interface DadosDanfe {
   nomeFantasia?: string;
   cnpjFormatado: string;
   ie: string;
-  enderecoCompleto: string;
+  logradouro: string;
+  numero: string;
+  bairro: string;
+  municipio: string;
+  uf: string;
+  telefone?: string;
 
   // Identificação
-  numero: number;
+  nroNota: number;
   serie: string;
   dhEmissao: string;    // "DD/MM/AAAA HH:MM:SS"
 
@@ -21,6 +26,9 @@ export interface DadosDanfe {
   protocolo?: string;
   dhProtocolo?: string; // "DD/MM/AAAA HH:MM:SS"
   contingencia: boolean;
+
+  // Mesa (opcional — preenchido quando disponível no pedido)
+  mesa?: string;
 
   // Consumidor
   cpfConsumidor?: string;   // formatado "000.000.000-00"
@@ -30,6 +38,7 @@ export interface DadosDanfe {
   // Itens
   itens: Array<{
     seq: number;
+    codigo: string;
     descricao: string;
     unidade: string;
     quantidade: number;
@@ -57,14 +66,14 @@ export interface DadosDanfe {
 }
 
 const TPAG: Record<string, string> = {
-  '01': 'Dinheiro',      '02': 'Cheque',
-  '03': 'Cartão Crédito','04': 'Cartão Débito',
-  '05': 'Crediário',     '10': 'Vale Alimentação',
-  '11': 'Vale Refeição', '12': 'Vale Presente',
-  '13': 'Vale Combustível','15': 'Boleto',
-  '16': 'Depósito',     '17': 'PIX',
-  '18': 'Transferência', '90': 'Sem Pagamento',
-  '99': 'Outros',
+  '01': 'DINHEIRO',      '02': 'CHEQUE',
+  '03': 'CARTAO CREDITO','04': 'CARTAO DEBITO',
+  '05': 'CREDIARIO',     '10': 'VALE ALIMENTACAO',
+  '11': 'VALE REFEICAO', '12': 'VALE PRESENTE',
+  '13': 'VALE COMBUSTIVEL','15': 'BOLETO',
+  '16': 'DEPOSITO',     '17': 'PIX',
+  '18': 'TRANSFERENCIA', '90': 'SEM PAGAMENTO',
+  '99': 'OUTROS',
 };
 
 function fmtCnpj(s: string): string {
@@ -75,11 +84,6 @@ function fmtCnpj(s: string): string {
 function fmtCpf(s: string): string {
   const n = s.replace(/\D/g, '');
   return n.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
-}
-
-function fmtCep(s: string): string {
-  const n = s.replace(/\D/g, '');
-  return n.replace(/^(\d{5})(\d{3})$/, '$1-$2');
 }
 
 function fmtChave(s: string): string {
@@ -98,7 +102,10 @@ function fmtDt(iso?: string): string {
 
 function extrairQrCode(xml?: string): string {
   if (!xml) return '';
-  return xml.match(/<qrCode><!\[CDATA\[([\s\S]*?)\]\]><\/qrCode>/)?.[1] ?? '';
+  // tenta com e sem CDATA
+  return xml.match(/<qrCode><!\[CDATA\[([\s\S]*?)\]\]><\/qrCode>/)?.[1]
+    ?? xml.match(/<qrCode>([^<]+)<\/qrCode>/)?.[1]
+    ?? '';
 }
 
 function extrairUrlConsulta(xml?: string): string {
@@ -117,24 +124,25 @@ export function extrairDadosDanfe(intencao: IntencaoFiscal): DadosDanfe {
   const totalNota = intencao.total;
   const desconto = Math.max(0, +(totalProdutos - totalNota).toFixed(2));
 
-  const endereco = [
-    `${emit.logradouro}, ${emit.numero}`,
-    emit.bairro,
-    `${emit.municipio} - ${emit.uf}`,
-    `CEP ${fmtCep(emit.cep)}`,
-    emit.telefone ? `Fone: ${emit.telefone}` : '',
-  ].filter(Boolean).join(' · ');
-
   const dhEmiIso = extrairDhEmi(intencao.xmlAssinado) || intencao.criadoEm;
+
+  // mesa pode vir em campo extra (intencao como any para compatibilidade)
+  const extra = intencao as any;
+  const mesa: string | undefined = extra.mesa ?? extra.mesaId ?? extra.tableId ?? undefined;
 
   return {
     razaoSocial:    emit.razaoSocial,
     nomeFantasia:   emit.nomeFantasia,
     cnpjFormatado:  fmtCnpj(emit.cnpj),
     ie:             emit.ie,
-    enderecoCompleto: endereco,
+    logradouro:     emit.logradouro,
+    numero:         emit.numero,
+    bairro:         emit.bairro,
+    municipio:      emit.municipio,
+    uf:             emit.uf,
+    telefone:       emit.telefone,
 
-    numero:   intencao.numero ?? 0,
+    nroNota:  intencao.numero ?? 0,
     serie:    intencao.serie,
     dhEmissao: fmtDt(dhEmiIso),
 
@@ -142,12 +150,15 @@ export function extrairDadosDanfe(intencao: IntencaoFiscal): DadosDanfe {
     dhProtocolo:  fmtDt(intencao.dhRecbto),
     contingencia: intencao.tpEmis !== '1',
 
+    mesa,
+
     cpfConsumidor:   intencao.cpfConsumidor ? fmtCpf(intencao.cpfConsumidor) : undefined,
     cnpjConsumidor:  intencao.cnpjConsumidor ? fmtCnpj(intencao.cnpjConsumidor) : undefined,
     xNomeConsumidor: intencao.xNomeConsumidor,
 
     itens: intencao.items.map((item, idx) => ({
       seq:           idx + 1,
+      codigo:        item.codigo,
       descricao:     item.descricao,
       unidade:       item.unidade,
       quantidade:    item.quantidade,
@@ -160,7 +171,7 @@ export function extrairDadosDanfe(intencao: IntencaoFiscal): DadosDanfe {
     totalNota,
 
     pagamentos: intencao.pagamentos.map(p => ({
-      descricao: p.xPag ?? TPAG[p.tPag] ?? `Pgto ${p.tPag}`,
+      descricao: (p.xPag ?? TPAG[p.tPag] ?? `PGTO ${p.tPag}`).toUpperCase(),
       valor:     p.vPag,
     })),
     troco: intencao.troco ?? 0,
