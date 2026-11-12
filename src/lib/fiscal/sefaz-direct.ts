@@ -112,8 +112,6 @@ export async function autorizarNFCe(
   const utcNow = new Date();
   // dhEmiMT: data/hora em MT (UTC-4) para calcular AAMM correto na chave de acesso
   const dhEmiMT = new Date(utcNow.getTime() - 4 * 60 * 60 * 1000);
-  // dhEmi: data UTC real, usada apenas para o Unix timestamp do QR Code
-  const dhEmi = utcNow;
   intencao.chaveAcesso = gerarChaveAcesso(C_UF_MT, dhEmiMT, intencao.emitente.cnpj, '65', serie, numero, intencao.tpEmis, cNF, tpAmb);
 
   // 3. Gerar XML
@@ -123,16 +121,10 @@ export async function autorizarNFCe(
   const xmlAssinado = assinarXml(xmlBase, cert.privateKeyPem, cert.certificatePem);
   intencao.status = 'ASSINADO';
 
-  // 5. Gerar QR Code e inserir <infNFeSupl> no XML antes de enviar (obrigatório NFC-e)
-  const cscId    = intencao.ambiente === 'producao' ? intencao.emitente.cscProdId : intencao.emitente.cscHomId;
-  const csc      = intencao.ambiente === 'producao' ? intencao.emitente.cscProd   : intencao.emitente.cscHom;
+  // 5. Gerar QR Code v3 (NT 2025.001) e inserir <infNFeSupl> no XML antes de enviar
   const urlQrBase = URL_QR_CONSULTA[intencao.ambiente];
   const urlConsulta = urlQrBase;
-  const digestVal = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
-  const total = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
-  const qrCodeGerado = (cscId && csc)
-    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, total, digestVal, cscId, csc, urlQrBase, intencao.cpfConsumidor || undefined)
-    : '';
+  const qrCodeGerado = gerarQRCode(intencao.chaveAcesso, tpAmb, urlQrBase);
   const infoSupl = montarInfoNFeSupl(qrCodeGerado, urlConsulta);
   // Insere <infNFeSupl> logo após </infNFe> (antes de <Signature>), fora da área assinada
   const xmlComSupl = xmlAssinado.replace(/<Signature\s+xmlns="http:\/\/www\.w3\.org\/2000\/09\/xmldsig#">/, `${infoSupl}<Signature xmlns="http://www.w3.org/2000/09/xmldsig#">`);

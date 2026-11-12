@@ -71,16 +71,10 @@ export async function emitirNFCeOffline(
   const xmlAssinado = assinarXml(xmlBase, cert.privateKeyPem, cert.certificatePem);
   intencao.status = 'ASSINADO';
 
-  // 5. Gerar QR Code (SHA-1 com CSC) e inserir <infNFeSupl> — impresso no DANFE offline
-  const cscId      = intencao.ambiente === 'producao' ? intencao.emitente.cscProdId : intencao.emitente.cscHomId;
-  const csc        = intencao.ambiente === 'producao' ? intencao.emitente.cscProd   : intencao.emitente.cscHom;
+  // 5. Gerar QR Code v3 (NT 2025.001) e inserir <infNFeSupl> — impresso no DANFE offline
   const urlQrBase  = URL_QR_CONSULTA[intencao.ambiente];
   const urlConsulta = urlQrBase;
-  const digestVal  = xmlAssinado.match(/<DigestValue>([^<]+)<\/DigestValue>/)?.[1] ?? '';
-  const totalNota  = intencao.items.reduce((s, i) => s + i.valorTotal, 0);
-  const qrCode = (cscId && csc)
-    ? gerarQRCode(intencao.chaveAcesso, tpAmb, dhEmi, totalNota, digestVal, cscId, csc, urlQrBase, intencao.cpfConsumidor || undefined)
-    : '';
+  const qrCode = gerarQRCode(intencao.chaveAcesso, tpAmb, urlQrBase);
 
   const infoSupl = montarInfoNFeSupl(qrCode, urlConsulta);
   const xmlFinal = xmlAssinado.replace(
