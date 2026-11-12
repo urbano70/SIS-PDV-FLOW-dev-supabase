@@ -43,6 +43,8 @@ export interface PizzeriaConfig {
   redMinutes: number;
   inactivityMinutes: number;
   kdsEnabled?: boolean;
+  servicoGarcomAtivo?: boolean;
+  taxaServico?: number;
   waiterCanPay?: boolean;
   numTables?: number;
   comandasEnabled?: boolean;
@@ -132,6 +134,7 @@ export interface MenuCategory {
   type: string;
   visible: boolean;
   trackTime?: boolean;
+  mostrarOpcionalMilhoCebola?: boolean;
   position?: number;
   subcategories: MenuSubcategory[];
   items: MenuItem[];

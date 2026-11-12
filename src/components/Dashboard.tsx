@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, Plus, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, Plus, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload, Percent } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -1098,6 +1098,7 @@ export default function Dashboard({
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
+  const [lancheSemOpcoes, setLancheSemOpcoes] = useState<string[]>([]);
   const [admGuestForItem, setAdmGuestForItem] = useState('');
   const [admModalNewGuest, setAdmModalNewGuest] = useState('');
   const [admLocalGuests, setAdmLocalGuests] = useState<string[]>([]);
@@ -2580,6 +2581,7 @@ export default function Dashboard({
       setSelectedQuantityItem(item);
       setItemQuantity(1);
       setItemObservations('');
+      setLancheSemOpcoes([]);
       setIsQuantityModalOpen(true);
       admOpeningSubModal.current = true;
       setIsAddItemModalOpen(false);
@@ -2649,7 +2651,7 @@ export default function Dashboard({
       flavors: [selectedQuantityItem.name],
       size: 'G',
       extras: [],
-      observations: itemObservations,
+      observations: [...lancheSemOpcoes, ...(itemObservations ? [itemObservations] : [])].join(', '),
       price: selectedQuantityItem.price * itemQuantity,
       quantity: itemQuantity,
       waiterName: 'ADM',
@@ -4055,6 +4057,7 @@ export default function Dashboard({
                               <span className="text-[10px] uppercase tracking-widest font-bold text-white/50 bg-white/10 px-3 py-1 rounded-full">{totalItems} itens</span>
                               {!(category.visible ?? true) && <span className="text-[10px] text-red-400 font-bold uppercase px-2 py-0.5 bg-red-900/30 rounded-full">Oculto</span>}
                               {category.trackTime && <span className="text-[10px] text-amber-300 font-bold uppercase px-2 py-0.5 bg-amber-900/30 rounded-full flex items-center gap-1"><Clock size={10} /> Tempo ativo</span>}
+                              {category.mostrarOpcionalMilhoCebola && <span className="text-[10px] text-green-300 font-bold uppercase px-2 py-0.5 bg-green-900/30 rounded-full">🌽 Opcionals</span>}
                             </>
                           )}
                         </div>
@@ -4073,6 +4076,15 @@ export default function Dashboard({
                           >
                             <Clock size={16} />
                           </button>
+                          {category.type === 'lanches' && (
+                            <button
+                              title={category.mostrarOpcionalMilhoCebola ? 'Desativar opcional milho/ervilha/cebola' : 'Ativar opcional milho/ervilha/cebola'}
+                              onClick={() => { socket.emit('update_category', { oldName: category.name, updatedData: { mostrarOpcionalMilhoCebola: !category.mostrarOpcionalMilhoCebola } }); toast.success(category.mostrarOpcionalMilhoCebola ? 'Opcional desativado' : 'Opcional milho/ervilha/cebola ativado!'); }}
+                              className={`p-2 rounded-xl border transition-all text-xs font-bold ${category.mostrarOpcionalMilhoCebola ? 'border-green-400 bg-green-400/20 text-green-300' : 'border-white/20 hover:bg-white/10 text-white/50'}`}
+                            >
+                              🌽
+                            </button>
+                          )}
                           <button onClick={() => setEditingCategory({ oldName: category.name, name: category.name, visible: category.visible ?? true, type: category.type || 'lanches' })} className="p-2 rounded-xl border border-white/20 hover:bg-white/10 transition-all text-blue-300"><Edit size={16} /></button>
                           <button
                             onClick={() => { setNewSubcategoryData({ categoryName: category.name, name: '' }); setIsAddSubcategoryModalOpen(true); }}
@@ -5724,6 +5736,44 @@ export default function Dashboard({
                   </div>
                 )}
               </div>
+
+              {/* Card: Taxa de Serviço */}
+              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm col-span-full md:col-span-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <Percent className="text-[#141414]" size={13} />
+                  <h3 className="font-serif italic text-sm leading-none flex-1">Taxa de Serviço</h3>
+                </div>
+                <p className="text-[8px] text-[#141414]/40 mb-2.5 leading-tight">
+                  Quando ativo, a taxa é exibida e contabilizada no comprovante de impressão da mesa.
+                </p>
+                <div className="rounded-xl border border-[#141414]/8 bg-[#fafafa] p-2.5 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[8px] font-bold leading-none">Gorjeta Garçons</p>
+                      <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">
+                        {pizzariaConfig.servicoGarcomAtivo ? 'Ativo — incluído no comprovante' : 'Inativo'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => updatePizzeriaConfig({ ...pizzariaConfig, servicoGarcomAtivo: !pizzariaConfig.servicoGarcomAtivo })}
+                      className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${pizzariaConfig.servicoGarcomAtivo ? 'bg-green-500' : 'bg-[#141414]/20'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${pizzariaConfig.servicoGarcomAtivo ? 'translate-x-4' : ''}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[7.5px] font-black uppercase opacity-40 shrink-0">Percentual</label>
+                    <input
+                      type="number" min="0" max="100" step="0.5"
+                      value={pizzariaConfig.taxaServico ?? 10}
+                      onChange={(e) => updatePizzeriaConfig({ ...pizzariaConfig, taxaServico: parseFloat(e.target.value) || 10 })}
+                      className="w-16 border-none rounded-lg py-1 px-2 font-bold text-[10px] bg-[#141414]/5 outline-none focus:ring-1 focus:ring-[#141414]"
+                    />
+                    <span className="text-[8px] opacity-40">%</span>
+                  </div>
+                </div>
+              </div>
+
               </div>
               )}
 
@@ -8496,6 +8546,26 @@ export default function Dashboard({
                     +
                   </button>
                 </div>
+
+                {(() => {
+                  const selCat = menu.find((c: any) =>
+                    c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name)
+                  );
+                  if (!selCat?.mostrarOpcionalMilhoCebola) return null;
+                  return (
+                    <div className="space-y-2">
+                      <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Ingredientes</label>
+                      <div className="flex flex-col gap-2">
+                        {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => (
+                          <label key={opt} className="flex items-center gap-2.5 cursor-pointer">
+                            <input type="checkbox" className="w-4 h-4 accent-[#141414]" checked={lancheSemOpcoes.includes(opt)} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
+                            <span className="text-sm font-semibold">{opt}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
