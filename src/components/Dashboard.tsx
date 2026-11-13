@@ -3234,7 +3234,7 @@ export default function Dashboard({
               exit={{ opacity: 0, y: -10 }}
               className="flex-1 min-h-0 pt-2 lg:pt-4"
             >
-              <section className="grid grid-cols-1 md:grid-cols-5 gap-4 h-full">
+              <section className="grid grid-cols-1 md:grid-cols-5 md:grid-rows-1 gap-4 h-full">
                 {/* Column 1 (Left): Tables/Comandas & Recent Orders */}
                 <div className="md:col-span-2 md:col-start-1 md:row-start-1 h-full flex flex-col min-h-0 space-y-3 order-2 md:order-1">
                   <div className="flex items-center space-x-2 shrink-0">
