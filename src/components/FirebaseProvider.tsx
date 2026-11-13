@@ -88,7 +88,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [shiftStartedAt, setShiftStartedAt] = useState<string>(cached?.shiftStartedAt ?? new Date().toISOString());
   // clockOffset: ms difference (client - server). Use Date.now() - clockOffset for server-aligned time.
   const [clockOffset, setClockOffset] = useState<number>(0);
-  const [activeCashRegisterName, setActiveCashRegisterName] = useState<string | null>(null);
+  const [activeCashRegisterName, setActiveCashRegisterName] = useState<string | null>(() => {
+    try { return localStorage.getItem('activeCashRegisterName'); } catch { return null; }
+  });
 
   const updateTableStatusLocal = (id: number, isComanda: boolean, status: string) => {
     if (isComanda) {
@@ -106,9 +108,12 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     const handleUpdateComandas = (data: Table[]) => setComandas(data);
     const handleUpdateCashRegister = (isOpen: boolean) => {
       setIsCashRegisterOpen(isOpen);
-      if (!isOpen) setActiveCashRegisterName(null);
+      if (!isOpen) { setActiveCashRegisterName(null); try { localStorage.removeItem('activeCashRegisterName'); } catch {} }
     };
-    const handleUpdateMyCashRegisterName = (name: string | null) => setActiveCashRegisterName(name);
+    const handleUpdateMyCashRegisterName = (name: string | null) => {
+      setActiveCashRegisterName(name);
+      try { name ? localStorage.setItem('activeCashRegisterName', name) : localStorage.removeItem('activeCashRegisterName'); } catch {}
+    };
     const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
     const handleUpdateShiftStartedAt = (ts: string) => setShiftStartedAt(ts);
     const handleUpdateMenu = (data: MenuCategory[]) => {
@@ -243,7 +248,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const toggleCashRegister = (open: boolean, cashRegisterName?: string) => {
     socket.emit('toggle_cash_register', cashRegisterName !== undefined ? { isOpen: open, cashRegisterName } : open);
     setIsCashRegisterOpen(open);
-    if (!open) setActiveCashRegisterName(null);
+    if (!open) {
+      setActiveCashRegisterName(null);
+      try { localStorage.removeItem('activeCashRegisterName'); } catch {}
+    }
   };
 
   return (
