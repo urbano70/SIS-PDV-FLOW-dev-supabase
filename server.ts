@@ -3022,6 +3022,7 @@ async function startServer() {
 
     // Montar pagamento
     const tPag = T_PAG[pagamento] || T_PAG.outros;
+    console.log(`[NFC-e] orderId=${orderId} pagamento_recebido="${pagamento}" → tPag="${tPag}"`);
     const pagamentos: PagamentoNota[] = [{ tPag, vPag: total }];
 
     // Montar emitente
