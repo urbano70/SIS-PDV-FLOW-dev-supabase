@@ -2557,6 +2557,12 @@ export default function Dashboard({
   };
 
   const getTableItemTypes = (id: number, isComanda: boolean): { hasLanche: boolean; hasPizza: boolean; hasPorcao: boolean; hasLaCarte: boolean } => {
+    const empty = { hasLanche: false, hasPizza: false, hasPorcao: false, hasLaCarte: false };
+    // Mesa livre sem currentOrder = nenhum pedido ativo, não exibir ícones
+    if (!isComanda) {
+      const tbl = tables.find((t: any) => t.id === id);
+      if (tbl && tbl.status === 'free' && !tbl.currentOrder) return empty;
+    }
     const tableOrders = orders.filter((o: any) =>
       String(o.tableId) === String(id) &&
       !!o.isComanda === isComanda &&
