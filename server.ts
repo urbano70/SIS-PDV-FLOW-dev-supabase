@@ -2917,6 +2917,20 @@ async function startServer() {
     const cfg: FiscalConfig = req.body;
     if (!cfg.cnpj || !cfg.razaoSocial) return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
 
+    // Preservar campos do certificado já gravados no banco caso não venha novo certificado
+    // (cliente nunca recebe pfxEncrypted/senhaCifrada no GET — sem isso o upsert apagaria o cert)
+    const { data: existingRow } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+    const existingCfg: any = existingRow?.data ?? {};
+    if (!cfg.certificadoA1Base64) {
+      if (existingCfg.pfxEncrypted) cfg.pfxEncrypted = existingCfg.pfxEncrypted;
+      if (existingCfg.senhaCifrada) cfg.senhaCifrada = existingCfg.senhaCifrada;
+      if (existingCfg.certificadoA1Base64) cfg.certificadoA1Base64 = existingCfg.certificadoA1Base64;
+      if (existingCfg.certificadoSenha) cfg.certificadoSenha = existingCfg.certificadoSenha;
+      if (!cfg.certificadoValidadeFim && existingCfg.certificadoValidadeFim) cfg.certificadoValidadeFim = existingCfg.certificadoValidadeFim;
+      if (!cfg.certificadoTitular && existingCfg.certificadoTitular) cfg.certificadoTitular = existingCfg.certificadoTitular;
+      if (!cfg.certificadoFingerprint && existingCfg.certificadoFingerprint) cfg.certificadoFingerprint = existingCfg.certificadoFingerprint;
+    }
+
     // Validar e carregar certificado A1 se fornecido
     if (cfg.certificadoA1Base64 && cfg.certificadoSenha) {
       try {
@@ -2944,10 +2958,11 @@ async function startServer() {
     await db.from('config').upsert({ id: `${tenantId}:fiscal`, data: cfg, tenant_id: tenantId });
     const st = tenants.get(tenantId);
     if (st) st.fiscalConfig = cfg;
+    const certLoaded = !!(getCertificado(tenantId) ?? (cfg.pfxEncrypted || cfg.certificadoA1Base64));
     io.to('tenant:' + tenantId).emit('update_fiscal_config', {
-      ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined,
+      ...cfg, certificadoA1Base64: undefined, certificadoSenha: undefined, pfxEncrypted: undefined, senhaCifrada: undefined,
     });
-    return res.json({ ok: true, certificadoCarregado: !!cfg.certificadoA1Base64 });
+    return res.json({ ok: true, certificadoCarregado: certLoaded });
   });
 
   // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ (NFC-e e NF-e)
