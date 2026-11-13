@@ -2961,7 +2961,7 @@ export default function Dashboard({
       </motion.div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden p-4 lg:p-6 pb-14 bg-[#F5F5F3] flex flex-col">
+      <main className="flex-1 h-screen overflow-hidden p-4 lg:p-6 pb-14 bg-[#F5F5F3] flex flex-col">
         <div className="flex items-center gap-2 mb-4 shrink-0 min-w-0">
           <button
             onClick={() => setIsSidebarOpen(true)}
@@ -5493,7 +5493,7 @@ export default function Dashboard({
               exit={{ opacity: 0, y: -20 }}
               className="flex-1 min-h-0"
             >
-              <div className="h-full overflow-y-auto">
+              <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
               <div className="pt-2 pb-10">
               <header className="flex items-center justify-between mb-4">
                 <div>
