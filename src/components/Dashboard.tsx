@@ -368,7 +368,9 @@ const OrderDetails = ({
 
   const activeOrder = React.useMemo(() => {
     if (!targetId) return null;
-    
+    // Mesa livre = sem pedido ativo, independente do estado dos pedidos
+    if (!isComandaSelected && currentItem?.status === 'free') return null;
+
     // First try to find by currentOrder ID if the table/comanda points to one
     if (currentItem?.currentOrder) {
       const orderById = orders.find((o: any) => 
@@ -8117,7 +8119,8 @@ export default function Dashboard({
                   const tableHistory = orders.filter(o =>
                     String(o.tableId) === String(targetId) &&
                     o.isComanda === isComandaSelected &&
-                    o.timestamp && o.timestamp.startsWith(today)
+                    o.timestamp && o.timestamp.startsWith(today) &&
+                    o.status === 'finalizada'
                   ).reverse();
 
                   if (tableHistory.length === 0) {
@@ -8226,7 +8229,7 @@ export default function Dashboard({
                           <span className={`px-2 py-1 rounded-full text-[8px] uppercase font-bold ${
                             order.status === 'finalizada' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                           }`}>
-                            {order.status}
+                            {order.status === 'finalizada' ? 'Finalizada' : order.status === 'pending' ? 'Aberto' : order.status === 'preparing' ? 'Preparo' : order.status}
                           </span>
                         </div>
                       </div>
