@@ -2954,7 +2954,7 @@ async function startServer() {
   // POST /api/fiscal/nfce/:orderId
   app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
     const { orderId } = req.params;
-    const { tenantId, pagamento, cpfConsumidor } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string };
+    const { tenantId, pagamento, cpfConsumidor, consolidarItem } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string } };
 
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
 
@@ -3017,9 +3017,29 @@ async function startServer() {
     await sincronizarContador(tenantId, '65', serie, ambiente, highWaterMark, db ?? null);
 
     // Montar itens
-    const items: ItemNota[] = (order.items || [])
-      .filter((i: any) => !i.removed)
-      .map((i: any, idx: number) => ({
+    const orderItemsRaw = (order.items || []).filter((i: any) => !i.removed);
+    if (orderItemsRaw.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
+    const orderTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+
+    let items: ItemNota[];
+    if (consolidarItem?.id) {
+      items = [{
+        seq: 1,
+        codigo: '100',
+        descricao: (consolidarItem.name || 'Refeição').substring(0, 120),
+        ncm: consolidarItem.ncm || '21069090',
+        cfop: consolidarItem.cfop || '5102',
+        csosn: consolidarItem.csosn || '400',
+        cst: consolidarItem.cst,
+        unidade: consolidarItem.unidade || 'UN',
+        origem: '0',
+        quantidade: 1,
+        valorUnitario: orderTotal,
+        valorTotal: orderTotal,
+        piscofins: { cst: '07' },
+      }];
+    } else {
+      items = orderItemsRaw.map((i: any, idx: number) => ({
         seq: idx + 1,
         codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
@@ -3035,8 +3055,7 @@ async function startServer() {
         piscofins: { cst: i.pisCofinsCst || '07' },
         gtin: i.gtin || undefined,
       }));
-
-    if (items.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
+    }
     const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
     // Montar pagamento
