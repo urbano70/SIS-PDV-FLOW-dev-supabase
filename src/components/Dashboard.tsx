@@ -5491,9 +5491,9 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="flex-1 min-h-0"
+              className="overflow-y-auto"
+              style={{ height: 'calc(100dvh - 160px)' }}
             >
-              <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
               <div className="pt-2 pb-10">
               <header className="flex items-center justify-between mb-4">
                 <div>
@@ -5523,7 +5523,7 @@ export default function Dashboard({
 
               {/* ── Aba: Salão ── */}
               {settingsTab === 'salon' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4 items-start">
 
               {/* Card: Estrutura do Salão — movido para o topo do grid */}
               <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
@@ -5903,7 +5903,7 @@ export default function Dashboard({
 
               {/* ── Aba: Impressão ── */}
               {settingsTab === 'print' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4 items-start">
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
                 <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
@@ -6917,7 +6917,6 @@ export default function Dashboard({
               </div>
               )}
 
-              </div>
               </div>
               </motion.div>
             )}
