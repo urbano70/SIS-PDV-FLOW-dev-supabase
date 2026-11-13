@@ -52,7 +52,7 @@ export interface PizzeriaConfig {
   maxWaiters?: number;
   waiterCanCancelItem?: boolean;
   clientSessionTimeoutMin?: number;
-  cashRegisters?: { id: string; name: string }[];
+  cashRegisters?: { id: string; name: string; password?: string }[];
 }
 
 export interface Order {
