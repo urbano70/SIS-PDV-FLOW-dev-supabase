@@ -114,6 +114,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       setActiveCashRegisterName(name);
       try { name ? localStorage.setItem('activeCashRegisterName', name) : localStorage.removeItem('activeCashRegisterName'); } catch {}
     };
+    const handleRelayPrintJob = ({ ip, port, localName, data }: { ip?: string; port?: number; localName?: string; data: number[] }) => {
+      socket.emit('print_escpos', { ip, port, localName, data });
+    };
     const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
     const handleUpdateShiftStartedAt = (ts: string) => setShiftStartedAt(ts);
     const handleUpdateMenu = (data: MenuCategory[]) => {
@@ -165,6 +168,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('update_stock', handleUpdateStock);
     socket.on('update_stock_log', handleUpdateStockLog);
     socket.on('update_waiters', handleUpdateWaiters);
+    socket.on('relay_print_job', handleRelayPrintJob);
 
     // Request init data immediately — no need to wait for auth
     socket.emit('request_init_data');
@@ -229,6 +233,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('update_stock', handleUpdateStock);
       socket.off('update_stock_log', handleUpdateStockLog);
       socket.off('update_waiters', handleUpdateWaiters);
+      socket.off('relay_print_job', handleRelayPrintJob);
       socket.off('connect', handleReconnect);
     });
 

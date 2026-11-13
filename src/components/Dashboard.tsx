@@ -343,6 +343,8 @@ const OrderDetails = ({
   firstSeenRef,
   fiscalConfig,
   onOpenNfce,
+  tenantId,
+  setFiscalNotes,
 }: any) => {
   const { clockOffset, data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
@@ -396,6 +398,11 @@ const OrderDetails = ({
   const waiter = waiters.find((w: any) => String(w.id) === String(activeOrder?.waiterId));
   const hasItems = activeOrder && activeOrder.items && activeOrder.items.filter((i: any) => !i.removed).length > 0;
   const allItemsRemoved = activeOrder && activeOrder.items && activeOrder.items.length > 0 && activeOrder.items.every((i: any) => i.removed || i.paid) && activeOrder.status !== 'finalizada';
+
+  const emitPrint = (payload: { ip?: string; port?: number; localName?: string; data: number[] }) => {
+    const target = (printerConfig as any).targetPrintCaixa;
+    socket.emit('print_escpos', { ...payload, ...(target && target !== 'local' ? { targetCaixaId: target } : {}) });
+  };
 
   const pendingAmount = React.useMemo(() => {
     if (!activeOrder || !activeOrder.items) return 0;
@@ -536,9 +543,9 @@ const OrderDetails = ({
                 push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
 
                 if (printer.ip) {
-                  socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                  emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
                 } else {
-                  socket.emit('print_escpos', { localName: printer.name, data: b });
+                  emitPrint({ localName: printer.name, data: b });
                 }
                 toast.success(`Resumo enviado para ${receiptPrinterName}`, { description: `${tableType} ${tableId} · R$ ${total.toFixed(2)}` });
               } else {
@@ -1308,6 +1315,7 @@ export default function Dashboard({
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
+  const [activeCaixas, setActiveCaixas] = useState<string[]>([]);
 
   const handleFixTables = async () => {
     try {
@@ -1463,11 +1471,11 @@ export default function Dashboard({
 
     if (printer.ip) {
       // Impressora de rede (IP conhecido) — TCP direto é mais confiável que o spooler do Windows
-      socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+      emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
       toast.success(`Teste enviado para ${printerName}`, { description: `TCP: ${printer.ip}:${printer.port || 9100}` });
     } else if (printer.localName) {
       // Impressora local (USB) descoberta via Windows — usa spooler
-      socket.emit('print_escpos', { localName: printer.localName, data: b });
+      emitPrint({ localName: printer.localName, data: b });
       toast.success(`Teste enviado para ${printerName}`, { description: `Spooler Windows: ${printer.localName}` });
     } else {
       toast.error('Configure o IP ou recadastre a impressora via busca.');
@@ -1776,9 +1784,9 @@ export default function Dashboard({
         // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
         const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth);
         if (printer.ip) {
-          socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data });
+          emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
         } else {
-          socket.emit('print_escpos', { localName: printer.name, data });
+          emitPrint({ localName: printer.name, data });
         }
       } else {
         // ── Fallback: diálogo de impressão do navegador ──────────────────────
@@ -1908,6 +1916,7 @@ export default function Dashboard({
       setCashRegReportList(data);
       setCashRegReportLoading(false);
     };
+    const handleActiveCaixas = (list: string[]) => setActiveCaixas(list);
     socket.on('printer_agent_status', handleAgentStatus);
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
@@ -1915,6 +1924,7 @@ export default function Dashboard({
     socket.on('printer_agent_pairing_available', handlePairingAvailable);
     socket.on('connect', handleReconnect);
     socket.on('cash_register_reports_response', handleCashRegReports);
+    socket.on('active_caixas', handleActiveCaixas);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1923,6 +1933,7 @@ export default function Dashboard({
       socket.off('printer_agent_pairing_available', handlePairingAvailable);
       socket.off('connect', handleReconnect);
       socket.off('cash_register_reports_response', handleCashRegReports);
+      socket.off('active_caixas', handleActiveCaixas);
     };
   }, []);
 
@@ -2125,9 +2136,9 @@ export default function Dashboard({
 
     if (printer) {
       if (printer.ip) {
-        socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+        emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
       } else {
-        socket.emit('print_escpos', { localName: printer.name, data: b });
+        emitPrint({ localName: printer.name, data: b });
       }
       toast.success('Relatório de caixa enviado para impressão');
     } else {
@@ -2187,6 +2198,11 @@ export default function Dashboard({
         pw.document.close();
       }
     }
+  };
+
+  const emitPrint = (payload: { ip?: string; port?: number; localName?: string; data: number[] }) => {
+    const target = printerConfig.targetPrintCaixa;
+    socket.emit('print_escpos', { ...payload, ...(target && target !== 'local' ? { targetCaixaId: target } : {}) });
   };
 
   const printReceiptToPrinter = (orderId: number | string, amount: number) => {
@@ -3622,6 +3638,8 @@ export default function Dashboard({
                           firstSeenRef={firstSeenRef}
                           fiscalConfig={fiscalConfig}
                           onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); const _ord = orders.find((o: any) => String(o.id) === String(orderId)); const _log = _ord?.paymentLog || []; const _pm = mapPaymentMethod(_log[_log.length - 1]?.method) || lastPaymentMethod; setNfcePagamento(_pm); setNfceModal({ orderId, total }); }}
+                          tenantId={tenantId}
+                          setFiscalNotes={setFiscalNotes}
                         />
                       </motion.div>
                     )}
@@ -5481,8 +5499,8 @@ export default function Dashboard({
                                   pu(0x0a,0x0a,0x0a,GS,0x56,0x41,0x10);
 
                                   if (printer) {
-                                    if (printer.ip) socket.emit('print_escpos', { ip: printer.ip, port: printer.port||9100, data: by });
-                                    else socket.emit('print_escpos', { localName: printer.name, data: by });
+                                    if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port||9100, data: by });
+                                    else emitPrint({ localName: printer.name, data: by });
                                   } else {
                                     const sep='='.repeat(42); const dash='-'.repeat(42);
                                     const rows: string[]=[]; const add=(s='')=>rows.push(s);
@@ -6220,6 +6238,36 @@ export default function Dashboard({
                         </div>
                       ))}
                     </div>
+                  </div>
+
+                  {/* ── Passo 4: Destino de impressão ── */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">④ Destino de impressão</p>
+                        <p className="text-[7px] opacity-35 mt-0.5">Enviar impressões deste navegador para outro caixa ativo na rede.</p>
+                      </div>
+                      <button
+                        onClick={() => { setActiveCaixas([]); socket.emit('get_active_caixas'); }}
+                        className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-[#141414]/15 text-[7px] font-bold hover:bg-[#141414]/5 transition-colors"
+                        title="Atualizar lista de caixas ativos"
+                      >
+                        <RefreshCcw size={9} /> Atualizar
+                      </button>
+                    </div>
+                    <select
+                      value={(printerConfig as any).targetPrintCaixa || 'local'}
+                      onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, targetPrintCaixa: v })); }}
+                      className="w-full bg-white border border-[#141414]/10 rounded-lg py-1.5 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                    >
+                      <option value="local">— Este computador (padrão) —</option>
+                      {activeCaixas.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                    </select>
+                    {activeCaixas.length === 0 && (
+                      <p className="text-[7px] opacity-35 text-center">Clique em "Atualizar" para ver os caixas abertos.</p>
+                    )}
                   </div>
 
                   <button onClick={handleSavePrinters}
@@ -8002,9 +8050,9 @@ export default function Dashboard({
                       if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
                       push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10);
                       if (printer.ip) {
-                        socket.emit('print_escpos', { ip: printer.ip, port: printer.port || 9100, data: b });
+                        emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
                       } else {
-                        socket.emit('print_escpos', { localName: printer.name, data: b });
+                        emitPrint({ localName: printer.name, data: b });
                       }
                       toast.success('Reimpressão enviada', { description: `Pedido #${order.id} · ${tableType} ${tid}` });
                     } else {
