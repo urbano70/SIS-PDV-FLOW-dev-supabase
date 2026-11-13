@@ -3,7 +3,7 @@ import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { supabase } from '../lib/supabase';
-import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, Plus, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload, Percent } from 'lucide-react';
+import { LayoutDashboard, Users, ChefHat, ShoppingCart, CheckCircle, XCircle, Package, AlertTriangle, Wallet, FileText, Settings, Printer, Calendar, Download, Wifi, Menu, X, Plus, PlusCircle, Trash2, Search, Pizza, Beer, Sandwich, Salad, Soup, Clock, Edit, Save, Link as LinkIcon, History, BarChart3, PieChart, TrendingUp, ListPlus, ArrowLeft, RefreshCcw, Lock, Database, Monitor, LogOut, CreditCard, MessageSquare, Eye, EyeOff, ChevronDown, ChevronRight, UserPlus, Bell, BellRing, Smartphone, QrCode, Upload, Percent, Receipt } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import PaymentModal from './PaymentModal';
 import { ReservationButton } from './reservation/ReservationButton';
@@ -1939,6 +1939,7 @@ export default function Dashboard({
             ...prev.filter((n: any) => !(String(n.order_id) === String(data.orderId) && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')),
             { order_id: String(data.orderId), chave_acesso: data.chaveAcesso, status: data.status, modelo: '65', qr_code: data.qrCode, protocolo: data.protocolo },
           ]);
+          autoPrintNfce(data.chaveAcesso);
         }
       } else if (data.status === 'REJEITADO') {
         toast.error(`NFC-e rejeitada: cStat ${data.cStat} — ${data.xMotivo || data.error || ''}`);
@@ -2260,6 +2261,11 @@ export default function Dashboard({
     return 'outros';
   };
 
+  const autoPrintNfce = (chaveAcesso: string) => {
+    if (!tenantId || !(printerConfig as any).fiscal || !(printerConfig as any).autoPrintFiscal) return;
+    window.open(`/danfe/nfce/${chaveAcesso}?tenant=${encodeURIComponent(tenantId)}&autoprint=1`, '_blank');
+  };
+
   const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any) => {
     if (!tenantId) return;
     const isAsync = !!(fiscalConfig as any)?.emissaoAssincrona;
@@ -2285,9 +2291,9 @@ export default function Dashboard({
         setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')), { order_id: String(orderId), chave_acesso: null, status: 'PENDENTE_TRANSMISSAO', modelo: '65' }]);
       } else if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
         toast.success(`NFC-e autorizada pela SEFAZ! (cStat ${d.cStat})`);
-        // Atualiza fiscalNotes para refletir imediatamente no histórico
         if (d.chaveAcesso) {
           setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65')), { order_id: String(orderId), chave_acesso: d.chaveAcesso, status: d.status, modelo: '65' }]);
+          autoPrintNfce(d.chaveAcesso);
         }
       } else {
         toast.error(`NFC-e rejeitada: cStat ${d.cStat} — ${d.xMotivo || d.error || ''}`);
@@ -6299,6 +6305,7 @@ export default function Dashboard({
                         { key: 'drinks',   autoKey: 'autoPrintDrinks',   pwKey: 'drinksPaperWidth',  label: 'Bebidas',  icon: <Beer size={10} /> },
                         { key: 'kitchen',  autoKey: 'autoPrintKitchen',  pwKey: 'kitchenPaperWidth', label: 'Lanches',  icon: <ChefHat size={10} /> },
                         { key: 'receipts', autoKey: 'autoPrintReceipts', pwKey: null,                label: 'Recibos',  icon: <FileText size={10} /> },
+                        { key: 'fiscal',   autoKey: 'autoPrintFiscal',   pwKey: null,                label: 'Notas Fiscais (NFC-e)', icon: <Receipt size={10} /> },
                       ] as const).map(({ key, autoKey, pwKey, label, icon }) => (
                         <div key={key} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
                           <div className="flex items-center gap-2 mb-1.5">
@@ -7443,6 +7450,7 @@ export default function Dashboard({
                       { key: 'drinks',   label: 'Bebidas',  icon: <Beer size={14} />, desc: 'Via do bar / copa' },
                       { key: 'kitchen',  label: 'Lanches',  icon: <ChefHat size={14} />, desc: 'Via da lanchonete' },
                       { key: 'receipts', label: 'Recibos / Caixa', icon: <FileText size={14} />, desc: 'Comprovante de pagamento' },
+                      { key: 'fiscal',   label: 'Notas Fiscais (NFC-e)', icon: <Receipt size={14} />, desc: 'DANFE impresso após autorização' },
                     ] as const).map(({ key, label, icon, desc }) => {
                       const current = (printerConfig as any)[key];
                       const isSet = current === scanAssigning.name;
@@ -10813,6 +10821,7 @@ export default function Dashboard({
                             if (data.chaveAcesso && nfceModal?.orderId != null) {
                               const _oid = String(nfceModal.orderId);
                               setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === _oid && n.modelo === '65')), { order_id: _oid, chave_acesso: data.chaveAcesso, status: data.status, modelo: '65' }]);
+                              autoPrintNfce(data.chaveAcesso);
                             }
                           } else if (data.status === 'EPEC_AUTORIZADO') {
                             toast.success('EPEC autorizado pelo SVC-RS!');

@@ -10,6 +10,7 @@ export default function DanfePage() {
   const { chaveAcesso } = useParams<{ chaveAcesso: string }>();
   const [searchParams] = useSearchParams();
   const tenantId = searchParams.get('tenant') ?? '';
+  const autoprint = searchParams.get('autoprint') === '1';
   const printRef = useRef<HTMLDivElement>(null);
 
   const [dados, setDados] = useState<DadosDanfe | null>(null);
@@ -31,6 +32,10 @@ export default function DanfePage() {
       .catch(e => setErro(e.message ?? 'Erro ao carregar DANFE'))
       .finally(() => setCarregando(false));
   }, [chaveAcesso, tenantId]);
+
+  useEffect(() => {
+    if (dados && autoprint) window.print();
+  }, [dados, autoprint]);
 
   const handlePrint = () => window.print();
 
