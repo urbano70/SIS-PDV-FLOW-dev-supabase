@@ -658,7 +658,7 @@ const OrderDetails = ({
           </div>
           <div className="flex flex-col items-end space-y-2">
             <button
-              onClick={() => setIsHistoryModalOpen(true)}
+              onClick={() => { setIsHistoryModalOpen(true); if (tenantId) fetch(`/api/fiscal/notes/${tenantId}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }); }}
               className={`transition-opacity ${hasHistory ? 'text-green-600 opacity-100 hover:opacity-80' : 'text-[#141414] opacity-30 hover:opacity-100'}`}
               title="Histórico de Vendas"
             >
@@ -2223,6 +2223,10 @@ export default function Dashboard({
       if (!r.ok) throw new Error(d.error || 'Erro ao emitir');
       if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
         toast.success(`NFC-e autorizada pela SEFAZ! (cStat ${d.cStat})`);
+        // Atualiza fiscalNotes para refletir imediatamente no histórico
+        if (d.chaveAcesso) {
+          setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65')), { order_id: String(orderId), chave_acesso: d.chaveAcesso, status: d.status, modelo: '65' }]);
+        }
       } else {
         toast.error(`NFC-e rejeitada: cStat ${d.cStat} — ${d.xMotivo || d.error || ''}`);
       }
@@ -10530,6 +10534,10 @@ export default function Dashboard({
                           setNfceResult(data);
                           if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
                             toast.success('Documento autorizado pela SEFAZ!');
+                            if (data.chaveAcesso && nfceModal?.orderId != null) {
+                              const _oid = String(nfceModal.orderId);
+                              setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === _oid && n.modelo === '65')), { order_id: _oid, chave_acesso: data.chaveAcesso, status: data.status, modelo: '65' }]);
+                            }
                           } else if (data.status === 'EPEC_AUTORIZADO') {
                             toast.success('EPEC autorizado pelo SVC-RS!');
                           } else if (data.status === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') {
