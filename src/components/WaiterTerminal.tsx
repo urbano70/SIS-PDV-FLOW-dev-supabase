@@ -534,7 +534,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const qty = itemQuantity || 1;
     const itemWithDetails = {
       ...selectedPizzaItem,
-      price: unitPrice * qty,
+      price: unitPrice,
       quantity: qty,
       name: `${selectedPizzaItem.name} (${flavorNames})${selectedCrusts.length > 0 ? ` + Borda ${selectedCrusts.join(' / ')}` : ''}`,
       type: 'pizzas',
