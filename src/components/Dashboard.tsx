@@ -1928,6 +1928,20 @@ export default function Dashboard({
     const handleCashRegConflict = (data: { cashRegisterName: string }) => {
       setCashRegisterConflict({ cashRegisterName: data.cashRegisterName, password: pendingPickerPasswordRef.current });
     };
+    const handleFiscalNoteEmitted = (data: { orderId: string | number; status: string; chaveAcesso?: string; qrCode?: string; protocolo?: string; cStat?: string; xMotivo?: string; urlDanfe?: string; intencaoId?: string; error?: string }) => {
+      if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
+        toast.success(`NFC-e autorizada pela SEFAZ! (cStat ${data.cStat})`);
+        if (data.chaveAcesso) {
+          setFiscalNotes((prev: any[]) => [
+            ...prev.filter((n: any) => !(String(n.order_id) === String(data.orderId) && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')),
+            { order_id: String(data.orderId), chave_acesso: data.chaveAcesso, status: data.status, modelo: '65', qr_code: data.qrCode, protocolo: data.protocolo },
+          ]);
+        }
+      } else if (data.status === 'REJEITADO') {
+        toast.error(`NFC-e rejeitada: cStat ${data.cStat} — ${data.xMotivo || data.error || ''}`);
+        setFiscalNotes((prev: any[]) => prev.filter((n: any) => !(String(n.order_id) === String(data.orderId) && n.status === 'PENDENTE_TRANSMISSAO')));
+      }
+    };
     socket.on('printer_agent_status', handleAgentStatus);
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
@@ -1937,6 +1951,7 @@ export default function Dashboard({
     socket.on('cash_register_reports_response', handleCashRegReports);
     socket.on('active_caixas', handleActiveCaixas);
     socket.on('cash_register_conflict', handleCashRegConflict);
+    socket.on('fiscal_note_emitted', handleFiscalNoteEmitted);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1947,6 +1962,7 @@ export default function Dashboard({
       socket.off('cash_register_reports_response', handleCashRegReports);
       socket.off('active_caixas', handleActiveCaixas);
       socket.off('cash_register_conflict', handleCashRegConflict);
+      socket.off('fiscal_note_emitted', handleFiscalNoteEmitted);
     };
   }, []);
 
@@ -2243,14 +2259,18 @@ export default function Dashboard({
 
   const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any) => {
     if (!tenantId) return;
+    const isAsync = !!(fiscalConfig as any)?.emissaoAssincrona;
     try {
       const r = await fetch(`/api/fiscal/nfce/${orderId}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined }),
+        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Erro ao emitir');
-      if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
+      if (d.status === 'PENDENTE_TRANSMISSAO') {
+        toast.info('NFC-e registrada — transmitindo para SEFAZ...');
+        setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')), { order_id: String(orderId), chave_acesso: null, status: 'PENDENTE_TRANSMISSAO', modelo: '65' }]);
+      } else if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
         toast.success(`NFC-e autorizada pela SEFAZ! (cStat ${d.cStat})`);
         // Atualiza fiscalNotes para refletir imediatamente no histórico
         if (d.chaveAcesso) {
@@ -6800,6 +6820,22 @@ export default function Dashboard({
                           <p className="text-[7px] text-[#141414]/40 mt-1">Requer configuração fiscal salva e certificado ativo no servidor.</p>
                         </div>
 
+                        {/* Emissão Assíncrona */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[8px] font-bold text-[#141414]">Emissão Assíncrona</p>
+                              <p className="text-[7px] text-[#141414]/40 mt-0.5 leading-tight">Responde imediatamente "registrada" e transmite para SEFAZ em segundo plano. Elimina a espera de 2-3s.</p>
+                            </div>
+                            <button
+                              onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), emissaoAssincrona: !(prev?.emissaoAssincrona) }))}
+                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${cfg.emissaoAssincrona ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
+                            >
+                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${cfg.emissaoAssincrona ? 'translate-x-4' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+
                         {/* Item Consolidado */}
                         <div className="border-t border-[#141414]/10 pt-2">
                           <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1">Item Consolidado</p>
@@ -10612,6 +10648,7 @@ export default function Dashboard({
                         RETORNO_NAO_CLASSIFICADO: '⚠ Retorno não classificado',
                         EPEC_AUTORIZADO: '✓ EPEC autorizado — NF-e pendente transmissão',
                         CONTINGENCIA_PENDENTE_TRANSMISSAO: '✓ Offline gerada — pendente transmissão',
+                        PENDENTE_TRANSMISSAO: '⏳ Aguardando autorização SEFAZ...',
                       };
                       return (
                         <>
@@ -10712,7 +10749,7 @@ export default function Dashboard({
                           let body: object;
                           if (nfceContingenciaMode === 'normal') {
                             endpoint = `/api/fiscal/nfce/${orderId}`;
-                            body = { tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined, consolidarItem: nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined };
+                            body = { tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined, consolidarItem: nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined, asyncMode: !!(fiscalConfig as any)?.emissaoAssincrona };
                           } else if (nfceContingenciaMode === 'offline') {
                             endpoint = `/api/fiscal/nfce-offline/${orderId}`;
                             body = { tenantId, dhCont: nfceDhCont, xJust: nfceXJust };
@@ -10727,7 +10764,13 @@ export default function Dashboard({
                           const data = await res.json();
                           if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir');
                           setNfceResult(data);
-                          if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
+                          if (data.status === 'PENDENTE_TRANSMISSAO') {
+                            toast.info('NFC-e registrada — transmitindo para SEFAZ...');
+                            if (nfceModal?.orderId != null) {
+                              const _oid = String(nfceModal.orderId);
+                              setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === _oid && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')), { order_id: _oid, chave_acesso: null, status: 'PENDENTE_TRANSMISSAO', modelo: '65' }]);
+                            }
+                          } else if (data.status === 'AUTORIZADO' || data.status === 'AUTORIZADO_COM_ALERTA') {
                             toast.success('Documento autorizado pela SEFAZ!');
                             if (data.chaveAcesso && nfceModal?.orderId != null) {
                               const _oid = String(nfceModal.orderId);
