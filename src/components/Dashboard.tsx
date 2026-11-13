@@ -3546,7 +3546,7 @@ export default function Dashboard({
                           printerConfig={printerConfig}
                           firstSeenRef={firstSeenRef}
                           fiscalConfig={fiscalConfig}
-                          onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); setNfcePagamento(lastPaymentMethod); setNfceModal({ orderId, total }); }}
+                          onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); const _ord = orders.find((o: any) => String(o.id) === String(orderId)); const _pm = mapPaymentMethod((_ord?.paymentLog || [])[0]?.method) || lastPaymentMethod; setNfcePagamento(_pm); setNfceModal({ orderId, total }); }}
                         />
                       </motion.div>
                     )}
