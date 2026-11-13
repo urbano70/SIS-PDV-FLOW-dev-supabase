@@ -3109,7 +3109,7 @@ async function startServer() {
         qrCode: result.qrCode, protocolo: result.protocolo,
         cStat: result.cStat, xMotivo: result.xMotivo, urlDanfe,
       });
-      return res.json({ ...result, intencaoId: intencao.id, urlDanfe });
+      return res.json({ ...result, intencaoId: intencao.id, urlDanfe, _debug: { pagamento, tPag } });
 
     } catch (err: any) {
       const errMsg = err.message || 'Erro desconhecido';

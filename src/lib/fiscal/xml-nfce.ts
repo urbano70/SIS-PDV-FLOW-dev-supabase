@@ -88,7 +88,7 @@ function xmlPagamentos(pags: PagamentoNota[], total: number, troco = 0): string 
     `<tPag>${p.tPag}</tPag>` +
     `<vPag>${dec(p.vPag, 2)}</vPag>` +
     (p.tPag === '99' ? `<xPag>${(p.xPag ?? 'OUTROS').substring(0, 60)}</xPag>` : '') +
-    (['03', '04'].includes(p.tPag)
+    (['03', '04', '17'].includes(p.tPag)
       ? `<card>` +
         `<tpIntegra>${p.tpIntegra ?? '2'}</tpIntegra>` +
         (p.CNPJReceb ? `<CNPJ>${p.CNPJReceb}</CNPJ>` : '') +
