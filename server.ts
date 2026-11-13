@@ -2974,7 +2974,7 @@ async function startServer() {
   // POST /api/fiscal/nfce/:orderId
   app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
     const { orderId } = req.params;
-    const { tenantId, pagamento, cpfConsumidor, consolidarItem } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string } };
+    const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean };
 
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
 
@@ -3125,6 +3125,62 @@ async function startServer() {
       atualizadoEm: new Date().toISOString(),
       tentativas: [],
     };
+
+    if (asyncMode) {
+      if (db) {
+        await db.from('fiscal_notes').upsert({
+          id: intencao.id,
+          tenant_id: tenantId, order_id: String(orderId),
+          status: 'PENDENTE_TRANSMISSAO', modelo: '65',
+          serie, ambiente, total,
+          hash_payload: intencao.hashPayload,
+          intencao_json: intencao,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
+      }
+      res.json({ status: 'PENDENTE_TRANSMISSAO', intencaoId: intencao.id });
+
+      ;(async () => {
+        try {
+          const result = await autorizarNFCe(intencao, cert, highWaterMark, db ?? null);
+          const intencaoParaDanfe = { ...intencao, xmlAssinado: undefined, xmlProcNfe: undefined };
+          if (db) {
+            await db.from('fiscal_notes').update({
+              chave_acesso: result.chaveAcesso,
+              qr_code: result.qrCode,
+              status: result.status,
+              protocolo: result.protocolo,
+              cstat: result.cStat,
+              xmotivo: result.xMotivo,
+              numero: intencao.numero,
+              xml_assinado: intencao.xmlAssinado,
+              xml_proc_nfe: result.xmlProcNfe,
+              cpf_consumidor: cpfConsumidor || null,
+              intencao_json: intencaoParaDanfe,
+              updated_at: new Date().toISOString(),
+            }).eq('id', intencao.id);
+          }
+          const urlDanfe = `/danfe/nfce/${result.chaveAcesso}?tenant=${encodeURIComponent(tenantId)}`;
+          io.to('tenant:' + tenantId).emit('fiscal_note_emitted', {
+            orderId, status: result.status, chaveAcesso: result.chaveAcesso,
+            qrCode: result.qrCode, protocolo: result.protocolo,
+            cStat: result.cStat, xMotivo: result.xMotivo, urlDanfe, intencaoId: intencao.id,
+          });
+        } catch (err: any) {
+          const errMsg = (err as any).message || 'Erro desconhecido';
+          if (db) {
+            await db.from('fiscal_notes').update({
+              status: 'REJEITADO', error_detail: errMsg,
+              updated_at: new Date().toISOString(),
+            }).eq('id', intencao.id);
+          }
+          io.to('tenant:' + tenantId).emit('fiscal_note_emitted', {
+            orderId, status: 'REJEITADO', error: errMsg, intencaoId: intencao.id,
+          });
+        }
+      })();
+      return;
+    }
 
     // Persistir intenção antes de enviar
     if (db) {
