@@ -5491,8 +5491,9 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="flex-1 min-h-0 overflow-y-auto"
+              className="flex-1 min-h-0"
             >
+              <div className="h-full overflow-y-auto">
               <div className="pt-2 pb-10">
               <header className="flex items-center justify-between mb-4">
                 <div>
@@ -6916,6 +6917,7 @@ export default function Dashboard({
               </div>
               )}
 
+              </div>
               </div>
               </motion.div>
             )}
