@@ -1481,15 +1481,8 @@ async function startServer() {
       // Reduz estoque antes de emitir, para o cliente ver já o valor correto
       applyStockReduction(_st(), _tid(), itemsWithWaiter);
 
-      // Emit updates immediately for faster UI
+      // Emit orders update immediately; table update is emitted after status is set below
       io.to(_room()).emit("update_orders", _st().orders);
-      if (isComanda) {
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-      } else {
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-      }
       if ((newOrder.items || []).length > 0) {
         const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
