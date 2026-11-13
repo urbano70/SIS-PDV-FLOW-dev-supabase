@@ -368,8 +368,9 @@ const OrderDetails = ({
 
   const activeOrder = React.useMemo(() => {
     if (!targetId) return null;
-    // Mesa livre = sem pedido ativo, independente do estado dos pedidos
-    if (!isComandaSelected && currentItem?.status === 'free') return null;
+    // Mesa livre + sem currentOrder = definitivamente sem pedido ativo
+    // (não usar apenas status para evitar race condition ao adicionar itens)
+    if (!isComandaSelected && currentItem?.status === 'free' && !currentItem?.currentOrder) return null;
 
     // First try to find by currentOrder ID if the table/comanda points to one
     if (currentItem?.currentOrder) {
