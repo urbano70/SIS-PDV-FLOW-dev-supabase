@@ -10577,6 +10577,18 @@ export default function Dashboard({
                           <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
                           <input value={nfceCpf} onChange={e => setNfceCpf(e.target.value)} placeholder="000.000.000-00" className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
                         </div>
+                        {fiscalConfig?.itemConsolidado?.id && (
+                          <button
+                            type="button"
+                            onClick={() => setNfceConsolidar(v => !v)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-[9px] font-bold transition-all text-left ${nfceConsolidar ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-[#141414]/15 text-[#141414]/50 hover:border-[#141414]/30'}`}
+                          >
+                            <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${nfceConsolidar ? 'bg-blue-500 border-blue-500 text-white' : 'border-[#141414]/30'}`}>
+                              {nfceConsolidar && <span className="text-[8px] leading-none">✓</span>}
+                            </span>
+                            Emitir como item único: "{fiscalConfig.itemConsolidado.name}"
+                          </button>
+                        )}
                         <div>
                           <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
                           <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
@@ -10620,7 +10632,7 @@ export default function Dashboard({
                           let body: object;
                           if (nfceContingenciaMode === 'normal') {
                             endpoint = `/api/fiscal/nfce/${orderId}`;
-                            body = { tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined };
+                            body = { tenantId, pagamento: nfcePagamento, cpfConsumidor: nfceCpf || undefined, consolidarItem: nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined };
                           } else if (nfceContingenciaMode === 'offline') {
                             endpoint = `/api/fiscal/nfce-offline/${orderId}`;
                             body = { tenantId, dhCont: nfceDhCont, xJust: nfceXJust };
