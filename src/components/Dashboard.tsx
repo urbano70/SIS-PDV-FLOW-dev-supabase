@@ -1285,6 +1285,9 @@ export default function Dashboard({
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
+  const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
+  const [nfcePostCpf, setNfcePostCpf] = useState('');
+  const [nfcePostEmitting, setNfcePostEmitting] = useState(false);
   const [nfceEmitting, setNfceEmitting] = useState(false);
   const [nfceResult, setNfceResult] = useState<any>(null);
   const [fiscalNotes, setFiscalNotes] = useState<any[]>([]);
@@ -2209,6 +2212,25 @@ export default function Dashboard({
     return 'outros';
   };
 
+  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string) => {
+    if (!tenantId) return;
+    try {
+      const r = await fetch(`/api/fiscal/nfce/${orderId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Erro ao emitir');
+      if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
+        toast.success(`NFC-e autorizada pela SEFAZ! (cStat ${d.cStat})`);
+      } else {
+        toast.error(`NFC-e rejeitada: cStat ${d.cStat} — ${d.xMotivo || d.error || ''}`);
+      }
+    } catch (e: any) {
+      toast.error('Falha ao emitir NFC-e: ' + (e.message || 'Erro desconhecido'));
+    }
+  };
+
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     const mapped = mapPaymentMethod(paymentMethod);
     setLastPaymentMethod(mapped);
@@ -2230,6 +2252,34 @@ export default function Dashboard({
       }, 0);
       
       printReceiptToPrinter(orderId, totalToPrint);
+    }
+
+    // NFC-e automática / pós-pagamento
+    const emissaoNfce = fiscalConfig?.emissaoNfce;
+    if (emissaoNfce && emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
+      const orderRef = orders.find((o: any) => orderId && o.id && String(o.id) === String(orderId));
+      let nfceTotal = 0;
+      if (orderRef) {
+        nfceTotal = (orderRef.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+          let price = Number(i.price) || 0;
+          if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
+          return acc + price;
+        }, 0);
+        if (orderRef.discount) {
+          const dv = Number(orderRef.discount) || 0;
+          if (orderRef.discountType === 'percentage') nfceTotal *= (1 - dv / 100);
+          else nfceTotal = Math.max(0, nfceTotal - dv);
+        }
+      }
+      const isEletronico = mapped === 'pix' || mapped === 'cartao_credito' || mapped === 'cartao_debito';
+      if (emissaoNfce === 'apos_confirmacao') {
+        setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+      } else if (emissaoNfce === 'automatico_cartao_pix') {
+        if (isEletronico) emitirNfceAuto(orderId, mapped);
+        else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+      } else if (emissaoNfce === 'automatico_sempre') {
+        emitirNfceAuto(orderId, mapped);
+      }
     }
   };
 
@@ -6596,6 +6646,19 @@ export default function Dashboard({
                           </div>
                         </div>
 
+                        {/* Emissão Automática de NFC-e */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Emissão Automática de NFC-e</p>
+                          <select value={cfg.emissaoNfce || 'desativado'} onChange={e => upd('emissaoNfce', e.target.value)}
+                            className="w-full border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
+                            <option value="desativado">Desativado — emitir manualmente</option>
+                            <option value="apos_confirmacao">Perguntar após pagamento</option>
+                            <option value="automatico_cartao_pix">Automático em Cartão e PIX (perguntar em Dinheiro)</option>
+                            <option value="automatico_sempre">Automático em todas as operações</option>
+                          </select>
+                          <p className="text-[7px] text-[#141414]/40 mt-1">Requer configuração fiscal salva e certificado ativo no servidor.</p>
+                        </div>
+
                         {/* Ações */}
                         <div className="flex gap-2 pt-1 border-t border-[#141414]/10">
                           <button
@@ -10279,6 +10342,48 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* Dialog pós-pagamento: emitir NFC-e? */}
+      <AnimatePresence>
+        {nfcePostPayment && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
+              <div className="bg-green-600 p-4 flex items-center gap-2">
+                <CheckCircle className="text-white" size={16} />
+                <h2 className="text-white font-bold text-sm">Pagamento Confirmado</h2>
+              </div>
+              <div className="p-4 space-y-3">
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-[8px] text-[#141414]/50 uppercase font-bold mb-0.5">Total do Pedido</p>
+                  <p className="text-xl font-bold text-[#141414]">R$ {nfcePostPayment.total.toFixed(2)}</p>
+                </div>
+                <p className="text-[9px] text-[#141414]/60 text-center">Deseja emitir NFC-e para este pedido?</p>
+                <div>
+                  <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
+                  <input value={nfcePostCpf} onChange={e => setNfcePostCpf(e.target.value)} placeholder="000.000.000-00"
+                    className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); }}
+                    className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
+                    Não
+                  </button>
+                  <button disabled={nfcePostEmitting} onClick={async () => {
+                    setNfcePostEmitting(true);
+                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePostPayment.method, nfcePostCpf || undefined);
+                    setNfcePostEmitting(false);
+                    setNfcePostPayment(null);
+                    setNfcePostCpf('');
+                  }}
+                    className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                    {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Modal NFC-e */}
       <AnimatePresence>
