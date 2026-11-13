@@ -2241,12 +2241,12 @@ export default function Dashboard({
     return 'outros';
   };
 
-  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string) => {
+  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any) => {
     if (!tenantId) return;
     try {
       const r = await fetch(`/api/fiscal/nfce/${orderId}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined }),
+        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Erro ao emitir');
@@ -10552,17 +10552,30 @@ export default function Dashboard({
                   <input value={nfcePostCpf} onChange={e => setNfcePostCpf(e.target.value)} placeholder="000.000.000-00"
                     className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
+                {fiscalConfig?.itemConsolidado?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setNfceConsolidar(v => !v)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-[9px] font-bold transition-all text-left ${nfceConsolidar ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-[#141414]/15 text-[#141414]/50 hover:border-[#141414]/30'}`}
+                  >
+                    <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${nfceConsolidar ? 'bg-blue-500 border-blue-500 text-white' : 'border-[#141414]/30'}`}>
+                      {nfceConsolidar && <span className="text-[8px] leading-none">✓</span>}
+                    </span>
+                    Emitir como item único: "{fiscalConfig.itemConsolidado.name}"
+                  </button>
+                )}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); }}
+                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); }}
                     className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Não
                   </button>
                   <button disabled={nfcePostEmitting} onClick={async () => {
                     setNfcePostEmitting(true);
-                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePostPayment.method, nfcePostCpf || undefined);
+                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePostPayment.method, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined);
                     setNfcePostEmitting(false);
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
+                    setNfceConsolidar(false);
                   }}
                     className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
                     {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
