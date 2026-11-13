@@ -614,15 +614,6 @@ const OrderDetails = ({
               <Wallet size={10} />
               <span>Pagar</span>
             </button>
-            {fiscalConfig && onOpenNfce && (
-              <button
-                onClick={() => onOpenNfce(activeOrder.id, pendingAmount > 0.01 ? pendingAmount : activeOrder.total)}
-                className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <FileText size={10} />
-                <span>NFC-e</span>
-              </button>
-            )}
             </>
           )}
           {allItemsRemoved && (
@@ -1151,6 +1142,7 @@ export default function Dashboard({
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
   const [newRegisterName, setNewRegisterName] = useState('');
+  const [pickerNewName, setPickerNewName] = useState('');
   const [cashRegisterReportModal, setCashRegisterReportModal] = useState(false);
   const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
@@ -3191,11 +3183,30 @@ export default function Dashboard({
                 <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Selecionar Caixa</span>
               </div>
               {(pizzariaConfig.cashRegisters ?? []).length === 0 ? (
-                <div className="px-3 py-3 text-center">
-                  <p className="text-[8px] text-[#141414]/40 leading-tight">Nenhum caixa cadastrado.<br />Configure em <strong>Configurações → Salão</strong>.</p>
+                <div className="px-3 py-3 space-y-2">
+                  <p className="text-[8px] text-[#141414]/40 leading-tight text-center">Nenhum caixa configurado. Configure em <strong>Configurações → Salão</strong> ou abra com um nome agora:</p>
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      placeholder="Nome do caixa..."
+                      value={pickerNewName}
+                      onChange={e => setPickerNewName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && pickerNewName.trim()) { setCashRegisterPickerOpen(false); toggleCashRegister(true, pickerNewName.trim()); setPickerNewName(''); } }}
+                      className="flex-1 text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => { if (pickerNewName.trim()) { setCashRegisterPickerOpen(false); toggleCashRegister(true, pickerNewName.trim()); setPickerNewName(''); } }}
+                      disabled={!pickerNewName.trim()}
+                      className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors"
+                    >
+                      Abrir
+                    </button>
+                  </div>
                 </div>
               ) : (
-                (pizzariaConfig.cashRegisters ?? []).map(reg => (
+                <>
+                {(pizzariaConfig.cashRegisters ?? []).map(reg => (
                   <button
                     key={reg.id}
                     onClick={() => {
@@ -3207,7 +3218,8 @@ export default function Dashboard({
                     <Wallet size={10} className="text-[#141414]/40 shrink-0" />
                     {reg.name}
                   </button>
-                ))
+                ))}
+                </>
               )}
             </div>
           </>
@@ -5479,9 +5491,9 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="flex-1 min-h-0 overflow-y-auto scrollbar-hide"
+              className="flex-1 min-h-0 overflow-y-auto"
             >
-              <div className="pt-2 pb-6">
+              <div className="pt-2 pb-10">
               <header className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="font-serif italic text-xl mb-0.5">Configurações</h2>

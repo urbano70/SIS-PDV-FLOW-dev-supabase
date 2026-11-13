@@ -1104,7 +1104,7 @@ async function startServer() {
 
       io.to(_room()).emit("update_orders", _st().orders);
 
-      saveToSupabase('orders', order, String(orderId, _tid())).catch(() => {});
+      saveToSupabase('orders', order, String(orderId), _tid()).catch(() => {});
     });
 
     socket.on("kitchen_start_item", async ({ orderId, itemId }) => {
@@ -1878,7 +1878,7 @@ async function startServer() {
       if (impPizConfig && typeof impPizConfig === 'object') {
         _st().pizzariaConfig = { ..._st().pizzariaConfig, ...impPizConfig, kdsEnabled: false };
         io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
-        saveToSupabase('config', _st().pizzariaConfig, 'pizzaria').catch(() => {});
+        saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid()).catch(() => {});
       }
       socket.emit("import_complete", {
         menuCategories: importedMenu?.length ?? 0,
@@ -2120,9 +2120,9 @@ async function startServer() {
             io.to(_room()).emit("update_orders", _st().orders);
             io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
-            await saveToSupabase('orders', order, String(order.id, _tid()));
+            await saveToSupabase('orders', order, String(order.id), _tid());
             for (const item of entitiesToUpdate) {
-              await saveToSupabase(item.collection, item.entity, String(item.entity.id, _tid()));
+              await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
             }
             return;
           } else {
@@ -2133,13 +2133,13 @@ async function startServer() {
             _st().tables.forEach(t => {
               if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
                 t.status = "aguardando_baixa";
-                saveToSupabase('tables', t, String(t.id, _tid())).catch(() => {});
+                saveToSupabase('tables', t, String(t.id), _tid()).catch(() => {});
               }
             });
             _st().comandas.forEach(c => {
               if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
                 c.status = "aguardando_baixa";
-                saveToSupabase('comandas', c, String(c.id, _tid())).catch(() => {});
+                saveToSupabase('comandas', c, String(c.id), _tid()).catch(() => {});
               }
             });
           }
@@ -2150,7 +2150,7 @@ async function startServer() {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
         
-        await saveToSupabase('orders', order, String(order.id, _tid()));
+        await saveToSupabase('orders', order, String(order.id), _tid());
       }
     });
 
@@ -2423,8 +2423,8 @@ async function startServer() {
       console.log(`[transfer_items] emitted updates â€" persisting to Firestore`);
 
       // Persist to Firestore (onSnapshot will re-emit after each save with the same correct data)
-      await saveToSupabase('orders', sourceOrder, String(sourceOrder.id, _tid()));
-      await saveToSupabase('orders', targetOrder, String(targetOrder.id, _tid()));
+      await saveToSupabase('orders', sourceOrder, String(sourceOrder.id), _tid());
+      await saveToSupabase('orders', targetOrder, String(targetOrder.id), _tid());
       await saveToSupabase(tableCol, targetTable, targetTable.id.toString(), _tid());
       if (remainingActive.length === 0) {
         await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString(), _tid());
@@ -2481,9 +2481,9 @@ async function startServer() {
       io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
 
-      await saveToSupabase('orders', order, String(order.id, _tid()));
+      await saveToSupabase('orders', order, String(order.id), _tid());
       for (const item of entitiesToUpdate) {
-        await saveToSupabase(item.collection, item.entity, String(item.entity.id, _tid()));
+        await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
       }
       // Invalidar sessão do cliente ao dar baixa
       _st().tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(_tid(), t.id, false); });
