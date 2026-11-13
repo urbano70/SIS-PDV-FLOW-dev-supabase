@@ -171,11 +171,11 @@ export function gerarXmlNFCe(intencao: IntencaoFiscal, opts: OpcoesNFCe = {}): s
     `<IE>${emit.ie.replace(/\D/g, '')}</IE>` +
     `<CRT>${emit.crt}</CRT>` +
     `</emit>` +
-    // Destinatário opcional (NFC-e)
+    // Destinatário opcional (NFC-e) — xNome e indIEDest obrigatórios quando <dest> presente
     (intencao.cpfConsumidor
-      ? `<dest><CPF>${intencao.cpfConsumidor.replace(/\D/g, '')}</CPF></dest>`
+      ? `<dest><CPF>${intencao.cpfConsumidor.replace(/\D/g, '')}</CPF><xNome>${(intencao.xNomeConsumidor || 'CONSUMIDOR').substring(0, 60)}</xNome><indIEDest>9</indIEDest></dest>`
       : intencao.cnpjConsumidor
-        ? `<dest><CNPJ>${intencao.cnpjConsumidor.replace(/\D/g, '')}</CNPJ></dest>`
+        ? `<dest><CNPJ>${intencao.cnpjConsumidor.replace(/\D/g, '')}</CNPJ><xNome>${(intencao.xNomeConsumidor || 'CONSUMIDOR').substring(0, 60)}</xNome><indIEDest>9</indIEDest></dest>`
         : '') +
     items.map((item, idx) => xmlItem(item, idx, emit.crt)).join('') +
     `<total><ICMSTot>` +
