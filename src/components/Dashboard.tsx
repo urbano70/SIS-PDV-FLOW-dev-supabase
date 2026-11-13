@@ -1150,6 +1150,13 @@ export default function Dashboard({
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
   const [newRegisterName, setNewRegisterName] = useState('');
   const [pickerNewName, setPickerNewName] = useState('');
+  const [newRegisterPassword, setNewRegisterPassword] = useState('');
+  const [pickerPassword, setPickerPassword] = useState('');
+  const [pickerConfirmPassword, setPickerConfirmPassword] = useState('');
+  const [pickerMode, setPickerMode] = useState<'list' | 'selected' | 'new'>('list');
+  const [pickerSelectedReg, setPickerSelectedReg] = useState<{ id: string; name: string } | null>(null);
+  const [cashRegisterConflict, setCashRegisterConflict] = useState<{ cashRegisterName: string; password: string } | null>(null);
+  const pendingPickerPasswordRef = useRef<string>('');
   const [cashRegisterReportModal, setCashRegisterReportModal] = useState(false);
   const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
@@ -1918,6 +1925,9 @@ export default function Dashboard({
       setCashRegReportLoading(false);
     };
     const handleActiveCaixas = (list: string[]) => setActiveCaixas(list);
+    const handleCashRegConflict = (data: { cashRegisterName: string }) => {
+      setCashRegisterConflict({ cashRegisterName: data.cashRegisterName, password: pendingPickerPasswordRef.current });
+    };
     socket.on('printer_agent_status', handleAgentStatus);
     socket.on('init_data', handleInitData);
     socket.on('scan_printers_result', handleScanResult);
@@ -1926,6 +1936,7 @@ export default function Dashboard({
     socket.on('connect', handleReconnect);
     socket.on('cash_register_reports_response', handleCashRegReports);
     socket.on('active_caixas', handleActiveCaixas);
+    socket.on('cash_register_conflict', handleCashRegConflict);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1935,6 +1946,7 @@ export default function Dashboard({
       socket.off('connect', handleReconnect);
       socket.off('cash_register_reports_response', handleCashRegReports);
       socket.off('active_caixas', handleActiveCaixas);
+      socket.off('cash_register_conflict', handleCashRegConflict);
     };
   }, []);
 
@@ -3243,78 +3255,121 @@ export default function Dashboard({
           </div>
         )}
 
-        {cashRegisterPickerOpen && !isCashRegisterOpen && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setCashRegisterPickerOpen(false)} />
-            <div
-              className="fixed left-4 top-20 z-50 bg-white rounded-xl shadow-xl border border-[#141414]/10 w-52 overflow-hidden"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="px-3 py-2 border-b border-[#141414]/5">
-                <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Selecionar Caixa</span>
-              </div>
-              {(pizzariaConfig.cashRegisters ?? []).length > 0 && (
-                (pizzariaConfig.cashRegisters ?? []).map(reg => (
-                  <button
-                    key={reg.id}
-                    onClick={() => {
-                      setCashRegisterPickerOpen(false);
-                      toggleCashRegister(true, reg.name);
-                    }}
-                    className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2"
-                  >
-                    <Wallet size={10} className="text-[#141414]/40 shrink-0" />
-                    {reg.name}
-                  </button>
-                ))
-              )}
-              <div className="px-3 py-2.5 border-t border-[#141414]/5 space-y-1.5">
-                <p className="text-[7px] font-bold uppercase text-[#141414]/30">Novo caixa</p>
-                <div className="flex gap-1">
-                  <input
-                    type="text"
-                    placeholder="Nome do caixa..."
-                    value={pickerNewName}
-                    onChange={e => setPickerNewName(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        const trimmed = pickerNewName.trim();
-                        if (!trimmed) return;
-                        const existing = pizzariaConfig.cashRegisters ?? [];
-                        if (!existing.some((r: any) => r.name.toLowerCase() === trimmed.toLowerCase())) {
-                          const updated = [...existing, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
-                          updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
-                        }
-                        setCashRegisterPickerOpen(false);
-                        toggleCashRegister(true, trimmed);
-                        setPickerNewName('');
-                      }
-                    }}
-                    className="flex-1 text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500"
-                    autoFocus={(pizzariaConfig.cashRegisters ?? []).length === 0}
-                  />
-                  <button
-                    onClick={() => {
-                      const trimmed = pickerNewName.trim();
-                      if (!trimmed) return;
-                      const existing = pizzariaConfig.cashRegisters ?? [];
-                      if (!existing.some((r: any) => r.name.toLowerCase() === trimmed.toLowerCase())) {
-                        const updated = [...existing, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
-                        updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
-                      }
-                      setCashRegisterPickerOpen(false);
-                      toggleCashRegister(true, trimmed);
-                      setPickerNewName('');
-                    }}
-                    disabled={!pickerNewName.trim()}
-                    className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors"
-                  >
-                    Abrir
-                  </button>
+        {cashRegisterPickerOpen && !isCashRegisterOpen && (() => {
+          const closePicker = () => {
+            setCashRegisterPickerOpen(false);
+            setPickerMode('list');
+            setPickerPassword('');
+            setPickerConfirmPassword('');
+            setPickerSelectedReg(null);
+            setPickerNewName('');
+          };
+          const doOpenCaixa = (name: string, pwd: string) => {
+            pendingPickerPasswordRef.current = pwd;
+            socket.emit('toggle_cash_register', { isOpen: true, cashRegisterName: name, password: pwd });
+            closePicker();
+          };
+          const handlePickerOpen = () => {
+            if (!pickerSelectedReg) return;
+            if (!pickerPassword.trim()) { toast.error('Informe a senha do caixa.'); return; }
+            doOpenCaixa(pickerSelectedReg.name, pickerPassword);
+          };
+          const handlePickerCreate = () => {
+            const name = pickerNewName.trim();
+            if (!name) { toast.error('Informe o nome do caixa.'); return; }
+            if (!pickerPassword) { toast.error('Informe a senha.'); return; }
+            if (pickerPassword !== pickerConfirmPassword) { toast.error('Senhas não coincidem.'); return; }
+            const existing = pizzariaConfig.cashRegisters ?? [];
+            if (!existing.some((r: any) => r.name.toLowerCase() === name.toLowerCase())) {
+              updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: [...existing, { id: Math.random().toString(36).substr(2, 9), name, password: pickerPassword }] });
+            }
+            doOpenCaixa(name, pickerPassword);
+          };
+          return (
+            <>
+              <div className="fixed inset-0 z-40" onClick={closePicker} />
+              <div className="fixed left-4 top-20 z-50 bg-white rounded-xl shadow-xl border border-[#141414]/10 w-56 overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="px-3 py-2 border-b border-[#141414]/5 flex items-center gap-2">
+                  {pickerMode !== 'list' && (
+                    <button onClick={() => { setPickerMode('list'); setPickerSelectedReg(null); setPickerPassword(''); setPickerConfirmPassword(''); setPickerNewName(''); }} className="text-[#141414]/30 hover:text-[#141414] transition-colors">
+                      <ArrowLeft size={10} />
+                    </button>
+                  )}
+                  <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40 flex-1 truncate">
+                    {pickerMode === 'list' ? 'Selecionar Caixa' : pickerMode === 'new' ? 'Novo Caixa' : (pickerSelectedReg?.name ?? 'Abrir Caixa')}
+                  </span>
                 </div>
+
+                {pickerMode === 'list' && (
+                  <>
+                    {(pizzariaConfig.cashRegisters ?? []).map((reg: any) => (
+                      <button key={reg.id} onClick={() => { setPickerSelectedReg(reg); setPickerPassword(''); setPickerMode('selected'); }} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2">
+                        <Wallet size={10} className="text-[#141414]/40 shrink-0" />
+                        <span className="flex-1 truncate">{reg.name}</span>
+                        {reg.password && <Lock size={8} className="text-[#141414]/25 shrink-0" />}
+                      </button>
+                    ))}
+                    <div className="px-3 py-2.5 border-t border-[#141414]/5">
+                      <button onClick={() => { setPickerMode('new'); setPickerNewName(''); setPickerPassword(''); setPickerConfirmPassword(''); }} className="w-full text-left text-[9px] font-bold text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors">
+                        <Plus size={9} /> Novo caixa
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {pickerMode === 'selected' && pickerSelectedReg && (
+                  <div className="px-3 py-2.5 space-y-2">
+                    <input type="password" placeholder="Senha..." value={pickerPassword} autoFocus onChange={e => setPickerPassword(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handlePickerOpen(); }} className="w-full text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500" />
+                    <button onClick={handlePickerOpen} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg transition-colors">
+                      Abrir Caixa
+                    </button>
+                  </div>
+                )}
+
+                {pickerMode === 'new' && (
+                  <div className="px-3 py-2.5 space-y-1.5">
+                    <input type="text" placeholder="Nome do caixa..." value={pickerNewName} autoFocus onChange={e => setPickerNewName(e.target.value)} className="w-full text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500" />
+                    <input type="password" placeholder="Senha..." value={pickerPassword} onChange={e => setPickerPassword(e.target.value)} className="w-full text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500" />
+                    <input type="password" placeholder="Confirmar senha..." value={pickerConfirmPassword} onChange={e => setPickerConfirmPassword(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handlePickerCreate(); }} className="w-full text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500" />
+                    {pickerPassword && pickerConfirmPassword && pickerPassword !== pickerConfirmPassword && (
+                      <p className="text-[8px] text-red-500">Senhas não coincidem</p>
+                    )}
+                    <button onClick={handlePickerCreate} disabled={!pickerNewName.trim() || !pickerPassword || pickerPassword !== pickerConfirmPassword} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors">
+                      Criar e Abrir
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
+
+        {cashRegisterConflict && (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+            <div className="bg-white rounded-2xl shadow-2xl border border-[#141414]/10 w-72 p-5 mx-4" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle size={16} className="text-amber-500 shrink-0" />
+                <h3 className="text-sm font-bold text-[#141414]">Caixa em uso</h3>
+              </div>
+              <p className="text-[10px] text-[#141414]/60 mb-4 leading-relaxed">
+                <span className="font-semibold text-[#141414]">"{cashRegisterConflict.cashRegisterName}"</span> está aberto em outro dispositivo. Deseja assumir o controle? O dispositivo anterior será desconectado.
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setCashRegisterConflict(null)} className="flex-1 py-2 border border-[#141414]/15 rounded-xl text-[10px] font-semibold text-[#141414]/60 hover:bg-[#141414]/5 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    socket.emit('toggle_cash_register', { isOpen: true, cashRegisterName: cashRegisterConflict.cashRegisterName, password: cashRegisterConflict.password, forceAssume: true });
+                    setCashRegisterConflict(null);
+                  }}
+                  className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-white text-[10px] font-bold rounded-xl transition-colors"
+                >
+                  Assumir controle
+                </button>
               </div>
             </div>
-          </>
+          </div>
         )}
 
         <AnimatePresence mode="wait">
@@ -5799,47 +5854,59 @@ export default function Dashboard({
                   ))}
                 </div>
                 {!isCashRegisterOpen && (
-                  <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      value={newRegisterName}
-                      onChange={e => setNewRegisterName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && newRegisterName.trim()) {
+                  <div className="space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={newRegisterName}
+                        onChange={e => setNewRegisterName(e.target.value)}
+                        placeholder="Nome do caixa..."
+                        className="flex-1 bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 text-[9px] font-medium outline-none focus:ring-1 focus:ring-[#141414]"
+                      />
+                      <input
+                        type="password"
+                        value={newRegisterPassword}
+                        onChange={e => setNewRegisterPassword(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newRegisterName.trim() && newRegisterPassword) {
+                            const trimmed = newRegisterName.trim();
+                            if (localCashRegisters.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
+                              toast.error('Já existe um caixa com esse nome.');
+                              return;
+                            }
+                            const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed, password: newRegisterPassword }];
+                            setLocalCashRegisters(updated);
+                            updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
+                            setNewRegisterName('');
+                            setNewRegisterPassword('');
+                            toast.success(`"${trimmed}" salvo!`);
+                          }
+                        }}
+                        placeholder="Senha..."
+                        className="w-24 bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 text-[9px] font-medium outline-none focus:ring-1 focus:ring-[#141414]"
+                      />
+                      <button
+                        onClick={() => {
                           const trimmed = newRegisterName.trim();
+                          if (!trimmed || !newRegisterPassword) return;
                           if (localCashRegisters.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
                             toast.error('Já existe um caixa com esse nome.');
                             return;
                           }
-                          const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
+                          const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed, password: newRegisterPassword }];
                           setLocalCashRegisters(updated);
                           updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
                           setNewRegisterName('');
+                          setNewRegisterPassword('');
                           toast.success(`"${trimmed}" salvo!`);
-                        }
-                      }}
-                      placeholder="Nome do caixa..."
-                      className="flex-1 bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 text-[9px] font-medium outline-none focus:ring-1 focus:ring-[#141414]"
-                    />
-                    <button
-                      onClick={() => {
-                        const trimmed = newRegisterName.trim();
-                        if (!trimmed) return;
-                        if (localCashRegisters.some(r => r.name.toLowerCase() === trimmed.toLowerCase())) {
-                          toast.error('Já existe um caixa com esse nome.');
-                          return;
-                        }
-                        const updated = [...localCashRegisters, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
-                        setLocalCashRegisters(updated);
-                        updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
-                        setNewRegisterName('');
-                        toast.success(`"${trimmed}" salvo!`);
-                      }}
-                      className="bg-[#141414] text-white px-2 py-1.5 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity flex items-center gap-1"
-                    >
-                      <Plus size={9} />
-                      Add
-                    </button>
+                        }}
+                        disabled={!newRegisterName.trim() || !newRegisterPassword}
+                        className="bg-[#141414] text-white px-2 py-1.5 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity flex items-center gap-1 disabled:opacity-40"
+                      >
+                        <Plus size={9} />
+                        Add
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

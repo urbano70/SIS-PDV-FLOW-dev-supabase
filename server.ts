@@ -1204,6 +1204,8 @@ async function startServer() {
     socket.on("toggle_cash_register", requireAdmin(async (payload) => {
       const isOpen: boolean = typeof payload === 'boolean' ? payload : (payload?.isOpen ?? false);
       const cashRegisterName: string | undefined = typeof payload === 'object' && payload !== null ? payload.cashRegisterName : undefined;
+      const password: string | undefined = typeof payload === 'object' && payload !== null ? payload.password : undefined;
+      const forceAssume: boolean = typeof payload === 'object' && payload !== null ? (payload.forceAssume ?? false) : false;
 
       if (!isOpen) {
         const activeTables = _st().tables.find((t: any) => t.status !== "free");
@@ -1221,12 +1223,24 @@ async function startServer() {
         }
       } else {
         if (cashRegisterName) {
+          const registeredCaixa = (_st().pizzariaConfig?.cashRegisters ?? []).find((r: any) => r.name === cashRegisterName);
+          if (registeredCaixa?.password) {
+            if (registeredCaixa.password !== password) {
+              socket.emit("error_message", "Senha incorreta.");
+              return;
+            }
+          }
           const existingSocketId = _st().openCashRegisters[cashRegisterName];
           if (existingSocketId && existingSocketId !== socket.id) {
             const existingSocket = io.sockets.sockets.get(existingSocketId);
             if (existingSocket?.connected) {
-              socket.emit("error_message", `"${cashRegisterName}" já está aberto em outra sessão.`);
-              return;
+              if (!forceAssume) {
+                socket.emit("cash_register_conflict", { cashRegisterName });
+                return;
+              }
+              existingSocket.emit("update_my_cash_register_name", null);
+              existingSocket.emit("error_message", `O caixa "${cashRegisterName}" foi assumido por outro dispositivo.`);
+              existingSocket.disconnect(true);
             }
           }
           _st().openCashRegisters[cashRegisterName] = socket.id;
