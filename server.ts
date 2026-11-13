@@ -3002,7 +3002,7 @@ async function startServer() {
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
         seq: idx + 1,
-        codigo: String(i.id || idx + 1).slice(0, 60),
+        codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
@@ -3196,7 +3196,7 @@ async function startServer() {
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
         seq: idx + 1,
-        codigo: String(i.id || idx + 1).slice(0, 60),
+        codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
@@ -3388,7 +3388,7 @@ async function startServer() {
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
         seq: idx + 1,
-        codigo: String(i.id || idx + 1).slice(0, 60),
+        codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
@@ -3580,7 +3580,7 @@ async function startServer() {
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
         seq: idx + 1,
-        codigo: String(i.id || idx + 1).slice(0, 60),
+        codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
@@ -3772,7 +3772,7 @@ async function startServer() {
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
         seq: idx + 1,
-        codigo: String(i.id || idx + 1).slice(0, 60),
+        codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',

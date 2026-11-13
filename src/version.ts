@@ -1,1 +1,1 @@
-export const LATEST_PR = 305;
+export const LATEST_PR = 306;
