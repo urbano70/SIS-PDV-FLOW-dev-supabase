@@ -2009,7 +2009,9 @@ async function startServer() {
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
         if (!order.paymentLog) order.paymentLog = [];
-        
+
+        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? null;
+
         const itemIds = Object.keys(selectedItems || {});
         const isPartialOnly = itemIds.length === 0;
         const numericPartialAmount = partialAmount !== undefined ? Number(partialAmount) : 0;
@@ -2022,6 +2024,7 @@ async function startServer() {
             type: 'partial' as const
           };
           if (payerName && typeof payerName === 'string') payment.payer = payerName.trim();
+          if (cashRegisterAtPayment) payment.cashRegister = cashRegisterAtPayment;
           order.paymentLog.push(payment);
         } else if (itemIds.length > 0) {
           const activeItemsForTotal = (order.items || []).filter(i => !i.removed);
@@ -2043,6 +2046,7 @@ async function startServer() {
             type: 'items'
           };
           if (payerName && typeof payerName === 'string') itemPayment.payer = payerName.trim();
+          if (cashRegisterAtPayment) itemPayment.cashRegister = cashRegisterAtPayment;
           order.paymentLog.push(itemPayment);
           
           itemIds.forEach(itemId => {
@@ -2458,6 +2462,8 @@ async function startServer() {
       if (!order || order.status !== "aguardando_baixa") return;
 
       order.status = "finalizada";
+      const cashRegisterAtClose = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? null;
+      if (cashRegisterAtClose) order.cashRegisterClosedBy = cashRegisterAtClose;
 
       const entitiesToUpdate: any[] = [];
       _st().tables.forEach((t: any) => {

@@ -117,6 +117,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     const handleRelayPrintJob = ({ ip, port, localName, data }: { ip?: string; port?: number; localName?: string; data: number[] }) => {
       socket.emit('print_escpos', { ip, port, localName, data });
     };
+    const handleErrorMessage = (msg: string) => toast.error(msg);
     const handleUpdatePizzeriaConfig = (config: PizzeriaConfig) => setPizzeriaConfig(config);
     const handleUpdateShiftStartedAt = (ts: string) => setShiftStartedAt(ts);
     const handleUpdateMenu = (data: MenuCategory[]) => {
@@ -169,6 +170,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('update_stock_log', handleUpdateStockLog);
     socket.on('update_waiters', handleUpdateWaiters);
     socket.on('relay_print_job', handleRelayPrintJob);
+    socket.on('error_message', handleErrorMessage);
 
     // Request init data immediately — no need to wait for auth
     socket.emit('request_init_data');
@@ -234,6 +236,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('update_stock_log', handleUpdateStockLog);
       socket.off('update_waiters', handleUpdateWaiters);
       socket.off('relay_print_job', handleRelayPrintJob);
+      socket.off('error_message', handleErrorMessage);
       socket.off('connect', handleReconnect);
     });
 
