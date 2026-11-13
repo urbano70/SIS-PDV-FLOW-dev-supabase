@@ -2645,11 +2645,30 @@ async function startServer() {
       }
     });
 
+    // ── Caixas ativos: quais nomes têm socket conectado agora ────────────────
+    socket.on("get_active_caixas", () => {
+      const active = Object.entries(_st().openCashRegisters)
+        .filter(([, sid]) => io.sockets.sockets.get(sid as string)?.connected)
+        .map(([name]) => name);
+      socket.emit("active_caixas", active);
+    });
+
     // ── Impressão ESC/POS ─────────────────────────────────────────────────────
     // Se o agente local estiver conectado, delega para ele (cenário VPS).
     // Caso contrário, o servidor tenta conexão TCP direta (cenário local/dev).
-    socket.on("print_escpos", ({ ip, port = 9100, localName, data }: { ip?: string; port?: number; localName?: string; data: number[] }) => {
+    // Se targetCaixaId for fornecido, retransmite para o socket daquele caixa.
+    socket.on("print_escpos", ({ ip, port = 9100, localName, data, targetCaixaId }: { ip?: string; port?: number; localName?: string; data: number[]; targetCaixaId?: string }) => {
       if (!data?.length) return;
+
+      if (targetCaixaId && targetCaixaId !== 'local') {
+        const targetSocketId = _st().openCashRegisters[targetCaixaId] as string | undefined;
+        const targetSocket = targetSocketId ? io.sockets.sockets.get(targetSocketId) : null;
+        if (targetSocket?.connected) {
+          targetSocket.emit("relay_print_job", { ip, port, localName, data });
+          return;
+        }
+        // Caixa alvo não encontrado — cai no fluxo normal
+      }
 
       if (_st().printerAgentSocket && _st().printerAgentSocket.connected) {
         _st().printerAgentSocket.emit("do_print", { ip, port, localName, data });
