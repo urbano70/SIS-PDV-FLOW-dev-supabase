@@ -2267,7 +2267,14 @@ export default function Dashboard({
       });
       const d = await r.json();
       if (!r.ok) {
-        if (r.status === 409 && d.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); return; }
+        if (r.status === 409) {
+          if (d.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); return; }
+          if (d.chaveAcesso) {
+            setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65')), { order_id: String(orderId), chave_acesso: d.chaveAcesso, status: 'AUTORIZADO', modelo: '65' }]);
+          }
+          toast.info('NFC-e já foi emitida para este pedido.');
+          return;
+        }
         throw new Error(d.error || 'Erro ao emitir');
       }
       if (d.status === 'PENDENTE_TRANSMISSAO') {
@@ -10777,7 +10784,17 @@ export default function Dashboard({
                           const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
                           const data = await res.json();
                           if (!res.ok) {
-                            if (res.status === 409 && data.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); setNfceEmitting(false); return; }
+                            if (res.status === 409) {
+                              const _closeModal = () => { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); setNfceEmitting(false); };
+                              if (data.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); _closeModal(); return; }
+                              if (data.chaveAcesso && nfceModal?.orderId != null) {
+                                const _oid = String(nfceModal.orderId);
+                                setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === _oid && n.modelo === '65')), { order_id: _oid, chave_acesso: data.chaveAcesso, status: 'AUTORIZADO', modelo: '65' }]);
+                              }
+                              toast.info('NFC-e já foi emitida para este pedido.');
+                              _closeModal();
+                              return;
+                            }
                             throw new Error(data.error || data.detail || 'Erro ao emitir');
                           }
                           setNfceResult(data);
