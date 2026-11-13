@@ -2266,7 +2266,10 @@ export default function Dashboard({
         body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync }),
       });
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erro ao emitir');
+      if (!r.ok) {
+        if (r.status === 409 && d.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); return; }
+        throw new Error(d.error || 'Erro ao emitir');
+      }
       if (d.status === 'PENDENTE_TRANSMISSAO') {
         toast.info('NFC-e registrada — transmitindo para SEFAZ...');
         setFiscalNotes(prev => [...prev.filter((n: any) => !(String(n.order_id) === String(orderId) && n.modelo === '65' && n.status === 'PENDENTE_TRANSMISSAO')), { order_id: String(orderId), chave_acesso: null, status: 'PENDENTE_TRANSMISSAO', modelo: '65' }]);
@@ -8401,6 +8404,9 @@ export default function Dashboard({
                           String(n.order_id) === String(order.id) &&
                           ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'EPEC_AUTORIZADO'].includes((n.status || '').toUpperCase())
                         );
+                        const notaPendente = fiscalNotes.find((n: any) =>
+                          String(n.order_id) === String(order.id) && (n.status || '').toUpperCase() === 'PENDENTE_TRANSMISSAO'
+                        );
                         if (notaAutorizada?.chave_acesso) {
                           return (
                             <div className="mt-2 space-y-1.5">
@@ -8426,6 +8432,14 @@ export default function Dashboard({
                                   Comprovante
                                 </button>
                               </div>
+                            </div>
+                          );
+                        }
+                        if (notaPendente) {
+                          return (
+                            <div className="mt-2 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-amber-50 border border-amber-300">
+                              <span className="text-amber-600 text-[10px]">⏳</span>
+                              <span className="text-[9px] font-bold uppercase text-amber-700">Transmitindo para SEFAZ...</span>
                             </div>
                           );
                         }
@@ -10762,7 +10776,10 @@ export default function Dashboard({
                           }
                           const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
                           const data = await res.json();
-                          if (!res.ok) throw new Error(data.error || data.detail || 'Erro ao emitir');
+                          if (!res.ok) {
+                            if (res.status === 409 && data.pendente) { toast.info('NFC-e já está em transmissão — aguarde o resultado.'); setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); setNfceEmitting(false); return; }
+                            throw new Error(data.error || data.detail || 'Erro ao emitir');
+                          }
                           setNfceResult(data);
                           if (data.status === 'PENDENTE_TRANSMISSAO') {
                             toast.info('NFC-e registrada — transmitindo para SEFAZ...');
