@@ -1290,6 +1290,7 @@ export default function Dashboard({
   }>({ checking: false, nfce: null, nfe: null, checkedAt: null });
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
+  const [nfceConsolidar, setNfceConsolidar] = useState(false);
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
@@ -6732,6 +6733,39 @@ export default function Dashboard({
                           <p className="text-[7px] text-[#141414]/40 mt-1">Requer configuração fiscal salva e certificado ativo no servidor.</p>
                         </div>
 
+                        {/* Item Consolidado */}
+                        <div className="border-t border-[#141414]/10 pt-2">
+                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1">Item Consolidado</p>
+                          <p className="text-[7px] text-[#141414]/40 mb-2">Ao emitir NFC-e, permite substituir todos os itens por um único produto (ex: "Refeição"). O produto deve ter NCM e dados fiscais configurados.</p>
+                          <select
+                            value={cfg.itemConsolidado?.id || ''}
+                            onChange={e => {
+                              const selId = e.target.value;
+                              if (!selId) { setFiscalConfig((prev: any) => { const c = { ...(prev || {}) }; delete c.itemConsolidado; return c; }); return; }
+                              let found: any = null;
+                              for (const cat of menu) {
+                                for (const item of (cat.items || [])) { if (String(item.id) === selId) { found = item; break; } }
+                                if (found) break;
+                                for (const sub of (cat.subcategories || [])) { for (const item of (sub.items || [])) { if (String(item.id) === selId) { found = item; break; } } if (found) break; }
+                              }
+                              if (found) setFiscalConfig((prev: any) => ({ ...(prev || {}), itemConsolidado: { id: found.id, name: found.name, ncm: found.ncm, cfop: found.cfop, csosn: found.csosn, cst: found.cst, unidade: found.unidade } }));
+                            }}
+                            className="w-full border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none"
+                          >
+                            <option value="">— Nenhum —</option>
+                            {menu.flatMap((cat: any) => [
+                              ...(cat.items || []).map((item: any) => ({ id: String(item.id), label: `${item.name} (${cat.name})` })),
+                              ...(cat.subcategories || []).flatMap((sub: any) => (sub.items || []).map((item: any) => ({ id: String(item.id), label: `${item.name} (${cat.name} › ${sub.name})` }))),
+                            ]).map((opt: any) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+                          </select>
+                          {cfg.itemConsolidado?.id && (
+                            <div className="mt-1.5 bg-gray-50 rounded px-2 py-1.5 text-[8px] space-y-0.5">
+                              <p className="font-bold text-[#141414]">{cfg.itemConsolidado.name}</p>
+                              <p className="text-[#141414]/50">NCM: {cfg.itemConsolidado.ncm || '—'} · CFOP: {cfg.itemConsolidado.cfop || '—'} · CSOSN: {cfg.itemConsolidado.csosn || '—'}</p>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Ações */}
                         <div className="flex gap-2 pt-1 border-t border-[#141414]/10">
                           <button
@@ -10476,14 +10510,14 @@ export default function Dashboard({
       {/* Modal NFC-e */}
       <AnimatePresence>
         {nfceModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget && !nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); } }}>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget && !nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); } }}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
               <div className={`${nfceContingenciaMode === 'normal' ? 'bg-blue-600' : 'bg-amber-600'} p-4 flex items-center justify-between`}>
                 <div className="flex items-center gap-2">
                   <FileText className="text-white" size={16} />
                   <h2 className="text-white font-bold text-sm">{nfceContingenciaMode === 'normal' ? 'Emitir NFC-e' : nfceContingenciaMode === 'offline' ? 'NFC-e Offline' : nfceContingenciaMode === 'epec' ? 'NF-e EPEC' : 'NF-e SVC-RS'}</h2>
                 </div>
-                <button onClick={() => { if (!nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); } }} className="text-white/70 hover:text-white p-1"><X size={16} /></button>
+                <button onClick={() => { if (!nfceEmitting) { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); } }} className="text-white/70 hover:text-white p-1"><X size={16} /></button>
               </div>
               <div className="p-4 space-y-3">
                 {nfceResult ? (
@@ -10520,7 +10554,7 @@ export default function Dashboard({
                       </div>
                     )}
                     {nfceResult.urlDanfe && <a href={nfceResult.urlDanfe} target="_blank" rel="noopener noreferrer" className="block text-center text-[9px] text-blue-600 underline">Abrir DANFE</a>}
-                    <button onClick={() => { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); }} className="w-full py-2 bg-[#141414] text-white rounded-lg text-[9px] font-bold uppercase">Fechar</button>
+                    <button onClick={() => { setNfceModal(null); setNfceResult(null); setNfceContingenciaMode('normal'); setNfceDhCont(''); setNfceXJust(''); setNfceConsolidar(false); }} className="w-full py-2 bg-[#141414] text-white rounded-lg text-[9px] font-bold uppercase">Fechar</button>
                   </div>
                 ) : (
                   <div className="space-y-3">
