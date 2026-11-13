@@ -3019,9 +3019,14 @@ async function startServer() {
       const { data: existing } = await db.from('fiscal_notes')
         .select('chave_acesso,status')
         .eq('tenant_id', tenantId).eq('order_id', String(orderId))
-        .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA'])
+        .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'PENDENTE_TRANSMISSAO'])
         .maybeSingle();
-      if (existing) return res.status(409).json({ error: 'Nota já emitida para este pedido.', chaveAcesso: existing.chave_acesso });
+      if (existing) {
+        if (existing.status === 'PENDENTE_TRANSMISSAO') {
+          return res.status(409).json({ error: 'Esta nota já está sendo transmitida. Aguarde o resultado.', pendente: true });
+        }
+        return res.status(409).json({ error: 'Nota já emitida para este pedido.', chaveAcesso: existing.chave_acesso });
+      }
     }
 
     // Obter high-water mark do banco para numeração segura
