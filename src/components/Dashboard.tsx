@@ -3236,31 +3236,8 @@ export default function Dashboard({
               <div className="px-3 py-2 border-b border-[#141414]/5">
                 <span className="text-[8px] font-black uppercase tracking-widest text-[#141414]/40">Selecionar Caixa</span>
               </div>
-              {(pizzariaConfig.cashRegisters ?? []).length === 0 ? (
-                <div className="px-3 py-3 space-y-2">
-                  <p className="text-[8px] text-[#141414]/40 leading-tight text-center">Nenhum caixa configurado. Configure em <strong>Configurações → Salão</strong> ou abra com um nome agora:</p>
-                  <div className="flex gap-1">
-                    <input
-                      type="text"
-                      placeholder="Nome do caixa..."
-                      value={pickerNewName}
-                      onChange={e => setPickerNewName(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && pickerNewName.trim()) { setCashRegisterPickerOpen(false); toggleCashRegister(true, pickerNewName.trim()); setPickerNewName(''); } }}
-                      className="flex-1 text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => { if (pickerNewName.trim()) { setCashRegisterPickerOpen(false); toggleCashRegister(true, pickerNewName.trim()); setPickerNewName(''); } }}
-                      disabled={!pickerNewName.trim()}
-                      className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors"
-                    >
-                      Abrir
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                {(pizzariaConfig.cashRegisters ?? []).map(reg => (
+              {(pizzariaConfig.cashRegisters ?? []).length > 0 && (
+                (pizzariaConfig.cashRegisters ?? []).map(reg => (
                   <button
                     key={reg.id}
                     onClick={() => {
@@ -3272,9 +3249,53 @@ export default function Dashboard({
                     <Wallet size={10} className="text-[#141414]/40 shrink-0" />
                     {reg.name}
                   </button>
-                ))}
-                </>
+                ))
               )}
+              <div className="px-3 py-2.5 border-t border-[#141414]/5 space-y-1.5">
+                <p className="text-[7px] font-bold uppercase text-[#141414]/30">Novo caixa</p>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    placeholder="Nome do caixa..."
+                    value={pickerNewName}
+                    onChange={e => setPickerNewName(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        const trimmed = pickerNewName.trim();
+                        if (!trimmed) return;
+                        const existing = pizzariaConfig.cashRegisters ?? [];
+                        if (!existing.some((r: any) => r.name.toLowerCase() === trimmed.toLowerCase())) {
+                          const updated = [...existing, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
+                          updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
+                        }
+                        setCashRegisterPickerOpen(false);
+                        toggleCashRegister(true, trimmed);
+                        setPickerNewName('');
+                      }
+                    }}
+                    className="flex-1 text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500"
+                    autoFocus={(pizzariaConfig.cashRegisters ?? []).length === 0}
+                  />
+                  <button
+                    onClick={() => {
+                      const trimmed = pickerNewName.trim();
+                      if (!trimmed) return;
+                      const existing = pizzariaConfig.cashRegisters ?? [];
+                      if (!existing.some((r: any) => r.name.toLowerCase() === trimmed.toLowerCase())) {
+                        const updated = [...existing, { id: Math.random().toString(36).substr(2, 9), name: trimmed }];
+                        updatePizzeriaConfig({ ...pizzariaConfig, cashRegisters: updated });
+                      }
+                      setCashRegisterPickerOpen(false);
+                      toggleCashRegister(true, trimmed);
+                      setPickerNewName('');
+                    }}
+                    disabled={!pickerNewName.trim()}
+                    className="px-2.5 py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors"
+                  >
+                    Abrir
+                  </button>
+                </div>
+              </div>
             </div>
           </>
         )}
