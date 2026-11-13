@@ -8193,15 +8193,30 @@ export default function Dashboard({
                         );
                         if (notaAutorizada?.chave_acesso) {
                           return (
-                            <a
-                              href={`/danfe/nfce/${notaAutorizada.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-bold uppercase transition-colors"
-                            >
-                              <FileText size={13} />
-                              Imprimir NFC-e
-                            </a>
+                            <div className="mt-2 space-y-1.5">
+                              <div className="flex items-center justify-center gap-1.5 py-1">
+                                <span className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                                <span className="text-[9px] font-bold uppercase text-green-700">NFC-e Emitida</span>
+                              </div>
+                              <div className="flex gap-2">
+                                <a
+                                  href={`/danfe/nfce/${notaAutorizada.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase transition-colors"
+                                >
+                                  <FileText size={11} />
+                                  Imprimir NFC-e
+                                </a>
+                                <button
+                                  onClick={() => reprintOrder(order)}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-[#141414]/20 hover:bg-gray-50 text-[#141414] text-[10px] font-bold uppercase transition-colors"
+                                >
+                                  <Printer size={11} />
+                                  Comprovante
+                                </button>
+                              </div>
+                            </div>
                           );
                         }
                         const _pl = order.paymentLog || []; const orderPayment = mapPaymentMethod(_pl[_pl.length - 1]?.method);
