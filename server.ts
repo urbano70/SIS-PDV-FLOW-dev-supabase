@@ -1114,7 +1114,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'preparing';
       io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('_st().orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id), _tid());
     });
 
     socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
@@ -1124,7 +1124,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'oven';
       io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('_st().orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id), _tid());
     });
 
     socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
@@ -1134,7 +1134,7 @@ async function startServer() {
       if (!item || item.deliveredAt) return;
       item.kitchenStatus = 'ready';
       io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('_st().orders', order, String(order.id));
+      enqueueWrite('orders', order, String(order.id), _tid());
     });
 
     socket.on("waiter_identify_tenant", ({ tenantId }: { tenantId: string }) => {
@@ -1947,7 +1947,7 @@ async function startServer() {
         emitPrintOrder(kPayload3);
 
         // Non-blocking: respond to socket immediately, persist in background
-        enqueueWrite('_st().orders', order, String(order.id));
+        enqueueWrite('orders', order, String(order.id), _tid());
 
         // Update _st().stock for the added item
         applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
@@ -1959,7 +1959,7 @@ async function startServer() {
       if (order && Array.isArray(guests)) {
         (order as any).guests = guests;
         io.to(_room()).emit("update_orders", _st().orders);
-        enqueueWrite('_st().orders', order, String(order.id));
+        enqueueWrite('orders', order, String(order.id), _tid());
       }
     });
 
@@ -1970,7 +1970,7 @@ async function startServer() {
         if (item) {
           (item as any).guestName = guestName || undefined;
           io.to(_room()).emit("update_orders", _st().orders);
-          enqueueWrite('_st().orders', order, String(order.id));
+          enqueueWrite('orders', order, String(order.id), _tid());
         }
       }
     });
@@ -2016,7 +2016,7 @@ async function startServer() {
             item.removedBy = removedBy || (waiter ? waiter.name : "Desconhecido"),
             item.removalReason = reason || "";
           }
-          enqueueWrite('_st().orders', order, String(order.id));
+          enqueueWrite('orders', order, String(order.id), _tid());
           io.to(_room()).emit("update_orders", _st().orders);
         }
       }

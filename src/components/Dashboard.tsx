@@ -376,8 +376,8 @@ const OrderDetails = ({
 
     // First try to find by currentOrder ID if the table/comanda points to one
     if (currentItem?.currentOrder) {
-      const orderById = orders.find((o: any) => 
-        String(o.id) === String(currentItem.currentOrder) && o.status !== 'finalizada'
+      const orderById = orders.find((o: any) =>
+        String(o.id) === String(currentItem.currentOrder) && o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
       );
       if (orderById) return orderById;
     }
@@ -545,7 +545,7 @@ const OrderDetails = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-6 pt-0 scrollbar-hide">
+      <div className="flex-1 min-h-0 overflow-y-auto p-6 pt-0 scrollbar-hide">
         {activeOrder ? (
           <div className="space-y-4">
             <div className="border-b pb-2 space-y-1 pr-1">
@@ -2538,7 +2538,7 @@ export default function Dashboard({
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
     }
-    const selectedTableOrComanda = (isComandaSelected ? comandas : tables).find(t => t.id === tableId);
+    const selectedTableOrComanda = (isComandaSelected ? comandas : tables).find(t => String(t.id) === String(tableId));
     if (selectedTableOrComanda?.status === 'aguardando_baixa') {
       toast.error('Esta mesa está aguardando baixa. Faça a baixa antes de adicionar novos itens.');
       return;
@@ -2680,7 +2680,7 @@ export default function Dashboard({
       guestName: admGuestForItem || undefined,
     };
 
-    const selectedTOrC = (isComandaSelected ? comandas : tables).find((t: any) => t.id === targetId);
+    const selectedTOrC = (isComandaSelected ? comandas : tables).find((t: any) => String(t.id) === String(targetId));
     let activeOrder: any;
     if (selectedTOrC?.currentOrder) {
       activeOrder = orders.find((o: any) =>
