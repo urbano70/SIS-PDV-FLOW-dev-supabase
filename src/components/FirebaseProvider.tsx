@@ -15,6 +15,7 @@ interface FirebaseContextType {
   activeCashRegisterName: string | null;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
+  optimisticAddItemToOrder: (orderId: string | number, item: any) => void;
   clockOffset: number;
   data: {
     tables: Table[];
@@ -98,6 +99,14 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     } else {
       setTables(prev => prev.map(t => t.id === id ? { ...t, status } : t));
     }
+  };
+
+  const optimisticAddItemToOrder = (orderId: string | number, item: any) => {
+    setOrders(prev => prev.map(o =>
+      o.id && String(o.id) === String(orderId)
+        ? { ...o, items: [...(o.items || []), { ...item, timestamp: item.timestamp || new Date().toISOString() }] }
+        : o
+    ));
   };
 
   useEffect(() => {
@@ -284,6 +293,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       updateTableStatusLocal,
       updatePizzeriaConfig,
       clockOffset,
+      optimisticAddItemToOrder,
       data: { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig, shiftStartedAt }
     }}>
       {children}

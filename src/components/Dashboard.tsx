@@ -971,7 +971,7 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, optimisticAddItemToOrder, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
@@ -2684,12 +2684,22 @@ export default function Dashboard({
       toast.error('Esta mesa está aguardando baixa. Faça a baixa antes de adicionar novos itens.');
       return;
     }
-    const activeOrder = orders.filter(o => 
-      tableId && o.tableId && 
-      String(o.tableId) === String(tableId) && 
-      !!o.isComanda === !!isComandaSelected && 
-      o.status !== 'finalizada'
-    ).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
+    // Use currentOrder pointer first (same priority as display), fall back to most-recent
+    let activeOrder: any;
+    if (selectedTableOrComanda?.currentOrder) {
+      activeOrder = orders.find(o =>
+        String(o.id) === String(selectedTableOrComanda.currentOrder) &&
+        o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+      );
+    }
+    if (!activeOrder) {
+      activeOrder = orders.filter(o =>
+        tableId && o.tableId &&
+        String(o.tableId) === String(tableId) &&
+        !!o.isComanda === !!isComandaSelected &&
+        o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+      ).sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
+    }
     
     // Check if it's a pizza — also look inside subcategories
     const category = menu.find(cat =>
@@ -2754,6 +2764,7 @@ export default function Dashboard({
     };
 
     if (activeOrder) {
+      optimisticAddItemToOrder(activeOrder.id, newItem);
       socket.emit('add_item_to_order', {
         orderId: activeOrder.id,
         item: newItem
@@ -2808,14 +2819,25 @@ export default function Dashboard({
       guestName: admGuestForItem || undefined,
     };
 
-    const activeOrder = orders.filter(o =>
-      targetId && o.tableId &&
-      String(o.tableId) === String(targetId) &&
-      !!o.isComanda === !!isComandaSelected &&
-      o.status !== 'finalizada'
-    ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
+    const selectedTOrC = (isComandaSelected ? comandas : tables).find((t: any) => t.id === targetId);
+    let activeOrder: any;
+    if (selectedTOrC?.currentOrder) {
+      activeOrder = orders.find((o: any) =>
+        String(o.id) === String(selectedTOrC.currentOrder) &&
+        o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+      );
+    }
+    if (!activeOrder) {
+      activeOrder = orders.filter((o: any) =>
+        targetId && o.tableId &&
+        String(o.tableId) === String(targetId) &&
+        !!o.isComanda === !!isComandaSelected &&
+        o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+      ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
+    }
 
     if (activeOrder) {
+      optimisticAddItemToOrder(activeOrder.id, newItem);
       socket.emit('add_item_to_order', {
         orderId: activeOrder.id,
         item: newItem
