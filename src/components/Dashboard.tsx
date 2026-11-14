@@ -3129,7 +3129,7 @@ export default function Dashboard({
 
         {activeTab === 'overview' && (
           <div className="flex items-center justify-between pt-3 pb-0.5 mb-1 shrink-0 gap-2">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide shrink-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide shrink-0 pt-2">
             <div className="relative shrink-0">
               {isCashRegisterOpen && activeCashRegisterName && (
                 <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#141414] text-white text-[7px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap z-10 pointer-events-none">
@@ -3504,7 +3504,7 @@ export default function Dashboard({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="flex-1 min-h-0 pt-2 lg:pt-4"
+              className="flex-1 min-h-0 pt-2 lg:pt-4 overflow-hidden"
             >
               <section className="grid grid-cols-1 md:grid-cols-5 md:grid-rows-1 gap-4 h-full">
                 {/* Column 1 (Left): Tables/Comandas & Recent Orders */}
