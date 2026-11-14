@@ -3199,7 +3199,7 @@ export default function Dashboard({
                   <img
                     src={printerConfig.logoUrl}
                     alt="Logo"
-                    className="h-24 w-auto max-w-[200px] object-contain shrink-0 select-none pointer-events-none"
+                    className="h-16 w-auto max-w-[200px] object-contain shrink-0 select-none pointer-events-none"
                   />
                 )}
                 {printerConfig.establishmentName && (
