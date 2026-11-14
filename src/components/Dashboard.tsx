@@ -345,6 +345,8 @@ const OrderDetails = ({
   onOpenNfce,
   tenantId,
   setFiscalNotes,
+  guestModeActive: externalGuestModeActive,
+  onGuestModeActiveChange,
 }: any) => {
   const { clockOffset, data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
@@ -435,7 +437,8 @@ const OrderDetails = ({
     return Math.max(0, finalOrderTotal - existingPartialPaid);
   }, [activeOrder]);
 
-  const [guestModeActive, setGuestModeActive] = useState(false);
+  const guestModeActive = externalGuestModeActive ?? false;
+  const setGuestModeActive = onGuestModeActiveChange ?? ((_v: boolean) => {});
   const [guestList, setGuestList] = useState<string[]>([]);
   const [newGuestName, setNewGuestName] = useState('');
   const [assigningGuestToItemId, setAssigningGuestToItemId] = useState<string | null>(null);
@@ -459,190 +462,7 @@ const OrderDetails = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center justify-end mb-3 shrink-0">
-        <div className="flex items-center space-x-2 shrink-0">
-          <button
-            onClick={() => setGuestModeActive(v => !v)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-              guestModeActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
-            }`}
-            title="Modo Convidados"
-          >
-            <Users size={11} />
-            {guestModeActive ? 'Convidados ✓' : 'Convidados'}
-          </button>
-          <button
-            onClick={() => hasItems && setIsLinkModalOpen(true)}
-            disabled={!hasItems}
-            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-              hasItems 
-                ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
-                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-            }`}
-          >
-            Agrupar
-          </button>
-          <button
-            onClick={() => {
-              if (!activeOrder) return;
-              const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
-              const tableId = targetId;
-              const waiterName = waiters.find((w: any) => w.id === activeOrder.waiterId)?.name || 'N/A';
-              const activeItems = (activeOrder.items || []).filter((i: any) => !i.removed);
-              const total = activeItems.reduce((acc: number, i: any) => acc + i.price, 0);
-
-              const receiptPrinterName = printerConfig.receipts;
-              const printer = receiptPrinterName
-                ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
-                : null;
-
-              const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
-
-              if (printer) {
-                const lineLen = is50mm ? 32 : 48;
-                const b: number[] = [];
-                const push = (...bytes: number[]) => b.push(...bytes);
-                const lf = () => push(0x0A);
-                const text = (s: string) => push(...escStr(s));
-                const line = () => { text('-'.repeat(lineLen)); lf(); };
-                const center = () => push(0x1B, 0x61, 0x01);
-                const left = () => push(0x1B, 0x61, 0x00);
-                const bold = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
-
-                push(0x1B, 0x40); // init
-                center();
-                bold(true);
-                text((printerConfig.establishmentName || 'ESTABELECIMENTO').toUpperCase()); lf();
-                bold(false);
-                if (printerConfig.address) { text(printerConfig.address); lf(); }
-                if (printerConfig.phone) { text(`Tel: ${printerConfig.phone}`); lf(); }
-                lf();
-                bold(true); text('*** CONFERENCIA DE MESA ***'); lf(); bold(false);
-                line();
-                left();
-                text(`${tableType}: ${tableId}`); lf();
-                text(`Garcom: ${waiterName}`); lf();
-                text(`Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`); lf();
-                line();
-                activeItems.forEach((item: any) => {
-                  const label = `${item.quantity || 1}x ${item.name}`;
-                  const price = `R$ ${item.price.toFixed(2)}`;
-                  const spaces = Math.max(1, lineLen - label.length - price.length);
-                  if (printerConfig.boldItems) bold(true);
-                  text(label + ' '.repeat(spaces) + price); lf();
-                  if (printerConfig.boldItems) bold(false);
-                });
-                line();
-                bold(true);
-                const totalLabel = 'TOTAL:';
-                const totalVal = `R$ ${total.toFixed(2)}`;
-                const totalSpaces = Math.max(1, lineLen - totalLabel.length - totalVal.length);
-                text(totalLabel + ' '.repeat(totalSpaces) + totalVal); lf();
-                bold(false);
-                if (printerConfig.receiptFooter) {
-                  lf(); center(); text(printerConfig.receiptFooter); lf();
-                }
-                push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
-
-                if (printer.ip) {
-                  emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
-                } else {
-                  emitPrint({ localName: printer.name, data: b });
-                }
-                toast.success(`Resumo enviado para ${receiptPrinterName}`, { description: `${tableType} ${tableId} · R$ ${total.toFixed(2)}` });
-              } else {
-                const printWindow = window.open('', '_blank');
-                if (printWindow) {
-                  const _pw = is50mm ? '192px' : '304px';
-                  const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
-                  const html = `<html><head><title>Resumo ${tableType} ${tableId}</title>
-                    <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
-                    .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
-                    @media print{body{width:100%;margin:0}}</style></head><body>
-                    <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>${printerConfig.address || ''}<br/>
-                    <b>*** CONFERENCIA DE MESA ***</b></div>
-                    <div class="sep"></div>
-                    <div>${tableType}: ${tableId}<br/>Garcom: ${waiterName}<br/>${new Date().toLocaleString('pt-BR')}</div>
-                    <div class="sep"></div>
-                    ${activeItems.map((i: any) => `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${i.price.toFixed(2)}</span></div>`).join('')}
-                    <div class="sep"></div>
-                    <div style="text-align:right"><b>TOTAL: R$ ${total.toFixed(2)}</b></div>
-                    <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
-                    <script>window.onload=()=>{window.print();window.close()}</script></body></html>`;
-                  printWindow.document.write(html);
-                  printWindow.document.close();
-                }
-              }
-            }}
-            disabled={!hasItems}
-            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-              hasItems 
-                ? 'bg-blue-50 hover:bg-blue-100 text-blue-700' 
-                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-            }`}
-          >
-            <Printer size={10} className="inline mr-1" />
-            Resumo
-          </button>
-          <button 
-            onClick={() => hasItems && setIsTransferModalOpen(true)}
-            disabled={!hasItems}
-            className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
-              hasItems 
-                ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]' 
-                : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
-            }`}
-          >
-            Transferir
-          </button>
-          {activeOrder?.status === 'aguardando_baixa' ? (
-            <button
-              onClick={() => setIsBaixaModalOpen(true)}
-              className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center space-x-1 animate-pulse"
-            >
-              <CheckCircle size={10} />
-              <span>Dar Baixa</span>
-            </button>
-          ) : (
-            <>
-            <button
-              onClick={() => {
-                if (currentItem?.status === 'linked') {
-                  toast.warning(`Mesa vinculada. Realize o pagamento na Mesa ${currentItem.linkedTo}.`);
-                  return;
-                }
-                hasItems && pendingAmount >= 0.01 && setIsPaymentModalOpen(true);
-              }}
-              disabled={currentItem?.status !== 'linked' && (!hasItems || pendingAmount < 0.01)}
-              className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
-                currentItem?.status === 'linked' || (hasItems && pendingAmount >= 0.01)
-                  ? 'bg-green-600 hover:bg-green-700 text-white'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              }`}
-            >
-              <Wallet size={10} />
-              <span>Pagar</span>
-            </button>
-            </>
-          )}
-          {allItemsRemoved && (
-            <button
-              onClick={() => {
-                socket.emit('update_order_status', { orderId: activeOrder.id, status: 'aguardando_baixa' });
-                setTimeout(() => {
-                  socket.emit('confirm_baixa', { orderId: activeOrder.id });
-                  toast.success('Mesa liberada!');
-                }, 300);
-              }}
-              className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
-            >
-              <span>Liberar Mesa</span>
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="bg-white rounded-2xl border-2 border-[#141414] shadow-xl flex flex-col h-full min-h-0 overflow-hidden">
       <div className="p-6 pb-2 shrink-0">
         <div className="flex justify-between items-center mb-4">
           <div className="flex flex-col">
@@ -943,7 +763,6 @@ const OrderDetails = ({
         ) : null}
       </div>
     </div>
-  </div>
   );
 };
 
@@ -1116,6 +935,46 @@ export default function Dashboard({
   const [isMergeConfirmOpen, setIsMergeConfirmOpen] = useState(false);
   const [overviewTab, setOverviewTab] = useState<'tables' | 'comandas'>('tables');
   const [showingRecentOrders, setShowingRecentOrders] = useState(false);
+  // --- Computed state for top-bar action buttons ---
+  const [topBarGuestModeActive, setTopBarGuestModeActive] = useState(false);
+  const detailTargetId = isComandaSelected ? selectedComandaId : selectedTableId;
+  const detailCurrentItem = React.useMemo(() =>
+    detailTargetId ? (isComandaSelected ? comandas : tables).find((t: any) => t.id && String(t.id) === String(detailTargetId)) : null,
+    [detailTargetId, isComandaSelected, tables, comandas]
+  );
+  const detailActiveOrder = React.useMemo(() => {
+    if (!detailTargetId) return null;
+    if (!isComandaSelected && detailCurrentItem?.status === 'free' && !detailCurrentItem?.currentOrder) return null;
+    if (detailCurrentItem?.currentOrder) {
+      const o = orders.find((o: any) => String(o.id) === String(detailCurrentItem.currentOrder) && o.status !== 'finalizada');
+      if (o) return o;
+    }
+    const aos = orders.filter((o: any) =>
+      o.status !== 'finalizada' && o.tableId && String(o.tableId) === String(detailTargetId) && !!o.isComanda === !!isComandaSelected
+    );
+    return aos.length > 0 ? aos.sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0] : null;
+  }, [orders, detailCurrentItem, detailTargetId, isComandaSelected]);
+  const detailHasItems = !!(detailActiveOrder && (detailActiveOrder.items || []).filter((i: any) => !i.removed).length > 0);
+  const detailAllItemsRemoved = !!(detailActiveOrder && (detailActiveOrder.items || []).length > 0 && (detailActiveOrder.items || []).every((i: any) => i.removed || i.paid) && detailActiveOrder.status !== 'finalizada');
+  const detailPendingAmount = React.useMemo(() => {
+    if (!detailActiveOrder?.items) return 0;
+    const activeItems = detailActiveOrder.items.filter((i: any) => !i.removed && !i.paid);
+    let total = activeItems.reduce((acc: number, i: any) => {
+      let price = i.price;
+      if (i.discount) price = i.discountType === 'percentage' ? price * (1 - i.discount / 100) : Math.max(0, price - i.discount);
+      return acc + price;
+    }, 0);
+    if (detailActiveOrder.discount) {
+      total = detailActiveOrder.discountType === 'percentage' ? total * (1 - detailActiveOrder.discount / 100) : Math.max(0, total - detailActiveOrder.discount);
+    }
+    const paid = (detailActiveOrder.paymentLog || []).filter((p: any) => p.type === 'partial').reduce((acc: number, p: any) => acc + p.amount, 0);
+    return Math.max(0, total - paid);
+  }, [detailActiveOrder]);
+  React.useEffect(() => {
+    const guests = detailActiveOrder?.guests ?? [];
+    setTopBarGuestModeActive(guests.length > 0);
+  }, [detailActiveOrder?.id, JSON.stringify(detailActiveOrder?.guests)]);
+  // --- End computed state for top-bar action buttons ---
   const detailsRef = useRef<HTMLDivElement>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportStartDate, setReportStartDate] = useState(new Date().toISOString().split('T')[0]);
@@ -3269,7 +3128,8 @@ export default function Dashboard({
         </div>
 
         {activeTab === 'overview' && (
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide pt-3 pb-0.5 mb-1 shrink-0">
+          <div className="flex items-center justify-between pt-3 pb-0.5 mb-1 shrink-0 gap-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide shrink-0">
             <div className="relative shrink-0">
               {isCashRegisterOpen && activeCashRegisterName && (
                 <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-[#141414] text-white text-[7px] font-bold px-1.5 py-0.5 rounded-full whitespace-nowrap z-10 pointer-events-none">
@@ -3303,6 +3163,171 @@ export default function Dashboard({
             </div>
             <StatCard title="Mesas" value={tables.filter(t => t.status !== 'free').length} total={tables.length} icon={Users} />
             <StatCard title="Pend." value={orders.filter(o => o.status === 'pending').length} icon={Clock} />
+            </div>
+            {!showingRecentOrders && !!detailTargetId && isCashRegisterOpen && (
+              <div className="flex items-center space-x-2 shrink-0">
+                <button
+                  onClick={() => setTopBarGuestModeActive(v => !v)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                    topBarGuestModeActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
+                  }`}
+                  title="Modo Convidados"
+                >
+                  <Users size={11} />
+                  {topBarGuestModeActive ? 'Convidados ✓' : 'Convidados'}
+                </button>
+                <button
+                  onClick={() => detailHasItems && setIsLinkModalOpen(true)}
+                  disabled={!detailHasItems}
+                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                    detailHasItems
+                      ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
+                      : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+                  }`}
+                >
+                  Agrupar
+                </button>
+                <button
+                  onClick={() => {
+                    if (!detailActiveOrder) return;
+                    const tableType = isComandaSelected ? 'Comanda' : 'Mesa';
+                    const tableId = detailTargetId;
+                    const waiterName = waiters.find((w: any) => w.id === detailActiveOrder.waiterId)?.name || 'N/A';
+                    const activeItems = (detailActiveOrder.items || []).filter((i: any) => !i.removed);
+                    const total = activeItems.reduce((acc: number, i: any) => acc + i.price, 0);
+                    const receiptPrinterName = printerConfig.receipts;
+                    const printer = receiptPrinterName
+                      ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
+                      : null;
+                    const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
+                    if (printer) {
+                      const lineLen = is50mm ? 32 : 48;
+                      const b: number[] = [];
+                      const push = (...bytes: number[]) => b.push(...bytes);
+                      const lf = () => push(0x0A);
+                      const text = (s: string) => push(...escStr(s));
+                      const line = () => { text('-'.repeat(lineLen)); lf(); };
+                      const center = () => push(0x1B, 0x61, 0x01);
+                      const left = () => push(0x1B, 0x61, 0x00);
+                      const bold = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
+                      push(0x1B, 0x40);
+                      center(); bold(true); text((printerConfig.establishmentName || 'ESTABELECIMENTO').toUpperCase()); lf(); bold(false);
+                      if (printerConfig.address) { text(printerConfig.address); lf(); }
+                      if (printerConfig.phone) { text(`Tel: ${printerConfig.phone}`); lf(); }
+                      lf();
+                      bold(true); text('*** CONFERENCIA DE MESA ***'); lf(); bold(false);
+                      line(); left();
+                      text(`${tableType}: ${tableId}`); lf();
+                      text(`Garcom: ${waiterName}`); lf();
+                      text(`Data: ${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`); lf();
+                      line();
+                      activeItems.forEach((item: any) => {
+                        const label = `${item.quantity || 1}x ${item.name}`;
+                        const price = `R$ ${item.price.toFixed(2)}`;
+                        const spaces = Math.max(1, lineLen - label.length - price.length);
+                        if (printerConfig.boldItems) bold(true);
+                        text(label + ' '.repeat(spaces) + price); lf();
+                        if (printerConfig.boldItems) bold(false);
+                      });
+                      line(); bold(true);
+                      const totalLabel = 'TOTAL:';
+                      const totalVal = `R$ ${total.toFixed(2)}`;
+                      const totalSpaces = Math.max(1, lineLen - totalLabel.length - totalVal.length);
+                      text(totalLabel + ' '.repeat(totalSpaces) + totalVal); lf(); bold(false);
+                      if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); lf(); }
+                      push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10);
+                      if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
+                      else emitPrint({ localName: printer.name, data: b });
+                      toast.success(`Resumo enviado para ${receiptPrinterName}`, { description: `${tableType} ${tableId} · R$ ${total.toFixed(2)}` });
+                    } else {
+                      const printWindow = window.open('', '_blank');
+                      if (printWindow) {
+                        const _pw = is50mm ? '192px' : '304px';
+                        const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
+                        const html = `<html><head><title>Resumo ${tableType} ${tableId}</title>
+                          <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
+                          .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
+                          @media print{body{width:100%;margin:0}}</style></head><body>
+                          <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>${printerConfig.address || ''}<br/>
+                          <b>*** CONFERENCIA DE MESA ***</b></div>
+                          <div class="sep"></div>
+                          <div>${tableType}: ${tableId}<br/>Garcom: ${waiterName}<br/>${new Date().toLocaleString('pt-BR')}</div>
+                          <div class="sep"></div>
+                          ${activeItems.map((i: any) => `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${i.price.toFixed(2)}</span></div>`).join('')}
+                          <div class="sep"></div>
+                          <div style="text-align:right"><b>TOTAL: R$ ${total.toFixed(2)}</b></div>
+                          <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
+                          <script>window.onload=()=>{window.print();window.close()}</script></body></html>`;
+                        printWindow.document.write(html);
+                        printWindow.document.close();
+                      }
+                    }
+                  }}
+                  disabled={!detailHasItems}
+                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                    detailHasItems
+                      ? 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+                      : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+                  }`}
+                >
+                  <Printer size={10} className="inline mr-1" />
+                  Resumo
+                </button>
+                <button
+                  onClick={() => detailHasItems && setIsTransferModalOpen(true)}
+                  disabled={!detailHasItems}
+                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                    detailHasItems
+                      ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
+                      : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
+                  }`}
+                >
+                  Transferir
+                </button>
+                {detailActiveOrder?.status === 'aguardando_baixa' ? (
+                  <button
+                    onClick={() => setIsBaixaModalOpen(true)}
+                    className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center space-x-1 animate-pulse"
+                  >
+                    <CheckCircle size={10} />
+                    <span>Dar Baixa</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (detailCurrentItem?.status === 'linked') {
+                        toast.warning(`Mesa vinculada. Realize o pagamento na Mesa ${detailCurrentItem.linkedTo}.`);
+                        return;
+                      }
+                      detailHasItems && detailPendingAmount >= 0.01 && setIsPaymentModalOpen(true);
+                    }}
+                    disabled={detailCurrentItem?.status !== 'linked' && (!detailHasItems || detailPendingAmount < 0.01)}
+                    className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
+                      detailCurrentItem?.status === 'linked' || (detailHasItems && detailPendingAmount >= 0.01)
+                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <Wallet size={10} />
+                    <span>Pagar</span>
+                  </button>
+                )}
+                {detailAllItemsRemoved && (
+                  <button
+                    onClick={() => {
+                      socket.emit('update_order_status', { orderId: detailActiveOrder.id, status: 'aguardando_baixa' });
+                      setTimeout(() => {
+                        socket.emit('confirm_baixa', { orderId: detailActiveOrder.id });
+                        toast.success('Mesa liberada!');
+                      }, 300);
+                    }}
+                    className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
+                  >
+                    <span>Liberar Mesa</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -3796,6 +3821,8 @@ export default function Dashboard({
                           onOpenNfce={(orderId: number | string, total: number) => { setNfceResult(null); setNfceCpf(''); const _ord = orders.find((o: any) => String(o.id) === String(orderId)); const _log = _ord?.paymentLog || []; const _pm = mapPaymentMethod(_log[_log.length - 1]?.method) || lastPaymentMethod; setNfcePagamento(_pm); setNfceModal({ orderId, total }); }}
                           tenantId={tenantId}
                           setFiscalNotes={setFiscalNotes}
+                          guestModeActive={topBarGuestModeActive}
+                          onGuestModeActiveChange={setTopBarGuestModeActive}
                         />
                       </motion.div>
                     )}
