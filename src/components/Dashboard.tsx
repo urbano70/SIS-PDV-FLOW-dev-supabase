@@ -1186,7 +1186,7 @@ export default function Dashboard({
 
   const saveSalonConfig = async () => {
     setSavingConfig(true);
-    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas), maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)) });
+    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas), maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)), logoUrl: localLogoUrl });
     (setPrinterConfig as any)((prev: any) => {
       const updated = { ...prev, logoUrl: localLogoUrl };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
