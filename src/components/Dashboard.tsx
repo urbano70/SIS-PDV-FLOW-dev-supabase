@@ -1760,32 +1760,56 @@ export default function Dashboard({
 
     // Agrupa itens por impressora-destino para emitir uma via por setor
     const groups = new Map<string, { printerName: string; paperWidth: string; items: any[] }>();
+    // Rastreia itens que deveriam imprimir mas não têm impressora configurada
+    const unprintedByCategory = new Map<string, { label: string; items: any[] }>();
 
     orderItems.forEach(item => {
       let targetPrinterName = '';
       let shouldPrint = false;
       let sectorPaperWidth = '80mm';
+      let categoryLabel = '';
 
       if (item.type === 'pizzas') {
         targetPrinterName = printerConfig.pizzas || printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintPizzas ?? true;
         sectorPaperWidth = (printerConfig as any).pizzasPaperWidth || printerConfig.paperWidth || '80mm';
+        categoryLabel = 'Pizzas/Pratos';
       } else if (item.type === 'bebidas') {
         targetPrinterName = printerConfig.drinks || printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintDrinks ?? false;
         sectorPaperWidth = (printerConfig as any).drinksPaperWidth || printerConfig.paperWidth || '80mm';
+        categoryLabel = 'Bebidas';
       } else {
         // lanches, porcoes, lacarte e qualquer outro tipo vão para a cozinha
         targetPrinterName = printerConfig.kitchen;
         shouldPrint = printerConfig.autoPrintKitchen ?? true;
         sectorPaperWidth = (printerConfig as any).kitchenPaperWidth || printerConfig.paperWidth || '80mm';
+        categoryLabel = 'Cozinha';
       }
 
-      if (shouldPrint && targetPrinterName && targetPrinterName !== 'none') {
-        const key = targetPrinterName;
-        if (!groups.has(key)) groups.set(key, { printerName: targetPrinterName, paperWidth: sectorPaperWidth, items: [] });
-        groups.get(key)!.items.push(item);
+      if (shouldPrint) {
+        if (targetPrinterName && targetPrinterName !== 'none') {
+          const key = targetPrinterName;
+          if (!groups.has(key)) groups.set(key, { printerName: targetPrinterName, paperWidth: sectorPaperWidth, items: [] });
+          groups.get(key)!.items.push(item);
+        } else {
+          if (!unprintedByCategory.has(categoryLabel)) unprintedByCategory.set(categoryLabel, { label: categoryLabel, items: [] });
+          unprintedByCategory.get(categoryLabel)!.items.push(item);
+        }
       }
+    });
+
+    // Avisa sobre itens que deveriam imprimir mas não têm impressora configurada
+    unprintedByCategory.forEach(({ label, items }) => {
+      const names = items.map(i => {
+        const qty = i.quantity || 1;
+        const name = i.flavors?.length ? i.flavors[0] : (i.name || '?');
+        return `${qty}x ${name}`;
+      }).join(', ');
+      toast.warning(`Impressora de ${label} não configurada — itens não impressos`, {
+        description: names,
+        duration: 7000,
+      });
     });
 
     groups.forEach(({ printerName, paperWidth, items }) => {
@@ -1875,7 +1899,12 @@ export default function Dashboard({
       if (result.success) {
         toast.success('Impresso com sucesso', { description: `Impressora ${result.ip}`, duration: 2000 });
       } else {
-        toast.error('Falha na impressão', { description: `${result.ip} — ${result.error}` });
+        const printerLabel = result.ip || (result as any).localName || 'impressora';
+        const errorDetail = result.error || 'Sem resposta da impressora';
+        toast.error('Falha na impressão', {
+          description: `${printerLabel} — ${errorDetail}`,
+          duration: 8000,
+        });
       }
     };
 
