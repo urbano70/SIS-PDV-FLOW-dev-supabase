@@ -53,6 +53,8 @@ export interface PizzeriaConfig {
   waiterCanCancelItem?: boolean;
   clientSessionTimeoutMin?: number;
   cashRegisters?: { id: string; name: string; password?: string }[];
+  logoUrl?: string;
+  establishmentName?: string;
 }
 
 export interface Order {

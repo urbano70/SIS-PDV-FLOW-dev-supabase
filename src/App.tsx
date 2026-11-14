@@ -159,18 +159,17 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   // Sync establishmentName/logoUrl do pizzariaConfig (Supabase) → printerConfig (localStorage)
   // Garante que o nome salvo pelo admin no dashboard apareça na ClientePage mesmo após hard refresh
   useEffect(() => {
-    const cfg = pizzariaConfig as any;
-    if (!cfg) return;
+    if (!pizzariaConfig) return;
     setPrinterConfig((prev: any) => {
       const patch: Record<string, string> = {};
-      if (cfg.establishmentName && cfg.establishmentName !== prev.establishmentName) patch.establishmentName = cfg.establishmentName;
-      if (cfg.logoUrl !== undefined && cfg.logoUrl !== prev.logoUrl) patch.logoUrl = cfg.logoUrl;
+      if (pizzariaConfig.establishmentName && pizzariaConfig.establishmentName !== prev.establishmentName) patch.establishmentName = pizzariaConfig.establishmentName;
+      if (pizzariaConfig.logoUrl !== undefined && pizzariaConfig.logoUrl !== prev.logoUrl) patch.logoUrl = pizzariaConfig.logoUrl;
       if (Object.keys(patch).length === 0) return prev;
       const updated = { ...prev, ...patch };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
       return updated;
     });
-  }, [(pizzariaConfig as any)?.establishmentName, (pizzariaConfig as any)?.logoUrl]);
+  }, [pizzariaConfig?.establishmentName, pizzariaConfig?.logoUrl]);
 
   // Persiste printerConfig no localStorage sempre que mudar (garante que alterações feitas no
   // Dashboard não se percam ao recarregar ou atualizar o sistema)
