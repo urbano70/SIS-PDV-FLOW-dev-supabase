@@ -2767,6 +2767,8 @@ export default function Dashboard({
       optimisticAddItemToOrder(activeOrder.id, newItem);
       socket.emit('add_item_to_order', {
         orderId: activeOrder.id,
+        tableId: activeOrder.tableId,
+        isComanda: !!activeOrder.isComanda,
         item: newItem
       });
       // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal
@@ -2840,6 +2842,8 @@ export default function Dashboard({
       optimisticAddItemToOrder(activeOrder.id, newItem);
       socket.emit('add_item_to_order', {
         orderId: activeOrder.id,
+        tableId: activeOrder.tableId,
+        isComanda: !!activeOrder.isComanda,
         item: newItem
       });
       // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal

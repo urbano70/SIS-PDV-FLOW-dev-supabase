@@ -1895,7 +1895,7 @@ async function startServer() {
       });
     }));
 
-    socket.on("add_item_to_order", async ({ orderId, item }) => {
+    socket.on("add_item_to_order", async ({ orderId, tableId: fallbackTableId, isComanda: fallbackIsComanda, item }) => {
       await loadTenantIfNeeded(_tid());
       if (!_st().isCashRegisterOpen) {
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
@@ -1910,7 +1910,18 @@ async function startServer() {
         return;
       }
 
-      const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      let order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      // Fallback: if orderId is stale/missing, resolve via mesa's currentOrder
+      if (!order && fallbackTableId) {
+        const targetList = fallbackIsComanda ? _st().comandas : _st().tables;
+        const mesa = targetList.find((t: any) => t.id && String(t.id) === String(fallbackTableId));
+        if (mesa?.currentOrder) {
+          order = _st().orders.find((o: any) =>
+            String(o.id) === String(mesa.currentOrder) &&
+            o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+          );
+        }
+      }
       if (order) {
         if (order.status === "aguardando_baixa") {
           socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
