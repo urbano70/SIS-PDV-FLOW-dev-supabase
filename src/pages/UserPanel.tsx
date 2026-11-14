@@ -1,4 +1,4 @@
-import { useState, useRef, ChangeEvent } from 'react';
+import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOutOwner, updateUserMetadata, updateUserPassword } from '../lib/auth';
 import { toast } from 'sonner';
@@ -94,6 +94,28 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
     logo:                   logoUrl,
   });
 
+  // Sync UI whenever ownerUser is refreshed (e.g. after background getUser() call in App.tsx)
+  useEffect(() => {
+    if (editOpen) return;
+    const freshMeta = ownerUser?.user_metadata;
+    if (!freshMeta) return;
+    const newLogo = freshMeta.logo_url ?? '';
+    setLogoUrl(newLogo);
+    setFormData({
+      establishment_name:       freshMeta.establishment_name       || '',
+      establishment_type:       freshMeta.establishment_type       || '',
+      establishment_type_other: freshMeta.establishment_type_other || '',
+      cnpj:                     freshMeta.cnpj                     || '',
+      responsible_name:         freshMeta.responsible_name         || '',
+      address:                  freshMeta.address                  || '',
+      phone_whatsapp:           freshMeta.phone_whatsapp           || '',
+      responsible_whatsapp:     freshMeta.responsible_whatsapp     || '',
+      establishment_email:      freshMeta.establishment_email      || '',
+      logo:                     newLogo,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerUser]);
+
   const f = (key: keyof typeof formData, val: string) =>
     setFormData(p => ({ ...p, [key]: val }));
 
@@ -111,12 +133,10 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
         phone_whatsapp:           formData.phone_whatsapp.trim(),
         responsible_whatsapp:     formData.responsible_whatsapp.trim(),
         establishment_email:      formData.establishment_email.trim(),
+        logo_url:                 formData.logo,
       });
-      if (formData.logo !== logoUrl) {
-        setLogoUrl(formData.logo);
-        saveLogo(formData.logo);
-        await updateUserMetadata({ logo_url: formData.logo }).catch(() => {});
-      }
+      setLogoUrl(formData.logo);
+      saveLogo(formData.logo);
       toast.success('Dados salvos com sucesso!');
       setEditOpen(false);
     } catch {

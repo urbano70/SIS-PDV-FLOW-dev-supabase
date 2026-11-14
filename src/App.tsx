@@ -423,12 +423,17 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    // Load initial session
-    getSession().then(session => {
+    // Load cached session first (fast), then refresh metadata from server
+    getSession().then(async session => {
       setOwnerUser(session?.user ?? null);
       setAuthLoading(false);
+      if (session?.user) {
+        // getUser() fetches fresh user_metadata from Supabase, correcting stale cached JWT
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) setOwnerUser(user);
+      }
     });
-    // Subscribe to auth changes
+    // Subscribe to auth changes (also fires on updateUser → USER_UPDATED)
     const { data: { subscription } } = onAuthStateChange(user => {
       setOwnerUser(user);
     });
