@@ -103,9 +103,18 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   useEffect(() => {
     let socketUnsubscribes: (() => void)[] = [];
 
-    const handleUpdateOrders = (data: Order[]) => setOrders(data);
-    const handleUpdateTables = (data: Table[]) => setTables(data);
-    const handleUpdateComandas = (data: Table[]) => setComandas(data);
+    const handleUpdateOrders = (data: Order[]) => {
+      setOrders(data);
+      saveCache(tenantId, { ...loadCache(tenantId), orders: data });
+    };
+    const handleUpdateTables = (data: Table[]) => {
+      setTables(data);
+      saveCache(tenantId, { ...loadCache(tenantId), tables: data });
+    };
+    const handleUpdateComandas = (data: Table[]) => {
+      setComandas(data);
+      saveCache(tenantId, { ...loadCache(tenantId), comandas: data });
+    };
     const handleUpdateCashRegister = (isOpen: boolean) => {
       setIsCashRegisterOpen(isOpen);
       if (!isOpen) { setActiveCashRegisterName(null); try { localStorage.removeItem('activeCashRegisterName'); } catch {} }

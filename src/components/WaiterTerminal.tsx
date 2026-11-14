@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Table, PizzaItem, Order, MenuCategory, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
 import { Plus, Send, ShoppingBasket, ChevronLeft, ChevronRight, X, Pizza, Sandwich, Beer, Wallet, Link, Clock, AlertCircle, Download, Users, UserPlus, BellRing, Receipt, Bluetooth, BluetoothSearching, Printer, BluetoothOff } from 'lucide-react';
@@ -134,7 +134,48 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const currentList = selectionType === 'tables' ? visibleTables : visibleComandas;
   const tableData = currentList.find(t => selectedId && t.id && String(t.id) === String(selectedId));
-  const currentOrder = orders.find(o => tableData?.currentOrder && o.id && String(o.id) === String(tableData.currentOrder));
+
+  // Smart currentOrder lookup: mirrors ADM's activeOrder logic.
+  // If tableData.currentOrder points to an aguardando_baixa (all-paid) order,
+  // fall back to the most recent pending order for this table with unpaid items.
+  const currentOrder = useMemo(() => {
+    if (!tableData || tableData.status === 'free') return undefined;
+
+    if (tableData.currentOrder) {
+      const byId = orders.find(
+        o => o.id && String(o.id) === String(tableData.currentOrder) && o.status !== 'finalizada'
+      );
+      if (byId) {
+        const hasUnpaid = (byId.items || []).some((i: any) => !i.removed && !i.paid);
+        if (hasUnpaid || byId.status !== 'aguardando_baixa') return byId;
+      }
+    }
+
+    // Fallback: most recent non-finalized order with unpaid items for this table
+    const isComanda = selectionType === 'comandas';
+    const activeForTable = orders.filter(
+      o =>
+        o.status !== 'finalizada' &&
+        o.status !== 'aguardando_baixa' &&
+        o.tableId && String(o.tableId) === String(selectedId) &&
+        !!o.isComanda === isComanda &&
+        (o.items || []).some((i: any) => !i.removed && !i.paid)
+    );
+    if (activeForTable.length > 0) {
+      return activeForTable.sort(
+        (a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime()
+      )[0];
+    }
+
+    // Last resort: return the currentOrder even if aguardando_baixa
+    if (tableData.currentOrder) {
+      return orders.find(
+        o => o.id && String(o.id) === String(tableData.currentOrder) && o.status !== 'finalizada'
+      );
+    }
+
+    return undefined;
+  }, [orders, tableData, selectedId, selectionType]);
 
   const visibleCategories = menu.filter(cat => cat.visible !== false);
   const selectedCat = visibleCategories.find(c => c.name === activeCategory) || visibleCategories[0];
