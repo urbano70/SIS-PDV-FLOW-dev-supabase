@@ -71,7 +71,10 @@ export function useOrderNotifications(orders: any[], mode: NotificationMode, isC
     const newNotifs: OrderNotification[] = [];
 
     orders.forEach((order: any) => {
+      // Skip orders in terminal states — items there are not new activity
+      if (order.status === 'finalizada' || order.status === 'aguardando_baixa') return;
       (order.items || []).forEach((item: any) => {
+        if (!item.id) return; // symmetric with init: skip items without unique id
         const key = String(item.id);
         currentIds.add(key);
         if (!prevItemIdsRef.current.has(key)) {
