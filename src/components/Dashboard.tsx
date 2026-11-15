@@ -1168,7 +1168,7 @@ export default function Dashboard({
   const [nfceEmitting, setNfceEmitting] = useState(false);
   const [nfceResult, setNfceResult] = useState<any>(null);
   const [fiscalNotes, setFiscalNotes] = useState<any[]>([]);
-  const [cancelModal, setCancelModal] = useState<{ chaveAcesso: string; modelo: string; orderId: string | number } | null>(null);
+  const [cancelModal, setCancelModal] = useState<{ chaveAcesso: string; modelo: string; orderId: string | number; dhRecbto?: string } | null>(null);
   const [cancelMotivo, setCancelMotivo] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
   const [inutilizarModal, setInutilizarModal] = useState(false);
@@ -7140,7 +7140,9 @@ export default function Dashboard({
                     <div className="space-y-1 max-h-56 overflow-y-auto">
                       {fiscalNotes.map((n: any) => {
                         const st = (n.status || '').toUpperCase();
-                        const canCancel = st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA';
+                        const _cancelLimitMin = (n.modelo || '65') === '55' ? 24 * 60 : 30;
+                        const _cancelElapsed = n.dh_recbto ? (Date.now() - new Date(n.dh_recbto).getTime()) / 60000 : 0;
+                        const canCancel = (st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA') && _cancelElapsed <= _cancelLimitMin;
                         const statusColor =
                           st === 'AUTORIZADO' ? 'text-green-700' :
                           st === 'AUTORIZADO_COM_ALERTA' ? 'text-green-600' :
@@ -7177,7 +7179,7 @@ export default function Dashboard({
                             )}
                             {canCancel && (
                               <button
-                                onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id }); setCancelMotivo(''); }}
+                                onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id, dhRecbto: n.dh_recbto }); setCancelMotivo(''); }}
                                 className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
                               >Cancelar</button>
                             )}
@@ -7327,6 +7329,25 @@ export default function Dashboard({
                 </button>
               </div>
 
+              {cancelModal.dhRecbto && (() => {
+                const lim = cancelModal.modelo === '55' ? 24 * 60 : 30;
+                const elapsed = (Date.now() - new Date(cancelModal.dhRecbto).getTime()) / 60000;
+                const rem = Math.max(0, lim - elapsed);
+                const exp = rem <= 0;
+                return (
+                  <div className={`mb-3 px-3 py-2 rounded-xl text-[9px] flex items-center gap-1.5 ${
+                    exp ? 'bg-red-50 border border-red-200 text-red-700' :
+                    rem <= 5 ? 'bg-amber-50 border border-amber-200 text-amber-700' :
+                    'bg-green-50 border border-green-200 text-green-700'
+                  }`}>
+                    {exp
+                      ? `Prazo expirado — ${cancelModal.modelo === '55' ? 'NF-e' : 'NFC-e'} só pode ser cancelada em até ${cancelModal.modelo === '55' ? '24h' : '30 min'} após autorização.`
+                      : `Prazo para cancelamento: ${rem < 60 ? Math.ceil(rem) + ' min restantes' : (rem / 60).toFixed(1) + 'h restantes'}`
+                    }
+                  </div>
+                );
+              })()}
+
               <div className="mb-1">
                 <label className="text-[9px] font-bold uppercase opacity-50 block mb-1">Motivo do cancelamento</label>
                 <textarea
@@ -7348,7 +7369,7 @@ export default function Dashboard({
                   Voltar
                 </button>
                 <button
-                  disabled={cancelLoading || cancelMotivo.length < 15}
+                  disabled={cancelLoading || cancelMotivo.length < 15 || (!!cancelModal.dhRecbto && (Date.now() - new Date(cancelModal.dhRecbto).getTime()) / 60000 > (cancelModal.modelo === '55' ? 24 * 60 : 30))}
                   onClick={async () => {
                     if (!cancelModal || !tenantId) return;
                     setCancelLoading(true);
