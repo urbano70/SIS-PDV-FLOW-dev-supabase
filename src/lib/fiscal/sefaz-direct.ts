@@ -15,7 +15,7 @@ import {
   montarEnvelopeAutorizacao, montarEnvelopeStatusServico,
   montarXmlEvento, montarEnvelopeEvento, detCancelamento, detCancelamentoPorSubstituicao,
   montarXmlInutilizacao, montarEnvelopeInutilizacao, type ParamsInutilizacao,
-  soapCall, extrairCampo,
+  soapCall, extrairCampo, extrairResultadoEvento,
 } from './sefaz-soap.js';
 
 // ── Controle de numeração por série (banco de dados — seguro para múltiplos containers) ───
@@ -232,8 +232,7 @@ export async function cancelarNFCe(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const cStat   = extrairCampo(body, 'cStat');
-  const xMotivo = extrairCampo(body, 'xMotivo');
+  const { cStat, xMotivo } = extrairResultadoEvento(body);
 
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento rejeitado: ${cStat} — ${xMotivo}`);
@@ -351,8 +350,7 @@ export async function cancelarNFe(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const cStat   = extrairCampo(body, 'cStat');
-  const xMotivo = extrairCampo(body, 'xMotivo');
+  const { cStat, xMotivo } = extrairResultadoEvento(body);
 
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e rejeitado: ${cStat} — ${xMotivo}`);
@@ -381,8 +379,7 @@ export async function cancelarNFCePorSubstituicao(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const cStat   = extrairCampo(body, 'cStat');
-  const xMotivo = extrairCampo(body, 'xMotivo');
+  const { cStat, xMotivo } = extrairResultadoEvento(body);
 
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento por substituição rejeitado: ${cStat} — ${xMotivo}`);

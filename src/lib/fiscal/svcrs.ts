@@ -19,7 +19,7 @@ import { gerarChaveAcessoNFe, gerarXmlNFe, type OpcoesNFe } from './xml-nfe.js';
 import { assinarXml, assinarXmlElemento } from './xml-nfce.js';
 import {
   montarEnvelopeAutorizacao, montarXmlEvento, montarEnvelopeEvento,
-  detCancelamento, soapCall, extrairCampo,
+  detCancelamento, soapCall, extrairCampo, extrairResultadoEvento,
 } from './sefaz-soap.js';
 import { reservarNumero } from './sefaz-direct.js';
 import type { AutorizacaoResult } from './sefaz-direct.js';
@@ -141,8 +141,7 @@ export async function cancelarNFeSvcRs(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const cStat   = extrairCampo(body, 'cStat');
-  const xMotivo = extrairCampo(body, 'xMotivo');
+  const { cStat, xMotivo } = extrairResultadoEvento(body);
 
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e SVC-RS rejeitado: ${cStat} — ${xMotivo}`);

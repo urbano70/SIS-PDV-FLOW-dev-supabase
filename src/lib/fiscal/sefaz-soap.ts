@@ -269,3 +269,24 @@ export function extrairCampo(xml: string, tag: string): string {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([^<]+)</${tag}>`));
   return m?.[1] ?? '';
 }
+
+/**
+ * Extrai cStat/xMotivo de resposta de evento tratando cStat=128.
+ * 128 = "Lote de Evento Processado" — o resultado real do evento fica
+ * dentro de <retEvento>; extrai o cStat interno para verificar se
+ * o cancelamento foi de fato registrado (135/155).
+ */
+export function extrairResultadoEvento(body: string): { cStat: string; xMotivo: string } {
+  let cStat   = extrairCampo(body, 'cStat');
+  let xMotivo = extrairCampo(body, 'xMotivo');
+  if (cStat === '128') {
+    const m = body.match(/<retEvento[\s\S]*?<\/retEvento>/);
+    if (m) {
+      const inner = m[0];
+      const s = extrairCampo(inner, 'cStat');
+      const x = extrairCampo(inner, 'xMotivo');
+      if (s) { cStat = s; xMotivo = x || xMotivo; }
+    }
+  }
+  return { cStat, xMotivo };
+}
