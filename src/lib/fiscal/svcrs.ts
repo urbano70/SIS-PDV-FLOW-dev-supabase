@@ -135,7 +135,7 @@ export async function cancelarNFeSvcRs(
 ): Promise<{ cStat: string; xMotivo: string }> {
   const url = getSvcRsEndpoint(ambiente, 'recepcaoEvento');
   const tpAmb = TP_AMB[ambiente];
-  const dhEvento = new Date().toISOString().split('.')[0] + '-04:00';
+  const dhEvento = new Date(Date.now() - 4 * 3600 * 1000).toISOString().split('.')[0] + '-04:00';
   const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo), '1', C_ORGAO_SVC_RS);
   const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
   const envelope = montarEnvelopeEvento(eventoAssinado);
