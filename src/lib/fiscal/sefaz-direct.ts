@@ -234,6 +234,9 @@ export async function cancelarNFCe(
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const { cStat, xMotivo } = extrairResultadoEvento(body);
 
+  if (cStat === '501') {
+    throw new Error('Fora do prazo — NFC-e só pode ser cancelada em até 30 minutos após a autorização.');
+  }
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento rejeitado: ${cStat} — ${xMotivo}`);
   }
@@ -352,6 +355,9 @@ export async function cancelarNFe(
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const { cStat, xMotivo } = extrairResultadoEvento(body);
 
+  if (cStat === '501') {
+    throw new Error('Fora do prazo — NF-e só pode ser cancelada em até 24 horas após a autorização.');
+  }
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e rejeitado: ${cStat} — ${xMotivo}`);
   }
@@ -381,6 +387,9 @@ export async function cancelarNFCePorSubstituicao(
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const { cStat, xMotivo } = extrairResultadoEvento(body);
 
+  if (cStat === '501') {
+    throw new Error('Fora do prazo — NFC-e só pode ser cancelada em até 30 minutos após a autorização.');
+  }
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento por substituição rejeitado: ${cStat} — ${xMotivo}`);
   }

@@ -143,6 +143,9 @@ export async function cancelarNFeSvcRs(
   const { body } = await soapCall(url, envelope, cert, 15_000);
   const { cStat, xMotivo } = extrairResultadoEvento(body);
 
+  if (cStat === '501') {
+    throw new Error('Fora do prazo — NF-e só pode ser cancelada em até 24 horas após a autorização.');
+  }
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e SVC-RS rejeitado: ${cStat} — ${xMotivo}`);
   }
