@@ -226,7 +226,7 @@ export async function cancelarNFCe(
 ): Promise<{ cStat: string; xMotivo: string }> {
   const url = getEndpoint('nfce', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
-  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const dhEvento = new Date().toISOString().split('.')[0] + '-04:00';
   const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo));
   const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
   const envelope = montarEnvelopeEvento(eventoAssinado);
@@ -345,7 +345,7 @@ export async function cancelarNFe(
 ): Promise<{ cStat: string; xMotivo: string }> {
   const url = getEndpoint('nfe', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
-  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const dhEvento = new Date().toISOString().split('.')[0] + '-04:00';
   const eventoXml = montarXmlEvento(chaveAcesso, '110111', tpAmb, dhEvento, detCancelamento(protocolo, motivo));
   const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);
   const envelope = montarEnvelopeEvento(eventoAssinado);
@@ -374,7 +374,7 @@ export async function cancelarNFCePorSubstituicao(
 ): Promise<{ cStat: string; xMotivo: string }> {
   const url = getEndpoint('nfce', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
-  const dhEvento = new Date().toISOString().replace('Z', '-04:00');
+  const dhEvento = new Date().toISOString().split('.')[0] + '-04:00';
   const det = detCancelamentoPorSubstituicao(protocolo, motivo, chaveNFCeContingente);
   const eventoXml = montarXmlEvento(chaveAcesso, '110112', tpAmb, dhEvento, det);
   const eventoAssinado = assinarXmlElemento(eventoXml, 'infEvento', cert.privateKeyPem, cert.certificatePem);

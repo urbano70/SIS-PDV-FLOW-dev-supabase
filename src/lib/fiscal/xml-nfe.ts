@@ -135,7 +135,7 @@ export function gerarXmlNFe(intencao: IntencaoFiscal, opts: OpcoesNFe = {}): str
   if (!intencao.chaveAcesso) throw new Error('Chave de acesso não gerada.');
 
   const tpAmb = TP_AMB[intencao.ambiente];
-  const dhEmi = new Date(new Date().getTime() - 4 * 60 * 60 * 1000).toISOString().replace('Z', '') + '-04:00';
+  const dhEmi = new Date(new Date().getTime() - 4 * 60 * 60 * 1000).toISOString().split('.')[0] + '-04:00';
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
   const natOp  = opts.natOp  ?? 'VENDA DE MERCADORIA';
