@@ -3559,8 +3559,8 @@ export default function Dashboard({
                                 draggable={table.status === 'occupied'}
                                 onDragStart={e => { if (table.status === 'occupied') { setDragSourceTable(table.id); e.dataTransfer.effectAllowed = 'move'; } }}
                                 onDragEnd={() => setDragSourceTable(null)}
-                                onDragOver={e => { if (dragSourceTable !== null && dragSourceTable !== table.id && table.status === 'free') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                                onDrop={e => { e.preventDefault(); if (dragSourceTable !== null && table.status === 'free') { setTransferPopup({ source: dragSourceTable, target: table.id }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceTable(null); } }}
+                                onDragOver={e => { if (dragSourceTable !== null && dragSourceTable !== table.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                onDrop={e => { e.preventDefault(); if (dragSourceTable !== null && table.id !== dragSourceTable) { setTransferPopup({ source: dragSourceTable, target: table.id }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceTable(null); } }}
                                 onClick={() => {
                                   setSelectedTableId(table.id);
                                   setIsComandaSelected(false);
@@ -3644,8 +3644,8 @@ export default function Dashboard({
                                 draggable={comanda.status === 'occupied'}
                                 onDragStart={e => { if (comanda.status === 'occupied') { setDragSourceComanda(comanda.id); e.dataTransfer.effectAllowed = 'move'; } }}
                                 onDragEnd={() => setDragSourceComanda(null)}
-                                onDragOver={e => { if (dragSourceComanda !== null && dragSourceComanda !== comanda.id && comanda.status === 'free') { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
-                                onDrop={e => { e.preventDefault(); if (dragSourceComanda !== null && comanda.status === 'free') { setTransferPopup({ source: dragSourceComanda, target: comanda.id, isComanda: true }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceComanda(null); } }}
+                                onDragOver={e => { if (dragSourceComanda !== null && dragSourceComanda !== comanda.id) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                onDrop={e => { e.preventDefault(); if (dragSourceComanda !== null && comanda.id !== dragSourceComanda) { setTransferPopup({ source: dragSourceComanda, target: comanda.id, isComanda: true }); setDragTransferMode('all'); setDragSelectedIds({}); setDragSourceComanda(null); } }}
                                 onClick={() => {
                                   setSelectedComandaId(comanda.id);
                                   setIsComandaSelected(true);
@@ -8015,9 +8015,11 @@ export default function Dashboard({
                         <button
                           key={target.id}
                           onClick={() => { setTargetTableId(target.id); setTransferMode('all'); setTransferSelectedItemIds({}); }}
-                          className={`p-2 rounded-lg border-2 transition-all ${
+                          className={`p-2 rounded-lg border-2 transition-all cursor-pointer ${
                             target.status === 'occupied' || target.status === 'bill_requested'
-                              ? 'border-orange-200 bg-orange-50 text-orange-700'
+                              ? 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 hover:border-orange-400'
+                              : target.status === 'aguardando_baixa'
+                              ? 'border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 hover:border-purple-400'
                               : 'border-[#141414]/10 hover:border-[#141414]/30 text-[#141414]'
                           }`}
                         >
