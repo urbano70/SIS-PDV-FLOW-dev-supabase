@@ -810,7 +810,7 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, optimisticAddItemToOrder, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
@@ -2568,6 +2568,7 @@ export default function Dashboard({
   };
 
   const handleAddItem = (tableId: number, item: any) => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
@@ -2688,6 +2689,7 @@ export default function Dashboard({
   };
 
   const confirmQuantitySelection = () => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
@@ -3032,7 +3034,7 @@ export default function Dashboard({
         </nav>
 
         <div className="mt-auto pt-4 border-t border-[#141414]/10">
-          <p className="text-[9px] text-[#141414]/30 font-mono text-center">PR #{LATEST_PR}</p>
+          <p className="text-[9px] text-[#141414]/50 font-mono text-center">Versão {__BUILD_ID__.slice(0, 8)}</p>
         </div>
       </motion.div>
 
@@ -11005,7 +11007,7 @@ export default function Dashboard({
                 <Wallet size={14} className="text-white/50 shrink-0" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-white/50">Em aberto</span>
               </div>
-              <span className="text-[9px] font-mono text-white/20 hidden sm:block">PR #{LATEST_PR} · {__BUILD_TS__}</span>
+              <span title={__BUILD_VERSION__} className="text-[10px] font-mono text-white/60 hidden sm:block">Versão {__BUILD_ID__.slice(0, 8)} · {__BUILD_TS__}</span>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <Users size={13} className="text-white/40 shrink-0" />
@@ -11022,7 +11024,7 @@ export default function Dashboard({
       {activeTab !== 'overview' && (
         <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
           <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
-            PR #{LATEST_PR} · {__BUILD_TS__}
+            Versão {__BUILD_ID__.slice(0, 8)} · {__BUILD_TS__}
           </span>
         </div>
       )}

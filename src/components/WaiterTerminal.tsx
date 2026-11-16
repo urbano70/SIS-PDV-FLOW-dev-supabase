@@ -25,9 +25,10 @@ interface WaiterTerminalProps {
   pizzariaConfig: PizzeriaConfig;
   shiftStartedAt?: string;
   clockOffset?: number;
+  canSubmitOrder?: () => boolean;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, pizzaSizes = [], isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, pizzaSizes = [], isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0, canSubmitOrder = () => socket.connected }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
 
   // Fila de alertas "Chama Garçom" — suporta múltiplas mesas simultâneas
@@ -592,6 +593,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const submitOrder = async () => {
+    if (!canSubmitOrder()) { toast.error('Aguarde a conexão sincronizar. Seu carrinho foi mantido.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Peça ao gerente para abrir o caixa.');
       return;
