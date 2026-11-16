@@ -2537,31 +2537,38 @@ async function startServer() {
     });
 
     socket.on("close_table", async ({ tableId, isComanda }) => {
-      const targetList = isComanda ? _st().comandas : _st().tables;
-      let table = targetList.find(t => t.id === tableId);
+      // Capture the tenant before awaiting persistence so this operation stays scoped.
+      const tenantId = _tid();
+      const st = _st();
+      const room = _room();
+      const sameId = (left: any, right: any) =>
+        left != null && right != null && String(left) === String(right);
+      const targetList = isComanda ? st.comandas : st.tables;
+      const table = targetList.find(t => sameId(t.id, tableId));
       
       if (table) {
         // Find the ultimate target table if this one is linked
         let ultimateTargetId = tableId;
         let current = table;
-        const visited = new Set([current.id]);
-        while (current.status === "linked" && current.linkedTo) {
-          const next = targetList.find(t => t.id === current.linkedTo);
-          if (!next || visited.has(next.id)) break;
+        const visited = new Set([String(current.id)]);
+        while (current.status === "linked" && current.linkedTo != null) {
+          const next = targetList.find(t => sameId(t.id, current.linkedTo));
+          if (!next || visited.has(String(next.id))) break;
           current = next;
-          visited.add(current.id);
+          visited.add(String(current.id));
           ultimateTargetId = current.id;
         }
 
         const orderId = current.currentOrder;
+        const order = st.orders.find(o => sameId(o.id, orderId));
         
-        // Free the main table, the ultimate target, and all _st().tables/_st().comandas linked to that target or sharing the order
-        const entitiesToFree = [];
+        // Free the target and entities in the same sector linked to it or its order.
+        const entitiesToFree: any[] = [];
         const processFree = (t, targetId, orderId) => {
           if (
-            t.id === targetId || 
-            t.linkedTo === targetId || 
-            (orderId && t.currentOrder === orderId)
+            sameId(t.id, targetId) ||
+            sameId(t.linkedTo, targetId) ||
+            sameId(t.currentOrder, orderId)
           ) {
             t.status = "free";
             t.currentOrder = null;
@@ -2570,37 +2577,31 @@ async function startServer() {
           }
         };
 
-        if (isComanda) {
-          _st().comandas.forEach(c => processFree(c, ultimateTargetId, orderId));
-        } else {
-          _st().tables.forEach(t => processFree(t, ultimateTargetId, orderId));
-        }
+        targetList.forEach(entity => processFree(entity, ultimateTargetId, orderId));
 
         // Also ensure the initial tableId is freed if it wasn't covered
-        const initialTable = targetList.find(t => t.id === tableId);
-        if (initialTable && !entitiesToFree.includes(initialTable)) {
-          initialTable.status = "free";
-          initialTable.currentOrder = null;
-          initialTable.linkedTo = null;
-          entitiesToFree.push(initialTable);
+        if (!entitiesToFree.includes(table)) {
+          table.status = "free";
+          table.currentOrder = null;
+          table.linkedTo = null;
+          entitiesToFree.push(table);
         }
 
-        // Persist all freed entities
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-        io.to(_room()).emit("update_orders", _st().orders);
+        // Finalize the order before persistence or any broadcast of the freed table.
+        if (order) {
+          order.status = "finalizada";
+          await saveToSupabase('orders', order, String(order.id), tenantId);
+        }
 
+        const collection = isComanda ? 'comandas' : 'tables';
         for (const entity of entitiesToFree) {
-          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', entity, entity.id.toString());
+          await saveToSupabase(collection, entity, String(entity.id), tenantId);
         }
 
-        if (orderId) {
-          const order = _st().orders.find(o => o.id === orderId);
-          if (order) {
-            order.status = "finalizada";
-            await saveToSupabase('orders', order, order.id, _tid());
-          }
-        }
+        // All payloads now describe the same final state: order closed, table free.
+        io.to(room).emit("update_orders", st.orders);
+        io.to(room).emit("update_tables", st.tables);
+        io.to(room).emit("update_comandas", st.comandas);
       }
     });
 
