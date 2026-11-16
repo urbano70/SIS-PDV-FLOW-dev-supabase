@@ -333,7 +333,7 @@ async function main() {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'update-notification-browser-'));
   log(`Harness iniciado; ROOT=${ROOT}`);
   log(`Chromium=${CHROMIUM_PATH}`);
-  log(`Playwright=${PRIVATE_PLAYWRIGHT}`);
+  log(`Playwright=${PLAYWRIGHT_MODULE}`);
   log(`build local opaco=${LOCAL_BUILD_ID}`);
   log(`CSS compilado usado=${CSS_PATH}`);
 
