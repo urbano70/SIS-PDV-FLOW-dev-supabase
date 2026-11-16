@@ -2,12 +2,14 @@ node_modules/
 build/
 dist/
 coverage/
+test-results/
 .DS_Store
 *.log
 .env*
 !.env.example
 !.env.production
 server.js
+.build-info.json
 
 # Credenciais Firebase — nunca versionar (prod e dev)
 firebase-applet-config.json
@@ -21,4 +23,3 @@ data/
 
 # Configurações locais do Claude Code
 .claude/
-

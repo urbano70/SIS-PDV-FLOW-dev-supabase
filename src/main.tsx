@@ -3,13 +3,8 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
-// Quando o service worker é trocado (novo deploy), recarrega a página para
-// garantir que o app rodará sempre com o JS mais recente e ficará em sincronia.
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    window.location.reload();
-  });
-}
+// Atualizações e recarregamentos são controlados pelo botão do UpdateBanner.
+// Trocar o service worker em outra aba não deve interromper uma operação aqui.
 
 // Escala a interface conforme a resolução física real da tela.
 // window.screen.width * devicePixelRatio = pixels físicos, independente

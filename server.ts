@@ -15,6 +15,7 @@ import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
 import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 import { agendarBackupDiario } from "./src/lib/backup.ts";
+import { LATEST_PR } from "./src/version.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -863,14 +864,20 @@ async function startServer() {
   // Em dev local (sem env vars de produção), todo socket é admin automaticamente
   const isDevMode = !process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NODE_ENV !== 'production';
 
-  // Versão do servidor — manter em sincronia com src/version.ts LATEST_PR.
-  // Clientes comparam com sua versão local e pedem atualização se divergirem.
-  const SERVER_VERSION = 271;
+  // Metadata is embedded into both bundles by the same build, including Docker.
+  const appVersion = {
+    buildId: __BUILD_ID__,
+    version: __BUILD_VERSION__,
+    builtAt: __BUILD_TS__,
+  };
 
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
-    // Informa a versão do servidor imediatamente — clientes outdated exibem aviso de atualização
-    socket.emit("server_version", SERVER_VERSION);
+    // Keep the numeric event for legacy clients, without a separate version number.
+    socket.emit("server_version", LATEST_PR);
+    socket.emit("app_version", appVersion);
+    // A mounted client can ask again if it missed the initial connection event.
+    socket.on("request_app_version", () => socket.emit("app_version", appVersion));
 
     // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes
     const queryTenant = (socket.handshake.query?.tenant as string) || '';
