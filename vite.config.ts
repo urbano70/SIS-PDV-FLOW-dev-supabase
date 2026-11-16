@@ -22,6 +22,8 @@ export default defineConfig(({mode}) => {
         injectRegister: null,
         manifest: false,
         workbox: {
+          skipWaiting: false,
+          clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
           navigateFallback: '/index.html',
           navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
