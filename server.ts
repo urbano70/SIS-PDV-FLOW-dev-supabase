@@ -383,6 +383,31 @@ async function startServer() {
       if (pgData.pizzaCrusts?.length) { st.pizzaCrusts = pgData.pizzaCrusts; io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
       if (pgData.configPizzaria) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(pgData.configPizzaria as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
 
+      // Reconcilia mesas/comandas: libera as que estão ocupadas sem pedido ativo
+      const pgActiveOrderIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
+      let pgTablesDirty = false;
+      st.tables = st.tables.map((t: any) => {
+        if (t.status !== 'free' && t.currentOrder && !pgActiveOrderIds.has(String(t.currentOrder))) {
+          pgTablesDirty = true;
+          saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), 'default').catch(() => {});
+          return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+        }
+        return t;
+      });
+      st.comandas = st.comandas.map((c: any) => {
+        if (c.status !== 'free' && c.currentOrder && !pgActiveOrderIds.has(String(c.currentOrder))) {
+          pgTablesDirty = true;
+          saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), 'default').catch(() => {});
+          return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+        }
+        return c;
+      });
+      if (pgTablesDirty) {
+        io.to(room).emit('update_tables', st.tables);
+        io.to(room).emit('update_comandas', st.comandas);
+        console.log('[pg] Mesas/comandas inconsistentes liberadas no startup');
+      }
+
       st.loaded = true;
       console.log('[pg] Carga inicial concluída');
       return;
@@ -2134,7 +2159,7 @@ async function startServer() {
                 t.status = "free";
                 t.currentOrder = null;
                 t.linkedTo = null;
-                entitiesToUpdate.push({ entity: t, collection: '_st().tables' });
+                entitiesToUpdate.push({ entity: t, collection: 'tables' });
               }
             });
             _st().comandas.forEach((c: any) => {
@@ -2142,7 +2167,7 @@ async function startServer() {
                 c.status = "free";
                 c.currentOrder = null;
                 c.linkedTo = null;
-                entitiesToUpdate.push({ entity: c, collection: '_st().comandas' });
+                entitiesToUpdate.push({ entity: c, collection: 'comandas' });
               }
             });
 
@@ -2318,8 +2343,8 @@ async function startServer() {
           sourceTable.linkedTo = null;
 
           // Persist changes
-          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', sourceTable, sourceTable.id.toString());
-          await saveToSupabase(isComanda ? 'comandas' : '_st().tables', targetTable, targetTable.id.toString());
+          await saveToSupabase(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString(), _tid());
+          await saveToSupabase(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString(), _tid());
           if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid());
           if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id, _tid());
         }
@@ -2496,7 +2521,7 @@ async function startServer() {
           t.status = "free";
           t.currentOrder = null;
           t.linkedTo = null;
-          entitiesToUpdate.push({ entity: t, collection: '_st().tables' });
+          entitiesToUpdate.push({ entity: t, collection: 'tables' });
         }
       });
       _st().comandas.forEach((c: any) => {
@@ -2504,7 +2529,7 @@ async function startServer() {
           c.status = "free";
           c.currentOrder = null;
           c.linkedTo = null;
-          entitiesToUpdate.push({ entity: c, collection: '_st().comandas' });
+          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
         }
       });
 
@@ -2536,7 +2561,7 @@ async function startServer() {
       const table = targetList.find(t => t.id === tableId);
       if (table) {
         table.status = "bill_requested";
-        await saveToSupabase(isComanda ? 'comandas' : '_st().tables', table, table.id.toString());
+        await saveToSupabase(isComanda ? 'comandas' : 'tables', table, table.id.toString(), _tid());
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
         io.to(_room()).emit("bill_requested", { tableId, isComanda: !!isComanda, timestamp: Date.now() });
