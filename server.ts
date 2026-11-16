@@ -24,6 +24,37 @@ import {
   resetTestTableState,
 } from "./src/server/test-table-reset.ts";
 import { leaveTenantRooms, switchSocketTenant } from "./src/server/socket-tenant.ts";
+import {
+  authActorSafe,
+  buildWaiterAuthAck,
+  findWaiterByCredentials,
+  isApprovedWaiter,
+  isWaiterActorForTenant,
+  projectWaitersForActor,
+  sanitizeWaiter,
+  sanitizeWaiters,
+  waiterCredentialsMatch,
+} from "./src/server/waiter-auth.ts";
+import {
+  ensurePlaygroundProduct,
+  isPlaygroundReservedItem,
+  normalizePlaygroundConfig,
+  synchronizePlaygroundCatalog,
+} from "./src/server/playground-core.ts";
+import {
+  registerPlaygroundSocketHandlers,
+  isPlaygroundOperatorSocketEventAllowed,
+  publishPlaygroundProjection,
+} from "./src/server/playground.ts";
+import { registerKitchenSocketHandlers } from "./src/server/kitchen-core.ts";
+import {
+  closeCashRegisterState,
+  getOpenCashRegisterNames,
+  hasLogicalOpenCashRegisters,
+  openCashRegisterState,
+  releaseCashRegisterClaims,
+  restoreOpenCashRegisterOwners,
+} from "./src/server/cash-register-state.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -200,11 +231,22 @@ async function startServer() {
   const orderToRow  = (o: any) => ({ id: String(o.id), table_id: o.tableId ? String(o.tableId) : null, waiter_id: o.waiterId ? String(o.waiterId) : null, waiter_name: o.waiterName || null, status: o.status || 'open', is_comanda: o.isComanda || false, timestamp: o.timestamp || new Date().toISOString(), items: o.items || [], payment_log: o.paymentLog || [], delivery_log: o.deliveryLog || [] });
   const rowToStock  = (r: any) => ({ id: r.id, menuItemId: r.menu_item_id, name: r.name, quantity: r.quantity, minQuantity: r.min_quantity, unit: r.unit, history: r.history || [] });
   const stockToRow  = (s: any) => ({ id: s.id, menu_item_id: s.menuItemId || s.id, name: s.name || '', quantity: s.quantity || 0, min_quantity: s.minQuantity || 0, unit: s.unit || 'un', history: s.history || [] });
+  const publicWaiters = (waiters: any[]) => sanitizeWaiters(waiters);
 
   // â"€â"€ saveToSupabase: persiste qualquer coleÃ§Ã£o â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const markShiftStart = (st: TenantState) => {
+    if (hasLogicalOpenCashRegisters(st.isCashRegisterOpen, st.openCashRegisters)) return;
     st.shiftStartedAt = new Date().toISOString();
   };
+
+  const cashRegisterConfigPatch = (st: TenantState, extra: Record<string, any> = {}) => ({
+    isCashRegisterOpen: st.isCashRegisterOpen,
+    // Persist the marker even while globally closed so the next report can use
+    // the exact shift that was just closed (including across midnight).
+    shiftStartedAt: st.shiftStartedAt,
+    openCashRegisterNames: getOpenCashRegisterNames(st.openCashRegisters),
+    ...extra,
+  });
 
   const clonePersistenceData = <T>(data: T): T => {
     if (data === undefined || data === null) return data;
@@ -367,15 +409,46 @@ async function startServer() {
     }, debounceMs));
   };
 
+  // Comandos de pedido/mesa/configuração compartilham uma única cauda por
+  // tenant. Isso serializa mutações críticas sem bloquear impressão, leitura
+  // ou broadcasts; cada operação ainda drena sua própria fila de persistência.
+  const _tenantCommandTails = new Map<string, Promise<unknown>>();
+  const withTenantCommand = async <T>(tenantId: string, operation: () => Promise<T>): Promise<T> => {
+    const previous = _tenantCommandTails.get(tenantId);
+    const current = (previous ? previous.catch(() => undefined) : Promise.resolve()).then(async () => {
+      await waitForTenantWrites(tenantId);
+      const result = await operation();
+      await waitForTenantWrites(tenantId);
+      const operatorRoom = io.sockets.adapter.rooms.get(`playground:${tenantId}`);
+      if (operatorRoom?.size) {
+        try {
+          await publishPlaygroundProjection({ db, usePostgres: USE_POSTGRES, getState, buildId: __BUILD_ID__, io }, tenantId);
+        } catch (error) {
+          // The account is already durable: do not turn a notification failure
+          // into a false failed charge, and never replace a valid view with [].
+          console.error(`[parquinho][${tenantId}] Falha ao atualizar projeção:`, error);
+        }
+      }
+      return result;
+    });
+    const tracked = current.finally(() => {
+      if (_tenantCommandTails.get(tenantId) === tracked) _tenantCommandTails.delete(tenantId);
+    });
+    tracked.catch(() => undefined);
+    _tenantCommandTails.set(tenantId, tracked);
+    return current;
+  };
+
   const saveCashRegisterReport = async (tenantId: string, type: 'open' | 'close', cashRegisterName: string | null, st: TenantState) => {
     if (!db) return;
     const now = new Date().toISOString();
+    const shiftStartedAt = st.shiftStartedAt || now;
     let reportData: any = {};
     if (type === 'close') {
       // Compute sales data from orders in the current shift
       const shiftOrders = st.orders.filter((o: any) => {
-        if (!st.shiftStartedAt) return false;
-        return o.timestamp >= st.shiftStartedAt;
+        if (!shiftStartedAt) return false;
+        return o.timestamp >= shiftStartedAt;
       });
       const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
       const methodTotals: Record<string, number> = {};
@@ -409,7 +482,7 @@ async function startServer() {
         tenant_id: tenantId,
         type,
         cash_register_name: cashRegisterName,
-        shift_started_at: st.shiftStartedAt || now,
+        shift_started_at: shiftStartedAt,
         created_at: now,
         report_data: reportData,
       });
@@ -424,6 +497,12 @@ async function startServer() {
     });
   };
 
+  const saveMenuToSupabaseAwait = async (st: TenantState, tenantId: string) => {
+    await Promise.all(st.menu.map((cat: any, idx: number) =>
+      saveToSupabase('menu', { ...cat, position: idx }, cat.name, tenantId)
+    ));
+  };
+
   // ── Carga inicial do banco (Supabase ou PostgreSQL) ──────────────────────────
   const loadFromSupabase = async () => {
     // ── PostgreSQL local ──────────────────────────────────────────────────────
@@ -433,7 +512,7 @@ async function startServer() {
       const st = getState('default');
       const room = 'tenant:default';
 
-      if (pgData.waiters?.length) { st.waiters = pgData.waiters; io.to(room).emit('update_waiters', st.waiters); }
+      if (pgData.waiters?.length) { st.waiters = pgData.waiters; io.to(room).emit('update_waiters', publicWaiters(st.waiters)); }
 
       const typeMap: Record<string, string> = {};
       MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
@@ -488,14 +567,20 @@ async function startServer() {
 
       if (pgData.configApp) {
         const cfg = pgData.configApp as any;
-        st.isCashRegisterOpen = cfg.isCashRegisterOpen || false;
+        st.openCashRegisters = restoreOpenCashRegisterOwners(cfg.openCashRegisterNames);
+        const restoredCashRegisterNames = getOpenCashRegisterNames(st.openCashRegisters);
+        st.isCashRegisterOpen = cfg.isCashRegisterOpen ?? restoredCashRegisterNames.length > 0;
+        // Persisted logical names are authoritative even when an older partial
+        // config write left the global boolean behind.
+        if (restoredCashRegisterNames.length > 0) st.isCashRegisterOpen = true;
+        if (cfg.shiftStartedAt) st.shiftStartedAt = String(cfg.shiftStartedAt);
         if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
         // Se há pedidos ativos mas o caixa está fechado, reabrir automaticamente
         const hasActiveOrders = st.orders.some((o: any) => o.status !== 'finalizada' && o.status !== 'paid');
         if (hasActiveOrders && !st.isCashRegisterOpen) {
           st.isCashRegisterOpen = true;
-          saveToSupabase('config', { isCashRegisterOpen: true }, 'app', 'default').catch(() => {});
+          saveToSupabase('config', cashRegisterConfigPatch(st), 'app', 'default').catch(() => {});
         }
         io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
         io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
@@ -504,7 +589,14 @@ async function startServer() {
       if (pgData.stock?.length) { st.stock = pgData.stock; io.to(room).emit('update_stock', st.stock); }
       if (pgData.pizzaFlavors?.length) { st.pizzaFlavors = pgData.pizzaFlavors; io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
       if (pgData.pizzaCrusts?.length) { st.pizzaCrusts = pgData.pizzaCrusts; io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
-      if (pgData.configPizzaria) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(pgData.configPizzaria as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
+      if (pgData.configPizzaria) {
+        st.pizzariaConfig = { ...st.pizzariaConfig, ...(pgData.configPizzaria as any) };
+        if (st.pizzariaConfig.parquinhoEnabled) {
+          const product = ensurePlaygroundProduct(st.menu, 'default', normalizePlaygroundConfig('default', st.pizzariaConfig).parquinhoPrice);
+          if (product.changed) { st.menu = product.menu; await pgSeedMenu(st.menu, 'default'); }
+        }
+        io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
+      }
 
       // Reconcilia mesas/comandas: libera as que estão ocupadas sem pedido ativo
       const pgActiveOrderIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
@@ -586,7 +678,7 @@ async function startServer() {
 
       if (wRes.data) {
         st.waiters = wRes.data;
-        io.to(room).emit('update_waiters', st.waiters);
+        io.to(room).emit('update_waiters', publicWaiters(st.waiters));
       }
 
       const typeMap: Record<string, string> = {};
@@ -676,8 +768,13 @@ async function startServer() {
 
       if (cfgRes.data?.data) {
         const cfg = cfgRes.data.data as any;
-        const wasOpen = st.isCashRegisterOpen;
-        st.isCashRegisterOpen = cfg.isCashRegisterOpen ?? wasOpen;
+        st.openCashRegisters = restoreOpenCashRegisterOwners(cfg.openCashRegisterNames);
+        const restoredCashRegisterNames = getOpenCashRegisterNames(st.openCashRegisters);
+        st.isCashRegisterOpen = cfg.isCashRegisterOpen ?? restoredCashRegisterNames.length > 0;
+        // A saved name denotes an open logical register even if the last
+        // partial write did not include the aggregate boolean.
+        if (restoredCashRegisterNames.length > 0) st.isCashRegisterOpen = true;
+        if (cfg.shiftStartedAt) st.shiftStartedAt = String(cfg.shiftStartedAt);
         if (cfg.dailyCounter !== undefined) st.dailyCounter = cfg.dailyCounter;
         if (cfg.lastOrderDate !== undefined) st.lastOrderDate = cfg.lastOrderDate;
         if (cfg.isCashRegisterOpen !== undefined) {
@@ -697,7 +794,18 @@ async function startServer() {
 
       if (pfRes.data) { st.pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
-      if (cfgPizRes.data?.data) { st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) }; io.to(room).emit('update_pizzaria_config', st.pizzariaConfig); }
+      if (cfgPizRes.data?.data) {
+        st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) };
+        if (st.pizzariaConfig.parquinhoEnabled) {
+          const playgroundConfig = normalizePlaygroundConfig(tenantId, st.pizzariaConfig);
+          const product = ensurePlaygroundProduct(st.menu, tenantId, playgroundConfig.parquinhoPrice);
+          if (product.changed) {
+            st.menu = product.menu;
+            saveMenuToSupabase(st, tenantId);
+          }
+        }
+        io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
+      }
 
       // Load fiscal config
       if (db) {
@@ -913,8 +1021,8 @@ async function startServer() {
       st.dailyCounter++;
     }
     if (USE_POSTGRES) saveCounter(st);
-    // Preservar isCashRegisterOpen e shiftStartedAt para não sobrescrever com upsert parcial
-    saveToSupabase('config', { isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt, dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }, 'app', tenantId).catch(() => {});
+    // Preservar o estado lógico completo do caixa em cada upsert parcial.
+    saveToSupabase('config', cashRegisterConfigPatch(st, { dailyCounter: st.dailyCounter, lastOrderDate: st.lastOrderDate }), 'app', tenantId).catch(() => {});
     return `${dateStr}${st.dailyCounter.toString().padStart(4, '0')}`;
   };
 
@@ -1055,7 +1163,8 @@ async function startServer() {
   const DOTCOMPANY_API_KEY = ''; // mantido para evitar erros de compilação em código legado não removido ainda
 
   // ── Socket.io logic ───────────────────────────────────────────────────────
-  // Em dev local (sem env vars de produção), todo socket é admin automaticamente
+  // O modo de desenvolvimento não concede identidade, tenant ou papel. Um
+  // token Supabase real continua sendo obrigatório para o painel ADM.
   const isDevMode = !process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NODE_ENV !== 'production';
 
   // Metadata is embedded into both bundles by the same build, including Docker.
@@ -1073,34 +1182,56 @@ async function startServer() {
     // A mounted client can ask again if it missed the initial connection event.
     socket.on("request_app_version", () => socket.emit("app_version", appVersion));
 
-    // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes
+    const isPlaygroundConnection = String(socket.handshake.query?.app || '') === 'parquinho';
+    // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes.
+    // A conexão dedicada do Parquinho nunca entra na sala tenant:<id>.
     const queryTenant = (socket.handshake.query?.tenant as string) || '';
-    if (queryTenant) {
-      switchSocketTenant(socket, queryTenant);
-    }
-
-    // In dev mode, assign a default tenantId so all events work without auth
-    if (isDevMode) {
-      (socket as any).isAdmin = true;
-      switchSocketTenant(socket, (socket as any).tenantId || 'default');
+    if (queryTenant && !isPlaygroundConnection) {
+      // Query selection is only a hint for waiter registration/login. It is
+      // deliberately not a room membership or an authorization decision.
+      (socket as any).tenantId = queryTenant;
+      (socket as any).pendingTenantId = queryTenant;
     }
 
     socket.on("admin_connect", async (token) => {
       try {
-        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-        if (!payload?.sub) { socket.emit("auth_error", { message: "Token inválido" }); return; }
-        const tenantId: string = payload.sub;
-        (socket as any).isAdmin = true;
+        if ((socket as any).__commandTenantId) {
+          socket.emit("auth_error", { message: "Aguarde o comando do tenant atual terminar antes de trocar de conta." });
+          return;
+        }
+        if (isPlaygroundConnection || typeof token !== 'string' || !token) {
+          socket.emit("auth_error", { message: "Token administrativo inválido" });
+          return;
+        }
+        if (!db) {
+          socket.emit("auth_error", { message: "Autenticação administrativa indisponível" });
+          return;
+        }
+        const authResult = await db.auth.getUser(token);
+        if (authResult?.error || !authResult?.data?.user?.id) {
+          socket.emit("auth_error", { message: "Token administrativo inválido" });
+          return;
+        }
+        const user = authResult.data.user;
+        const tenantId: string = String(user.id);
+        // Reserve the authenticated owner identity while loading, but do not
+        // authorize private commands until the authoritative tenant snapshot is ready.
+        delete (socket as any).isAdmin;
+        (socket as any).authContext = { role: 'admin', tenantId, ready: false };
         const tenantGeneration = switchSocketTenant(socket, tenantId);
         await loadTenantIfNeeded(tenantId);
         if (!socket.connected || (socket as any).tenantId !== tenantId ||
-            (socket as any).tenantGeneration !== tenantGeneration) return;
+            (socket as any).tenantGeneration !== tenantGeneration ||
+            !authActorSafe((socket as any).authContext) ||
+            (socket as any).authContext.tenantId !== tenantId) return;
+        (socket as any).authContext.ready = true;
+        (socket as any).isAdmin = true;
         const st = getState(tenantId);
         socket.emit("init_data", {
           tenantId,
           ready: true,
           buildId: __BUILD_ID__,
-          waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
+          waiters: publicWaiters(st.waiters), orders: st.orders, tables: st.tables, comandas: st.comandas,
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
           pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
           isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
@@ -1117,9 +1248,16 @@ async function startServer() {
             }
           });
         }
-        console.log(`Admin connected: ${payload.email} (tenant: ${tenantId})`);
+        console.log(`Admin connected: ${user.email || user.id} (tenant: ${tenantId})`);
       } catch (e) {
         console.error("Error in admin_connect", e);
+        const actor = authActorSafe((socket as any).authContext);
+        if (actor?.role === 'admin') {
+          leaveTenantRooms(socket);
+          delete (socket as any).isAdmin;
+          delete (socket as any).authContext;
+          delete (socket as any).tenantId;
+        }
         socket.emit("auth_error", { message: "Erro de autenticação" });
       }
     });
@@ -1131,7 +1269,10 @@ async function startServer() {
         console.warn(`[agent] Tentativa de registro rejeitada (socket ${socket.id})`);
         return;
       }
-      const tid = agentTenantId || (socket as any).tenantId || '';
+      // Without the shared secret, a tenant supplied by an anonymous agent is
+      // not an identity. It must remain pending until an authenticated ADM
+      // claims it; never route printer data by a caller-controlled UUID.
+      const tid = AGENT_SECRET ? (agentTenantId || (socket as any).tenantId || '') : '';
       (socket as any).isPrinterAgent = true;
 
       if (!tid || tid === 'default') {
@@ -1140,8 +1281,12 @@ async function startServer() {
         (socket as any).pendingPairing = true;
         pendingAgents.set(socket.id, socket);
         socket.emit("printer_agent_pairing_needed", { socketId: socket.id });
-        // Notifica todos os admins conectados que há um agente aguardando pareamento
-        io.emit("printer_agent_pairing_available", { socketId: socket.id });
+        // Notifica apenas administradores autenticados sobre o pareamento.
+        io.sockets.sockets.forEach((candidate: any) => {
+          if (authActorSafe(candidate.authContext)?.role === 'admin' && candidate.authContext.tenantId === String(candidate.tenantId || '')) {
+            candidate.emit("printer_agent_pairing_available", { socketId: socket.id });
+          }
+        });
         console.log(`[agent] Agente aguardando pareamento: ${socket.id}`);
         return;
       }
@@ -1159,7 +1304,7 @@ async function startServer() {
     // Admin aceita pareamento de um agente pendente
     socket.on("claim_printer_agent", ({ agentSocketId }: { agentSocketId: string }) => {
       const tid = (socket as any).tenantId;
-      if (!tid || !(socket as any).isAdmin) {
+      if (!tid || !isAdminForTenant(String(tid))) {
         socket.emit("error_message", "Não autorizado.");
         return;
       }
@@ -1192,10 +1337,10 @@ async function startServer() {
       }
       const stDis = getState(tenantId);
       if (stDis.printSocket?.id === socket.id) stDis.printSocket = null;
-      for (const name of Object.keys(stDis.openCashRegisters)) {
-        if (stDis.openCashRegisters[name] === socket.id) {
-          delete stDis.openCashRegisters[name];
-        }
+      const releasedCashRegisters = releaseCashRegisterClaims(stDis.openCashRegisters, socket.id);
+      if (JSON.stringify(releasedCashRegisters) !== JSON.stringify(stDis.openCashRegisters)) {
+        stDis.openCashRegisters = releasedCashRegisters;
+        saveToSupabase('config', cashRegisterConfigPatch(stDis), 'app', tenantId).catch(() => {});
       }
       if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
@@ -1203,6 +1348,8 @@ async function startServer() {
     // Resultado de impressão enviado pelo agente → repassa ao tenant
     socket.on("printer_agent_result", (result: { success: boolean; ip: string; error?: string }) => {
       const tenantId = (socket as any).tenantId || 'default';
+      const activeState = getState(tenantId);
+      if (activeState.printerAgentSocket?.id !== socket.id) return;
       io.to('tenant:' + tenantId).emit("print_result", result);
     });
 
@@ -1215,23 +1362,123 @@ async function startServer() {
       io.to('tenant:' + tenantId).emit("scan_printers_result", data);
     });
 
-    // Per-socket tenant helpers
-    const _tid = (): string => (socket as any).tenantId || 'default';
+    // Per-socket tenant helpers. A queued command pins this value so a later
+    // tenant switch cannot redirect an awaited mutation to another account.
+    const _tid = (): string =>
+      String((socket as any).__commandTenantId ||
+        (socket as any).authContext?.tenantId ||
+        (socket as any).tenantId || 'default');
     const _st = (): TenantState => getState(_tid());
     const _room = (): string => 'tenant:' + _tid();
+    const isAdminForTenant = (tenantId: string): boolean => {
+      const actor = authActorSafe((socket as any).authContext);
+      return Boolean((socket as any).isAdmin && (socket as any).authContext?.ready === true &&
+        actor?.role === 'admin' && actor.tenantId === tenantId);
+    };
+    const waiterForTenant = (tenantId: string): any => {
+      const actor = authActorSafe((socket as any).authContext);
+      if (!actor || actor.role !== 'waiter' || actor.tenantId !== tenantId) return null;
+      const waiter = getState(tenantId).waiters.find((candidate: any) => String(candidate.id) === actor.waiterId);
+      return isWaiterActorForTenant(actor, tenantId, waiter) ? waiter : null;
+    };
+    const isApprovedWaiterSocket = (tenantId = _tid()): boolean => {
+      if (isAdminForTenant(tenantId)) return true;
+      return isApprovedWaiter(waiterForTenant(tenantId));
+    };
+    const onTenantCommand = (event: string, handler: (...args: any[]) => any) => {
+      socket.on(event, (...args: any[]) => {
+        const tenantId = String((socket as any).authContext?.tenantId || (socket as any).tenantId || '').trim();
+        if (!tenantId || !isApprovedWaiterSocket(tenantId)) {
+          socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
+          return Promise.resolve(false);
+        }
+        return withTenantCommand(tenantId, async () => {
+          if (!isApprovedWaiterSocket(tenantId)) {
+            socket.emit('auth_error', { message: 'Sessão alterada; autentique novamente neste tenant.' });
+            return false;
+          }
+          const previousTenant = (socket as any).__commandTenantId;
+          (socket as any).__commandTenantId = tenantId;
+          try {
+            return await handler(...args);
+          } finally {
+            if (previousTenant === undefined) delete (socket as any).__commandTenantId;
+            else (socket as any).__commandTenantId = previousTenant;
+          }
+        });
+      });
+    };
 
     const requireAdmin = (handler: (...args: any[]) => void) => {
       return (...args: any[]) => {
-        if (!(socket as any).isAdmin) {
+        const ack = [...args].reverse().find((candidate: any) => typeof candidate === 'function') as ((result: any) => void) | undefined;
+        if (!isAdminForTenant(_tid())) {
           socket.emit("error_message", "Acesso restrito ao administrador.");
-          return;
+          ack?.({ ok: false, message: "Acesso restrito ao administrador." });
+          return Promise.resolve(false);
         }
-        handler(...args);
+        return Promise.resolve(handler(...args));
       };
     };
 
+    const playgroundReservedMessage = 'Use o aplicativo Parquinho para lançar este item.';
+    const menuItems = (menu: any[] = _st().menu): any[] => (Array.isArray(menu) ? menu : []).flatMap((category: any) => [
+      ...(Array.isArray(category?.items) ? category.items : []),
+      ...(Array.isArray(category?.subcategories) ? category.subcategories.flatMap((subcategory: any) => (
+        Array.isArray(subcategory?.items) ? subcategory.items : []
+      )) : []),
+    ]);
+    const findMenuItem = (productId: any): any => menuItems().find((item: any) => String(item?.id ?? '') === String(productId ?? ''));
+    const rejectPlaygroundReserved = () => {
+      socket.emit('error_message', playgroundReservedMessage);
+      return false;
+    };
+    const hasReservedMenuItem = (value: any): boolean => {
+      if (isPlaygroundReservedItem(value, _tid())) return true;
+      if (Array.isArray(value)) return value.some(hasReservedMenuItem);
+      if (!value || typeof value !== 'object') return false;
+      return Object.values(value).some((child: any) => Array.isArray(child) || (child && typeof child === 'object') ? hasReservedMenuItem(child) : false);
+    };
+
+    registerPlaygroundSocketHandlers({
+      socket,
+      io,
+      db,
+      usePostgres: USE_POSTGRES,
+      buildId: __BUILD_ID__,
+      getTenantId: _tid,
+      getState,
+      loadTenantIfNeeded: loadTenantIfNeeded,
+      enqueueWrite,
+      saveToSupabase,
+      generateOrderId,
+      withTenantCommand,
+      rowToOrder,
+      rowToTable,
+      isAdmin: () => !!(socket as any).isAdmin,
+      isDedicatedConnection: () => isPlaygroundConnection,
+    });
+
+    // A playground socket is a capability-limited connection, not a waiter,
+    // printer, client, or admin socket. Socket.IO middleware runs before every
+    // event listener, so direct attempts to use a hidden legacy event are
+    // rejected instead of relying on the terminal UI.
+    socket.use(([eventName], next) => {
+      if (!isPlaygroundConnection) return next();
+      const event = String(eventName || '');
+      const adminEvent = event === 'parquinho_get_operators' || event === 'parquinho_set_operator_status' || event === 'parquinho_get_report';
+      if (!isPlaygroundOperatorSocketEventAllowed(event) && !adminEvent) {
+        return next(new Error('Evento não disponível para o operador de Parquinho.'));
+      }
+      return next();
+    });
+
     // Admin dashboard registra-se como socket de impressão exclusivo do tenant
     socket.on("register_print_socket", () => {
+      if (!isAdminForTenant(_tid())) {
+        socket.emit('auth_error', { message: 'Socket de impressão exige administrador autenticado.' });
+        return;
+      }
       _st().printSocket = socket;
     });
 
@@ -1246,13 +1493,13 @@ async function startServer() {
     };
 
     // init_data is sent after admin_connect (with per-tenant state); skip here for non-dev
-    if (isDevMode) {
+    if (isDevMode && (socket as any).isAdmin) {
       const defSt = getState('default');
       socket.emit("init_data", {
         tenantId: 'default',
         ready: true,
         buildId: __BUILD_ID__,
-        waiters: defSt.waiters, orders: defSt.orders, tables: defSt.tables, comandas: defSt.comandas,
+        waiters: publicWaiters(defSt.waiters), orders: defSt.orders, tables: defSt.tables, comandas: defSt.comandas,
         stock: defSt.stock, stockLog: defSt.stockLog, menu: defSt.menu,
         pizzaFlavors: defSt.pizzaFlavors, pizzaCrusts: defSt.pizzaCrusts, pizzaSizes: defSt.pizzaSizes,
         isCashRegisterOpen: defSt.isCashRegisterOpen, shiftStartedAt: defSt.shiftStartedAt,
@@ -1261,177 +1508,329 @@ async function startServer() {
       });
     }
 
-    socket.on("request_init_data", async () => {
+    socket.on("request_init_data", async (request: any = {}, maybeAck?: (ack: any) => void) => {
+      const ack = typeof maybeAck === 'function'
+        ? maybeAck
+        : typeof request === 'function' ? request : undefined;
       // Em produção, não transformar a ausência de identificação em tenant
       // default: isso devolvia um snapshot vazio antes de admin_connect.
-      const tid = (socket as any).tenantId as string | undefined;
-      if (!tid) return;
+      const tid = String((socket as any).authContext?.tenantId || (socket as any).tenantId || '').trim();
+      if (!tid) {
+        ack?.({ ok: false, message: 'Estabelecimento não identificado.' });
+        return;
+      }
+      const admin = isAdminForTenant(tid);
+      const actor = authActorSafe((socket as any).authContext);
+      const preloadedWaiter = admin ? null : waiterForTenant(tid);
+      if (!admin && !isApprovedWaiter(preloadedWaiter)) {
+        socket.emit('auth_error', { message: 'Autentique um garçom aprovado antes de carregar o PDV.' });
+        ack?.({ ok: false, status: 'rejected', message: 'Autentique um garçom aprovado antes de carregar o PDV.' });
+        return;
+      }
       const tenantGeneration = (socket as any).tenantGeneration;
       try {
         await loadTenantIfNeeded(tid);
         if (socket.connected === false || (socket as any).tenantId !== tid ||
             (socket as any).tenantGeneration !== tenantGeneration) return;
+        if (admin ? !isAdminForTenant(tid) : !isApprovedWaiter(waiterForTenant(tid))) return;
+        const currentActor = authActorSafe((socket as any).authContext);
         const st = getState(tid);
-        socket.emit("init_data", {
+        const ownWaiter = admin ? null : waiterForTenant(tid);
+        const safeOwnWaiter = sanitizeWaiter(ownWaiter);
+        const snapshot: any = {
           tenantId: tid,
           ready: true,
           buildId: __BUILD_ID__,
-          waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
+          // ADM receives the complete password-free roster. A waiter receives
+          // only the server-established profile belonging to this socket.
+          waiters: admin ? publicWaiters(st.waiters) : projectWaitersForActor(st.waiters, currentActor),
+          orders: st.orders, tables: st.tables, comandas: st.comandas,
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
           pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
           isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
           pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
           printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
-        });
+        };
+        if (!admin && safeOwnWaiter) snapshot.currentWaiter = safeOwnWaiter;
+        socket.emit("init_data", snapshot);
+        ack?.({ ok: true, ...(safeOwnWaiter ? { status: safeOwnWaiter.status, waiter: safeOwnWaiter } : {}) });
       } catch (error: any) {
         console.error(`[init_data] falha ao carregar tenant ${tid}:`, error?.message || error);
+        socket.emit("auth_error", { message: "Não foi possível carregar os dados deste tenant." });
+        ack?.({ ok: false, message: 'Não foi possível carregar os dados deste tenant.' });
+      }
+    });
+
+    socket.on("update_pizzaria_config", requireAdmin(async (config: any, rawAck?: any) => {
+      const ack = typeof rawAck === 'function' ? rawAck : undefined;
+      const tenantId = _tid();
+      const state = _st();
+      const previousConfig = clonePersistenceData(state.pizzariaConfig || {});
+      const previousMenu = clonePersistenceData(state.menu || []);
+      const fail = (message: string) => {
+        socket.emit('error_message', message);
+        ack?.({ ok: false, message });
+        return { ok: false, message };
+      };
+
+      if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        return fail('Configuração inválida.');
+      }
+
+      const mergedConfig = { ...previousConfig, ...config };
+      const normalizedConfig = normalizePlaygroundConfig(tenantId, mergedConfig);
+      const nextConfig = {
+        ...mergedConfig,
+        parquinhoEnabled: normalizedConfig.parquinhoEnabled,
+        parquinhoChildNameRequired: normalizedConfig.parquinhoChildNameRequired,
+        parquinhoPrice: normalizedConfig.parquinhoPrice,
+        parquinhoProductId: normalizedConfig.parquinhoProductId,
+      };
+
+      try {
+        // Persist the validated config before broadcasting it. The catalog
+        // reconciliation below only changes the managed product, never orders.
+        await saveToSupabase('config', nextConfig, 'pizzaria', tenantId);
+        const catalog = synchronizePlaygroundCatalog(state.menu, tenantId, nextConfig);
+        if (catalog.changed) {
+          state.menu = catalog.menu;
+          await saveMenuToSupabaseAwait(state, tenantId);
+        }
+        state.pizzariaConfig = nextConfig;
+        if (catalog.changed) io.to(_room()).emit('update_menu', state.menu);
+        io.to(_room()).emit("update_pizzaria_config", state.pizzariaConfig);
+        const response = { ok: true, message: 'Configuração salva.', config: state.pizzariaConfig, pizzariaConfig: state.pizzariaConfig };
+        ack?.(response);
+        return response;
+      } catch (error: any) {
+        // Do not expose a new config or a partially reconciled menu after a
+        // failed SDK/DB write. Best-effort persistence rollback keeps the
+        // authoritative snapshot aligned when the first write succeeded.
+        state.pizzariaConfig = previousConfig;
+        state.menu = previousMenu;
+        try { await saveToSupabase('config', previousConfig, 'pizzaria', tenantId); } catch { /* preserve original failure */ }
+        return fail(error?.message || 'Não foi possível salvar a configuração.');
+      }
+    }));
+
+    registerKitchenSocketHandlers({
+      socket,
+      io,
+      getTenantId: _tid,
+      getState,
+      withTenantCommand,
+      saveOrder: (order, orderId, tenantId) => saveToSupabase('orders', order, orderId, tenantId),
+      isAdmin: () => !!(socket as any).isAdmin,
+    });
+
+    socket.on("waiter_identify_tenant", async ({ tenantId }: { tenantId: string } = {} as any) => {
+      const tid = String(tenantId || '').trim();
+      if (!tid) return;
+      if ((socket as any).__commandTenantId) {
+        socket.emit('auth_error', { message: 'Aguarde o comando atual terminar antes de trocar de tenant.' });
+        return;
+      }
+      // A tenant hint cannot retarget an already authenticated owner/admin.
+      if ((socket as any).isAdmin || authActorSafe((socket as any).authContext)?.role === 'admin') {
+        socket.emit('auth_error', { message: 'A sessão administrativa deve permanecer no tenant autenticado.' });
+        return;
+      }
+      // Seleção de tenant não é autenticação. Carregamos o estado para
+      // validar cadastro/login, mas não ingressamos na sala antes de aprovar.
+      leaveTenantRooms(socket);
+      delete (socket as any).isAdmin;
+      (socket as any).authContext = null;
+      delete (socket as any).waiterId;
+      delete (socket as any).waiterUid;
+      delete (socket as any).waiterCpf;
+      delete (socket as any).waiterName;
+      (socket as any).tenantId = tid;
+      (socket as any).pendingTenantId = tid;
+      const tenantGeneration = (socket as any).tenantGeneration = (Number((socket as any).tenantGeneration) || 0) + 1;
+      try {
+        await loadTenantIfNeeded(tid);
+        if (socket.connected === false || (socket as any).tenantId !== tid ||
+            (socket as any).pendingTenantId !== tid ||
+            (socket as any).tenantGeneration !== tenantGeneration) return;
+      } catch (error: any) {
+        console.error(`[waiter_identify_tenant] falha ao carregar ${tid}:`, error?.message || error);
         socket.emit("auth_error", { message: "Não foi possível carregar os dados deste tenant." });
       }
     });
 
-    socket.on("update_pizzaria_config", requireAdmin((config) => {
-      _st().pizzariaConfig = { ..._st().pizzariaConfig, ...config };
-      io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
-      saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid()).catch(() => {});
-    }));
-
-    socket.on("deliver_item", ({ orderId, itemId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order) return;
-      const item = order.items.find((i: any) => i.id === itemId);
-      if (!item || item.deliveredAt) return;
-
-      const now = new Date().toISOString();
-      const durationMinutes = item.timestamp
-        ? Math.round((new Date(now).getTime() - new Date(item.timestamp).getTime()) / 60000)
-        : null;
-
-      const waiter = _st().waiters.find((w: any) => w.id === (socket as any).waiterId);
-      const waiterName = waiter?.name || (socket as any).waiterName || '';
-
-      item.deliveredAt = now;
-      item.deliveredBy = waiterName;
-
-      if (!order.deliveryLog) order.deliveryLog = [];
-      order.deliveryLog.push({
-        itemId,
-        itemName: item.name,
-        orderedAt: item.timestamp || null,
-        deliveredAt: now,
-        durationMinutes,
-        tableId: order.tableId,
-        isComanda: order.isComanda || false,
-        waiterName,
-      });
-
-      io.to(_room()).emit("update_orders", _st().orders);
-
-      saveToSupabase('orders', order, String(orderId), _tid()).catch(() => {});
-    });
-
-    socket.on("kitchen_start_item", async ({ orderId, itemId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order) return;
-      const item = order.items.find((i: any) => i.id === itemId);
-      if (!item || item.deliveredAt) return;
-      item.kitchenStatus = 'preparing';
-      io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('orders', order, String(order.id), _tid());
-    });
-
-    socket.on("kitchen_oven_item", async ({ orderId, itemId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order) return;
-      const item = order.items.find((i: any) => i.id === itemId);
-      if (!item || item.deliveredAt) return;
-      item.kitchenStatus = 'oven';
-      io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('orders', order, String(order.id), _tid());
-    });
-
-    socket.on("kitchen_finish_item", async ({ orderId, itemId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order) return;
-      const item = order.items.find((i: any) => i.id === itemId);
-      if (!item || item.deliveredAt) return;
-      item.kitchenStatus = 'ready';
-      io.to(_room()).emit("update_orders", _st().orders);
-      enqueueWrite('orders', order, String(order.id), _tid());
-    });
-
-    socket.on("waiter_identify_tenant", async ({ tenantId }: { tenantId: string }) => {
-      if (tenantId) {
-        const tid = String(tenantId);
-        const tenantGeneration = switchSocketTenant(socket, tid);
-        try {
-          await loadTenantIfNeeded(tid);
-          if (socket.connected === false || (socket as any).tenantId !== tid ||
-              (socket as any).tenantGeneration !== tenantGeneration) return;
-        } catch (error: any) {
-          console.error(`[waiter_identify_tenant] falha ao carregar ${tid}:`, error?.message || error);
-          socket.emit("auth_error", { message: "Não foi possível carregar os dados deste tenant." });
-        }
+    socket.on("waiter_register", async (waiterData: any = {}, callback?: (ack: any) => void) => {
+      const ack = typeof callback === 'function' ? callback : undefined;
+      if ((socket as any).__commandTenantId) {
+        ack?.({ ok: false, status: 'rejected', message: 'Aguarde o comando atual terminar antes de trocar de conta.' });
+        return;
       }
-    });
-
-    socket.on("waiter_register", async (waiterData) => {
-      // Garante que o tenant está carregado antes de registrar o garçom
-      await loadTenantIfNeeded(_tid());
-      // Find by CPF or Name/Phone combination if CPF is missing
-      const existingWaiterIndex = _st().waiters.findIndex(w =>
-        (waiterData.cpf && w.cpf === waiterData.cpf) ||
-        (waiterData.name === w.name && waiterData.phone === w.phone)
-      );
-      
-      const waiterId = waiterData.cpf || randomUUID();
-      const isFogo = typeof waiterData.name === 'string' && waiterData.name.startsWith('Garcom_Fogo_');
-      const waiter = {
-        ...waiterData,
-        id: waiterId,
-        socketId: socket.id,
-        status: isFogo ? "approved" : "pending"
+      const waiterTenantId = String((socket as any).pendingTenantId || socket.handshake.query?.tenant || '').trim();
+      const fail = (message: string, status: any = 'rejected', waiter?: any) => {
+        const response = buildWaiterAuthAck(false, waiter, message);
+        if (status) response.status = status;
+        ack?.(response);
+        socket.emit('waiter_login_ack', response);
+        socket.emit('auth_error', { message });
       };
-      
-      // Store waiter identity on the socket
-      (socket as any).waiterId = waiterId;
-      
-      if (existingWaiterIndex !== -1) {
-        _st().waiters[existingWaiterIndex] = { ..._st().waiters[existingWaiterIndex], ...waiter, status: _st().waiters[existingWaiterIndex].status };
-      } else {
-        _st().waiters.push(waiter);
+      if (!waiterTenantId) { fail('Estabelecimento obrigatório.'); return; }
+      if (!waiterData || typeof waiterData !== 'object' ||
+          typeof waiterData.name !== 'string' || !waiterData.name.trim() ||
+          typeof waiterData.password !== 'string' || !waiterData.password) {
+        fail('Nome e senha são obrigatórios.');
+        return;
       }
+      (socket as any).tenantId = waiterTenantId;
+      const registrationGeneration = (socket as any).tenantGeneration;
+      try {
+        await loadTenantIfNeeded(waiterTenantId);
+        if (socket.connected === false || (socket as any).pendingTenantId !== waiterTenantId ||
+            (socket as any).tenantGeneration !== registrationGeneration) return;
+        const st = getState(waiterTenantId);
+        // Never let a duplicate registration replace a password or approval.
+        const existing = st.waiters.find((candidate: any) =>
+          (waiterData.cpf && candidate.cpf === waiterData.cpf) ||
+          (waiterData.name === candidate.name && waiterData.phone === candidate.phone)
+        );
+        if (existing) {
+          const sameCredentials = waiterCredentialsMatch(existing, waiterData.name, waiterData.password);
+          if (sameCredentials) {
+            delete (socket as any).isAdmin;
+            (socket as any).waiterId = existing.id;
+            (socket as any).authContext = {
+              role: 'waiter', tenantId: waiterTenantId, waiterId: String(existing.id), credentialsValidated: true,
+            };
+          }
+          const response = buildWaiterAuthAck(
+            false,
+            sameCredentials ? existing : undefined,
+            'Cadastro já existente. Faça login ou solicite aprovação ao administrador.',
+          );
+          ack?.(response);
+          socket.emit('waiter_login_ack', response);
+          if (sameCredentials) socket.emit('waiter_approved', { status: existing.status, waiter: sanitizeWaiter(existing) });
+          return;
+        }
 
-      io.to(_room()).emit("admin_notification", {
-        type: "NEW_WAITER",
-        data: waiter,
-      });
-      io.to(_room()).emit("update_waiters", _st().waiters);
+        const waiterId = waiterData.cpf || randomUUID();
+        const waiter = {
+          ...waiterData,
+          id: waiterId,
+          socketId: socket.id,
+          status: 'pending',
+        };
+        st.waiters.push(waiter);
+        delete (socket as any).isAdmin;
+        (socket as any).waiterId = waiterId;
+        (socket as any).authContext = {
+          role: 'waiter', tenantId: waiterTenantId, waiterId: String(waiterId), credentialsValidated: true,
+        };
 
-      // Auto-aprovados (Garcom_Fogo_*) recebem confirmação imediata
-      if (isFogo) {
-        socket.emit("waiter_approved", { status: "approved" });
+        // ACK only after the durable waiter write succeeds.
+        await saveToSupabase('waiters', waiter, String(waiterId), waiterTenantId);
+        const safeWaiter = sanitizeWaiter(waiter);
+        const response = buildWaiterAuthAck(true, waiter);
+        ack?.(response);
+        socket.emit('waiter_login_ack', response);
+        io.to('tenant:' + waiterTenantId).emit("admin_notification", {
+          type: "NEW_WAITER",
+          data: safeWaiter,
+        });
+        io.to('tenant:' + waiterTenantId).emit("update_waiters", publicWaiters(st.waiters));
+        socket.emit("waiter_approved", { status: waiter.status, waiter: safeWaiter });
+      } catch (error: any) {
+        const st = getState(waiterTenantId);
+        const createdId = String((socket as any).waiterId || '');
+        const createdIndex = st.waiters.findIndex((candidate: any) => String(candidate.id) === createdId);
+        if (createdIndex >= 0 && st.waiters[createdIndex].status === 'pending') st.waiters.splice(createdIndex, 1);
+        delete (socket as any).authContext;
+        delete (socket as any).waiterId;
+        console.error(`[waiter_register] falha ao persistir ${waiterTenantId}:`, error?.message || error);
+        fail('Não foi possível persistir o cadastro. Tente novamente.');
       }
     });
 
-    socket.on("waiter_login", async ({ name, password }) => {
-      await loadTenantIfNeeded(_tid());
-      const waiter = _st().waiters.find(w => w.name === name && w.password === password);
-      if (waiter) {
-        waiter.socketId = socket.id;
+    socket.on("waiter_login", async ({ name, password }: { name?: string; password?: string } = {}, callback?: (ack: any) => void) => {
+      const ack = typeof callback === 'function' ? callback : undefined;
+      if ((socket as any).__commandTenantId) {
+        ack?.({ ok: false, status: 'rejected', message: 'Aguarde o comando atual terminar antes de trocar de conta.' });
+        return;
+      }
+      const waiterTenantId = String((socket as any).pendingTenantId || socket.handshake.query?.tenant || (socket as any).tenantId || '').trim();
+      const invalid = (message: string, waiter?: any) => {
+        const response = buildWaiterAuthAck(false, waiter, message);
+        ack?.(response);
+        socket.emit('waiter_login_ack', response);
+        socket.emit("error_message", message);
+      };
+      const ownerActor = authActorSafe((socket as any).authContext);
+      // A verified owner/admin socket must not be silently downgraded by a
+      // saved waiter credential. A real staff-route transition reconnects
+      // first, so this guard cannot block the legitimate /waiter flow.
+      if (ownerActor?.role === 'admin' && isAdminForTenant(ownerActor.tenantId)) {
+        invalid('A sessão administrativa não pode entrar como garçom nesta conexão.');
+        return;
+      }
+      if (!waiterTenantId) { invalid('Estabelecimento obrigatório.'); return; }
+      if (typeof name !== 'string' || typeof password !== 'string') {
+        invalid('Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.');
+        return;
+      }
+      (socket as any).tenantId = waiterTenantId;
+      const requestedGeneration = (socket as any).tenantGeneration;
+      try {
+        await loadTenantIfNeeded(waiterTenantId);
+        if (socket.connected === false || (socket as any).tenantId !== waiterTenantId ||
+            (socket as any).pendingTenantId !== waiterTenantId ||
+            (socket as any).tenantGeneration !== requestedGeneration) return;
+        const st = getState(waiterTenantId);
+        const waiter = findWaiterByCredentials(st.waiters, name, password);
+        if (!waiter) {
+          invalid('Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.');
+          return;
+        }
+
+        // A successful waiter login is a real role switch: never retain ADM.
+        delete (socket as any).isAdmin;
+        (socket as any).authContext = {
+          role: 'waiter', tenantId: waiterTenantId, waiterId: String(waiter.id), credentialsValidated: true,
+        };
         (socket as any).waiterId = waiter.id;
         (socket as any).waiterUid = waiter.uid;
         (socket as any).waiterCpf = waiter.cpf;
         (socket as any).waiterName = waiter.name;
         delete (socket as any)._pendingLogin;
+        waiter.socketId = socket.id;
+        const safeWaiter = sanitizeWaiter(waiter);
+        const response = buildWaiterAuthAck(true, waiter);
+        ack?.(response);
+        socket.emit('waiter_login_ack', response);
+        socket.emit("waiter_approved", { status: waiter.status, waiter: safeWaiter });
+        io.to('tenant:' + waiterTenantId).emit("update_waiters", publicWaiters(st.waiters));
+        if (waiter.status !== 'approved') return;
 
-        socket.emit("waiter_approved", { status: waiter.status });
-        io.to(_room()).emit("update_waiters", _st().waiters);
-      } else {
-        socket.emit("error_message", "Nome ou senha incorretos. Verifique seus dados ou solicite um novo cadastro.");
+        const tenantGeneration = switchSocketTenant(socket, waiterTenantId);
+        (socket as any).tenantGeneration = tenantGeneration;
+        const currentState = getState(waiterTenantId);
+        socket.emit('init_data', {
+          tenantId: waiterTenantId,
+          ready: true,
+          buildId: __BUILD_ID__,
+          currentWaiter: safeWaiter,
+          waiters: [safeWaiter],
+          orders: currentState.orders, tables: currentState.tables, comandas: currentState.comandas,
+          stock: currentState.stock, stockLog: currentState.stockLog, menu: currentState.menu,
+          pizzaFlavors: currentState.pizzaFlavors, pizzaCrusts: currentState.pizzaCrusts, pizzaSizes: currentState.pizzaSizes,
+          isCashRegisterOpen: currentState.isCashRegisterOpen, shiftStartedAt: currentState.shiftStartedAt,
+          pizzariaConfig: currentState.pizzariaConfig, firebaseActive: !!db,
+          printerAgentOnline: !!(currentState.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        console.error(`[waiter_login] falha ao carregar tenant ${waiterTenantId}:`, error?.message || error);
+        invalid('Não foi possível carregar os dados deste tenant.');
       }
     });
 
-    socket.on("toggle_cash_register", requireAdmin(async (payload) => {
+    onTenantCommand("toggle_cash_register", requireAdmin(async (payload) => {
       const isOpen: boolean = typeof payload === 'boolean' ? payload : (payload?.isOpen ?? false);
       const cashRegisterName: string | undefined = typeof payload === 'object' && payload !== null ? payload.cashRegisterName : undefined;
       const password: string | undefined = typeof payload === 'object' && payload !== null ? payload.password : undefined;
@@ -1444,13 +1843,12 @@ async function startServer() {
           socket.emit("error_message", "Não é possível fechar o caixa com mesas ou comandas ocupadas.");
           return;
         }
-        if (cashRegisterName) {
-          delete _st().openCashRegisters[cashRegisterName];
-        } else {
-          for (const name of Object.keys(_st().openCashRegisters)) {
-            if (_st().openCashRegisters[name] === socket.id) delete _st().openCashRegisters[name];
-          }
-        }
+        const closedCashState = closeCashRegisterState(_st(), {
+          cashRegisterName,
+          socketId: socket.id,
+        });
+        _st().openCashRegisters = closedCashState.openCashRegisters;
+        _st().isCashRegisterOpen = closedCashState.isCashRegisterOpen;
       } else {
         if (cashRegisterName) {
           const registeredCaixa = (_st().pizzariaConfig?.cashRegisters ?? []).find((r: any) => r.name === cashRegisterName);
@@ -1473,18 +1871,26 @@ async function startServer() {
               existingSocket.disconnect(true);
             }
           }
-          _st().openCashRegisters[cashRegisterName] = socket.id;
         }
-        markShiftStart(_st());
+        if (!hasLogicalOpenCashRegisters(_st().isCashRegisterOpen, _st().openCashRegisters)) {
+          markShiftStart(_st());
+        }
+        const openedCashState = openCashRegisterState(_st(), {
+          cashRegisterName,
+          socketId: socket.id,
+          now: _st().shiftStartedAt,
+        });
+        _st().isCashRegisterOpen = openedCashState.isCashRegisterOpen;
+        _st().shiftStartedAt = openedCashState.shiftStartedAt;
+        _st().openCashRegisters = openedCashState.openCashRegisters;
         io.to(_room()).emit('update_shift_started_at', _st().shiftStartedAt);
       }
 
-      _st().isCashRegisterOpen = isOpen;
-      io.to(_room()).emit("update_cash_register", isOpen);
+      io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
       if (cashRegisterName !== undefined) {
         socket.emit("update_my_cash_register_name", isOpen ? cashRegisterName : null);
       }
-      await saveToSupabase('config', { isCashRegisterOpen: isOpen, updatedAt: new Date().toISOString(), ...(isOpen ? { shiftStartedAt: _st().shiftStartedAt } : {}) }, 'app', _tid());
+      await saveToSupabase('config', cashRegisterConfigPatch(_st(), { updatedAt: new Date().toISOString() }), 'app', _tid());
 
       // Save a report snapshot to cash_register_reports (non-blocking)
       saveCashRegisterReport(_tid(), isOpen ? 'open' : 'close', cashRegisterName ?? null, _st()).catch(() => {});
@@ -1510,20 +1916,37 @@ async function startServer() {
       }
     }));
 
-    socket.on("toggle_waiter_status", requireAdmin(({ waiterId, status }) => {
-      const waiter = _st().waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
-      if (waiter) {
-        waiter.status = status;
-        io.to(_room()).emit("update_waiters", _st().waiters);
-        
-        // Notify the waiter via ALL their connected sockets
-        const connectedSockets = io.sockets.sockets;
-        connectedSockets.forEach((s) => {
-          if ((s as any).waiterId === waiter.id) {
-            s.emit("waiter_status_changed", { status });
-          }
-        });
+    socket.on("toggle_waiter_status", requireAdmin(async ({ waiterId, status }) => {
+      const tenantId = _tid();
+      const st = getState(tenantId);
+      if (!['pending', 'approved', 'inactive'].includes(String(status))) {
+        socket.emit('error_message', 'Status de garçom inválido.');
+        return false;
       }
+      const waiter = st.waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
+      if (!waiter) return false;
+      const previousStatus = waiter.status;
+      waiter.status = status;
+      try {
+        // Do not advertise a status that has not reached durable storage.
+        await saveToSupabase('waiters', waiter, String(waiter.id), tenantId);
+      } catch (error: any) {
+        waiter.status = previousStatus;
+        socket.emit('error_message', 'Não foi possível persistir o status do garçom.');
+        console.error(`[waiter_status] falha ao salvar ${tenantId}:`, error?.message || error);
+        return false;
+      }
+      io.to('tenant:' + tenantId).emit("update_waiters", publicWaiters(st.waiters));
+
+      // Notify only sockets whose server-established actor belongs to this tenant.
+      io.sockets.sockets.forEach((s: any) => {
+        const actor = authActorSafe(s.authContext);
+        if (actor?.role === 'waiter' && actor.tenantId === tenantId && actor.waiterId === String(waiter.id)) {
+          s.emit("waiter_status_changed", { status, waiter: sanitizeWaiter(waiter) });
+          s.emit("waiter_approved", { status, waiter: sanitizeWaiter(waiter) });
+        }
+      });
+      return true;
     }));
 
     socket.on("remove_waiter", requireAdmin((waiterId: string) => {
@@ -1542,15 +1965,15 @@ async function startServer() {
         }
       });
       _st().waiters.splice(idx, 1);
-      io.to(_room()).emit("update_waiters", _st().waiters);
+      io.to(_room()).emit("update_waiters", publicWaiters(_st().waiters));
       saveLocalBackup(_st());
     }));
 
-    socket.on("cleanup_test_data", requireAdmin(async ({ deleteWaiters, deleteData }: { deleteWaiters: boolean; deleteData: boolean }) => {
+    onTenantCommand("cleanup_test_data", requireAdmin(async ({ deleteWaiters, deleteData }: { deleteWaiters: boolean; deleteData: boolean }) => {
       const prefix = 'Garcom_Fogo_';
       if (deleteWaiters) {
         _st().waiters = _st().waiters.filter((w: any) => !w.name?.startsWith(prefix));
-        io.to(_room()).emit('update_waiters', _st().waiters);
+        io.to(_room()).emit('update_waiters', publicWaiters(_st().waiters));
         if (USE_POSTGRES) void pgDeleteLike('_st().waiters', 'id', `${prefix}%`);
         else db?.from('_st().waiters').delete().like('name', `${prefix}%`).then(() => {}).catch(() => {});
       }
@@ -1583,30 +2006,43 @@ async function startServer() {
       }
     }));
 
-    socket.on("admin_approve_waiter", requireAdmin((waiterId) => {
-      const waiter = _st().waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
-      if (waiter) {
-        waiter.status = "approved";
-        io.to(_room()).emit("update_waiters", _st().waiters);
-        
-        // Notifica o garÃ§om por todos os identificadores possÃ­veis
-        const connectedSockets = io.sockets.sockets;
-        connectedSockets.forEach((s) => {
-          const matches =
-            (s as any).waiterId   === waiter.id   ||
-            (s as any).waiterId   === waiter.uid  ||
-            (s as any).waiterId   === waiter.cpf  ||
-            (s as any).waiterUid  === waiter.uid  ||
-            (s as any).waiterCpf  === waiter.cpf  ||
-            (s as any).waiterName === waiter.name;
-          if (matches) s.emit("waiter_approved", { status: "approved", isNewApproval: true });
-        });
+    socket.on("admin_approve_waiter", requireAdmin(async (waiterId) => {
+      const tenantId = _tid();
+      const st = getState(tenantId);
+      const waiter = st.waiters.find((w) => w.id === waiterId || w.cpf === waiterId);
+      if (!waiter) return false;
+      const previousStatus = waiter.status;
+      waiter.status = "approved";
+      try {
+        await saveToSupabase('waiters', waiter, String(waiter.id), tenantId);
+      } catch (error: any) {
+        waiter.status = previousStatus;
+        socket.emit('error_message', 'Não foi possível persistir a aprovação do garçom.');
+        console.error(`[waiter_approve] falha ao salvar ${tenantId}:`, error?.message || error);
+        return false;
       }
+      const safeWaiter = sanitizeWaiter(waiter);
+      io.to('tenant:' + tenantId).emit("update_waiters", publicWaiters(st.waiters));
+
+      // Only a waiter socket that authenticated its own credentials can claim
+      // this approval; names/IDs supplied by an anonymous socket are ignored.
+      io.sockets.sockets.forEach((s: any) => {
+        const actor = authActorSafe(s.authContext);
+        if (actor?.role === 'waiter' && actor.tenantId === tenantId && actor.waiterId === String(waiter.id)) {
+          s.emit("waiter_approved", { status: "approved", waiter: safeWaiter, isNewApproval: true });
+        }
+      });
+      return true;
     }));
 
-    socket.on("new_order", async (orderData) => {
+    onTenantCommand("new_order", async (orderData) => {
       await loadTenantIfNeeded(_tid());
       console.log("New order request received:", orderData.tableId, orderData.isComanda ? "Comanda" : "Table");
+
+      const incomingItems = Array.isArray(orderData?.items) ? orderData.items : [];
+      if (incomingItems.some((item: any) => isPlaygroundReservedItem(item, _tid()))) {
+        return rejectPlaygroundReserved();
+      }
 
       if (!_st().isCashRegisterOpen) {
         console.warn("Attempted order while register is closed");
@@ -1722,7 +2158,7 @@ async function startServer() {
       console.log("Emitted initial updates for new order");
       
       saveToSupabase('orders', newOrder, newOrder.id, _tid());
-      saveToSupabase('config', { isCashRegisterOpen: _st().isCashRegisterOpen, shiftStartedAt: _st().shiftStartedAt, dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }, 'app', _tid());
+      saveToSupabase('config', cashRegisterConfigPatch(_st(), { dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }), 'app', _tid());
       
       if (table) {
         const orderId = newOrder.id;
@@ -1757,6 +2193,10 @@ async function startServer() {
     });
 
     socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData, subcategoryId }) => {
+      const currentItem = findMenuItem(productId);
+      if (isPlaygroundReservedItem(currentItem, _tid()) || isPlaygroundReservedItem({ id: productId }, _tid()) || isPlaygroundReservedItem(updatedData, _tid())) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
@@ -1788,6 +2228,7 @@ async function startServer() {
     }));
 
     socket.on("add_product", requireAdmin(({ categoryName, productData, subcategoryId }) => {
+      if (isPlaygroundReservedItem(productData, _tid())) return rejectPlaygroundReserved();
       const newItem = { id: randomUUID(), ...productData };
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
@@ -1806,7 +2247,7 @@ async function startServer() {
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
-      const validTypes = ['lanches', 'pizzas', 'bebidas', 'porcoes', 'lacarte'];
+      const validTypes = ['lanches', 'pizzas', 'bebidas', 'porcoes', 'lacarte', 'outros'];
       const type = validTypes.includes(categoryData.type) ? categoryData.type : 'lanches';
 
       // Se for pizza, monta automaticamente subcategorias Com/Sem Borda com os tamanhos cadastrados
@@ -1840,7 +2281,16 @@ async function startServer() {
     }));
 
     socket.on("update_category", requireAdmin(({ oldName, updatedData }) => {
+      const currentCategory = _st().menu.find((cat: any) => cat.name === oldName);
+      const replacesProducts = updatedData && (
+        Object.prototype.hasOwnProperty.call(updatedData, 'items') ||
+        Object.prototype.hasOwnProperty.call(updatedData, 'subcategories')
+      );
+      if (hasReservedMenuItem(updatedData) || (hasReservedMenuItem(currentCategory) && replacesProducts)) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => cat.name === oldName ? { ...cat, ...updatedData } : cat);
+      _st().menu = synchronizePlaygroundCatalog(_st().menu, _tid(), _st().pizzariaConfig).menu;
       io.to(_room()).emit("update_menu", _st().menu);
       saveMenuToSupabase(_st(), _tid());
     }));
@@ -1852,6 +2302,9 @@ async function startServer() {
     }));
 
     socket.on("toggle_item_visibility", requireAdmin(({ categoryName, subcategoryId, itemId, visible }) => {
+      if (isPlaygroundReservedItem(findMenuItem(itemId), _tid()) || isPlaygroundReservedItem({ id: itemId }, _tid())) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
@@ -1871,6 +2324,8 @@ async function startServer() {
     }));
 
     socket.on("delete_category", requireAdmin((categoryName) => {
+      const category = _st().menu.find((cat: any) => cat.name === categoryName);
+      if (hasReservedMenuItem(category)) return rejectPlaygroundReserved();
       _st().menu = _st().menu.filter((cat: any) => cat.name !== categoryName);
       io.to(_room()).emit("update_menu", _st().menu);
       saveMenuToSupabase(_st(), _tid());
@@ -1894,6 +2349,12 @@ async function startServer() {
     }));
 
     socket.on("update_subcategory", requireAdmin(({ categoryName, subcategoryId, updatedData }) => {
+      const currentSubcategory = _st().menu
+        .find((cat: any) => cat.name === categoryName)?.subcategories
+        ?.find((subcategory: any) => subcategory.id === subcategoryId);
+      if (hasReservedMenuItem(currentSubcategory) && (hasReservedMenuItem(updatedData) || updatedData?.items !== undefined)) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         return {
@@ -1908,6 +2369,10 @@ async function startServer() {
     }));
 
     socket.on("delete_subcategory", requireAdmin(({ categoryName, subcategoryId }) => {
+      const currentSubcategory = _st().menu
+        .find((cat: any) => cat.name === categoryName)?.subcategories
+        ?.find((subcategory: any) => subcategory.id === subcategoryId);
+      if (hasReservedMenuItem(currentSubcategory)) return rejectPlaygroundReserved();
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         return { ...cat, subcategories: (cat.subcategories || []).filter((sub: any) => sub.id !== subcategoryId) };
@@ -1917,6 +2382,9 @@ async function startServer() {
     }));
 
     socket.on("delete_product", requireAdmin(({ categoryName, productId, subcategoryId }) => {
+      if (isPlaygroundReservedItem(findMenuItem(productId), _tid()) || isPlaygroundReservedItem({ id: productId }, _tid())) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name !== categoryName) return cat;
         if (subcategoryId) {
@@ -1934,6 +2402,9 @@ async function startServer() {
     }));
 
     socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, subcategoryId, enabled }) => {
+      if (isPlaygroundReservedItem(findMenuItem(menuItemId), _tid()) || isPlaygroundReservedItem({ id: menuItemId }, _tid())) {
+        return rejectPlaygroundReserved();
+      }
       _st().menu = _st().menu.map((cat: any) => {
         if (cat.name === categoryName) {
           if (subcategoryId) {
@@ -2067,15 +2538,11 @@ async function startServer() {
     }));
 
     socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock, pizzaFlavors: impFlavors, pizzaCrusts: impCrusts, pizzariaConfig: impPizConfig, stockLog: impStockLog }) => {
-      if (importedMenu && Array.isArray(importedMenu)) {
-        _st().menu = importedMenu;
-        io.to(_room()).emit("update_menu", _st().menu);
-        if (USE_POSTGRES) { await pgDeleteMenu(); saveMenuToSupabase(_st(), _tid()); }
-        else if (db) {
-          try { await db.from('_st().menu').delete().neq('id', ''); } catch {}
-          saveMenuToSupabase(_st(), _tid());
-        }
-      }
+      const previousImportedMenu = clonePersistenceData(_st().menu);
+      const previousImportedConfig = clonePersistenceData(_st().pizzariaConfig);
+      const hasImportedMenu = Array.isArray(importedMenu);
+      const hasImportedConfig = !!impPizConfig && typeof impPizConfig === 'object' && !Array.isArray(impPizConfig);
+      if (hasImportedMenu) _st().menu = clonePersistenceData(importedMenu);
       if (importedStock && Array.isArray(importedStock)) {
         _st().stock = importedStock;
         io.to(_room()).emit("update_stock", _st().stock);
@@ -2112,10 +2579,41 @@ async function startServer() {
           } catch {}
         }
       }
-      if (impPizConfig && typeof impPizConfig === 'object') {
-        _st().pizzariaConfig = { ..._st().pizzariaConfig, ...impPizConfig, kdsEnabled: false };
-        io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
-        saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid()).catch(() => {});
+      if (hasImportedConfig) {
+        const importedConfig = { ..._st().pizzariaConfig, ...impPizConfig, kdsEnabled: false };
+        const normalized = normalizePlaygroundConfig(_tid(), importedConfig);
+        _st().pizzariaConfig = {
+          ...importedConfig,
+          parquinhoEnabled: normalized.parquinhoEnabled,
+          parquinhoChildNameRequired: normalized.parquinhoChildNameRequired,
+          parquinhoPrice: normalized.parquinhoPrice,
+          parquinhoProductId: normalized.parquinhoProductId,
+        };
+      }
+
+      // Reconcile only after both imported pieces have been validated. The
+      // module-off path deliberately keeps the existing managed product and
+      // history untouched; the active path deduplicates root/submenu copies.
+      if (hasImportedMenu || hasImportedConfig) {
+        try {
+          const catalog = synchronizePlaygroundCatalog(_st().menu, _tid(), _st().pizzariaConfig);
+          if (catalog.changed) _st().menu = catalog.menu;
+          if (hasImportedConfig) await saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid());
+          if (hasImportedMenu || catalog.changed) {
+            if (USE_POSTGRES) await pgDeleteMenu();
+            else if (db) {
+              try { await db.from('_st().menu').delete().neq('id', ''); } catch {}
+            }
+            await saveMenuToSupabaseAwait(_st(), _tid());
+            io.to(_room()).emit("update_menu", _st().menu);
+          }
+          if (hasImportedConfig) io.to(_room()).emit("update_pizzaria_config", _st().pizzariaConfig);
+        } catch (error: any) {
+          _st().menu = previousImportedMenu;
+          _st().pizzariaConfig = previousImportedConfig;
+          socket.emit('error_message', error?.message || 'Não foi possível importar o catálogo/configuração.');
+          return;
+        }
       }
       socket.emit("import_complete", {
         menuCategories: importedMenu?.length ?? 0,
@@ -2125,8 +2623,9 @@ async function startServer() {
       });
     }));
 
-    socket.on("add_item_to_order", async ({ orderId, tableId: fallbackTableId, isComanda: fallbackIsComanda, item }) => {
+    onTenantCommand("add_item_to_order", async ({ orderId, tableId: fallbackTableId, isComanda: fallbackIsComanda, item }) => {
       await loadTenantIfNeeded(_tid());
+      if (isPlaygroundReservedItem(item, _tid())) return rejectPlaygroundReserved();
       if (!_st().isCashRegisterOpen) {
         socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
         return;
@@ -2198,7 +2697,7 @@ async function startServer() {
       applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
     });
 
-    socket.on("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
+    onTenantCommand("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
       const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order && Array.isArray(guests)) {
         (order as any).guests = guests;
@@ -2207,7 +2706,7 @@ async function startServer() {
       }
     });
 
-    socket.on("set_item_guest", async ({ orderId, itemId, guestName }: { orderId: any, itemId: string, guestName: string | null }) => {
+    onTenantCommand("set_item_guest", async ({ orderId, itemId, guestName }: { orderId: any, itemId: string, guestName: string | null }) => {
       const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         const item = (order.items || []).find((i: any) => i.id === itemId);
@@ -2219,7 +2718,7 @@ async function startServer() {
       }
     });
 
-    socket.on("remove_item", async ({ orderId, itemId, quantity, reason, removedBy }) => {
+    onTenantCommand("remove_item", async ({ orderId, itemId, quantity, reason, removedBy }) => {
       const waiterId = (socket as any).waiterId;
       const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
       
@@ -2266,7 +2765,7 @@ async function startServer() {
       }
     });
 
-    socket.on("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin }) => {
+    onTenantCommand("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin }) => {
       const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
@@ -2420,7 +2919,7 @@ async function startServer() {
       }
     });
 
-    socket.on("link_tables", requireAdmin(async ({ sourceTableId, targetTableId, isComanda }) => {
+    onTenantCommand("link_tables", requireAdmin(async ({ sourceTableId, targetTableId, isComanda }) => {
       const targetList = isComanda ? _st().comandas : _st().tables;
       const sourceTable = targetList.find(t => String(t.id) === String(sourceTableId));
       let targetTable = targetList.find(t => String(t.id) === String(targetTableId));
@@ -2502,7 +3001,7 @@ async function startServer() {
       }
     }));
 
-    socket.on("transfer_table", async ({ sourceTableId, targetTableId, isComanda, reason }) => {
+    onTenantCommand("transfer_table", async ({ sourceTableId, targetTableId, isComanda, reason }) => {
       const targetList = isComanda ? _st().comandas : _st().tables;
       const sourceTable = targetList.find(t => String(t.id) === String(sourceTableId));
       const targetTable = targetList.find(t => String(t.id) === String(targetTableId));
@@ -2567,7 +3066,7 @@ async function startServer() {
       }
     });
 
-    socket.on("transfer_items", async ({ sourceTableId, targetTableId, isComanda, itemIds }) => {
+    onTenantCommand("transfer_items", async ({ sourceTableId, targetTableId, isComanda, itemIds }) => {
       console.log(`[transfer_items] src=${sourceTableId} dst=${targetTableId} isComanda=${isComanda} itemIds=${JSON.stringify(itemIds)}`);
 
       const tableList = isComanda ? _st().comandas : _st().tables;
@@ -2701,7 +3200,7 @@ async function startServer() {
       console.log(`[transfer_items] Firestore persistence complete`);
     });
 
-    socket.on("apply_discount", requireAdmin(async ({ orderId, itemId, discount, discountType }) => {
+    onTenantCommand("apply_discount", requireAdmin(async ({ orderId, itemId, discount, discountType }) => {
       const order = _st().orders.find(o => String(o.id) === String(orderId));
       if (order) {
         if (itemId) {
@@ -2719,7 +3218,7 @@ async function startServer() {
       }
     }));
 
-    socket.on("confirm_baixa", async ({ orderId }) => {
+    onTenantCommand("confirm_baixa", async ({ orderId }) => {
       const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
       if (!order || order.status !== "aguardando_baixa") return;
 
@@ -2759,7 +3258,7 @@ async function startServer() {
       console.log(`Baixa confirmada para pedido ${orderId}`);
     });
 
-    socket.on("update_order_status", async ({ orderId, status }) => {
+    onTenantCommand("update_order_status", async ({ orderId, status }) => {
       const order = _st().orders.find(o => String(o.id) === String(orderId));
       if (order) {
         order.status = status;
@@ -2768,7 +3267,7 @@ async function startServer() {
       }
     });
 
-    socket.on("request_bill", async ({ tableId, isComanda }) => {
+    onTenantCommand("request_bill", async ({ tableId, isComanda }) => {
       const targetList = isComanda ? _st().comandas : _st().tables;
       const table = targetList.find(t => t.id === tableId);
       if (table) {
@@ -2780,7 +3279,7 @@ async function startServer() {
       }
     });
 
-    socket.on("close_table", async ({ tableId, isComanda }) => {
+    onTenantCommand("close_table", async ({ tableId, isComanda }) => {
       // Capture the tenant before awaiting persistence so this operation stays scoped.
       const tenantId = _tid();
       const st = _st();
@@ -2849,48 +3348,68 @@ async function startServer() {
       }
     });
 
-    // Reset all in-memory state: free all _st().tables/_st().comandas and wipe _st().orders.
-    // No requireAdmin wrapper â€" auth may be unavailable when Firebase is disabled,
-    // and the button is already protected by the admin-only dashboard UI.
+    // Reset is destructive and must be an authenticated ADM command. The
+    // tenant is captured before entering the queue; no late socket tenant is
+    // consulted while the wipe is waiting behind another command.
     socket.on("reset_system", async () => {
-      console.log("reset_system: clearing all in-memory _st().orders, _st().tables, _st().comandas and _st().stockLog");
-
-      _st().orders = [];
-      _st().stockLog = [];
-
-      _st().tables.forEach(t => {
-        t.status = "free";
-        t.currentOrder = null;
-        t.linkedTo = null;
-      });
-
-      _st().comandas.forEach(c => {
-        c.status = "free";
-        c.currentOrder = null;
-        c.linkedTo = null;
-      });
-
-      _st().isCashRegisterOpen = false;
-
-      io.to(_room()).emit("update_orders", _st().orders);
-      io.to(_room()).emit("update_stock_log", _st().stockLog);
-      io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-      io.to(_room()).emit("update_cash_register", false);
-
-      // Persist reset to Supabase
-      try {
-        await db.from('_st().orders').delete().neq('id', '');
-        await db.from('_st().tables').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
-        await db.from('_st().comandas').update({ status: 'free', current_order: null, linked_to: null }).neq('id', 0);
-        console.log('reset_system: Supabase cleared successfully');
-      } catch (err) {
-        console.error('reset_system: failed to clear Supabase', err);
+      const tenantId = String((socket as any).authContext?.tenantId || (socket as any).tenantId || '').trim();
+      if (!tenantId || !isAdminForTenant(tenantId)) {
+        socket.emit('auth_error', { message: 'Reset do sistema exige administrador autenticado.' });
+        return false;
       }
+      return withTenantCommand(tenantId, async () => {
+        if (!isAdminForTenant(tenantId)) {
+          socket.emit('auth_error', { message: 'Sessão administrativa inválida para este tenant.' });
+          return false;
+        }
+        const st = getState(tenantId);
+        const room = 'tenant:' + tenantId;
+        console.log(`reset_system: clearing tenant ${tenantId} orders, tables, comandas and stockLog`);
+
+        st.orders = [];
+        st.stockLog = [];
+        st.tables.forEach(t => {
+          t.status = "free";
+          t.currentOrder = null;
+          t.linkedTo = null;
+        });
+        st.comandas.forEach(c => {
+          c.status = "free";
+          c.currentOrder = null;
+          c.linkedTo = null;
+        });
+        st.isCashRegisterOpen = false;
+        st.openCashRegisters = {};
+
+        // Persist the same tenant-scoped state before acknowledging completion.
+        try {
+          if (db) {
+            await db.from('orders').delete().eq('tenant_id', tenantId).neq('id', '');
+            await db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId);
+            await db.from('comandas').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId);
+            await saveToSupabase('config', cashRegisterConfigPatch(st), 'app', tenantId);
+          }
+        } catch (err) {
+          console.error(`reset_system: failed to clear tenant ${tenantId}`, err);
+          socket.emit('error_message', 'O reset foi aplicado em memória, mas falhou ao persistir no banco.');
+          return false;
+        }
+
+        io.to(room).emit("update_orders", st.orders);
+        io.to(room).emit("update_stock_log", st.stockLog);
+        io.to(room).emit("update_tables", st.tables);
+        io.to(room).emit("update_comandas", st.comandas);
+        io.to(room).emit("update_cash_register", false);
+        return true;
+      });
     });
 
     // Cliente pede status atual do agente (ex: após reconexão do socket)
     socket.on("request_agent_status", () => {
+      if (!isApprovedWaiterSocket()) {
+        socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
+        return;
+      }
       // Verifica estado em memória; se offline, varre sockets ativos do tenant
       let online = !!(_st().printerAgentSocket?.connected);
       if (!online) {
@@ -2907,6 +3426,10 @@ async function startServer() {
 
     // Scan de impressoras — Dashboard pede, servidor repassa ao agente
     socket.on("scan_printers_request", () => {
+      if (!isApprovedWaiterSocket()) {
+        socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
+        return;
+      }
       if (_st().printerAgentSocket?.connected) {
         _st().printerAgentSocket.emit("scan_printers_request");
       } else {
@@ -2916,7 +3439,13 @@ async function startServer() {
 
     // ── Caixas ativos: quais nomes têm socket conectado agora ────────────────
     socket.on("get_active_caixas", () => {
-      const active = Object.entries(_st().openCashRegisters)
+      const tenantId = _tid();
+      if (!isApprovedWaiterSocket(tenantId)) {
+        socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
+        return;
+      }
+      const st = getState(tenantId);
+      const active = Object.entries(st.openCashRegisters)
         .filter(([, sid]) => io.sockets.sockets.get(sid as string)?.connected)
         .map(([name]) => name);
       socket.emit("active_caixas", active);
@@ -2927,6 +3456,10 @@ async function startServer() {
     // Caso contrário, o servidor tenta conexão TCP direta (cenário local/dev).
     // Se targetCaixaId for fornecido, retransmite para o socket daquele caixa.
     socket.on("print_escpos", ({ ip, port = 9100, localName, data, targetCaixaId }: { ip?: string; port?: number; localName?: string; data: number[]; targetCaixaId?: string }) => {
+      if (!isApprovedWaiterSocket()) {
+        socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
+        return;
+      }
       if (!data?.length) return;
 
       if (targetCaixaId && targetCaixaId !== 'local') {
@@ -2977,6 +3510,10 @@ async function startServer() {
     // ── Cliente connect (página /mesa/:tenantId/:mesaId) ──────────────────
     socket.on("client_connect", async ({ tenantId }: { tenantId: string }) => {
       if (!tenantId) return;
+      if (authActorSafe((socket as any).authContext)) {
+        socket.emit('auth_error', { message: 'Sessão autenticada não pode assumir identidade de cliente.' });
+        return;
+      }
       (socket as any).isClient = true;
       const tenantGeneration = switchSocketTenant(socket, tenantId);
       // Garante que o tenant está carregado antes de enviar os pedidos
@@ -3017,6 +3554,29 @@ async function startServer() {
   });
 
   // API Routes
+  // Rotas administrativas usam autenticação por requisição. O helper só
+  // autoriza depois que o Supabase Auth confirma o token com getUser; quando
+  // o servidor está em modo PostgreSQL/local sem cliente Supabase, falha
+  // fechada em vez de transformar a ausência de auth em bypass.
+  const { authorizeAdminRequest, sendAdminAuthFailure } = await import('./src/server/admin-auth.ts');
+  const getSupabaseUser = db?.auth?.getUser
+    ? db.auth.getUser.bind(db.auth)
+    : undefined;
+  const requireAdminHttp = async (
+    req: any,
+    res: any,
+    tenantIds: unknown[] = [],
+    requireTenant = true,
+  ) => {
+    const authorization = await authorizeAdminRequest(req, {
+      getUser: getSupabaseUser,
+      tenantIds,
+      requireTenant,
+    });
+    if (authorization.ok) return authorization;
+    sendAdminAuthFailure(res, authorization as any);
+    return null;
+  };
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
@@ -3140,6 +3700,7 @@ async function startServer() {
   // GET /api/fiscal/config/:tenantId
   app.get("/api/fiscal/config/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const { data, error } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
     if (error) return res.status(500).json({ error: error.message });
@@ -3164,6 +3725,7 @@ async function startServer() {
   // POST /api/fiscal/config/:tenantId
   app.post("/api/fiscal/config/:tenantId", express.json(), async (req, res) => {
     const { tenantId } = req.params;
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const cfg: FiscalConfig = req.body;
     if (!cfg.cnpj || !cfg.razaoSocial) return res.status(400).json({ error: 'CNPJ e Razão Social são obrigatórios' });
@@ -3219,6 +3781,7 @@ async function startServer() {
   // GET /api/fiscal/status/:tenantId — verificar disponibilidade SEFAZ (NFC-e e NF-e)
   app.get("/api/fiscal/status/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (db && !getCertificado(tenantId)) {
       const { data } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
       await tentarRecarregarCert(tenantId, data?.data);
@@ -3242,6 +3805,7 @@ async function startServer() {
     const { orderId } = req.params;
     const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
 
     // Carregar configuração fiscal
@@ -3521,6 +4085,7 @@ async function startServer() {
       natOp?: string;
     };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
 
     // Configuração fiscal
@@ -3711,6 +4276,7 @@ async function startServer() {
       xJust: string;   // justificativa 15–256 chars
     };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!dhCont)   return res.status(400).json({ error: 'dhCont obrigatório (início da contingência)' });
     if (!xJust || xJust.length < 15) return res.status(400).json({ error: 'xJust deve ter pelo menos 15 caracteres' });
@@ -3903,6 +4469,7 @@ async function startServer() {
       xJust: string;   // justificativa 15–256 chars
     };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!dhCont)   return res.status(400).json({ error: 'dhCont obrigatório (início da contingência)' });
     if (!xJust || xJust.length < 15) return res.status(400).json({ error: 'xJust deve ter pelo menos 15 caracteres' });
@@ -4095,6 +4662,7 @@ async function startServer() {
       xJust: string;   // justificativa 15–256 chars
     };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!dhCont)   return res.status(400).json({ error: 'dhCont obrigatório (início da contingência)' });
     if (!xJust || xJust.length < 15) return res.status(400).json({ error: 'xJust deve ter pelo menos 15 caracteres' });
@@ -4274,6 +4842,7 @@ async function startServer() {
   app.post("/api/fiscal/cancel/:chaveAcesso", express.json(), async (req, res) => {
     const { chaveAcesso } = req.params;
     const { tenantId, motivo } = req.body as { tenantId: string; motivo: string };
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId || !motivo) return res.status(400).json({ error: 'tenantId e motivo obrigatórios' });
     if (motivo.length < 15) return res.status(400).json({ error: 'Motivo deve ter pelo menos 15 caracteres.' });
 
@@ -4315,6 +4884,7 @@ async function startServer() {
       nNFIni: number; nNFFin: number; xJust: string;
     };
 
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId || !modelo || !serie || !nNFIni || !nNFFin || !xJust)
       return res.status(400).json({ error: 'tenantId, modelo, serie, nNFIni, nNFFin e xJust são obrigatórios' });
     if (xJust.length < 15)
@@ -4382,10 +4952,11 @@ async function startServer() {
     }
   });
 
-  // GET /api/fiscal/danfe/:chaveAcesso — público, sem autenticação
+  // GET /api/fiscal/danfe/:chaveAcesso — privado, exige owner Supabase
   app.get("/api/fiscal/danfe/:chaveAcesso", async (req, res) => {
     const { chaveAcesso } = req.params;
     const { tenant } = req.query as { tenant: string };
+    if (!await requireAdminHttp(req, res, [tenant])) return;
     if (!tenant) return res.status(400).json({ error: 'tenant obrigatório' });
     if (!db) return res.status(503).json({ error: 'Banco indisponível' });
 
@@ -4414,6 +4985,7 @@ async function startServer() {
   app.get("/api/fiscal/xml/:chaveAcesso", async (req, res) => {
     const { chaveAcesso } = req.params;
     const { tenant } = req.query as { tenant: string };
+    if (!await requireAdminHttp(req, res, [tenant])) return;
     if (!tenant) return res.status(400).json({ error: 'tenant obrigatório' });
     if (!db) return res.status(503).json({ error: 'Banco indisponível' });
 
@@ -4440,6 +5012,7 @@ async function startServer() {
   // Query: tenant=<tenantId>&ano=YYYY&mes=MM  (mes 1-based)
   app.get("/api/fiscal/xml-lote", async (req, res) => {
     const { tenant, ano, mes } = req.query as { tenant: string; ano: string; mes: string };
+    if (!await requireAdminHttp(req, res, [tenant])) return;
     if (!tenant || !ano || !mes) return res.status(400).json({ error: 'tenant, ano e mes são obrigatórios' });
     if (!db) return res.status(503).json({ error: 'Banco indisponível' });
 
@@ -4487,6 +5060,7 @@ async function startServer() {
   app.get("/api/fiscal/consultar/:chaveAcesso", async (req, res) => {
     const { chaveAcesso } = req.params;
     const { tenantId } = req.query as { tenantId: string };
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
 
     const cert = getCertificado(tenantId);
@@ -4533,6 +5107,7 @@ async function startServer() {
   // POST /api/fiscal/reconciliar — acionamento manual da reconciliação
   app.post("/api/fiscal/reconciliar", express.json(), async (req, res) => {
     const { tenantId } = req.body as { tenantId: string };
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!db) return res.status(503).json({ error: 'Banco indisponível' });
 
@@ -4566,6 +5141,7 @@ async function startServer() {
   // GET /api/fiscal/notes/:tenantId
   app.get("/api/fiscal/notes/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!db) return res.json({ notes: [] });
     const { data } = await db.from('fiscal_notes')
       .select('id,order_id,chave_acesso,qr_code,status,protocolo,total,ambiente,modelo,serie,numero,error_detail,cstat,xmotivo,created_at')
@@ -4575,6 +5151,7 @@ async function startServer() {
 
   // GET /api/backup/list — lista backups disponíveis no Storage
   app.get("/api/backup/list", async (req, res) => {
+    if (!await requireAdminHttp(req, res, [], false)) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const { data, error } = await db.storage.from('backups').list('', {
       limit: 30, sortBy: { column: 'created_at', order: 'desc' },
@@ -4589,6 +5166,7 @@ async function startServer() {
 
   // GET /api/backup/download/:nome — URL assinada para baixar um backup
   app.get("/api/backup/download/:nome", async (req, res) => {
+    if (!await requireAdminHttp(req, res, [], false)) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const { data, error } = await db.storage
       .from('backups')
@@ -4599,6 +5177,7 @@ async function startServer() {
 
   // POST /api/backup/now — dispara backup imediato (admin)
   app.post("/api/backup/now", express.json(), async (req, res) => {
+    if (!await requireAdminHttp(req, res, [], false)) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     try {
       const { executarBackup } = await import('./src/lib/backup.ts');
@@ -4631,7 +5210,9 @@ async function startServer() {
   app.post("/api/seed", async (req, res) => {
     if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
 
-    const tenantId: string = req.body?.tenantId || 'default';
+    const tenantId: string = String(req.body?.tenantId || '').trim();
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     const steps: string[] = [];
     const log = (msg: string) => { steps.push(msg); console.log("[seed]", msg); };
 
@@ -4698,7 +5279,9 @@ async function startServer() {
   // Atualiza apenas o menu (sem apagar pedidos, mesas, sabores, etc.)
   app.post("/api/seed-menu", async (req, res) => {
     if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
-    const tenantId: string = req.body?.tenantId || 'default';
+    const tenantId: string = String(req.body?.tenantId || '').trim();
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     try {
       await db.from('menu').upsert(
         MENU_CATEGORIES.map((cat: any, idx: number) => ({
@@ -4722,8 +5305,9 @@ async function startServer() {
   });
 
   // Retorna config.json pré-configurado para o agente de impressão
-  app.get("/api/agent-config", (req, res) => {
+  app.get("/api/agent-config", async (req, res) => {
     const tenantId = req.query.tenant as string;
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenant obrigatório' });
     const cfg = { serverUrl: 'https://fechaconta.app', agentSecret: '', tenantId };
     res.setHeader('Content-Disposition', 'attachment; filename="config.json"');
@@ -4733,7 +5317,9 @@ async function startServer() {
 
   // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
   app.post("/api/fix-tables", async (req, res) => {
-    const tenantId: string = req.body?.tenantId || 'default';
+    const tenantId: string = String(req.body?.tenantId || '').trim();
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
     const st = getState(tenantId);
     const activeIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
     let fixed = 0;
@@ -4760,12 +5346,15 @@ async function startServer() {
     res.json({ ok: true, fixed });
   });
 
-  app.post("/api/admin/create-waiter", express.json(), (req, res) => {
-    const { name, password } = req.body;
+  app.post("/api/admin/create-waiter", express.json(), async (req, res) => {
+    const { name, password, tenantId: claimedTenantId } = req.body;
+    const adminAuth = await requireAdminHttp(req, res, claimedTenantId ? [claimedTenantId] : [], false);
+    if (!adminAuth) return;
+    const tenantId = adminAuth.userId;
     if (!name || !password) {
       return res.status(400).json({ error: "name e password sÃ£o obrigatÃ³rios" });
     }
-    const tenantId = (req as any).tenantId || 'default';
+
     const st = getState(tenantId);
     const existing = st.waiters.find((w: any) => w.name === name);
     if (existing) {
@@ -4780,7 +5369,7 @@ async function startServer() {
       createdAt: new Date().toISOString(),
     };
     st.waiters.push(newWaiter);
-    io.to(`tenant:${tenantId}`).emit("update_waiters", st.waiters);
+    io.to(`tenant:${tenantId}`).emit("update_waiters", publicWaiters(st.waiters));
     console.log(`[admin] GarÃ§om criado: ${name}`);
     return res.json({ success: true, waiter: { id: newWaiter.id, name: newWaiter.name, status: newWaiter.status } });
   });

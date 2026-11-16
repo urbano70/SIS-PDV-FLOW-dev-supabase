@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import socket from '../lib/socket';
+import socket, { isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
 import { getSession } from '../lib/auth';
@@ -22,6 +22,7 @@ interface FirebaseContextType {
   logout: () => Promise<void>;
   toggleCashRegister: (open: boolean, cashRegisterName?: string) => void;
   canMutate: () => boolean;
+  currentWaiter: Waiter | null;
   activeCashRegisterName: string | null;
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
@@ -56,6 +57,9 @@ const defaultPizzeriaConfig: PizzeriaConfig = {
   redMinutes: 25,
   inactivityMinutes: 30,
   kdsEnabled: false,
+  parquinhoEnabled: false,
+  parquinhoChildNameRequired: true,
+  parquinhoPrice: null,
 };
 
 function getStorage(): Storage | undefined {
@@ -91,20 +95,21 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const normalizedTenantId = normalizeTenantId(tenantId);
   const isAdmin = !isWaiterMode;
   const [initialCache] = useState<Record<string, any> | null>(() =>
-    readTenantCache<Record<string, any>>(getStorage(), normalizedTenantId)
+    isWaiterMode ? null : readTenantCache<Record<string, any>>(getStorage(), normalizedTenantId)
   );
 
   const [loading, setLoading] = useState(!initialCache);
   const [tables, setTables] = useState<Table[]>(initialCache?.tables ?? []);
   const [comandas, setComandas] = useState<Table[]>(initialCache?.comandas ?? []);
   const [orders, setOrders] = useState<Order[]>(initialCache?.orders ?? []);
-  const [waiters, setWaiters] = useState<Waiter[]>(initialCache?.waiters ?? []);
+  const [waiters, setWaiters] = useState<Waiter[]>(isWaiterMode ? [] : (initialCache?.waiters ?? []));
+  const [currentWaiter, setCurrentWaiter] = useState<Waiter | null>(null);
   const [stock, setStock] = useState<StockItem[]>(initialCache?.stock ?? []);
   const [stockLog, setStockLog] = useState<any[]>(initialCache?.stockLog ?? []);
   const [menu, setMenu] = useState<MenuCategory[]>(initialCache?.menu ?? []);
   const [isCashRegisterOpen, setIsCashRegisterOpen] = useState<boolean>(initialCache?.isCashRegisterOpen ?? false);
   const [pizzariaConfig, setPizzeriaConfig] = useState<PizzeriaConfig>(
-    initialCache?.pizzariaConfig ? { ...initialCache.pizzariaConfig, kdsEnabled: false } : defaultPizzeriaConfig
+    initialCache?.pizzariaConfig ? { ...initialCache.pizzariaConfig } : defaultPizzeriaConfig
   );
   // shiftStartedAt: when the current service shift began — used to cap stale timestamps
   const [shiftStartedAt, setShiftStartedAt] = useState<string>(initialCache?.shiftStartedAt ?? new Date().toISOString());
@@ -120,7 +125,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const cacheRef = useRef<Record<string, any>>(initialCache ?? {});
   const lifecycleRef = useRef(0);
   const readyRef = useRef(false);
+  const waiterApprovedRef = useRef(false);
   const pendingInitRef = useRef<{ epoch: string; socketId: string | null } | null>(null);
+  const approvedRequestSocketRef = useRef<string | null>(null);
   const initCounterRef = useRef(0);
   const handshakeInFlightRef = useRef<Promise<void> | null>(null);
   const adminTokenRef = useRef<string | null>(null);
@@ -150,14 +157,16 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     let disposed = false;
     const lifecycle = ++lifecycleRef.current;
     const current = () => !disposed && lifecycleRef.current === lifecycle;
-    const cache = readTenantCache<Record<string, any>>(getStorage(), normalizedTenantId);
+    const cache = isWaiterMode ? null : readTenantCache<Record<string, any>>(getStorage(), normalizedTenantId);
 
     // A tenant change is a hard state boundary. Load only that tenant's cache and
     // never leave the previous account's orders/tables visible while the new socket
     // handshake is pending.
     cacheRef.current = cache ?? {};
     readyRef.current = false;
+    waiterApprovedRef.current = false;
     pendingInitRef.current = null;
+    approvedRequestSocketRef.current = null;
     adminTokenRef.current = null;
     // The previous scope may still be awaiting getSession(). It must not block
     // the new tenant's handshake; its completion is ignored by `current()`.
@@ -168,17 +177,18 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     setTables(cache?.tables ?? []);
     setComandas(cache?.comandas ?? []);
     setOrders(cache?.orders ?? []);
-    setWaiters(cache?.waiters ?? []);
+    setWaiters(isWaiterMode ? [] : (cache?.waiters ?? []));
+    setCurrentWaiter(null);
     setStock(cache?.stock ?? []);
     setStockLog(cache?.stockLog ?? []);
     setMenu(cache?.menu ?? []);
     setIsCashRegisterOpen(cache?.isCashRegisterOpen ?? false);
-    setPizzeriaConfig(cache?.pizzariaConfig ? { ...cache.pizzariaConfig, kdsEnabled: false } : defaultPizzeriaConfig);
+    setPizzeriaConfig(cache?.pizzariaConfig ? { ...cache.pizzariaConfig } : defaultPizzeriaConfig);
     setShiftStartedAt(cache?.shiftStartedAt ?? new Date().toISOString());
     setActiveCashRegisterName(readActiveCashRegisterName(normalizedTenantId));
 
     const persistPatch = (patch: Record<string, unknown>) => {
-      if (!current() || !readyRef.current || !normalizedTenantId) return;
+      if (!current() || !readyRef.current || !normalizedTenantId || isWaiterMode) return;
       cacheRef.current = { ...cacheRef.current, ...patch, tenantId: normalizedTenantId };
       writeTenantCache(getStorage(), normalizedTenantId, cacheRef.current);
     };
@@ -244,13 +254,29 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       persistPatch({ stockLog: data });
     };
     const handleUpdateWaiters = (data: Waiter[]) => {
-      if (!current() || !readyRef.current || !Array.isArray(data)) return;
+      if (!current() || !readyRef.current || !Array.isArray(data) || isWaiterMode) return;
       setWaiters(data);
       persistPatch({ waiters: data });
     };
 
     const handleInitData = (data: any) => {
       if (!current()) return;
+      const snapshotWaiter = data?.currentWaiter || data?.current_waiter || data?.waiter;
+      const safeSnapshotWaiter = isWaiterMode && snapshotWaiter && typeof snapshotWaiter === 'object'
+        ? (() => {
+            const { password: _password, ...safe } = snapshotWaiter;
+            return safe;
+          })()
+        : null;
+      if (isWaiterMode && (!safeSnapshotWaiter || safeSnapshotWaiter.status !== 'approved')) {
+        waiterApprovedRef.current = false;
+        readyRef.current = false;
+        pendingInitRef.current = null;
+        setCurrentWaiter(safeSnapshotWaiter || null);
+        setWaiters(safeSnapshotWaiter ? [safeSnapshotWaiter as Waiter] : []);
+        setLoading(false);
+        return;
+      }
       const pending = pendingInitRef.current;
       // This is intentionally strict for a scoped provider. A pre-auth/default or
       // old-tenant snapshot is ignored and cannot wipe current/cache state.
@@ -266,10 +292,21 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (Array.isArray(data.orders)) { setOrders(data.orders); cachePatch.orders = data.orders; }
       if (Array.isArray(data.stock)) { setStock(data.stock); cachePatch.stock = data.stock; }
       if (Array.isArray(data.stockLog)) { setStockLog(data.stockLog); cachePatch.stockLog = data.stockLog; }
-      if (Array.isArray(data.waiters)) { setWaiters(data.waiters); cachePatch.waiters = data.waiters; }
+      if (!isWaiterMode && Array.isArray(data.waiters)) {
+        setWaiters(data.waiters);
+        cachePatch.waiters = data.waiters;
+      }
+      if (isWaiterMode) {
+        const own = safeSnapshotWaiter;
+        if (own && typeof own === 'object') {
+          waiterApprovedRef.current = true;
+          setCurrentWaiter(own as Waiter);
+          setWaiters([own as Waiter]);
+        }
+      }
       if (data.isCashRegisterOpen !== undefined) { setIsCashRegisterOpen(data.isCashRegisterOpen); cachePatch.isCashRegisterOpen = data.isCashRegisterOpen; }
       if (data.pizzariaConfig) {
-        const config = { ...data.pizzariaConfig, kdsEnabled: false };
+        const config = { ...data.pizzariaConfig };
         setPizzeriaConfig(config);
         cachePatch.pizzariaConfig = config;
       }
@@ -291,7 +328,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       cacheRef.current = { ...cacheRef.current, ...cachePatch, tenantId: normalizedTenantId };
-      writeTenantCache(getStorage(), normalizedTenantId, cacheRef.current);
+      if (!isWaiterMode) writeTenantCache(getStorage(), normalizedTenantId, cacheRef.current);
       setLoading(false);
     };
 
@@ -317,10 +354,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       const promise = (async () => {
         if (isWaiterMode) {
           if (!normalizedTenantId) return;
-          // Tenant identification is synchronous on the current server; request
-          // data only after it, never before auth/tenant selection.
+          // Tenant identification is not authentication. Do not request or cache
+          // a full snapshot until the server confirms the waiter is approved.
           socket.emit('waiter_identify_tenant', { tenantId: normalizedTenantId });
-          requestInitData(epoch);
           return;
         }
 
@@ -333,11 +369,12 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
             token = null;
           }
         }
-        if (!token || !current()) return;
+        if (!token || !current() || isAutoAuthSuspended()) return;
         adminTokenRef.current = token;
         // admin_connect itself produces the authoritative init_data response. Do
         // not race it with request_init_data; a delayed fallback is only for a
         // server that acknowledges auth without sending the response.
+        setSocketAuthRole('admin');
         socket.emit('admin_connect', token);
         if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = setTimeout(() => {
@@ -351,12 +388,60 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       handshakeInFlightRef.current = promise;
     };
 
+    const applyWaiterStatus = (data: any): boolean | null => {
+      if (!current() || !isWaiterMode) return null;
+      const status = String(data?.status || data?.waiter?.status || '');
+      const waiter = data?.waiter && typeof data.waiter === 'object'
+        ? (() => {
+            const { password: _password, ...safe } = data.waiter;
+            return safe;
+          })()
+        : null;
+      if (status === 'approved') {
+        waiterApprovedRef.current = true;
+        if (waiter) {
+          setCurrentWaiter(waiter as Waiter);
+          setWaiters([waiter as Waiter]);
+        }
+        return true;
+      }
+      if (status === 'pending' || status === 'inactive' || status === 'rejected') {
+        waiterApprovedRef.current = false;
+        readyRef.current = false;
+        pendingInitRef.current = null;
+        approvedRequestSocketRef.current = null;
+        setCurrentWaiter(waiter as Waiter | null);
+        setWaiters(waiter ? [waiter as Waiter] : []);
+        setLoading(false);
+        return false;
+      }
+      return null;
+    };
+
+    const requestApprovedInit = () => {
+      if (!current() || !isWaiterMode || !normalizedTenantId || readyRef.current) return;
+      const socketId = socket.id || null;
+      if (approvedRequestSocketRef.current === socketId) return;
+      approvedRequestSocketRef.current = socketId;
+      const epoch = makeInitEpoch();
+      pendingInitRef.current = { epoch, socketId };
+      requestInitData(epoch);
+    };
+
+    const handleWaiterApproved = (data: any) => {
+      if (applyWaiterStatus(data) === true) requestApprovedInit();
+    };
+    const handleWaiterStatusChanged = (data: any) => {
+      if (applyWaiterStatus(data) === true) requestApprovedInit();
+    };
+
     const handleReconnect = () => {
       if (!current()) return;
       // Preserve the last known state for a seamless reconnect, but reject update
       // arrays until a fresh, tenant-tagged init snapshot is ready.
       readyRef.current = false;
       pendingInitRef.current = null;
+      approvedRequestSocketRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       identifyConnection(true);
@@ -377,6 +462,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('relay_print_job', handleRelayPrintJob);
     socket.on('error_message', handleErrorMessage);
     socket.on('connect', handleReconnect);
+    socket.on('waiter_approved', handleWaiterApproved);
+    socket.on('waiter_status_changed', handleWaiterStatusChanged);
 
     // If this shared singleton was already connected before this effect mounted,
     // perform exactly one handshake. Otherwise the connect listener owns it.
@@ -405,6 +492,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('relay_print_job', handleRelayPrintJob);
       socket.off('error_message', handleErrorMessage);
       socket.off('connect', handleReconnect);
+      socket.off('waiter_approved', handleWaiterApproved);
+      socket.off('waiter_status_changed', handleWaiterStatusChanged);
     };
   }, [normalizedTenantId, isWaiterMode]);
 
@@ -437,6 +526,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       logout,
       toggleCashRegister,
       canMutate,
+      currentWaiter,
       activeCashRegisterName,
       updateTableStatusLocal,
       updatePizzeriaConfig,

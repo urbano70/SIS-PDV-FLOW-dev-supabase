@@ -286,3 +286,95 @@ export const pgDeleteOrdersByWaiterLike = async (pattern: string) => {
   if (!pool) return;
   await pool.query(`DELETE FROM orders WHERE waiter_name LIKE $1`, [pattern]);
 };
+
+// ── Modo Parquinho ───────────────────────────────────────────────────────────
+// O fluxo de lançamento usa a mesma função SQL transacional do Supabase. Ela
+// bloqueia a mesa/pedido, aplica a chave de idempotência e grava o ledger junto
+// com o item do pedido. Não há fallback para snapshots: sem a migração o
+// lançamento falha fechado, preservando a conta.
+const playgroundJson = (value: any): any => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return value; }
+  }
+  return value;
+};
+
+export const pgPlaygroundFindOperators = async (tenantId: string) => {
+  if (!pool) return [];
+  const result = await pool.query(
+    `SELECT id, tenant_id, name, status, phone, cpf, birth_date, password_hash, role
+       FROM parquinho_operators WHERE tenant_id=$1 ORDER BY name`,
+    [tenant(tenantId)]
+  );
+  return result.rows;
+};
+
+export const pgPlaygroundUpsertOperator = async (row: any) => {
+  if (!pool) throw new Error('PostgreSQL não inicializado');
+  const result = await pool.query(
+    `INSERT INTO parquinho_operators
+       (id, tenant_id, name, password_hash, phone, cpf, birth_date, status, role)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (tenant_id,id) DO UPDATE SET
+       name=EXCLUDED.name, password_hash=EXCLUDED.password_hash,
+       phone=EXCLUDED.phone, cpf=EXCLUDED.cpf, birth_date=EXCLUDED.birth_date,
+       status=parquinho_operators.status, role=EXCLUDED.role, updated_at=now()
+     RETURNING id, tenant_id, name, status, phone, cpf, birth_date, password_hash, role`,
+    [row.id, tenant(tenantIdFrom(row)), row.name, row.password_hash, row.phone || null,
+      row.cpf || null, row.birth_date || null, row.status || 'pending', row.role || 'playground_operator']
+  );
+  return result.rows[0];
+};
+
+const tenantIdFrom = (row: any): string => tenant(row?.tenant_id);
+
+export const pgPlaygroundSetOperatorStatus = async (tenantId: string, operatorId: string, status: string) => {
+  if (!pool) throw new Error('PostgreSQL não inicializado');
+  const result = await pool.query(
+    `UPDATE parquinho_operators SET status=$3, updated_at=now()
+      WHERE tenant_id=$1 AND id=$2
+      RETURNING id, tenant_id, name, status, phone, cpf, birth_date, role`,
+    [tenant(tenantId), operatorId, status]
+  );
+  return result.rows[0] || null;
+};
+
+export const pgPlaygroundListEntries = async (tenantId: string, shiftStartedAt?: string) => {
+  if (!pool) return [];
+  const params: any[] = [tenant(tenantId)];
+  let filter = '';
+  if (shiftStartedAt) {
+    const parsed = new Date(shiftStartedAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      params.push(parsed.toISOString());
+      filter = ' AND shift_started_at = $2::timestamptz';
+    }
+  }
+  const result = await pool.query(
+    `SELECT * FROM parquinho_entries WHERE tenant_id=$1${filter} ORDER BY created_at ASC`, params
+  );
+  return result.rows;
+};
+
+export const pgPlaygroundAddEntry = async (args: {
+  tenantId: string;
+  requestId: string;
+  tableId: number;
+  childName: string | null;
+  operatorId: string;
+  operatorName: string;
+  orderId: string | null;
+  shiftStartedAt: string;
+}) => {
+  if (!pool) throw new Error('PostgreSQL não inicializado');
+  const result = await pool.query(
+    `SELECT public.playground_add_entry(
+       $1::text, $2::text, $3::integer, $4::text, $5::uuid, $6::text,
+       $7::text, $8::timestamptz
+     ) AS data`,
+    [tenant(args.tenantId), args.requestId, args.tableId, args.childName,
+      args.operatorId, args.operatorName, args.orderId, args.shiftStartedAt]
+  );
+  return playgroundJson(result.rows[0]?.data);
+};
