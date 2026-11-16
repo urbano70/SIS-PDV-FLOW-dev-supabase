@@ -10990,7 +10990,12 @@ export default function Dashboard({
 
       {/* Em aberto — barra full-width na base */}
       {activeTab === 'overview' && (() => {
-        const openOrders = orders.filter((o: any) => o.status !== 'finalizada');
+        const openOrders = orders.filter((o: any) => {
+          if (o.status === 'finalizada') return false;
+          if (!o.tableId) return false;
+          const tbl = (o.isComanda ? comandas : tables).find((t: any) => String(t.id) === String(o.tableId));
+          return tbl && tbl.status !== 'free';
+        });
         const openTablesCount = tables.filter((t: any) => t.status !== 'free').length;
         const totalOpen = openOrders.reduce((acc: number, o: any) => acc + (o.items || []).filter((i: any) => !i.removed && !i.paid).reduce((s: number, i: any) => s + (i.price || 0), 0), 0);
         return (
