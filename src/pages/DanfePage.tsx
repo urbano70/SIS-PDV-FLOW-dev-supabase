@@ -1,10 +1,11 @@
-// Página pública do DANFE NFC-e — sem autenticação, como /chamar/:tenantId/:tableId.
+// Página de DANFE NFC-e para a sessão administrativa do owner.
 // URL: /danfe/nfce/:chaveAcesso?tenant=<tenantId>
 
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import DanfeNFCe from '../components/fiscal/DanfeNFCe';
 import { extrairDadosDanfe, type DadosDanfe } from '../lib/fiscal/danfe-nfce';
+import { adminFetch } from '../lib/admin-http';
 
 export default function DanfePage() {
   const { chaveAcesso } = useParams<{ chaveAcesso: string }>();
@@ -23,7 +24,7 @@ export default function DanfePage() {
       setCarregando(false);
       return;
     }
-    fetch(`/api/fiscal/danfe/${chaveAcesso}?tenant=${encodeURIComponent(tenantId)}`)
+    adminFetch(`/api/fiscal/danfe/${chaveAcesso}?tenant=${encodeURIComponent(tenantId)}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setErro(d.error); return; }

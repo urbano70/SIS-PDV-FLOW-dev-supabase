@@ -2,7 +2,13 @@ export interface PizzaItem {
   id: string;
   menuItemId?: string;
   name: string;
-  type?: 'pizzas' | 'lanches' | 'bebidas' | 'porcoes' | 'lacarte';
+  type?: 'pizzas' | 'lanches' | 'bebidas' | 'porcoes' | 'lacarte' | 'outros';
+  source?: 'parquinho' | string;
+  childName?: string | null;
+  operatorId?: string;
+  operatorName?: string;
+  parquinhoEntryId?: string;
+  unitPrice?: number;
   flavors: string[];
   size: 'P' | 'M' | 'G';
   crust?: string;
@@ -55,6 +61,11 @@ export interface PizzeriaConfig {
   cashRegisters?: { id: string; name: string; password?: string }[];
   logoUrl?: string;
   establishmentName?: string;
+  /** Modo Parquinho: authoritative values are persisted by the backend config event. */
+  parquinhoEnabled?: boolean;
+  parquinhoChildNameRequired?: boolean;
+  parquinhoPrice?: number | null;
+  parquinhoProductId?: string;
 }
 
 export interface Order {
@@ -105,6 +116,8 @@ export interface MenuItem {
   id: string;
   name: string;
   price: number;
+  source?: 'parquinho' | string;
+  isParquinho?: boolean;
   ingredients?: string;
   trackStock?: boolean;
   visible?: boolean;

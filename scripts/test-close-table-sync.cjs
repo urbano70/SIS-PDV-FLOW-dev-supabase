@@ -26,8 +26,11 @@ function extractHandler(source) {
   const file = ts.createSourceFile(SERVER, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let text;
   function visit(node) {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'on' && node.arguments.length >= 2 &&
+    const isRegistration = ts.isCallExpression(node) && (
+      (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'on') ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'onTenantCommand')
+    );
+    if (isRegistration && node.arguments.length >= 2 &&
         ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === 'close_table' &&
         ts.isArrowFunction(node.arguments[1])) text = node.arguments[1].getText(file);
     ts.forEachChild(node, visit);

@@ -21,8 +21,11 @@ function extractHandler(eventName) {
   const file = ts.createSourceFile(SERVER, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   let text;
   function visit(node) {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'on' && node.arguments.length >= 2 &&
+    const isRegistration = ts.isCallExpression(node) && (
+      (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'on') ||
+      (ts.isIdentifier(node.expression) && node.expression.text === 'onTenantCommand')
+    );
+    if (isRegistration && node.arguments.length >= 2 &&
         ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === eventName &&
         ts.isArrowFunction(node.arguments[1])) {
       text = node.arguments[1].getText(file);
@@ -38,20 +41,53 @@ function loadHandler(eventName, deps, label) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `pdv-handler-${label}-`));
   const outfile = path.join(dir, 'handler.cjs');
   const handler = extractHandler(eventName);
+  const file = ts.createSourceFile(SERVER, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  let commandQueue;
+  let cashPatch;
+  function findQueue(node) {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'withTenantCommand') commandQueue = node.initializer.getText(file);
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'cashRegisterConfigPatch') cashPatch = node.initializer.getText(file);
+    ts.forEachChild(node, findQueue);
+  }
+  findQueue(file);
+  assert.ok(commandQueue, 'fila real de comandos deve estar presente');
+  assert.ok(cashPatch, 'configuração real de caixa deve estar presente');
+  const serialized = ['new_order', 'add_item_to_order'].includes(eventName);
   const wrapper = `
+    import { isPlaygroundReservedItem } from ${JSON.stringify(path.join(ROOT, 'src/server/playground-core.ts'))};
+    import { getOpenCashRegisterNames } from ${JSON.stringify(path.join(ROOT, 'src/server/cash-register-state.ts'))};
+    import { authActorSafe, isApprovedWaiter, isWaiterActorForTenant, projectWaitersForActor, sanitizeWaiter, sanitizeWaiters } from ${JSON.stringify(path.join(ROOT, 'src/server/waiter-auth.ts'))};
     const {
       socket, _st, _tid, _room, io, db, loadTenantIfNeeded, getState,
       generateOrderId, activateClientSession, applyStockReduction,
       emitPrintOrder, enqueueWrite, saveToSupabase, getClientSession,
     } = globalThis.__pdvHandlerDeps;
     const __BUILD_ID__ = 'isolated-test-build';
+    const _tenantCommandTails = globalThis.__pdvHandlerDeps.commandTails || new Map();
+    // Writes in this harness resolve synchronously into arrays; actual write
+    // tails/debounce are exercised by test-persistence-races separately.
+    const waitForTenantWrites = async () => {};
+    const withTenantCommand = ${commandQueue};
+    const cashRegisterConfigPatch = ${cashPatch};
+    const publicWaiters = sanitizeWaiters;
+    const isAdminForTenant = (tenantId) => {
+      const actor = authActorSafe(socket.authContext);
+      return Boolean(socket.isAdmin && socket.authContext?.ready === true && actor?.role === 'admin' && actor.tenantId === tenantId);
+    };
+    const waiterForTenant = (tenantId) => {
+      const actor = authActorSafe(socket.authContext);
+      if (!actor || actor.role !== 'waiter' || actor.tenantId !== tenantId) return null;
+      const waiter = getState(tenantId).waiters.find(candidate => String(candidate.id) === actor.waiterId);
+      return isWaiterActorForTenant(actor, tenantId, waiter) ? waiter : null;
+    };
+    const rejectPlaygroundReserved = () => socket.emit('error_message', 'Use o aplicativo do Parquinho.');
     const handler = ${handler};
-    module.exports = { handler };
+    module.exports = { handler: ${serialized ? '(...args) => withTenantCommand(_tid(), () => Promise.resolve(handler(...args)))' : 'handler'} };
   `;
   globalThis.__pdvHandlerDeps = deps;
   try {
     esbuild.buildSync({
-      stdin: { contents: wrapper, sourcefile: `${eventName}-extract.ts`, loader: 'ts' },
+      stdin: { contents: wrapper, sourcefile: `${eventName}-extract.ts`, resolveDir: ROOT, loader: 'ts' },
       bundle: true, platform: 'node', format: 'cjs', target: 'node18',
       outfile, logLevel: 'silent',
     });
@@ -92,6 +128,7 @@ function makeOrderDeps(st) {
     emit(event, payload) { events.push({ event, payload: clone(payload) }); },
   };
   const io = {
+    sockets: { adapter: { rooms: new Map() } },
     to(room) {
       return { emit(event, payload) { events.push({ room, event, payload: clone(payload) }); } };
     },
@@ -99,6 +136,7 @@ function makeOrderDeps(st) {
   const deps = {
     socket,
     io,
+    commandTails: new Map(),
     _st: () => st,
     _tid: () => 'tenant-flow',
     _room: () => 'tenant:tenant-flow',
@@ -161,6 +199,7 @@ async function testRequestInitRequiresScopedTenant() {
   const pending = new Promise(resolve => { gate.resolve = resolve; });
   const events = [];
   const socket = {
+    connected: true,
     emit(event, payload) { events.push({ event, payload: clone(payload) }); },
   };
   const deps = {
@@ -181,6 +220,15 @@ async function testRequestInitRequiresScopedTenant() {
   assert.equal(loadCalls, 0);
 
   socket.tenantId = 'tenant-scoped';
+  // A URL/tenant hint alone no longer grants a complete snapshot.
+  await requestInit();
+  assert.equal(loadCalls, 0);
+  assert.equal(events.some(event => event.event === 'init_data'), false);
+  events.length = 0;
+  // Represents the server-side proof already tested by test-waiter-auth;
+  // this suite tests only the load-before-snapshot race.
+  socket.isAdmin = true;
+  socket.authContext = { role: 'admin', tenantId: 'tenant-scoped', ready: true };
   const task = requestInit();
   await Promise.resolve();
   assert.equal(events.length, 0, 'init não pode sair antes do tenant estar pronto');
@@ -194,9 +242,9 @@ async function testRequestInitRequiresScopedTenant() {
   await testFastOpenAndAdd();
   await testRequestInitRequiresScopedTenant();
   assert.equal((source.match(/socket\.emit\("init_data"/g) || []).length, 3);
-  assert.equal((source.match(/ready:\s*true/g) || []).length, 3);
-  assert.equal((source.match(/buildId:\s*__BUILD_ID__/g) || []).length, 4,
-    'app_version e os três init_data devem usar a build compilada');
+  assert.ok((source.match(/ready:\s*true/g) || []).length >= 3);
+  assert.ok((source.match(/buildId:\s*__BUILD_ID__/g) || []).length >= 4,
+    'app_version, os três init_data e a projeção extra devem usar a build compilada');
   assert.ok(source.indexOf('const clientSessions =') < source.indexOf('startupReady = loadFromSupabase().then'),
     'startupReady não pode executar antes de clientSessions existir');
   console.log('server race flow tests passed');

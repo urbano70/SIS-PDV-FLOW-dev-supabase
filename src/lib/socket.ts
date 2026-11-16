@@ -1,5 +1,7 @@
 import { io } from "socket.io-client";
 
+export type SocketAuthRole = 'anonymous' | 'admin' | 'waiter';
+
 const tenant = new URLSearchParams(window.location.search).get('tenant') || '';
 const socket = io({
   query: tenant ? { tenant } : {},
@@ -19,6 +21,8 @@ const socket = io({
 const rawEmit = socket.emit.bind(socket);
 let lastAdminConnectSocketId: string | null = null;
 let lastAdminConnectToken: string | null = null;
+let socketAuthRole: SocketAuthRole = 'anonymous';
+let autoAuthSuspended = false;
 
 socket.emit = ((event: string, ...args: any[]) => {
   if (event === 'admin_connect') {
@@ -32,5 +36,26 @@ socket.emit = ((event: string, ...args: any[]) => {
   }
   return rawEmit(event as any, ...args);
 }) as typeof socket.emit;
+
+export const getSocketAuthRole = (): SocketAuthRole => socketAuthRole;
+
+export const setSocketAuthRole = (role: SocketAuthRole): void => {
+  socketAuthRole = role;
+};
+
+export const isAutoAuthSuspended = (): boolean => autoAuthSuspended;
+
+export const setAutoAuthSuspended = (suspended: boolean): void => {
+  autoAuthSuspended = suspended;
+};
+
+/** Resolve the auth role expected by a page without mutating the live socket role. */
+export const recomputeAutoAuthRole = (
+  pathname = typeof window === 'undefined' ? '' : window.location.pathname,
+): SocketAuthRole => {
+  if (/^\/waiter(?:\/|$)/.test(pathname)) return 'waiter';
+  if (/^\/app(?:\/|$)/.test(pathname)) return 'admin';
+  return 'anonymous';
+};
 
 export default socket;
