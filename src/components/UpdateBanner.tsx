@@ -13,7 +13,6 @@ export default function UpdateBanner() {
   const registration = useRef<ServiceWorkerRegistration | undefined>(undefined);
   const {
     needRefresh: [needRefresh],
-    updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_url, value) { registration.current = value; },
     // Another tab activating the worker must not reload this tab mid-operation.
@@ -60,7 +59,6 @@ export default function UpdateBanner() {
     try {
       await updateAppManually(
         registration.current,
-        () => updateServiceWorker(true),
         'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
         () => window.location.reload(),
       );

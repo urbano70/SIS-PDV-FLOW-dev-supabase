@@ -114,14 +114,11 @@ function testBuildComparison(isDifferentBuild) {
 
 async function testManualUpdate(updateAppManually) {
   let reloads = 0;
-  let activationCalls = 0;
   await updateAppManually(
     undefined,
-    async () => { activationCalls += 1; },
     undefined,
     () => { reloads += 1; },
   );
-  assert.equal(activationCalls, 0, 'sem registration/service worker não deve ativar nada');
   assert.equal(reloads, 1, 'o caminho manual sem registration recarrega apenas ao concluir');
 
   let updateCalls = 0;
@@ -134,7 +131,6 @@ async function testManualUpdate(updateAppManually) {
       installing,
       waiting: undefined,
     },
-    async () => {},
     undefined,
     () => { installReloads += 1; },
   );
@@ -149,31 +145,58 @@ async function testManualUpdate(updateAppManually) {
   let waitingReloads = 0;
   let activationObserved = false;
   const serviceWorker = new EventTargetMock();
+  const waiting = new EventTargetMock();
+  waiting.state = 'installed';
+  waiting.postMessage = message => {
+    assert.deepEqual(message, { type: 'SKIP_WAITING' });
+    activationObserved = true;
+    assert.equal(waiting.listenerCount('statechange'), 1, 'statechange deve ser observado antes da ativação');
+    assert.equal(serviceWorker.listenerCount('controllerchange'), 1, 'controllerchange deve ser observado antes da ativação');
+  };
   const waitingPromise = updateAppManually(
     {
       update: async () => {},
       installing: undefined,
-      waiting: {},
-    },
-    async () => {
-      activationObserved = true;
-      assert.equal(serviceWorker.listenerCount('controllerchange'), 1, 'controllerchange deve ser observado antes da ativação');
+      waiting,
     },
     serviceWorker,
     () => { waitingReloads += 1; },
   );
   await flushMicrotasks();
   assert.equal(activationObserved, true, 'a ativação deve ser solicitada');
-  assert.equal(waitingReloads, 0, 'waiting não pode recarregar antes de controllerchange');
+  assert.equal(waitingReloads, 0, 'não deve recarregar antes de ativar o worker');
+  waiting.state = 'activating';
   serviceWorker.dispatch('controllerchange');
+  assert.equal(waitingReloads, 0, 'troca de controle sozinha não comprova ativação completa');
+  waiting.state = 'activated';
+  waiting.dispatch('statechange');
   await waitingPromise;
-  assert.equal(waitingReloads, 1, 'só deve recarregar depois de controllerchange');
+  assert.equal(waitingReloads, 1, 'deve recarregar após a ativação mesmo sem novo controllerchange');
+  assert.equal(serviceWorker.listenerCount('controllerchange'), 0, 'remover listener de controle após sucesso');
+  assert.equal(waiting.listenerCount('statechange'), 0, 'remover listener de estado após sucesso');
+
+  const uncontrolled = new EventTargetMock();
+  uncontrolled.state = 'installed';
+  uncontrolled.postMessage = message => {
+    assert.deepEqual(message, { type: 'SKIP_WAITING' });
+    uncontrolled.state = 'activated';
+    uncontrolled.dispatch('statechange');
+  };
+  let uncontrolledReloads = 0;
+  await updateAppManually({ update: async () => {}, waiting: uncontrolled }, undefined, () => { uncontrolledReloads += 1; });
+  assert.equal(uncontrolledReloads, 1, 'página sem controlador também atualiza após worker ativado');
+
+  const alreadyActivated = new EventTargetMock();
+  alreadyActivated.state = 'activated';
+  alreadyActivated.postMessage = () => { throw new Error('não reenviar para worker já ativado'); };
+  let raceReloads = 0;
+  await updateAppManually({ update: async () => {}, waiting: alreadyActivated }, serviceWorker, () => { raceReloads += 1; });
+  assert.equal(raceReloads, 1, 'ativação simultânea em outra aba não deve gerar falso timeout');
 
   let rejectedReloads = 0;
   await assert.rejects(
     updateAppManually(
       { update: async () => { throw new Error('update recusado'); } },
-      async () => {},
       undefined,
       () => { rejectedReloads += 1; },
     ),
@@ -182,16 +205,20 @@ async function testManualUpdate(updateAppManually) {
   assert.equal(rejectedReloads, 0, 'falha em registration.update() não pode recarregar');
 
   let activationRejectedReloads = 0;
+  const rejectedWorker = new EventTargetMock();
+  rejectedWorker.state = 'installed';
+  rejectedWorker.postMessage = () => { throw new Error('ativação recusada'); };
   await assert.rejects(
     updateAppManually(
-      { update: async () => {}, installing: undefined, waiting: {} },
-      async () => { throw new Error('ativação recusada'); },
-      new EventTargetMock(),
+      { update: async () => {}, installing: undefined, waiting: rejectedWorker },
+      serviceWorker,
       () => { activationRejectedReloads += 1; },
     ),
     /ativação recusada/,
   );
   assert.equal(activationRejectedReloads, 0, 'falha de ativação não pode recarregar');
+  assert.equal(rejectedWorker.listenerCount('statechange'), 0);
+  assert.equal(serviceWorker.listenerCount('controllerchange'), 0);
 }
 
 function testUiSource() {
@@ -230,6 +257,8 @@ function testViteConfig() {
   const source = read(VITE_PATH);
   assert.match(source, /registerType\s*:\s*['"]prompt['"]/, 'PWA deve usar registerType prompt');
   assert.match(source, /injectRegister\s*:\s*null/, 'registro PWA deve ser manual (injectRegister null)');
+  assert.match(source, /skipWaiting\s*:\s*false/, 'não ativar um novo worker automaticamente');
+  assert.match(source, /clientsClaim\s*:\s*true/, 'assumir controle após a ativação do worker');
 }
 
 async function main() {
