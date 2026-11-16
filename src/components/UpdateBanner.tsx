@@ -6,7 +6,10 @@ import { isDifferentBuild, updateAppManually } from '../lib/appUpdate';
 
 export default function UpdateBanner() {
   const [remoteBuildId, setRemoteBuildId] = useState('');
-  const [dismissed, setDismissed] = useState('');
+  const dismissalKey = `pdv_update_dismissed:${__BUILD_ID__}`;
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem(dismissalKey) || ''; } catch { return ''; }
+  });
   const [externalUpdate, setExternalUpdate] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState('');
@@ -69,14 +72,18 @@ export default function UpdateBanner() {
   };
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[9999] p-4 pointer-events-none">
-      <div role="status" className="bg-[#141414] text-[#E4E3E0] rounded-2xl p-4 shadow-2xl pointer-events-auto max-w-lg mx-auto">
-        <p className="font-bold text-sm leading-tight">Atualização disponível</p>
-        <p className="text-xs opacity-60 mt-1">Conclua a operação atual antes de atualizar. A tela só será recarregada ao clicar em atualizar.</p>
+    <div className="fixed top-2 right-2 z-[9999] pointer-events-none max-w-[calc(100vw-1rem)]">
+      <div role="status" className="bg-white text-[#141414] border border-[#141414]/15 rounded-xl px-3 py-2 shadow-sm pointer-events-auto max-w-sm">
+        <p className="font-medium text-xs leading-tight">Atualização disponível</p>
+        <p className="text-[10px] opacity-60 mt-0.5">Atualize quando concluir sua operação.</p>
         {error && <p role="alert" className="text-xs text-red-300 mt-2">{error}</p>}
-        <div className="flex justify-end gap-2 mt-3">
-          <button disabled={updating} onClick={() => { setDismissed(updateKey); setError(''); }} className="text-sm px-3 py-2 rounded-xl disabled:opacity-50">Mais tarde</button>
-          <button disabled={updating} onClick={update} className="bg-white text-[#141414] font-bold text-sm px-4 py-2 rounded-xl active:scale-95 transition-transform disabled:opacity-50">
+        <div className="flex justify-end gap-2 mt-1.5">
+          <button disabled={updating} onClick={() => {
+            setDismissed(updateKey);
+            setError('');
+            try { sessionStorage.setItem(dismissalKey, updateKey); } catch {}
+          }} className="text-xs px-2 py-1 rounded-lg disabled:opacity-50">Mais tarde</button>
+          <button disabled={updating} onClick={update} className="bg-[#141414] text-white font-medium text-xs px-2.5 py-1 rounded-lg active:scale-95 transition-transform disabled:opacity-50">
             {updating ? 'Atualizando...' : 'Atualizar agora'}
           </button>
         </div>

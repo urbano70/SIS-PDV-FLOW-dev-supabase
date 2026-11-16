@@ -16,6 +16,14 @@ import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts
 import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 import { agendarBackupDiario } from "./src/lib/backup.ts";
 import { LATEST_PR } from "./src/version.ts";
+import {
+  TEST_RESET_TENANT_ID,
+  TEST_RESET_MARKER_FIELD,
+  TEST_RESET_DISABLE_ENV,
+  shouldRunTestTableReset,
+  resetTestTableState,
+} from "./src/server/test-table-reset.ts";
+import { leaveTenantRooms, switchSocketTenant } from "./src/server/socket-tenant.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -198,26 +206,139 @@ async function startServer() {
     st.shiftStartedAt = new Date().toISOString();
   };
 
-  const saveToSupabase = async (collection: string, data: any, docId?: string, tenantId?: string) => {
-    if (USE_POSTGRES) { await pgSave(collection, data, docId); return; }
+  const clonePersistenceData = <T>(data: T): T => {
+    if (data === undefined || data === null) return data;
+    return JSON.parse(JSON.stringify(data));
+  };
+
+  // Single-writer por tenant/colecao/registro. O snapshot e clonado antes de
+  // entrar na fila para nao observar mutacoes futuras do objeto em memoria.
+  const _tenantWriteTails = new Map<string, Promise<void>>();
+  const _tenantWriteRevisions = new Map<string, number>();
+
+  const markTenantWrite = (tenantId: string) => {
+    _tenantWriteRevisions.set(tenantId, (_tenantWriteRevisions.get(tenantId) || 0) + 1);
+  };
+
+  const tenantWriteRevision = (tenantId: string) => _tenantWriteRevisions.get(tenantId) || 0;
+
+  const assertSupabaseResult = async <T extends { error?: any }>(result: PromiseLike<T>): Promise<T> => {
+    const response = await result;
+    if (response?.error) throw response.error;
+    return response;
+  };
+
+  const waitForTenantWrites = async (tenantId: string) => {
+    const prefix = `${tenantId}:`;
+    while (true) {
+      // Também drena o debounce de 80 ms. Sem isso, uma reconexão poderia ler
+      // o banco antes de o último lançamento sair de _writePayload.
+      const pendingPayloads = [..._writePayload.entries()]
+        .filter(([key]) => key.startsWith(prefix));
+      for (const [key, payload] of pendingPayloads) {
+        const timer = _writeTimers.get(key);
+        if (timer) clearTimeout(timer);
+        _writeTimers.delete(key);
+        _writePayload.delete(key);
+        saveToSupabase(payload.collection, payload.data, payload.docId, payload.tenantId);
+      }
+      const pending = [..._tenantWriteTails.entries()]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([, promise]) => promise);
+      if (pending.length === 0) return;
+      await Promise.all(pending);
+    }
+  };
+
+  const saveToSupabaseRaw = async (collection: string, data: any, docId?: string, tenantId?: string) => {
+    if (USE_POSTGRES) { await pgSave(collection, data, docId, tenantId || 'default'); return; }
     if (!db) return;
     const tid = tenantId || 'default';
     try {
       const d = JSON.parse(JSON.stringify(data));
       switch (collection) {
-        case 'orders':   await db.from('orders').upsert({ ...orderToRow(d), tenant_id: tid }); break;
-        case 'tables':   await db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }); break;
-        case 'comandas': await db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }); break;
-        case 'waiters':  await db.from('waiters').upsert({ ...d, tenant_id: tid }); break;
-        case 'menu':     await db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] }); break;
-        case 'stock':    await db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid }); break;
-        case 'config':   await db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid }); break;
-        case 'pizzaFlavors': await db.from('pizza_flavors').upsert({ id: `${tid}:${d.name}`, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false, tenant_id: tid }); break;
-        case 'pizzaCrusts':  await db.from('pizza_crusts').upsert({ id: `${tid}:${d.name || docId}`, name: d.name || docId, tenant_id: tid }); break;
-        default: console.warn(`[supabase] coleção desconhecida: "${collection}"`);
+        case 'orders':   await assertSupabaseResult(db.from('orders').upsert({ ...orderToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
+        case 'tables':   await assertSupabaseResult(db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
+        case 'comandas': await assertSupabaseResult(db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
+        case 'waiters':  await assertSupabaseResult(db.from('waiters').upsert({ ...d, tenant_id: tid })); break;
+        case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
+        case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid })); break;
+        case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid })); break;
+        case 'pizzaFlavors': await assertSupabaseResult(db.from('pizza_flavors').upsert({ id: `${tid}:${d.name}`, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false, tenant_id: tid })); break;
+        case 'pizzaCrusts':  await assertSupabaseResult(db.from('pizza_crusts').upsert({ id: `${tid}:${d.name || docId}`, name: d.name || docId, tenant_id: tid })); break;
+        default: throw new Error(`Colecao desconhecida: ${collection}`);
       }
     } catch (e) {
       console.error(`[supabase] erro ao salvar em ${collection}:`, e);
+      throw e;
+    }
+  };
+
+  const saveToSupabase = (collection: string, data: any, docId?: string, tenantId?: string): Promise<void> => {
+    const tid = tenantId || 'default';
+    const key = `${tid}:${collection}:${String(docId ?? data?.id ?? '')}`;
+    const snapshot = clonePersistenceData(data);
+    markTenantWrite(tid);
+    const previous = _tenantWriteTails.get(key);
+    // Start the first write immediately. Besides reducing latency, this makes
+    // the single-writer barrier observable before another microtask can load.
+    const current = previous
+      ? previous.catch(() => undefined).then(() => saveToSupabaseRaw(collection, snapshot, docId, tid))
+      : saveToSupabaseRaw(collection, snapshot, docId, tid);
+    const tracked = current.finally(() => {
+      if (_tenantWriteTails.get(key) === tracked) _tenantWriteTails.delete(key);
+    });
+    // `current` continua rejeitando para o chamador; este observer evita que a
+    // cópia mantida apenas no mapa vire uma unhandled rejection.
+    tracked.catch(() => undefined);
+    _tenantWriteTails.set(key, tracked);
+    return current;
+  };
+
+  // TEST-ONLY, approved 2026-11-16: the reset is deliberately limited to the
+  // exact tenant in test-table-reset.ts and is disabled by setting
+  // PDV_TEST_RESET_ON_DEPLOY=false before a production rollout. It is not a
+  // generic reset and never touches comandas/menu/users/stock/fiscal/reports.
+  const runApprovedTestTableReset = async (tenantId: string, appConfig: any): Promise<boolean> => {
+    if (!db || tenantId !== TEST_RESET_TENANT_ID) return false;
+    const buildId = String(__BUILD_ID__);
+    const enabled = String(process.env[TEST_RESET_DISABLE_ENV] ?? 'true').toLowerCase() !== 'false';
+    if (!enabled) return false;
+    // The app config is overwritten by normal cash-register/counter updates.
+    // A dedicated record keeps a same-build restart from cleaning new orders.
+    const markerDocId = `${tenantId}:test_table_reset`;
+    const markerResult = await assertSupabaseResult(
+      db.from('config').select('data').eq('tenant_id', tenantId).eq('id', markerDocId).maybeSingle()
+    );
+    if (!shouldRunTestTableReset({
+      tenantId,
+      buildId,
+      marker: markerResult.data?.data?.[TEST_RESET_MARKER_FIELD],
+      enabled,
+    })) return false;
+
+    try {
+      // Supabase REST calls are awaited in order. If any step fails, the
+      // marker is not written; the next tenant load safely retries this
+      // idempotent cleanup before exposing init_data or accepting actions.
+      await assertSupabaseResult(
+        db.from('orders').delete().eq('tenant_id', tenantId).or('is_comanda.eq.false,is_comanda.is.null')
+      );
+      await assertSupabaseResult(
+        db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId)
+      );
+      await assertSupabaseResult(
+        db.from('config').upsert({
+          id: markerDocId,
+          tenant_id: tenantId,
+          data: { [TEST_RESET_MARKER_FIELD]: buildId, resetAt: new Date().toISOString() },
+        })
+      );
+      console.log(`[test-reset] tenant=${tenantId} table orders cleared for build ${buildId}`);
+      return true;
+    } catch (error: any) {
+      console.error(`[test-reset] tenant=${tenantId} failed closed:`, error?.message || error);
+      throw error;
     }
   };
 
@@ -232,13 +353,16 @@ async function startServer() {
     const key = `${tenantId}:${collection}:${docId}`;
     const existing = _writeTimers.get(key);
     if (existing) clearTimeout(existing);
-    _writePayload.set(key, { collection, data, docId, tenantId });
+    markTenantWrite(tenantId);
+    _writePayload.set(key, { collection, data: clonePersistenceData(data), docId, tenantId });
     _writeTimers.set(key, setTimeout(() => {
       _writeTimers.delete(key);
       const p = _writePayload.get(key);
       if (p) {
         _writePayload.delete(key);
-        saveToSupabase(p.collection, p.data, p.docId, p.tenantId).catch(() => {});
+        saveToSupabase(p.collection, p.data, p.docId, p.tenantId).catch((error) => {
+          console.error(`[persist] falha ao salvar ${p.collection}/${p.docId} (tenant ${p.tenantId}):`, error?.message || error);
+        });
       }
     }, debounceMs));
   };
@@ -304,7 +428,7 @@ async function startServer() {
   const loadFromSupabase = async () => {
     // ── PostgreSQL local ──────────────────────────────────────────────────────
     if (USE_POSTGRES) {
-      const pgData = await pgLoad();
+      const pgData = await pgLoad('default');
       if (!pgData) return;
       const st = getState('default');
       const room = 'tenant:default';
@@ -323,7 +447,7 @@ async function startServer() {
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
-        await pgSeedMenu(st.menu);
+        await pgSeedMenu(st.menu, 'default');
         console.log('[pg] Menu inicial semeado');
         io.to(room).emit('update_menu', st.menu);
       }
@@ -371,7 +495,7 @@ async function startServer() {
         const hasActiveOrders = st.orders.some((o: any) => o.status !== 'finalizada' && o.status !== 'paid');
         if (hasActiveOrders && !st.isCashRegisterOpen) {
           st.isCashRegisterOpen = true;
-          saveToSupabase('config', { isCashRegisterOpen: true }, 'app', tenantId).catch(() => {});
+          saveToSupabase('config', { isCashRegisterOpen: true }, 'app', 'default').catch(() => {});
         }
         io.to(room).emit('update_cash_register', st.isCashRegisterOpen);
         io.to(room).emit('update_shift_started_at', st.shiftStartedAt);
@@ -417,10 +541,15 @@ async function startServer() {
   };
 
   const loadTenantData = async (tenantId: string) => {
-    if (!db) return;
+    if (!db) throw new Error(`Banco Supabase indisponivel para carregar tenant ${tenantId}`);
     const st = getState(tenantId);
     const room = 'tenant:' + tenantId;
     try {
+      // Se existe uma escrita local pendente, o snapshot lido antes dela pode
+      // apagar o lançamento em memória. Aguarde-a antes de aplicar qualquer
+      // resposta do banco; falha de escrita mantém loaded=false e bloqueia init.
+      await waitForTenantWrites(tenantId);
+      const readRevision = tenantWriteRevision(tenantId);
       const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
         db.from('waiters').select('*').eq('tenant_id', tenantId),
         db.from('orders').select('*').eq('tenant_id', tenantId),
@@ -433,6 +562,27 @@ async function startServer() {
         db.from('pizza_crusts').select('*').eq('tenant_id', tenantId),
         db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).maybeSingle(),
       ]);
+      const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes]
+        .map((result: any) => result?.error)
+        .find(Boolean);
+      if (queryError) throw queryError;
+      // A debounced write may have started while the SELECTs were in flight.
+      // Drain it and retry the read instead of applying the older snapshot.
+      await waitForTenantWrites(tenantId);
+      if (tenantWriteRevision(tenantId) !== readRevision) {
+        return loadTenantData(tenantId);
+      }
+
+      // O reset autorizado acontece ainda dentro do readiness do tenant, antes
+      // de init_data. A carga usa as mesmas respostas já obtidas, mas elimina
+      // qualquer pedido de mesa e força as tables a livres sem tocar comandas.
+      const testTableResetApplied = await runApprovedTestTableReset(tenantId, cfgRes.data?.data);
+      const loadedOrderRows = testTableResetApplied && oRes.data
+        ? oRes.data.filter((row: any) => row.is_comanda === true)
+        : oRes.data;
+      const loadedTableRows = testTableResetApplied && tRes.data
+        ? tRes.data.map((row: any) => ({ ...row, status: 'free', current_order: null, linked_to: null }))
+        : tRes.data;
 
       if (wRes.data) {
         st.waiters = wRes.data;
@@ -471,8 +621,8 @@ async function startServer() {
         io.to(room).emit('update_menu', st.menu);
       }
 
-      if (oRes.data) {
-        st.orders = oRes.data.filter((r: any) => {
+      if (loadedOrderRows) {
+        st.orders = loadedOrderRows.filter((r: any) => {
           // Remove pedidos do Teste de Fogo
           const waiterName = r.waiter_name || '';
           return !waiterName.startsWith('Garcom_Fogo_');
@@ -489,16 +639,30 @@ async function startServer() {
           }
           return o;
         });
-        io.to(room).emit('update_orders', st.orders);
+        if (!testTableResetApplied) io.to(room).emit('update_orders', st.orders);
       }
 
-      if (tRes.data?.length) {
-        tRes.data.map(rowToTable).forEach((dbTable: any) => {
+      if (loadedTableRows?.length) {
+        loadedTableRows.map(rowToTable).forEach((dbTable: any) => {
           const idx = st.tables.findIndex(t => t.id === dbTable.id);
           if (idx !== -1) st.tables[idx] = { ...st.tables[idx], ...dbTable }; else st.tables.push(dbTable);
         });
         st.tables.sort((a, b) => a.id - b.id);
+        if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
+      }
+
+      if (testTableResetApplied) {
+        const resetState = resetTestTableState({ orders: st.orders, tables: st.tables });
+        st.orders = resetState.orders;
+        st.tables = resetState.tables;
+        // Invalidate only table sessions in this tenant; comanda sessions are
+        // deliberately retained because comanda orders were not reset.
+        for (const key of clientSessions.keys()) {
+          if (key.startsWith(`${tenantId}:t:`)) clientSessions.delete(key);
+        }
+        io.to(room).emit('update_orders', st.orders);
         io.to(room).emit('update_tables', st.tables);
+        console.log(`[test-reset] in-memory table state reset for tenant ${tenantId}`);
       }
 
       if (cRes.data?.length) {
@@ -570,21 +734,27 @@ async function startServer() {
       console.log(`[supabase][${tenantId}] Carga concluída`);
     } catch (e) {
       console.error(`[supabase][${tenantId}] Erro na carga:`, e);
+      st.loaded = false;
+      throw e;
     }
   };
 
-  // Trava por tenant: evita cargas paralelas do mesmo tenant
+  // Trava por tenant: evita cargas paralelas do mesmo tenant em qualquer modo
+  // de banco. O startup PostgreSQL tambem participa desta barreira.
   const _loadingTenants = new Map<string, Promise<void>>();
+  let startupReady: Promise<void> = Promise.resolve();
   const loadTenantIfNeeded = (tenantId: string): Promise<void> => {
     const st = getState(tenantId);
-    if (st.loaded || USE_POSTGRES) return Promise.resolve();
+    if (st.loaded) return Promise.resolve();
     if (_loadingTenants.has(tenantId)) return _loadingTenants.get(tenantId)!;
-    const p = loadTenantData(tenantId).finally(() => _loadingTenants.delete(tenantId));
+    if (USE_POSTGRES && tenantId !== 'default') {
+      return Promise.reject(new Error(`Tenant ${tenantId} nao esta disponivel no modo PostgreSQL local`));
+    }
+    const p = (USE_POSTGRES ? startupReady : loadTenantData(tenantId))
+      .finally(() => _loadingTenants.delete(tenantId));
     _loadingTenants.set(tenantId, p);
     return p;
   };
-
-  loadFromSupabase().then(() => seedBebidasSubcategories('default'));
 
   // ── Seed: subcategorias de bebidas ──────────────────────────────────────────
   const seedBebidasSubcategories = async (tenantId: string) => {
@@ -906,15 +1076,13 @@ async function startServer() {
     // Lê o tenant do query param da URL (?tenant=<id>) — usado por garçons e clientes
     const queryTenant = (socket.handshake.query?.tenant as string) || '';
     if (queryTenant) {
-      (socket as any).tenantId = queryTenant;
-      socket.join('tenant:' + queryTenant);
+      switchSocketTenant(socket, queryTenant);
     }
 
     // In dev mode, assign a default tenantId so all events work without auth
     if (isDevMode) {
       (socket as any).isAdmin = true;
-      (socket as any).tenantId = (socket as any).tenantId || 'default';
-      socket.join('tenant:' + ((socket as any).tenantId || 'default'));
+      switchSocketTenant(socket, (socket as any).tenantId || 'default');
     }
 
     socket.on("admin_connect", async (token) => {
@@ -923,11 +1091,15 @@ async function startServer() {
         if (!payload?.sub) { socket.emit("auth_error", { message: "Token inválido" }); return; }
         const tenantId: string = payload.sub;
         (socket as any).isAdmin = true;
-        (socket as any).tenantId = tenantId;
-        socket.join('tenant:' + tenantId);
+        const tenantGeneration = switchSocketTenant(socket, tenantId);
         await loadTenantIfNeeded(tenantId);
+        if (!socket.connected || (socket as any).tenantId !== tenantId ||
+            (socket as any).tenantGeneration !== tenantGeneration) return;
         const st = getState(tenantId);
         socket.emit("init_data", {
+          tenantId,
+          ready: true,
+          buildId: __BUILD_ID__,
           waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
           pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
@@ -964,6 +1136,7 @@ async function startServer() {
 
       if (!tid || tid === 'default') {
         // Agente sem tenant configurado — entra em modo de pareamento
+        leaveTenantRooms(socket);
         (socket as any).pendingPairing = true;
         pendingAgents.set(socket.id, socket);
         socket.emit("printer_agent_pairing_needed", { socketId: socket.id });
@@ -973,7 +1146,7 @@ async function startServer() {
         return;
       }
 
-      (socket as any).tenantId = tid;
+      switchSocketTenant(socket, tid);
       const st = getState(tid);
       st.printerAgentSocket = socket;
       socket.emit("printer_agent_accepted");
@@ -997,8 +1170,7 @@ async function startServer() {
       }
       pendingAgents.delete(agentSocketId);
       (agentSocket as any).pendingPairing = false;
-      (agentSocket as any).tenantId = tid;
-      agentSocket.join('tenant:' + tid);
+      switchSocketTenant(agentSocket, tid);
       const st = getState(tid);
       st.printerAgentSocket = agentSocket;
       agentSocket.emit("printer_agent_accepted");
@@ -1077,6 +1249,9 @@ async function startServer() {
     if (isDevMode) {
       const defSt = getState('default');
       socket.emit("init_data", {
+        tenantId: 'default',
+        ready: true,
+        buildId: __BUILD_ID__,
         waiters: defSt.waiters, orders: defSt.orders, tables: defSt.tables, comandas: defSt.comandas,
         stock: defSt.stock, stockLog: defSt.stockLog, menu: defSt.menu,
         pizzaFlavors: defSt.pizzaFlavors, pizzaCrusts: defSt.pizzaCrusts, pizzaSizes: defSt.pizzaSizes,
@@ -1086,20 +1261,32 @@ async function startServer() {
       });
     }
 
-    socket.on("request_init_data", () => {
-      // Fix A: se tenantId não definido (antes do admin_connect), não responder com estado vazio
-      // Conexões admin recebem init_data real via admin_connect
-      const tid = _tid();
+    socket.on("request_init_data", async () => {
+      // Em produção, não transformar a ausência de identificação em tenant
+      // default: isso devolvia um snapshot vazio antes de admin_connect.
+      const tid = (socket as any).tenantId as string | undefined;
       if (!tid) return;
-      const st = _st();
-      socket.emit("init_data", {
-        waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
-        stock: st.stock, stockLog: st.stockLog, menu: st.menu,
-        pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
-        isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
-        pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
-        printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
-      });
+      const tenantGeneration = (socket as any).tenantGeneration;
+      try {
+        await loadTenantIfNeeded(tid);
+        if (socket.connected === false || (socket as any).tenantId !== tid ||
+            (socket as any).tenantGeneration !== tenantGeneration) return;
+        const st = getState(tid);
+        socket.emit("init_data", {
+          tenantId: tid,
+          ready: true,
+          buildId: __BUILD_ID__,
+          waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
+          stock: st.stock, stockLog: st.stockLog, menu: st.menu,
+          pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
+          isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
+          pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
+          printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        console.error(`[init_data] falha ao carregar tenant ${tid}:`, error?.message || error);
+        socket.emit("auth_error", { message: "Não foi possível carregar os dados deste tenant." });
+      }
     });
 
     socket.on("update_pizzaria_config", requireAdmin((config) => {
@@ -1172,10 +1359,18 @@ async function startServer() {
       enqueueWrite('orders', order, String(order.id), _tid());
     });
 
-    socket.on("waiter_identify_tenant", ({ tenantId }: { tenantId: string }) => {
+    socket.on("waiter_identify_tenant", async ({ tenantId }: { tenantId: string }) => {
       if (tenantId) {
-        (socket as any).tenantId = tenantId;
-        socket.join('tenant:' + tenantId);
+        const tid = String(tenantId);
+        const tenantGeneration = switchSocketTenant(socket, tid);
+        try {
+          await loadTenantIfNeeded(tid);
+          if (socket.connected === false || (socket as any).tenantId !== tid ||
+              (socket as any).tenantGeneration !== tenantGeneration) return;
+        } catch (error: any) {
+          console.error(`[waiter_identify_tenant] falha ao carregar ${tid}:`, error?.message || error);
+          socket.emit("auth_error", { message: "Não foi possível carregar os dados deste tenant." });
+        }
       }
     });
 
@@ -2782,11 +2977,12 @@ async function startServer() {
     // ── Cliente connect (página /mesa/:tenantId/:mesaId) ──────────────────
     socket.on("client_connect", async ({ tenantId }: { tenantId: string }) => {
       if (!tenantId) return;
-      (socket as any).tenantId = tenantId;
       (socket as any).isClient = true;
-      socket.join('tenant:' + tenantId);
+      const tenantGeneration = switchSocketTenant(socket, tenantId);
       // Garante que o tenant está carregado antes de enviar os pedidos
       await loadTenantIfNeeded(tenantId);
+      if (socket.connected === false || (socket as any).tenantId !== tenantId ||
+          (socket as any).tenantGeneration !== tenantGeneration) return;
       const st = tenants.get(tenantId);
       if (st) socket.emit('update_orders', st.orders || []);
     });
@@ -2826,7 +3022,8 @@ async function startServer() {
   });
 
   app.get("/api/version", (_req, res) => {
-    res.json({ version: '1.1.0', pr: 295 });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...appVersion, pr: LATEST_PR });
   });
 
   app.get("/api/order-by-table/:tenantId/:tableId", (req, res) => {
@@ -4447,12 +4644,14 @@ async function startServer() {
 
       log("Configurando 40 mesas...");
       await db.from('tables').upsert(
-        Array.from({ length: 40 }, (_, i) => ({ id: `${tenantId}:${i+1}`, num: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }))
+        Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId })),
+        { onConflict: 'tenant_id,id' }
       );
 
       log("Configurando 50 comandas...");
       await db.from('comandas').upsert(
-        Array.from({ length: 50 }, (_, i) => ({ id: `${tenantId}:${i+1}`, num: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }))
+        Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId })),
+        { onConflict: 'tenant_id,id' }
       );
 
       log("Carregando categorias do menu...");
@@ -4924,6 +5123,10 @@ async function startServer() {
     });
   }
 
+  // Só iniciar esta promessa depois de todas as declarações usadas pela carga
+  // (em especial clientSessions), e só aceitar conexões após o snapshot real.
+  startupReady = loadFromSupabase().then(() => seedBebidasSubcategories('default'));
+  await startupReady;
   httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });

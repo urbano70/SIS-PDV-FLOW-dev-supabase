@@ -167,17 +167,19 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
 
   useEffect(() => {
     // Escutar eventos do socket para dados específicos e notificações
-    socket.on('init_data', (data) => {
+    const onInit = (data: any) => {
+      if (ownerUser?.id && data.tenantId !== ownerUser.id) return;
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
       if (data.pizzaSizes) setPizzaSizes(data.pizzaSizes);
-    });
+    };
+    socket.on('init_data', onInit);
 
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
 
-    socket.on('waiter_approved', (data) => {
+    const onWaiterApproved = (data: any) => {
       if (data?.status === 'inactive') {
         setIsApproved(false);
         toast.error('Seu acesso está inativo. Entre em contato com o gerente.');
@@ -189,13 +191,13 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
         setIsApproved(false);
         toast.info('Seu cadastro ainda está pendente de aprovação.');
       }
-    });
+    };
+    socket.on('waiter_approved', onWaiterApproved);
 
-    socket.on('error_message', (msg) => {
-      toast.error(msg);
-    });
+    const onError = (msg: string) => toast.error(msg);
+    socket.on('error_message', onError);
 
-    socket.on('admin_notification', (notif) => {
+    const onNotification = (notif: any) => {
       if (notif.type === 'NEW_WAITER') {
         toast.info(`Novo garçom aguardando aprovação: ${notif.data.name}`, {
           action: {
@@ -204,18 +206,19 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
           }
         });
       }
-    });
+    };
+    socket.on('admin_notification', onNotification);
 
     return () => {
-      socket.off('init_data');
-      socket.off('waiter_approved');
-      socket.off('admin_notification');
-      socket.off('error_message');
-      socket.off('update_pizza_flavors');
-      socket.off('update_pizza_crusts');
-      socket.off('update_pizza_sizes');
+      socket.off('init_data', onInit);
+      socket.off('waiter_approved', onWaiterApproved);
+      socket.off('admin_notification', onNotification);
+      socket.off('error_message', onError);
+      socket.off('update_pizza_flavors', setPizzaFlavors);
+      socket.off('update_pizza_crusts', setPizzaCrusts);
+      socket.off('update_pizza_sizes', setPizzaSizes);
     };
-  }, []);
+  }, [ownerUser?.id]);
 
   if (loading) {
     return (
@@ -306,7 +309,7 @@ function WaiterRoute() {
 }
 
 function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
-  const { data, clockOffset } = useFirebase();
+  const { data, clockOffset, canMutate } = useFirebase();
   const { tables, comandas, orders, menu, waiters, isCashRegisterOpen, pizzariaConfig, shiftStartedAt } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
@@ -330,26 +333,29 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   });
 
   useEffect(() => {
-    socket.on('init_data', (d: any) => {
+    const onInit = (d: any) => {
+      if (tenantId && d.tenantId !== tenantId) return;
       if (d.pizzaFlavors) setPizzaFlavors(d.pizzaFlavors);
       if (d.pizzaCrusts) setPizzaCrusts(d.pizzaCrusts);
       if (d.pizzaSizes) setPizzaSizes(d.pizzaSizes);
-    });
+    };
+    socket.on('init_data', onInit);
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
-    socket.on('waiter_approved', (d: any) => {
+    const onWaiterApproved = (d: any) => {
       if (d?.status === 'approved') setIsApproved(true);
       else setIsApproved(false);
-    });
-    return () => {
-      socket.off('init_data');
-      socket.off('update_pizza_flavors');
-      socket.off('update_pizza_crusts');
-      socket.off('update_pizza_sizes');
-      socket.off('waiter_approved');
     };
-  }, []);
+    socket.on('waiter_approved', onWaiterApproved);
+    return () => {
+      socket.off('init_data', onInit);
+      socket.off('update_pizza_flavors', setPizzaFlavors);
+      socket.off('update_pizza_crusts', setPizzaCrusts);
+      socket.off('update_pizza_sizes', setPizzaSizes);
+      socket.off('waiter_approved', onWaiterApproved);
+    };
+  }, [tenantId]);
 
   return (
     <>
@@ -367,6 +373,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
           pizzariaConfig={pizzariaConfig}
           shiftStartedAt={shiftStartedAt}
           clockOffset={clockOffset}
+          canSubmitOrder={canMutate}
         />
       ) : (
         <SelfOnboarding waiters={waiters} />
