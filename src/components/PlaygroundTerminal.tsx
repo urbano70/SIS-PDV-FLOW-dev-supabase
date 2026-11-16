@@ -156,8 +156,15 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
         : previous);
       if (payload.status === 'approved') {
         setAuthError('');
-        setScreen('terminal');
-        void requestData();
+        // Only go to terminal if operator already has a valid session token
+        if (currentToken()) {
+          setScreen('terminal');
+          void requestData();
+        } else {
+          // No session yet — operator must log in to get a token
+          setScreen('auth');
+          setAuthError('Aprovado! Faça login para continuar.');
+        }
       } else if (payload.status === 'inactive') {
         setAuthError(payload.message || 'Este cadastro está inativo.');
         setScreen('auth');
@@ -193,11 +200,16 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
     if (!operator) {
       setScreen('auth');
     } else if (operator.status === 'approved') {
-      setScreen('terminal');
+      // Only proceed to terminal if there is a valid session token
+      if (currentToken()) {
+        setScreen('terminal');
+      } else {
+        setScreen('auth');
+      }
     } else if (operator.status === 'pending') {
       setScreen('pending');
     }
-  }, [operator]);
+  }, [operator, currentToken]);
 
   const updateDraft = useCallback((patch: Partial<PlaygroundPendingForm>) => {
     const previous = pendingRef.current;
