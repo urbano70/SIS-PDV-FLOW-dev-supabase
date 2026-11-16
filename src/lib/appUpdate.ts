@@ -21,7 +21,7 @@ function waitForInstallation(worker: ServiceWorker): Promise<void> {
       if (worker.state === 'installed' || worker.state === 'activated') finish();
       else if (worker.state === 'redundant') finish(new Error('A nova versão não pôde ser instalada.'));
     };
-    const timeout = setTimeout(() => finish(new Error('A atualização ainda está sendo baixada. Tente novamente.')), 20000);
+    const timeout = setTimeout(() => finish(new Error('A atualização ainda está sendo baixada. Tente novamente.')), 8000);
     worker.addEventListener('statechange', check);
     check();
   });
@@ -50,7 +50,7 @@ function activateWaitingWorker(
     const timeout = setTimeout(() => {
       if (worker.state === 'activated') finish();
       else finish(new Error('Não foi possível ativar a atualização. Tente novamente.'));
-    }, 20000);
+    }, 8000);
     worker.addEventListener('statechange', check);
     container?.addEventListener('controllerchange', check);
     check();
@@ -76,7 +76,14 @@ export async function updateAppManually(
     if (registration.installing) await waitForInstallation(registration.installing);
     // Capture once: activation in another tab can clear registration.waiting.
     const waiting = registration.waiting;
-    if (waiting) await activateWaitingWorker(waiting, serviceWorker);
+    if (waiting) {
+      try {
+        await activateWaitingWorker(waiting, serviceWorker);
+      } catch {
+        // Activation stuck — unregister the old SW so the page loads fresh on reload.
+        await registration.unregister().catch(() => {});
+      }
+    }
   }
   reload();
 }
