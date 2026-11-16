@@ -653,7 +653,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           isComanda: isComandaSelected,
           waiterName,
           observations: cartObservations.trim(),
-          items: cart.map(i => ({ name: i.name, price: i.price, quantity: (i as any).quantity || 1, obs: (i as any).obs })),
+          items: cart.map(i => ({
+            name: i.name,
+            price: i.price,
+            quantity: (i as any).quantity || 1,
+            obs: (i as any).obs ?? (i as any).observations,
+            flavors: (i as any).flavors,
+            crust: (i as any).crust,
+            type: (i as any).type,
+          })),
         },
         printerConfig?.establishmentName || 'ESTABELECIMENTO'
       );
