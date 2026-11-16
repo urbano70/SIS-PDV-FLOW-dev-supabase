@@ -69,7 +69,7 @@ export default function UpdateBanner() {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-[9999] p-4 pointer-events-none">
+    <div className="fixed top-0 left-0 right-0 z-[9999] p-4 pointer-events-none">
       <div role="status" className="bg-[#141414] text-[#E4E3E0] rounded-2xl p-4 shadow-2xl pointer-events-auto max-w-lg mx-auto">
         <p className="font-bold text-sm leading-tight">Atualização disponível</p>
         <p className="text-xs opacity-60 mt-1">Conclua a operação atual antes de atualizar. A tela só será recarregada ao clicar em atualizar.</p>
