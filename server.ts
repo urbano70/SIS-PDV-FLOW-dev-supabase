@@ -328,22 +328,21 @@ async function startServer() {
         io.to(room).emit('update_menu', st.menu);
       }
 
-      if (pgData.orders?.length) {
-        st.orders = pgData.orders.map((o: any) => {
-          if (o.items && st.menu.length > 0) {
-            o.items = o.items.map((item: any) => {
-              if (item.type === 'pizzas') return item;
-              const cat = st.menu.find((c: any) =>
-                c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name) ||
-                (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name))
-              );
-              return cat?.type ? { ...item, type: cat.type } : item;
-            });
-          }
-          return o;
-        });
-        io.to(room).emit('update_orders', st.orders);
-      }
+      // Fix B: sempre emitir update_orders no startup, mesmo array vazio, para limpar cache stale
+      st.orders = pgData.orders?.length ? pgData.orders.map((o: any) => {
+        if (o.items && st.menu.length > 0) {
+          o.items = o.items.map((item: any) => {
+            if (item.type === 'pizzas') return item;
+            const cat = st.menu.find((c: any) =>
+              c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name) ||
+              (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name))
+            );
+            return cat?.type ? { ...item, type: cat.type } : item;
+          });
+        }
+        return o;
+      }) : [];
+      io.to(room).emit('update_orders', st.orders);
 
       if (pgData.tables?.length) {
         pgData.tables.forEach((dbTable: any) => {
@@ -1088,6 +1087,10 @@ async function startServer() {
     }
 
     socket.on("request_init_data", () => {
+      // Fix A: se tenantId não definido (antes do admin_connect), não responder com estado vazio
+      // Conexões admin recebem init_data real via admin_connect
+      const tid = _tid();
+      if (!tid) return;
       const st = _st();
       socket.emit("init_data", {
         waiters: st.waiters, orders: st.orders, tables: st.tables, comandas: st.comandas,
@@ -1943,6 +1946,7 @@ async function startServer() {
       }
 
       let order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
+      let usedFallback = false;
       // Fallback: if orderId is stale/missing, resolve via mesa's currentOrder
       if (!order && fallbackTableId) {
         const targetList = fallbackIsComanda ? _st().comandas : _st().tables;
@@ -1952,38 +1956,51 @@ async function startServer() {
             String(o.id) === String(mesa.currentOrder) &&
             o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
           );
+          if (order) usedFallback = true;
         }
       }
-      if (order) {
-        if (order.status === "aguardando_baixa") {
-          socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
-          return;
-        }
-        const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
-        // Resolve type from server _st().menu for non-pizza items
-        let resolvedType = item.type;
-        if (item.type !== 'pizzas') {
-          const cat = item.menuItemId
-            ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-            : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
-          if (cat?.type) resolvedType = cat.type;
-        }
-        const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
-        if (!order.items) order.items = [];
-        order.items.push(itemWithTimestamp);
 
-        // Emit immediately for fast UI
-        io.to(_room()).emit("update_orders", _st().orders);
-        const kPayload3 = { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda };
-        io.to(_room()).emit("kitchen_new_order", kPayload3);
-        emitPrintOrder(kPayload3);
-
-        // Non-blocking: respond to socket immediately, persist in background
-        enqueueWrite('orders', order, String(order.id), _tid());
-
-        // Update _st().stock for the added item
-        applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
+      // Fix D: pedido nao encontrado — sincroniza estado ao socket para corrigir view stale
+      if (!order) {
+        socket.emit('update_orders', _st().orders);
+        socket.emit('update_tables', _st().tables);
+        socket.emit('update_comandas', _st().comandas);
+        return;
       }
+
+      if (order.status === "aguardando_baixa") {
+        socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
+        return;
+      }
+      const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
+      // Resolve type from server _st().menu for non-pizza items
+      let resolvedType = item.type;
+      if (item.type !== 'pizzas') {
+        const cat = item.menuItemId
+          ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+          : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+        if (cat?.type) resolvedType = cat.type;
+      }
+      const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
+      if (!order.items) order.items = [];
+      order.items.push(itemWithTimestamp);
+
+      // Emit immediately for fast UI
+      io.to(_room()).emit("update_orders", _st().orders);
+      // Fix C: se fallback foi usado, sincroniza tables para corrigir currentOrder pointer no cliente
+      if (usedFallback) {
+        io.to(_room()).emit("update_tables", _st().tables);
+        io.to(_room()).emit("update_comandas", _st().comandas);
+      }
+      const kPayload3 = { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda };
+      io.to(_room()).emit("kitchen_new_order", kPayload3);
+      emitPrintOrder(kPayload3);
+
+      // Non-blocking: respond to socket immediately, persist in background
+      enqueueWrite('orders', order, String(order.id), _tid());
+
+      // Update _st().stock for the added item
+      applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
     });
 
     socket.on("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
