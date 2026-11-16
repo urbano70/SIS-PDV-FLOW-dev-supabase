@@ -1,18 +1,14 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { formatBuildTimestampPtBr, loadBuildInfo } from './scripts/build-info.mjs';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
-  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
-  const gitHash = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return ''; } })();
-  const now = new Date();
-  const buildTs = now.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-  const buildVersion = `v${pkg.version}${gitHash ? '+' + gitHash : ''}`;
+  const buildInfo = loadBuildInfo();
   // Prioridade: env var (produção) → arquivo .dev.json (dev local) → arquivo padrão
   const firebaseConfigStr = process.env.FIREBASE_CONFIG
     || (() => { try { return fs.readFileSync(path.resolve(__dirname, 'firebase-applet-config.dev.json'), 'utf-8'); } catch { return null; } })()
@@ -22,7 +18,8 @@ export default defineConfig(({mode}) => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        registerType: 'prompt',
+        injectRegister: null,
         manifest: false,
         workbox: {
           globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
@@ -43,8 +40,9 @@ export default defineConfig(({mode}) => {
       '__FIREBASE_CONFIG__': JSON.stringify(firebaseConfigStr),
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(env.VITE_SUPABASE_URL || ''),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || ''),
-      '__BUILD_VERSION__': JSON.stringify(buildVersion),
-      '__BUILD_TS__': JSON.stringify(buildTs),
+      '__BUILD_ID__': JSON.stringify(buildInfo.buildId),
+      '__BUILD_VERSION__': JSON.stringify(buildInfo.version),
+      '__BUILD_TS__': JSON.stringify(formatBuildTimestampPtBr(buildInfo.builtAtISO)),
     },
     resolve: {
       alias: {
