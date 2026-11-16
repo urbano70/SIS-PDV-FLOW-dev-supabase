@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle, CircleUserRound, Clock3, LogIn, LogOut, RefreshCcw, Send, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, CheckCircle, CircleUserRound, Clock3, LogIn, LogOut, Plus, RefreshCcw, Send, ShieldCheck, Wifi, WifiOff, X } from 'lucide-react';
 import { toast } from 'sonner';
 import type { PlaygroundData, PlaygroundOperator } from '../lib/playgroundTypes';
 import {
@@ -62,24 +62,12 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
   const [authError, setAuthError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
-  const [childName, setChildName] = useState('');
+  const [childNames, setChildNames] = useState<string[]>(['']);
+  const [showTablePopup, setShowTablePopup] = useState(false);
   const [pending, setPending] = useState<PlaygroundPendingForm | null>(null);
   const [resuming, setResuming] = useState(false);
 
   const currentToken = useCallback(() => readPlaygroundToken(tenantId), [tenantId]);
-
-  const applyAck = useCallback((ack: Awaited<ReturnType<typeof emitPlaygroundAck>>) => {
-    if (!ack.ok) {
-      setAuthError(ack.message || 'Não foi possível autenticar no Parquinho.');
-      return false;
-    }
-    if (ack.token) writePlaygroundToken(tenantId, ack.token);
-    if (ack.operator) setOperator(ack.operator);
-    if (ack.data) setData(ack.data);
-    if (ack.operator?.status === 'approved') setScreen('terminal');
-    else if (ack.operator) setScreen('pending');
-    return true;
-  }, [tenantId]);
 
   const requestData = useCallback(async () => {
     const socket = socketRef.current;
@@ -101,8 +89,6 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
     const ack = await emitPlaygroundAck(socket, 'parquinho_resume', { tenantId, token });
     setResuming(false);
     if (!ack.ok) {
-      // A timeout is not proof that the opaque token is invalid. Preserve it so a
-      // reconnect can try again, while auth errors return to the explicit login screen.
       setAuthError(ack.message || 'Não foi possível retomar a sessão.');
       if ((ack.message || '').toLowerCase().includes('token') || (ack.message || '').toLowerCase().includes('sessão')) {
         clearPlaygroundToken(tenantId);
@@ -134,7 +120,8 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
       pendingRef.current = savedForm;
       setPending(savedForm);
       setSelectedTableId(savedForm.tableId);
-      setChildName(savedForm.childName);
+      setChildNames([savedForm.childName]);
+      setShowTablePopup(true);
     }
 
     const onConnect = () => {
@@ -156,12 +143,10 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
         : previous);
       if (payload.status === 'approved') {
         setAuthError('');
-        // Only go to terminal if operator already has a valid session token
         if (currentToken()) {
           setScreen('terminal');
           void requestData();
         } else {
-          // No session yet — operator must log in to get a token
           setScreen('auth');
           setAuthError('Aprovado! Faça login para continuar.');
         }
@@ -200,7 +185,6 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
     if (!operator) {
       setScreen('auth');
     } else if (operator.status === 'approved') {
-      // Only proceed to terminal if there is a valid session token
       if (currentToken()) {
         setScreen('terminal');
       } else {
@@ -210,22 +194,6 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
       setScreen('pending');
     }
   }, [operator, currentToken]);
-
-  const updateDraft = useCallback((patch: Partial<PlaygroundPendingForm>) => {
-    const previous = pendingRef.current;
-    if (previous?.submittedAt) return;
-    const next: PlaygroundPendingForm = {
-      requestId: previous?.requestId || createRequestId(),
-      tenantId,
-      tableId: patch.tableId ?? previous?.tableId ?? selectedTableId ?? 0,
-      childName: trimChildName(patch.childName ?? previous?.childName ?? childName),
-      ...(buildId ? { buildId } : {}),
-    };
-    if (!next.tableId) return;
-    pendingRef.current = next;
-    setPending(next);
-    writePendingPlaygroundForm(next);
-  }, [buildId, childName, selectedTableId, tenantId]);
 
   const handleAuthSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -279,6 +247,7 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
     setSubmitError('');
     setScreen('auth');
     setAuthMode('login');
+    setShowTablePopup(false);
   };
 
   const selectedTable = useMemo(
@@ -289,12 +258,13 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
     () => data?.entries.filter(entry => entry.tableId === selectedTableId && entry.status === 'active') || [],
     [data?.entries, selectedTableId],
   );
-  const launchError = getPlaygroundLaunchError(data, childName);
+
+  const anyNameError = childNames.some(name => !!getPlaygroundLaunchError(data, name));
   const hasPendingLaunch = !!pending?.submittedAt;
   const canSubmit = Boolean(
     data?.ready && socketConnected && operator?.status === 'approved' && data.config.parquinhoEnabled &&
     (typeof data.config.parquinhoPrice === 'number' && Number.isFinite(data.config.parquinhoPrice) && data.config.parquinhoPrice >= 0) &&
-    data.isCashRegisterOpen && selectedTableId !== null && !launchError && !hasPendingLaunch,
+    data.isCashRegisterOpen && selectedTableId !== null && !anyNameError && !hasPendingLaunch,
   );
 
   const submitLaunch = async () => {
@@ -307,39 +277,57 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
       setSubmitError('Selecione uma mesa.');
       return;
     }
-    const validationError = getPlaygroundLaunchError(data, childName);
-    if (validationError) {
-      setSubmitError(validationError);
-      return;
+    const names = childNames.map(trimChildName);
+    for (const name of names) {
+      const err = getPlaygroundLaunchError(data, name);
+      if (err) { setSubmitError(err); return; }
     }
-    const existing = pendingRef.current;
-    const next: PlaygroundPendingForm = {
-      requestId: existing?.requestId || createRequestId(),
-      tenantId,
-      tableId: selectedTableId,
-      childName: trimChildName(childName),
-      ...(buildId ? { buildId } : {}),
-      submittedAt: existing?.submittedAt || new Date().toISOString(),
-    };
-    pendingRef.current = next;
-    setPending(next);
-    writePendingPlaygroundForm(next);
     setSubmitError('');
 
-    const ack = await emitPlaygroundAck(socket, 'parquinho_add_entry', makePlaygroundLaunch(next.tableId, next.childName, next.requestId, next.buildId));
-    if (!ack.ok) {
-      setSubmitError(ack.message || 'O lançamento não foi confirmado. O formulário foi preservado para tentar novamente.');
-      return;
+    if (names.length === 1) {
+      // Single child: use pending form for idempotency/recovery
+      const existing = pendingRef.current;
+      const next: PlaygroundPendingForm = {
+        requestId: existing?.requestId || createRequestId(),
+        tenantId,
+        tableId: selectedTableId,
+        childName: names[0],
+        ...(buildId ? { buildId } : {}),
+        submittedAt: existing?.submittedAt || new Date().toISOString(),
+      };
+      pendingRef.current = next;
+      setPending(next);
+      writePendingPlaygroundForm(next);
+
+      const ack = await emitPlaygroundAck(socket, 'parquinho_add_entry', makePlaygroundLaunch(next.tableId, next.childName, next.requestId, next.buildId));
+      if (!ack.ok) {
+        setSubmitError(ack.message || 'O lançamento não foi confirmado. O formulário foi preservado para tentar novamente.');
+        return;
+      }
+      if (ack.data) setData(ack.data);
+      clearPendingPlaygroundForm(tenantId);
+      pendingRef.current = null;
+      setPending(null);
+      setChildNames(['']);
+      setShowTablePopup(false);
+      toast.success('Parquinho lançado com sucesso.');
+      if (!ack.data) void requestData();
+    } else {
+      // Multiple children: submit sequentially with individual requestIds
+      let lastAckHadData = false;
+      for (let i = 0; i < names.length; i++) {
+        const ack = await emitPlaygroundAck(socket, 'parquinho_add_entry', makePlaygroundLaunch(selectedTableId, names[i], createRequestId(), buildId));
+        if (!ack.ok) {
+          setSubmitError(`Criança ${i + 1}${names[i] ? ` (${names[i]})` : ''}: ${ack.message || 'Lançamento não confirmado.'}`);
+          return;
+        }
+        if (ack.data) { setData(ack.data); lastAckHadData = true; }
+      }
+      setChildNames(['']);
+      setShowTablePopup(false);
+      toast.success(`${names.length} lançamentos realizados com sucesso.`);
+      if (!lastAckHadData) void requestData();
     }
-    if (ack.data) setData(ack.data);
-    clearPendingPlaygroundForm(tenantId);
-    pendingRef.current = null;
-    setPending(null);
-    setChildName('');
-    setSubmitError('');
-    toast.success('Parquinho lançado com sucesso.');
-    // Keep the selected table and refresh the authoritative snapshot if the ack only carried the entry.
-    if (!ack.data) void requestData();
   };
 
   if (screen === 'loading' || resuming) {
@@ -376,29 +364,226 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-[#141414]">
-      <header className="bg-[#141414] text-[#E4E3E0] px-4 py-3 flex items-center justify-between shrink-0"><div className="flex items-center gap-3"><ShieldCheck size={20} /><div><h1 className="font-serif italic text-xl leading-none">Terminal Parquinho</h1><p className="text-[8px] uppercase tracking-widest opacity-45 mt-1">{operator?.name || 'Operador'}</p></div></div><div className="flex items-center gap-3"><ConnectionBadge connected={socketConnected} /><button type="button" onClick={() => void logout()} title="Sair" className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10"><LogOut size={15} /></button></div></header>
+      <header className="bg-[#141414] text-[#E4E3E0] px-4 py-3 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-3">
+          <ShieldCheck size={20} />
+          <div>
+            <h1 className="font-serif italic text-xl leading-none">Terminal Parquinho</h1>
+            <p className="text-[8px] uppercase tracking-widest opacity-45 mt-1">{operator?.name || 'Operador'}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <ConnectionBadge connected={socketConnected} />
+          <button type="button" onClick={() => void logout()} title="Sair" className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10">
+            <LogOut size={15} />
+          </button>
+        </div>
+      </header>
+
       {!data?.ready && <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-[10px] text-amber-800 font-bold flex items-center gap-2"><RefreshCcw size={12} className="animate-spin" /> Sincronizando snapshot autorizado do Parquinho…</div>}
       {data && !data.config.parquinhoEnabled && <div className="bg-gray-100 border-b border-gray-300 px-4 py-2 text-[10px] text-gray-600 font-bold flex items-center gap-2"><AlertCircle size={12} /> Modo Parquinho desativado. Histórico permanece disponível, mas novos lançamentos estão bloqueados.</div>}
       {data && data.config.parquinhoEnabled && (data.config.parquinhoPrice === null || data.config.parquinhoPrice === undefined) && <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-[10px] text-red-700 font-bold flex items-center gap-2"><AlertCircle size={12} /> O preço ainda não foi configurado pelo ADM. Lançamentos bloqueados.</div>}
       {!socketConnected && <div className="bg-red-50 border-b border-red-200 px-4 py-2 text-[10px] text-red-700 font-bold flex items-center gap-2"><WifiOff size={12} /> Sem conexão. O formulário será preservado; nenhum lançamento será enviado automaticamente.</div>}
-      <main className="flex-1 min-h-0 overflow-y-auto p-4 lg:p-6 space-y-4">
-        <div className="flex items-center justify-between gap-3"><div><h2 className="font-serif italic text-2xl">Mesas</h2><p className="text-[10px] opacity-50">Você vê somente mesas e lançamentos de Parquinho deste estabelecimento.</p></div>{data?.config && <span className="text-[10px] font-bold bg-white border border-[#141414]/10 rounded-xl px-3 py-2">{formatPlaygroundMoney(data.config.parquinhoPrice)} / criança</span>}</div>
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+
+      <main className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-serif italic text-xl">Mesas</h2>
+            <p className="text-[9px] opacity-50">Toque em uma mesa para lançar Parquinho</p>
+          </div>
+          {data?.config && (
+            <span className="text-[10px] font-bold bg-white border border-[#141414]/10 rounded-lg px-2.5 py-1.5 shrink-0">
+              {formatPlaygroundMoney(data.config.parquinhoPrice)} / criança
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-5 sm:grid-cols-7 md:grid-cols-9 lg:grid-cols-11 gap-1.5">
           {(data?.tables || []).slice().sort((a, b) => a.id - b.id).map(table => {
             const selected = selectedTableId === table.id;
             const occupied = Boolean(table.occupied);
-            return <button key={table.id} type="button" onClick={() => { if (hasPendingLaunch) return; setSelectedTableId(table.id); updateDraft({ tableId: table.id, childName }); setSubmitError(''); }} className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center relative transition-all ${selected ? 'border-[#141414] bg-[#141414] text-white shadow-lg scale-[1.02]' : occupied ? 'border-green-500 bg-green-500 text-white' : 'border-[#141414]/10 bg-white hover:border-[#141414]/40'}`}><span className="text-2xl font-black">{table.id}</span><span className="text-[8px] uppercase tracking-widest font-bold mt-1">{occupied ? 'ocupada' : 'livre'}</span>{table.activeEntryIds.length > 0 && <span className="absolute top-1 right-1 bg-white text-green-700 rounded-full min-w-4 h-4 px-1 text-[8px] font-black flex items-center justify-center">{table.activeEntryIds.length}</span>}</button>;
+            return (
+              <button
+                key={table.id}
+                type="button"
+                onClick={() => {
+                  if (hasPendingLaunch) return;
+                  setSelectedTableId(table.id);
+                  setChildNames(['']);
+                  setSubmitError('');
+                  setShowTablePopup(true);
+                }}
+                className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative transition-all
+                  ${selected ? 'border-[#141414] bg-[#141414] text-white shadow-md' : occupied ? 'border-green-500 bg-green-500 text-white' : 'border-[#141414]/10 bg-white hover:border-[#141414]/40'}`}
+              >
+                <span className="text-sm font-black leading-none">{table.id}</span>
+                <span className="text-[6px] uppercase font-bold opacity-70 mt-0.5">{occupied ? 'ativo' : 'livre'}</span>
+                {table.activeEntryIds.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-white text-green-700 rounded-full min-w-3.5 h-3.5 px-0.5 text-[7px] font-black flex items-center justify-center border border-green-300 shadow-sm">
+                    {table.activeEntryIds.length}
+                  </span>
+                )}
+              </button>
+            );
           })}
         </div>
-        {data && data.tables.length === 0 && <div className="bg-white border border-dashed border-[#141414]/15 rounded-2xl py-12 text-center text-sm opacity-50">Nenhuma mesa disponível neste snapshot.</div>}
-        {selectedTable && (
-          <section className="bg-white rounded-2xl border border-[#141414]/10 shadow-sm p-4 lg:p-5 max-w-3xl">
-            <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="font-serif italic text-xl">Mesa {selectedTable.id}</h3><p className="text-[9px] opacity-45">Pedido atual: {selectedTable.currentOrderId || 'ainda não criado'}</p></div><span className={`text-[9px] uppercase font-black px-2 py-1 rounded-full ${selectedTable.occupied ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{selectedTable.occupied ? 'Parquinho ativo' : 'Livre no Parquinho'}</span></div>
-            {selectedEntries.length > 0 && <div className="mb-4 rounded-xl bg-green-50 border border-green-200 p-3"><p className="text-[8px] uppercase tracking-wider font-black text-green-800 mb-2">Lançamentos ativos desta mesa</p><div className="space-y-1.5">{selectedEntries.map(entry => <div key={entry.id} className="flex items-center gap-2 text-[10px] text-green-900"><CheckCircle size={12} /><span className="font-bold flex-1">{entry.childName || 'Não informado'}</span><span>{entry.operatorName || 'Não informado'}</span><span className="font-mono">{formatPlaygroundMoney(entry.totalPrice)}</span></div>)}</div></div>}
-            <div className="rounded-xl border border-[#141414]/8 bg-[#fafafa] p-3 space-y-3"><label className="block"><span className="text-[8px] uppercase tracking-wider font-black opacity-50">Nome da criança {data?.config.parquinhoChildNameRequired ? '(obrigatório)' : '(opcional)'}</span><input disabled={hasPendingLaunch || !data?.config.parquinhoEnabled} value={childName} onChange={event => { const value = event.target.value; setChildName(value); updateDraft({ tableId: selectedTable.id, childName: value }); setSubmitError(''); }} className="w-full mt-1 bg-white border border-[#141414]/10 rounded-xl px-3 py-3 text-sm outline-none focus:border-[#141414] disabled:bg-gray-100 disabled:opacity-60" placeholder={data?.config.parquinhoChildNameRequired ? 'Informe o nome para continuar' : 'Pode deixar sem nome'} /></label><div className="flex items-center justify-between text-[10px] border-t border-[#141414]/8 pt-3"><span className="font-bold opacity-50">Este lançamento</span><span className="font-mono font-black">1 × {formatPlaygroundMoney(data?.config.parquinhoPrice)}</span></div>{submitError && <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-[10px]"><AlertCircle size={13} className="shrink-0 mt-0.5" /><span>{submitError}</span></div>}{hasPendingLaunch ? <div className="space-y-2"><div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[10px]"><Clock3 size={13} className="shrink-0" /><span>Solicitação pendente. O formulário está preservado; não altere a mesa/nome até receber a confirmação para evitar duplicidade.</span></div><button type="button" onClick={() => void submitLaunch()} disabled={!socketConnected || !operator || operator.status !== 'approved'} className="w-full border border-amber-300 text-amber-800 rounded-xl py-3 text-[10px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-40"><Send size={13} /> Tentar novamente com o mesmo ID</button><p className="text-[8px] opacity-40 font-mono break-all">requestId: {pending?.requestId}</p></div> : <button type="button" onClick={() => void submitLaunch()} disabled={!canSubmit} className="w-full bg-[#141414] text-white rounded-xl py-3.5 text-[10px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed"><Send size={14} /> Lançar Parquinho</button>}<p className="text-[8px] opacity-40 leading-relaxed">O servidor confirma preço, produto, caixa, aprovação e quantidade 1. Este terminal não exibe alimentos, bebidas, pagamentos ou cancelamentos.</p></div>
-          </section>
+
+        {data && data.tables.length === 0 && (
+          <div className="bg-white border border-dashed border-[#141414]/15 rounded-2xl py-12 text-center text-sm opacity-50">
+            Nenhuma mesa disponível neste snapshot.
+          </div>
         )}
       </main>
+
+      {/* Table launch popup */}
+      {showTablePopup && selectedTable && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center sm:p-4"
+          onClick={() => !hasPendingLaunch && setShowTablePopup(false)}
+        >
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-[#141414]/8">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-[#141414] rounded-xl flex items-center justify-center shrink-0">
+                  <span className="text-white font-black text-sm">{selectedTable.id}</span>
+                </div>
+                <div>
+                  <h3 className="font-serif italic text-lg leading-none">Mesa {selectedTable.id}</h3>
+                  <span className={`text-[9px] uppercase font-black ${selectedTable.occupied ? 'text-green-600' : 'text-gray-400'}`}>
+                    {selectedTable.occupied ? 'Ocupada · parquinho ativo' : 'Livre'}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !hasPendingLaunch && setShowTablePopup(false)}
+                className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Active entries */}
+            {selectedEntries.length > 0 && (
+              <div className="px-4 pt-3 pb-2 border-b border-[#141414]/5">
+                <p className="text-[8px] uppercase tracking-wider font-black text-green-700 mb-2">
+                  {selectedEntries.length} criança{selectedEntries.length !== 1 ? 's' : ''} no parquinho agora
+                </p>
+                <div className="space-y-1">
+                  {selectedEntries.map(entry => (
+                    <div key={entry.id} className="flex items-center gap-2 text-[10px] text-green-900 bg-green-50 rounded-lg px-2.5 py-1.5">
+                      <CheckCircle size={10} className="shrink-0" />
+                      <span className="font-bold flex-1 truncate">{entry.childName || '—'}</span>
+                      <span className="font-bold opacity-60 shrink-0">{entry.operatorName || '—'}</span>
+                      <span className="font-mono font-black shrink-0">{formatPlaygroundMoney(entry.totalPrice)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Launch form */}
+            <div className="p-4 space-y-3">
+              <p className="text-[8px] uppercase font-black tracking-wider opacity-50">
+                Crianças a lançar {data?.config.parquinhoChildNameRequired ? '· nome obrigatório' : '· nome opcional'}
+              </p>
+
+              <div className="space-y-2">
+                {childNames.map((name, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="w-5 h-5 bg-[#141414]/8 rounded-full flex items-center justify-center shrink-0 text-[9px] font-black text-[#141414]/60">
+                      {index + 1}
+                    </span>
+                    <input
+                      disabled={hasPendingLaunch || !data?.config.parquinhoEnabled}
+                      value={name}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setChildNames(prev => prev.map((n, i) => i === index ? val : n));
+                        setSubmitError('');
+                      }}
+                      className="flex-1 bg-gray-50 border border-[#141414]/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#141414] disabled:bg-gray-100 disabled:opacity-60"
+                      placeholder={data?.config.parquinhoChildNameRequired ? 'Nome obrigatório' : 'Nome (opcional)'}
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus={index === childNames.length - 1 && index > 0}
+                    />
+                    {childNames.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setChildNames(prev => prev.filter((_, i) => i !== index))}
+                        disabled={hasPendingLaunch}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors disabled:opacity-30"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setChildNames(prev => [...prev, ''])}
+                disabled={hasPendingLaunch || !data?.config.parquinhoEnabled}
+                className="w-full border border-dashed border-[#141414]/20 rounded-xl py-2.5 text-[10px] font-bold text-[#141414]/50 hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+              >
+                <Plus size={12} /> Adicionar outra criança
+              </button>
+
+              {/* Price summary */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 text-[11px]">
+                <span className="font-bold opacity-50">{childNames.length} {childNames.length === 1 ? 'criança' : 'crianças'}</span>
+                <span className="font-mono font-black">
+                  {childNames.length} × {formatPlaygroundMoney(data?.config.parquinhoPrice)} = {typeof data?.config.parquinhoPrice === 'number' ? formatPlaygroundMoney(data.config.parquinhoPrice * childNames.length) : '—'}
+                </span>
+              </div>
+
+              {submitError && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-[10px]">
+                  <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              {hasPendingLaunch ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[10px]">
+                    <Clock3 size={13} className="shrink-0" />
+                    <span>Solicitação pendente. O formulário está preservado; não altere os dados até receber a confirmação para evitar duplicidade.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void submitLaunch()}
+                    disabled={!socketConnected || !operator || operator.status !== 'approved'}
+                    className="w-full border border-amber-300 text-amber-800 rounded-xl py-3 text-[10px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-40"
+                  >
+                    <Send size={13} /> Tentar novamente com o mesmo ID
+                  </button>
+                  <p className="text-[8px] opacity-40 font-mono break-all">requestId: {pending?.requestId}</p>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void submitLaunch()}
+                  disabled={!canSubmit}
+                  className="w-full bg-[#141414] text-white rounded-xl py-3.5 text-[10px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed"
+                >
+                  <Send size={14} />
+                  {childNames.length > 1 ? `Lançar ${childNames.length} crianças` : 'Lançar Parquinho'}
+                </button>
+              )}
+
+              <p className="text-[8px] opacity-40 leading-relaxed">
+                O servidor confirma preço, produto, caixa, aprovação e quantidade. Este terminal não exibe alimentos, bebidas, pagamentos ou cancelamentos.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
