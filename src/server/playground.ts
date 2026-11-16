@@ -334,6 +334,11 @@ export const registerPlaygroundSocketHandlers = (deps: PlaygroundServerDeps): vo
         role: PLAYGROUND_OPERATOR_ROLE,
       });
       const operator = publicOperator(row);
+      // Operador pendente entra na sala para receber notificação quando o ADM aprovar
+      if (operator.status === 'pending') {
+        socket.join(roomFor(tenantId));
+        socket.playgroundTenantId = tenantId;
+      }
       const message = operator.status === 'approved' ? 'Cadastro atualizado.' : 'Cadastro enviado para aprovação do ADM.';
       sendAck(socket, 'parquinho_register', callback, { ok: true, message, operator });
     } catch (error: any) {
@@ -359,11 +364,22 @@ export const registerPlaygroundSocketHandlers = (deps: PlaygroundServerDeps): vo
       if (!operatorRow) throw new Error('Nome ou senha incorretos.');
       const operator = publicOperator(operatorRow);
       if (operatorRow.status !== 'approved') {
-        sendAck(socket, 'parquinho_login', callback, {
-          ok: false,
-          message: operatorRow.status === 'pending' ? 'Aguardando aprovação do ADM.' : 'Operador inativo.',
-          operator,
-        });
+        if (operatorRow.status === 'pending') {
+          // Operador pendente: entra na sala para receber notificação de aprovação
+          socket.join(roomFor(tenantId));
+          socket.playgroundTenantId = tenantId;
+          sendAck(socket, 'parquinho_login', callback, {
+            ok: true,
+            message: 'Aguardando aprovação do ADM.',
+            operator,
+          });
+        } else {
+          sendAck(socket, 'parquinho_login', callback, {
+            ok: false,
+            message: 'Operador inativo.',
+            operator,
+          });
+        }
         return;
       }
       const token = randomUUID() + randomUUID().replaceAll('-', '');
@@ -501,9 +517,11 @@ export const registerPlaygroundSocketHandlers = (deps: PlaygroundServerDeps): vo
       const tenantId = deps.getTenantId();
       const row = await setOperatorStatus(deps, tenantId, asText(payload.operatorId), payload.status);
       if (!row) throw new Error('Operador não encontrado.');
+      // Broadcast to all sockets in the playground room (includes pending operators without session)
+      io.to(roomFor(tenantId)).emit('parquinho_operator_status', { operatorId: String(row.id), status: row.status });
+      // Clean up session if operator was revoked/inactivated
       for (const session of [...sessionsByToken.values()]) {
         if (session.tenantId === tenantId && session.operatorId === String(row.id)) {
-          session.socket?.emit('parquinho_operator_status', { status: row.status });
           if (row.status !== 'approved') removeSession(session);
         }
       }
