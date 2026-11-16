@@ -1,3 +1,5 @@
+import { getPizzaKitchenDetails } from './pizzaKitchenDetails';
+
 /**
  * Web Bluetooth BLE thermal printer utility.
  * Supports most common BLE ESC/POS printers (Rongta, MUNBYN, Xprinter, etc.).
@@ -166,6 +168,8 @@ function concat(...arrays: Uint8Array[]): Uint8Array {
 const INIT      = new Uint8Array([ESC, 0x40, ESC, 0x74, 0x02]); // init + seleciona CP850 (melhor suporte PT-BR)
 const BOLD_ON   = new Uint8Array([ESC, 0x45, 0x01]);
 const BOLD_OFF  = new Uint8Array([ESC, 0x45, 0x00]);
+const DOUBLE_HEIGHT = new Uint8Array([GS, 0x21, 0x01]);
+const NORMAL_SIZE = new Uint8Array([GS, 0x21, 0x00]);
 const CENTER    = new Uint8Array([ESC, 0x61, 0x01]);
 const LEFT      = new Uint8Array([ESC, 0x61, 0x00]);
 const CUT       = new Uint8Array([GS,  0x56, 0x42, 0x00]);
@@ -197,6 +201,30 @@ function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
   return parts;
 }
 
+function isPizzaKitchenItem(item: TicketOrder['items'][0]): boolean {
+  return item.type === 'pizzas' || (!item.type && Boolean(item.flavors?.length));
+}
+
+function pizzaKitchenParts(item: TicketOrder['items'][0]): Uint8Array[] {
+  if (!isPizzaKitchenItem(item)) return [];
+
+  const { crusts, flavors } = getPizzaKitchenDetails(item);
+  const parts: Uint8Array[] = [];
+
+  if (crusts.length > 0) {
+    parts.push(BOLD_ON, DOUBLE_HEIGHT, encode('Borda:\n'));
+    crusts.forEach(crust => parts.push(encode(`${crust}\n`)));
+    parts.push(NORMAL_SIZE, BOLD_OFF);
+  }
+
+  if (flavors.length > 0) {
+    parts.push(encode('Sabores:\n'));
+    flavors.forEach(({ name, count }) => parts.push(encode(`- ${count} X ${name}\n`)));
+  }
+
+  return parts;
+}
+
 function pizzaBaseName(item: TicketOrder['items'][0]): string {
   const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
   if (!isPizza) return item.name;
@@ -222,7 +250,7 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
   for (const item of items) {
     const qty = item.quantity ?? 1;
     parts.push(BOLD_ON, encode(`${qty}x ${pizzaBaseName(item)}\n`), BOLD_OFF);
-    parts.push(...pizzaItemParts(item));
+    parts.push(...(isPizzaKitchenItem(item) ? pizzaKitchenParts(item) : pizzaItemParts(item)));
     if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
   }
 

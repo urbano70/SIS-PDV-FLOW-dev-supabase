@@ -17,6 +17,7 @@ import { seedDatabase } from '../lib/seed';
 import { LATEST_PR } from '../version';
 import { useFirebase } from './FirebaseProvider';
 import { TesteDeForgo } from './TesteDeForgo';
+import { getPizzaKitchenDetails } from '../lib/pizzaKitchenDetails';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -282,6 +283,19 @@ function buildEscPosKitchenTicket(
     const dhLen = Math.floor(lineLen / 2);
     wordWrap(firstLine, dhLen).forEach(l => { text(l); lf(); });
     push(0x1D, 0x21, 0x00);
+    const pizzaDetails = getPizzaKitchenDetails(item);
+    const formatPizzaDetails = item.type === 'pizzas' || (!item.type && isPizza);
+
+    // Bordas logo abaixo da descrição, em negrito e com altura maior.
+    if (formatPizzaDetails && pizzaDetails.crusts.length > 0) {
+      push(0x1B, 0x45, 0x01, 0x1D, 0x21, 0x01);
+      text('Borda:'); lf();
+      pizzaDetails.crusts.forEach(name => {
+        wordWrap(name.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+      });
+      push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+    }
+
     // Preço em tamanho normal, alinhado à direita
     if (priceStr) {
       push(0x1B, 0x61, 0x02); // align right
@@ -289,8 +303,14 @@ function buildEscPosKitchenTicket(
       push(0x1B, 0x61, 0x00); // align left
     }
 
-    // Sabores listados um por linha (deduplicados com prefixo Nx quando repetido)
-    if (isPizza && item.flavors && item.flavors.length > 0) {
+    // Cada sabor mantém a quantidade de escolhas, inclusive quando é apenas uma.
+    if (formatPizzaDetails && pizzaDetails.flavors.length > 0) {
+      text('Sabores:'); lf();
+      pizzaDetails.flavors.forEach(({ count, name }) => {
+        wordWrap(`- ${count} X ${name.toUpperCase()}`, lineLen).forEach(l => { text(l); lf(); });
+      });
+    } else if (isPizza && item.flavors && item.flavors.length > 0) {
+      // Preserva a impressão legada dos itens de outros tipos que possuem flavors.
       const countMap = new Map<string, number>();
       item.flavors.forEach((f: string) => countMap.set(f, (countMap.get(f) || 0) + 1));
       countMap.forEach((count, name) => {
@@ -299,8 +319,8 @@ function buildEscPosKitchenTicket(
       });
     }
 
-    // Borda
-    if (item.crust) {
+    // Itens que não são pizzas mantêm a apresentação anterior da borda.
+    if (!formatPizzaDetails && item.crust) {
       wordWrap('Borda: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
@@ -1698,18 +1718,32 @@ export default function Dashboard({
         const itemsHtml = items.map(item => {
           const isPiz = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
           const baseN = isPiz ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
+          const formatPizzaDetails = item.type === 'pizzas' || (!item.type && isPiz);
+          const pizzaDetails = getPizzaKitchenDetails(item);
           let flavorsHtml = '';
-          if (isPiz && item.flavors && item.flavors.length > 0) {
+          if (formatPizzaDetails && pizzaDetails.flavors.length > 0) {
+            flavorsHtml = `<div style="font-size:${_obsFs}">Sabores:</div>` +
+              pizzaDetails.flavors.map(({ name, count }) =>
+                `<div style="font-size:${_obsFs};padding-left:8px">- ${count} X ${name.toUpperCase()}</div>`
+              ).join('');
+          } else if (isPiz && item.flavors && item.flavors.length > 0) {
             const cm = new Map<string, number>();
             item.flavors.forEach((f: string) => cm.set(f, (cm.get(f) || 0) + 1));
             flavorsHtml = Array.from(cm.entries()).map(([n, c]) =>
               `<div style="font-size:${_obsFs};padding-left:8px">- ${(c > 1 ? `${c}x ` : '') + n.toUpperCase()}</div>`
             ).join('');
           }
-          const crustHtml = item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : '';
+          const crustHtml = formatPizzaDetails
+            ? (pizzaDetails.crusts.length > 0
+              ? `<div style="font-size:calc(${_obsFs} + 2px);font-weight:bold">Borda:</div>` +
+                pizzaDetails.crusts.map(name =>
+                  `<div style="font-size:calc(${_obsFs} + 2px);font-weight:bold">${name.toUpperCase()}</div>`
+                ).join('')
+              : '')
+            : (item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : '');
           return `
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
-          ${flavorsHtml}${crustHtml}
+          ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
           ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
         `;
         }).join(`<div class="sep"></div>`);
