@@ -8609,7 +8609,7 @@ export default function Dashboard({
                               </div>
                               <div className="flex gap-2">
                                 <a
-                                  href={`/danfe/nfce/${notaAutorizada.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
+                                  href={`/danfe/nfce/${notaAutorizada.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}&autoprint=1`}
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-green-600 hover:bg-green-700 text-white text-[10px] font-bold uppercase transition-colors"
