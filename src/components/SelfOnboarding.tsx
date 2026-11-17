@@ -103,14 +103,14 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
         try { regTenantId = localStorage.getItem('waiter_tenant_id') || ''; } catch {}
       }
       if (regTenantId) socket.emit('waiter_identify_tenant', { tenantId: regTenantId });
+      setIsLoggingIn(true);
       socket.emit('waiter_register', waiterData, (ack: WaiterAuthAck) => {
         if (ack.ok !== false && ack.status !== 'inactive' && ack.status !== 'rejected') {
+          localStorage.setItem('waiter_credentials', JSON.stringify(formData));
           toast.success('Solicitação de acesso enviada com sucesso!');
         }
         applyLoginAck(ack);
       });
-      localStorage.setItem('waiter_credentials', JSON.stringify(formData));
-      setIsWaiting(true);
     } else {
       setIsLoggingIn(true);
       // Garante que o tenant está identificado antes do login (necessário quando
@@ -246,7 +246,7 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
             disabled={isLoggingIn}
             className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:scale-100"
           >
-            {mode === 'register' ? 'Solicitar Acesso' : isLoggingIn ? 'Entrando...' : 'Entrar'}
+            {mode === 'register' ? (isLoggingIn ? 'Aguardando...' : 'Solicitar Acesso') : (isLoggingIn ? 'Entrando...' : 'Entrar')}
           </button>
         </form>
 
