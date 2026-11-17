@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import socket from '../lib/socket';
-import { User, ShieldCheck, Smartphone } from 'lucide-react';
+import { User, ShieldCheck, UtensilsCrossed } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 
@@ -157,13 +157,18 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
         className="w-full max-w-md bg-white border-2 border-[#141414] rounded-3xl p-8 shadow-xl"
       >
         <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center space-x-3">
-            <Smartphone size={32} />
-            <h1 className="font-serif italic text-2xl">
-              {mode === 'register' ? 'Novo Cadastro' : 'Acessar Terminal'}
-            </h1>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-[#141414] rounded-full flex items-center justify-center shrink-0">
+              <UtensilsCrossed className="text-white" size={19} />
+            </div>
+            <div>
+              <h1 className="font-serif italic text-2xl leading-none">Terminal do Garçom</h1>
+              <p className="text-[8px] uppercase tracking-widest opacity-45 mt-1">
+                {mode === 'register' ? 'Novo cadastro · acesso exclusivo' : 'Login · acesso exclusivo'}
+              </p>
+            </div>
           </div>
-          <button 
+          <button
             onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
             className="text-xs font-bold underline"
           >
