@@ -15,9 +15,10 @@ interface WaiterAuthAck {
 interface SelfOnboardingProps {
   onAuthStatus?: (ack: WaiterAuthAck) => void;
   autoLogin?: boolean;
+  tenantId?: string;
 }
 
-export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfOnboardingProps) {
+export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantId }: SelfOnboardingProps) {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -106,6 +107,13 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfO
       toast.success('Solicitação de acesso enviada com sucesso!');
     } else {
       setIsLoggingIn(true);
+      // Garante que o tenant está identificado antes do login (necessário quando
+      // o PWA abre via start_url sem ?tenant= na URL)
+      let effectiveTenantId = tenantId || '';
+      if (!effectiveTenantId) {
+        try { effectiveTenantId = localStorage.getItem('waiter_tenant_id') || ''; } catch {}
+      }
+      if (effectiveTenantId) socket.emit('waiter_identify_tenant', { tenantId: effectiveTenantId });
       socket.emit('waiter_login', { name: formData.name, password: formData.password }, (ack: WaiterAuthAck) => applyLoginAck(ack));
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
     }
