@@ -351,6 +351,9 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   const { data, clockOffset, canMutate, currentWaiter } = useFirebase();
   const { tables, comandas, orders, menu, isCashRegisterOpen, pizzariaConfig, shiftStartedAt } = data;
   const [isApproved, setIsApproved] = useState(false);
+  const [isAutoLogging, setIsAutoLogging] = useState(() => {
+    try { return !!localStorage.getItem('waiter_credentials'); } catch { return false; }
+  });
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
   const [pizzaSizes, setPizzaSizes] = useState<any[]>([]);
@@ -361,14 +364,20 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   // the approved waiter and never enables mutations before init_data arrives.
   useEffect(() => {
     const applyLoginAck = (ack: any = {}) => {
+      setIsAutoLogging(false);
       if (ack?.status === 'approved' || (ack?.ok === true && !ack?.status)) {
         setSocketAuthRole('waiter');
+        setIsApproved(true);
+      } else {
+        setIsApproved(false);
       }
-      if (ack?.status !== 'approved') setIsApproved(false);
     };
     const loginOwnStaff = () => {
       const saved = localStorage.getItem('waiter_credentials');
-      if (!saved || !socket.connected) return;
+      if (!saved || !socket.connected) {
+        setIsAutoLogging(false);
+        return;
+      }
       try {
         const { name, password } = JSON.parse(saved);
         const loginKey = `${socket.id || '__pending__'}:${tenantId || ''}`;
@@ -378,11 +387,16 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
           if (tenantId) socket.emit('waiter_identify_tenant', { tenantId });
           socket.emit('waiter_login', { name, password }, applyLoginAck);
         }
-      } catch {}
+      } catch { setIsAutoLogging(false); }
     };
+    // Fallback: se em 8s não vier resposta, mostra o formulário
+    const autoLoginTimeout = setTimeout(() => setIsAutoLogging(false), 8000);
     loginOwnStaff();
     socket.on('connect', loginOwnStaff);
-    return () => { socket.off('connect', loginOwnStaff); };
+    return () => {
+      clearTimeout(autoLoginTimeout);
+      socket.off('connect', loginOwnStaff);
+    };
   }, [tenantId]);
 
   const defaultPrinterConfig = {
@@ -448,6 +462,10 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
           clockOffset={clockOffset}
           canSubmitOrder={canMutate}
         />
+      ) : isAutoLogging ? (
+        <div className="h-screen flex items-center justify-center bg-[#F5F5F3]">
+          <p className="font-serif italic text-lg">Acessando terminal...</p>
+        </div>
       ) : (
         <SelfOnboarding
           autoLogin={false}
