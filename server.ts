@@ -302,17 +302,22 @@ async function startServer() {
         case 'orders':   await assertSupabaseResult(db.from('orders').upsert({ ...orderToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'tables':   await assertSupabaseResult(db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'comandas': await assertSupabaseResult(db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
-        case 'waiters':  await assertSupabaseResult(db.from('waiters').upsert({
-          id: d.id,
-          name: d.name,
-          cpf: d.cpf ?? null,
-          phone: d.phone ?? null,
-          birth_date: d.birthDate ?? null,
-          password: d.password ?? null,
-          status: d.status ?? 'pending',
-          uid: d.uid ?? null,
-          tenant_id: tid,
-        })); break;
+        case 'waiters': {
+          const row = {
+            id: d.id,
+            name: d.name,
+            cpf: d.cpf ?? null,
+            phone: d.phone ?? null,
+            birth_date: d.birthDate ?? null,
+            password: d.password ?? null,
+            status: d.status ?? 'pending',
+            uid: d.uid ?? null,
+            tenant_id: tid,
+          };
+          console.log('[supabase][waiters] upsert row:', JSON.stringify(row));
+          await assertSupabaseResult(db.from('waiters').upsert(row));
+          break;
+        }
         case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
         case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid })); break;
         case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid })); break;
@@ -1687,10 +1692,12 @@ async function startServer() {
       }
       (socket as any).tenantId = waiterTenantId;
       const registrationGeneration = (socket as any).tenantGeneration;
+      console.log(`[waiter_register] tenant=${waiterTenantId} name=${waiterData.name} cpf=${waiterData.cpf} gen=${registrationGeneration}`);
       try {
         await loadTenantIfNeeded(waiterTenantId);
         if (socket.connected === false || (socket as any).pendingTenantId !== waiterTenantId ||
             (socket as any).tenantGeneration !== registrationGeneration) {
+          console.warn(`[waiter_register] sessao expirada connected=${socket.connected} pendingTenantId=${(socket as any).pendingTenantId} gen=${(socket as any).tenantGeneration} vs ${registrationGeneration}`);
           fail('Sessão expirada. Tente novamente.');
           return;
         }
@@ -1752,7 +1759,9 @@ async function startServer() {
         };
 
         // ACK only after the durable waiter write succeeds.
+        console.log(`[waiter_register] salvando garcom id=${waiterId} tenant=${waiterTenantId} phone=${waiter.phone} birthDate=${waiter.birthDate}`);
         await saveToSupabase('waiters', waiter, String(waiterId), waiterTenantId);
+        console.log(`[waiter_register] salvo com sucesso id=${waiterId}`);
         const safeWaiter = sanitizeWaiter(waiter);
         const response = buildWaiterAuthAck(true, waiter);
         ack?.(response);
@@ -1770,8 +1779,9 @@ async function startServer() {
         if (createdIndex >= 0 && st.waiters[createdIndex].status === 'pending') st.waiters.splice(createdIndex, 1);
         delete (socket as any).authContext;
         delete (socket as any).waiterId;
-        console.error(`[waiter_register] falha ao persistir ${waiterTenantId}:`, error?.message || error);
-        fail('Não foi possível persistir o cadastro. Tente novamente.');
+        const errMsg = error?.message || error?.details || String(error) || 'erro desconhecido';
+        console.error(`[waiter_register] falha ao persistir ${waiterTenantId}:`, error);
+        fail(`Falha ao salvar cadastro: ${errMsg}`);
       }
     });
 
