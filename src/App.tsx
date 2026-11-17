@@ -377,6 +377,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
         setIsApproved(true);
       } else {
         setIsApproved(false);
+        if (ack?.message) toast.error(ack.message);
       }
     };
     const loginOwnStaff = () => {
