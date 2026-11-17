@@ -1774,8 +1774,11 @@ async function startServer() {
       (socket as any).tenantId = waiterTenantId;
       try {
         await loadTenantIfNeeded(waiterTenantId);
-        if (socket.connected === false || (socket as any).tenantId !== waiterTenantId ||
-            (socket as any).pendingTenantId !== waiterTenantId) return;
+        if (!socket.connected) return;
+        if ((socket as any).tenantId !== waiterTenantId || (socket as any).pendingTenantId !== waiterTenantId) {
+          invalid('Sessão expirada. Tente novamente.');
+          return;
+        }
         const st = getState(waiterTenantId);
         const waiter = findWaiterByCredentials(st.waiters, name, password);
         if (!waiter) {
