@@ -76,14 +76,8 @@ export async function updateAppManually(
     if (registration.installing) await waitForInstallation(registration.installing);
     // Capture once: activation in another tab can clear registration.waiting.
     const waiting = registration.waiting;
-    if (waiting) {
-      try {
-        await activateWaitingWorker(waiting, serviceWorker);
-      } catch {
-        // Activation stuck — unregister the old SW so the page loads fresh on reload.
-        await registration.unregister().catch(() => {});
-      }
-    }
+    // On failure keep the current screen and its in-progress operation intact.
+    if (waiting) await activateWaitingWorker(waiting, serviceWorker);
   }
   reload();
 }

@@ -18,6 +18,12 @@ import { LATEST_PR } from '../version';
 import { useFirebase } from './FirebaseProvider';
 import { TesteDeForgo } from './TesteDeForgo';
 import { getPizzaKitchenDetails } from '../lib/pizzaKitchenDetails';
+import { adminFetch, downloadAdminFile, fetchWithAdminAuth } from '../lib/admin-http';
+import PlaygroundAdminCard from './PlaygroundAdminCard';
+import PlaygroundOperatorAccessCard from './PlaygroundOperatorAccessCard';
+import PlaygroundReport from './PlaygroundReport';
+import KitchenItemStatusBadge from './KitchenItemStatusBadge';
+import { formatPlaygroundMoney, isPlaygroundItem as isManagedPlaygroundItem } from '../lib/playgroundClient';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -367,6 +373,7 @@ const OrderDetails = ({
   setFiscalNotes,
   guestModeActive: externalGuestModeActive,
   onGuestModeActiveChange,
+  menu,
 }: any) => {
   const { clockOffset, data: { pizzariaConfig, shiftStartedAt } } = useFirebase();
   const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
@@ -508,7 +515,7 @@ const OrderDetails = ({
           </div>
           <div className="flex flex-col items-end space-y-2">
             <button
-              onClick={() => { setIsHistoryModalOpen(true); if (tenantId) fetch(`/api/fiscal/notes/${tenantId}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }); }}
+              onClick={() => { setIsHistoryModalOpen(true); if (tenantId) adminFetch(`/api/fiscal/notes/${tenantId}`).then(r => r.ok ? r.json() : null).then(d => { if (d) setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }).catch(() => undefined); }}
               className={`transition-opacity ${hasHistory ? 'text-green-600 opacity-100 hover:opacity-80' : 'text-[#141414] opacity-30 hover:opacity-100'}`}
               title="Histórico de Vendas"
             >
@@ -590,23 +597,12 @@ const OrderDetails = ({
                           />
                         );
                       })()}
-                      {!item.removed && !item.paid && (item.type === 'pizzas' || item.type === 'lanches' || item.type === 'porcoes' || item.type === 'lacarte') && !item.deliveredAt && (pizzariaConfig?.kdsEnabled ?? false) && (
-                        item.kitchenStatus === 'ready' ? (
-                          <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse shrink-0">✓ Pronto — Retirar</span>
-                        ) : item.kitchenStatus === 'oven' ? (
-                          <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold shrink-0">No Forno...</span>
-                        ) : item.kitchenStatus === 'preparing' ? (
-                          <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold shrink-0">Em preparo...</span>
-                        ) : (
-                          <span className="text-[9px] bg-zinc-200 text-zinc-600 px-2 py-0.5 rounded-full font-bold shrink-0">Na fila</span>
-                        )
-                      )}
+                            {!item.removed && (
+                              <KitchenItemStatusBadge item={item} enabled={pizzariaConfig?.kdsEnabled ?? false} menu={menu} />
+                            )}
                     </div>
-                    {!item.removed && !item.paid && item.deliveredAt && (
-                      <span className="text-[10px] font-bold bg-green-100 text-green-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1 mt-1 self-start">
-                        <CheckCircle size={10} />
-                        Entregue{item.deliveredBy ? ` · ${item.deliveredBy}` : ''}
-                      </span>
+                    {(item.source === 'parquinho' || item.isParquinho === true) && (
+                      <span className="text-[11px] text-violet-700 font-bold mt-0.5 leading-none">Criança: {item.childName?.trim() || 'Não informado'}</span>
                     )}
                     {item.observations && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
                     {item.waiterName && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
@@ -810,7 +806,10 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, optimisticAddItemToOrder, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
+  // Mantém requests públicos/externalizados no fetch nativo e autentica apenas
+  // a allowlist privada via fetchWithAdminAuth.
+  const fetch = fetchWithAdminAuth;
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
@@ -1288,22 +1287,20 @@ export default function Dashboard({
 
   // Enforce plan-based restrictions on pizzariaConfig
   useEffect(() => {
-    if (!pizzariaConfig) return;
+    if (!pizzariaConfig || !canMutate()) return;
     const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG];
-    // kdsEnabled só é forçado quando o plano não permite escolha (kdsLocked)
-    const kdsNeedsUpdate = cfg.kdsLocked && (pizzariaConfig.kdsEnabled ?? false) !== cfg.kdsEnabled;
+    // KDS is an explicit tenant setting, not a cache/default-plan side effect.
+    // Keep the existing plan UI restrictions, but never rewrite this flag here.
     const needsUpdate =
       (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
-      pizzariaConfig.enabled !== cfg.pizzaEnabled ||
-      kdsNeedsUpdate;
+      pizzariaConfig.enabled !== cfg.pizzaEnabled;
     if (needsUpdate) {
-      updatePizzeriaConfig({
-        ...pizzariaConfig,
+      // A partial patch does not overwrite another PC's KDS, price or branding.
+      socket.emit('update_pizzaria_config', {
         numTables: cfg.tablesLocked ? cfg.maxTables : (pizzariaConfig.numTables ?? cfg.maxTables),
         comandasEnabled: cfg.comandasEnabled,
         enabled: cfg.pizzaEnabled,
-        ...(cfg.kdsLocked ? { kdsEnabled: cfg.kdsEnabled } : {}),
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2568,6 +2565,8 @@ export default function Dashboard({
   };
 
   const handleAddItem = (tableId: number, item: any) => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
+    if (isManagedPlaygroundItem(item)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
@@ -2688,6 +2687,8 @@ export default function Dashboard({
   };
 
   const confirmQuantitySelection = () => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
+    if (isManagedPlaygroundItem(selectedQuantityItem)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
       return;
@@ -3032,7 +3033,7 @@ export default function Dashboard({
         </nav>
 
         <div className="mt-auto pt-4 border-t border-[#141414]/10">
-          <p className="text-[9px] text-[#141414]/30 font-mono text-center">PR #{LATEST_PR}</p>
+          <p className="text-[9px] text-[#141414]/50 font-mono text-center">Versão {__BUILD_ID__.slice(0, 8)}</p>
         </div>
       </motion.div>
 
@@ -3841,6 +3842,7 @@ export default function Dashboard({
                           tables={tables}
                           orders={orders}
                           waiters={waiters}
+                          menu={menu}
                           isCashRegisterOpen={isCashRegisterOpen}
                           setIsAddItemModalOpen={setIsAddItemModalOpen}
                           setIsHistoryModalOpen={setIsHistoryModalOpen}
@@ -3878,6 +3880,8 @@ export default function Dashboard({
                 <h2 className="font-serif italic text-3xl lg:text-4xl mb-1 lg:mb-2">Gestão de Equipe</h2>
                 <p className="text-xs lg:text-sm opacity-60">Controle de acessos e performance da equipe.</p>
               </header>
+
+              <PlaygroundOperatorAccessCard tenantId={tenantId} enabled={!!pizzariaConfig.parquinhoEnabled} />
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Column 1: Onboarding with QR Code (Primary Highlight, Dark Cosmic Theme) */}
@@ -4296,14 +4300,18 @@ export default function Dashboard({
                           {(item as any).visible === false && (
                             <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 bg-red-100 text-red-500 rounded-full">Oculto</span>
                           )}
+                          {isManagedPlaygroundItem(item) && (
+                            <span className="text-[9px] px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded-full">Gerenciado em Modo Parquinho</span>
+                          )}
                         </div>
                         <p className="text-sm opacity-60 max-w-xl">{item.ingredients}</p>
                       </div>
                       <div className="flex items-center space-x-3">
-                        <p className="font-mono font-bold text-lg mr-2">R$ {item.price.toFixed(2)}</p>
+                        <p className="font-mono font-bold text-lg mr-2">{item.price == null ? 'Preço não configurado' : formatPlaygroundMoney(Number(item.price))}</p>
                         <div className="flex flex-col items-center space-y-1">
                           <span className="text-[7px] uppercase font-bold opacity-40 tracking-widest">Estoque</span>
                           <button
+                            disabled={isManagedPlaygroundItem(item)}
                             onClick={() => {
                               const enabled = !(item as any).trackStock;
                               socket.emit('toggle_stock_tracking', { menuItemId: item.id, categoryName: catName, subcategoryId: subId, enabled });
@@ -4315,6 +4323,7 @@ export default function Dashboard({
                           </button>
                         </div>
                         <button
+                          disabled={isManagedPlaygroundItem(item)}
                           onClick={() => socket.emit('toggle_item_visibility', { categoryName: catName, subcategoryId: subId, itemId: item.id, visible: (item as any).visible === false })}
                           title={(item as any).visible === false ? 'Exibir no cardápio' : 'Ocultar no cardápio'}
                           className={`p-2.5 rounded-xl border border-[#141414]/10 transition-all ${(item as any).visible === false ? 'text-red-400 hover:bg-red-50' : 'text-gray-400 hover:bg-gray-100'}`}
@@ -4322,12 +4331,14 @@ export default function Dashboard({
                           {(item as any).visible === false ? <EyeOff size={16} /> : <Eye size={16} />}
                         </button>
                         <button
+                          disabled={isManagedPlaygroundItem(item)}
                           onClick={() => { setEditingProduct({ categoryName: catName, subcategoryId: subId, item: { ...item } }); setIsEditProductModalOpen(true); }}
                           className="p-2.5 rounded-xl border border-[#141414]/10 hover:bg-[#141414] hover:text-[#E4E3E0] transition-all text-blue-600"
                         >
                           <Edit size={16} />
                         </button>
                         <button
+                          disabled={isManagedPlaygroundItem(item)}
                           onClick={() => { if (confirm(`Excluir "${item.name}"?`)) { socket.emit('delete_product', { categoryName: catName, productId: item.id, subcategoryId: subId }); toast.success('Produto excluído!'); }}}
                           className="p-2.5 rounded-xl border border-[#141414]/10 hover:bg-red-600 hover:text-white transition-all text-red-600"
                         >
@@ -4676,6 +4687,8 @@ export default function Dashboard({
                       />
                     </div>
                   </header>
+
+                  <PlaygroundReport visible={activeTab === 'reports'} defaultShiftStartedAt={shiftStartedAt} />
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-[#141414] text-[#E4E3E0] p-4 lg:p-6 rounded-2xl shadow-lg space-y-2">
@@ -5933,6 +5946,13 @@ export default function Dashboard({
                 </div>
               </div>
 
+              <PlaygroundAdminCard
+                tenantId={tenantId}
+                pizzariaConfig={pizzariaConfig}
+                isCashRegisterOpen={isCashRegisterOpen}
+                updatePizzeriaConfig={updatePizzeriaConfig}
+              />
+
               {/* Card: Notificações de Lançamentos (movido para o grid) */}
               <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
@@ -6293,10 +6313,16 @@ export default function Dashboard({
                       className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
                       <Download size={9} /> Baixar Agente (.exe) para Windows
                     </a>
-                    <a href={`/api/agent-config?tenant=${tenantId || ''}`} download="config.json"
+                    <button type="button" onClick={async () => {
+                      try {
+                        await downloadAdminFile(`/api/agent-config?tenant=${encodeURIComponent(tenantId || '')}`, 'config.json');
+                      } catch (e: any) {
+                        toast.error(e.message || 'Erro ao baixar config.json.');
+                      }
+                    }}
                       className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-blue-700 text-white hover:opacity-80 transition-opacity w-full">
                       <Download size={9} /> Baixar config.json do Agente
-                    </a>
+                    </button>
                     <p className="text-[7px] text-[#141414]/50 leading-tight">
                       Coloque o <strong>config.json</strong> na mesma pasta do exe antes de iniciar o agente.
                     </p>
@@ -7205,11 +7231,17 @@ export default function Dashboard({
                               >DANFE</a>
                             )}
                             {n.chave_acesso && (st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA' || st === 'CANCELADO' || st === 'EPEC_AUTORIZADO' || st === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') && (
-                              <a
-                                href={`/api/fiscal/xml/${n.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
-                                download
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await downloadAdminFile(`/api/fiscal/xml/${n.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`, `${n.chave_acesso}.xml`);
+                                  } catch (e: any) {
+                                    toast.error(e.message || 'Erro ao baixar XML.');
+                                  }
+                                }}
                                 className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-gray-600 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
-                              >XML</a>
+                              >XML</button>
                             )}
                             {canCancel && (
                               <button
@@ -7307,18 +7339,7 @@ export default function Dashboard({
                         setXmlLoteLoading(true);
                         try {
                           const url = `/api/fiscal/xml-lote?tenant=${encodeURIComponent(tenantId)}&ano=${xmlLoteAno}&mes=${xmlLoteMes}`;
-                          const res = await fetch(url);
-                          if (!res.ok) {
-                            const d = await res.json();
-                            toast.error(d.error || 'Erro ao gerar ZIP.');
-                            return;
-                          }
-                          const blob = await res.blob();
-                          const a = document.createElement('a');
-                          a.href = URL.createObjectURL(blob);
-                          a.download = `xmls-${String(xmlLoteMes).padStart(2,'0')}-${xmlLoteAno}.zip`;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
+                          await downloadAdminFile(url, `xmls-${String(xmlLoteMes).padStart(2,'0')}-${xmlLoteAno}.zip`);
                           toast.success('ZIP gerado com sucesso!');
                         } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
                         finally { setXmlLoteLoading(false); }
@@ -11005,7 +11026,7 @@ export default function Dashboard({
                 <Wallet size={14} className="text-white/50 shrink-0" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-white/50">Em aberto</span>
               </div>
-              <span className="text-[9px] font-mono text-white/20 hidden sm:block">PR #{LATEST_PR} · {__BUILD_TS__}</span>
+              <span title={__BUILD_VERSION__} className="text-[10px] font-mono text-white/60 hidden sm:block">Versão {__BUILD_ID__.slice(0, 8)} · {__BUILD_TS__}</span>
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <Users size={13} className="text-white/40 shrink-0" />
@@ -11022,7 +11043,7 @@ export default function Dashboard({
       {activeTab !== 'overview' && (
         <div className="fixed bottom-2 left-2 z-50 select-none pointer-events-none">
           <span className="text-[10px] font-mono text-[#141414]/40 tracking-wide bg-white/60 px-1.5 py-0.5 rounded">
-            PR #{LATEST_PR} · {__BUILD_TS__}
+            Versão {__BUILD_ID__.slice(0, 8)} · {__BUILD_TS__}
           </span>
         </div>
       )}

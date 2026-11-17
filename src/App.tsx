@@ -4,11 +4,18 @@
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import socket from './lib/socket';
+import { useState, useEffect, useRef } from 'react';
+import socket, {
+  getSocketAuthRole,
+  isAutoAuthSuspended,
+  recomputeAutoAuthRole,
+  setAutoAuthSuspended,
+  setSocketAuthRole,
+} from './lib/socket';
 import UpdateBanner from './components/UpdateBanner';
 import Dashboard from './components/Dashboard';
 import WaiterTerminal from './components/WaiterTerminal';
+import PlaygroundTerminal from './components/PlaygroundTerminal';
 import KitchenDisplay from './components/KitchenDisplay';
 import POS from './components/POS';
 import SelfOnboarding from './components/SelfOnboarding';
@@ -30,7 +37,7 @@ import { ClientePage } from './pages/ClientePage';
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
-  const { user, loading, signIn, data, isAdmin, toggleCashRegister, updatePizzeriaConfig } = useFirebase();
+  const { user, loading, signIn, data, isAdmin, toggleCashRegister, updatePizzeriaConfig, canMutate } = useFirebase();
   const { tables, comandas, orders, waiters, stock, stockLog, menu, isCashRegisterOpen, pizzariaConfig } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [dashboardTab, setDashboardTab] = useState<'overview' | 'waiters' | 'stock' | 'reports' | 'settings' | 'products'>('overview');
@@ -139,10 +146,14 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
   useEffect(() => {
     const sendAdminConnect = async () => {
+      if (isAutoAuthSuspended() || recomputeAutoAuthRole(window.location.pathname) !== 'admin') return;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        if (token) socket.emit('admin_connect', token);
+        if (token && !isAutoAuthSuspended() && recomputeAutoAuthRole(window.location.pathname) === 'admin') {
+          setSocketAuthRole('admin');
+          socket.emit('admin_connect', token);
+        }
       } catch {}
     };
     sendAdminConnect();
@@ -150,34 +161,21 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     return () => { socket.off('connect', sendAdminConnect); };
   }, [ownerUser?.id]);
 
-  // Re-autentica o garçom sempre que o socket (re)conectar ao servidor
-  useEffect(() => {
-    const relogin = () => {
-      const saved = localStorage.getItem('waiter_credentials');
-      if (saved) {
-        try {
-          const { name, password } = JSON.parse(saved);
-          if (name && password) socket.emit('waiter_login', { name, password });
-        } catch {}
-      }
-    };
-    socket.on('connect', relogin);
-    return () => { socket.off('connect', relogin); };
-  }, []);
-
   useEffect(() => {
     // Escutar eventos do socket para dados específicos e notificações
-    socket.on('init_data', (data) => {
+    const onInit = (data: any) => {
+      if (ownerUser?.id && data.tenantId !== ownerUser.id) return;
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
       if (data.pizzaSizes) setPizzaSizes(data.pizzaSizes);
-    });
+    };
+    socket.on('init_data', onInit);
 
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
 
-    socket.on('waiter_approved', (data) => {
+    const onWaiterApproved = (data: any) => {
       if (data?.status === 'inactive') {
         setIsApproved(false);
         toast.error('Seu acesso está inativo. Entre em contato com o gerente.');
@@ -189,13 +187,13 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
         setIsApproved(false);
         toast.info('Seu cadastro ainda está pendente de aprovação.');
       }
-    });
+    };
+    socket.on('waiter_approved', onWaiterApproved);
 
-    socket.on('error_message', (msg) => {
-      toast.error(msg);
-    });
+    const onError = (msg: string) => toast.error(msg);
+    socket.on('error_message', onError);
 
-    socket.on('admin_notification', (notif) => {
+    const onNotification = (notif: any) => {
       if (notif.type === 'NEW_WAITER') {
         toast.info(`Novo garçom aguardando aprovação: ${notif.data.name}`, {
           action: {
@@ -204,18 +202,19 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
           }
         });
       }
-    });
+    };
+    socket.on('admin_notification', onNotification);
 
     return () => {
-      socket.off('init_data');
-      socket.off('waiter_approved');
-      socket.off('admin_notification');
-      socket.off('error_message');
-      socket.off('update_pizza_flavors');
-      socket.off('update_pizza_crusts');
-      socket.off('update_pizza_sizes');
+      socket.off('init_data', onInit);
+      socket.off('waiter_approved', onWaiterApproved);
+      socket.off('admin_notification', onNotification);
+      socket.off('error_message', onError);
+      socket.off('update_pizza_flavors', setPizzaFlavors);
+      socket.off('update_pizza_crusts', setPizzaCrusts);
+      socket.off('update_pizza_sizes', setPizzaSizes);
     };
-  }, []);
+  }, [ownerUser?.id]);
 
   if (loading) {
     return (
@@ -281,7 +280,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
           }
         />
 
-        <Route path="/kitchen" element={<KitchenDisplay orders={orders} menu={menu} />} />
+        <Route path="/kitchen" element={<KitchenDisplay orders={orders} menu={menu} kdsEnabled={pizzariaConfig?.kdsEnabled ?? false} canMutate={canMutate} />} />
         <Route path="/pos" element={<POS tables={tables} comandas={comandas} orders={orders} printerConfig={printerConfig} />} />
 
         {/* Redirecionamentos padrão dentro de /app */}
@@ -293,10 +292,53 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   );
 }
 
-// Rota do garçom: lê ?tenant= da URL
-function WaiterRoute() {
+// Rota do garçom: lê ?tenant= da URL e prepara uma conexão de staff quando
+// a navegação veio de uma sessão administrativa, sem recarregar a página.
+function WaiterRoute({ ownerUser }: { ownerUser?: any }) {
   const [searchParams] = useSearchParams();
   const tenantId = searchParams.get('tenant') || undefined;
+  const [socketReady, setSocketReady] = useState(() => (
+    socket.connected && !(recomputeAutoAuthRole(window.location.pathname) === 'waiter' && getSocketAuthRole() === 'admin')
+  ));
+  const roleTransitionRef = useRef(false);
+
+  useEffect(() => {
+    let disposed = false;
+    const expectedRole = recomputeAutoAuthRole(window.location.pathname);
+    const needsRoleTransition = expectedRole === 'waiter' && getSocketAuthRole() === 'admin' && !roleTransitionRef.current;
+    const onConnect = () => {
+      if (disposed) return;
+      setAutoAuthSuspended(false);
+      setSocketReady(true);
+    };
+
+    socket.on('connect', onConnect);
+    if (needsRoleTransition) {
+      roleTransitionRef.current = true;
+      setAutoAuthSuspended(true);
+      setSocketReady(false);
+      if (socket.connected) socket.disconnect();
+      socket.connect();
+    } else if (socket.connected) {
+      setAutoAuthSuspended(false);
+      setSocketReady(true);
+    } else {
+      setSocketReady(false);
+    }
+
+    return () => {
+      disposed = true;
+      socket.off('connect', onConnect);
+    };
+  }, [ownerUser?.id]);
+
+  if (!socketReady) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-[#F5F5F3]">
+        <p className="font-serif italic text-lg">Conectando ao terminal...</p>
+      </div>
+    );
+  }
 
   return (
     <FirebaseProvider tenantId={tenantId} isWaiterMode={true}>
@@ -306,12 +348,42 @@ function WaiterRoute() {
 }
 
 function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
-  const { data, clockOffset } = useFirebase();
-  const { tables, comandas, orders, menu, waiters, isCashRegisterOpen, pizzariaConfig, shiftStartedAt } = data;
+  const { data, clockOffset, canMutate, currentWaiter } = useFirebase();
+  const { tables, comandas, orders, menu, isCashRegisterOpen, pizzariaConfig, shiftStartedAt } = data;
   const [isApproved, setIsApproved] = useState(false);
   const [pizzaFlavors, setPizzaFlavors] = useState<any[]>([]);
   const [pizzaCrusts, setPizzaCrusts] = useState<string[]>([]);
   const [pizzaSizes, setPizzaSizes] = useState<any[]>([]);
+  const waiterLoginKeyRef = useRef<string | null>(null);
+
+  // This is the only reconnect/login owner for the waiter route. It remains
+  // mounted while WaiterTerminal is shown, so a normal socket reconnect keeps
+  // the approved waiter and never enables mutations before init_data arrives.
+  useEffect(() => {
+    const applyLoginAck = (ack: any = {}) => {
+      if (ack?.status === 'approved' || (ack?.ok === true && !ack?.status)) {
+        setSocketAuthRole('waiter');
+      }
+      if (ack?.status !== 'approved') setIsApproved(false);
+    };
+    const loginOwnStaff = () => {
+      const saved = localStorage.getItem('waiter_credentials');
+      if (!saved || !socket.connected) return;
+      try {
+        const { name, password } = JSON.parse(saved);
+        const loginKey = `${socket.id || '__pending__'}:${tenantId || ''}`;
+        if (waiterLoginKeyRef.current === loginKey) return;
+        if (name && password) {
+          waiterLoginKeyRef.current = loginKey;
+          if (tenantId) socket.emit('waiter_identify_tenant', { tenantId });
+          socket.emit('waiter_login', { name, password }, applyLoginAck);
+        }
+      } catch {}
+    };
+    loginOwnStaff();
+    socket.on('connect', loginOwnStaff);
+    return () => { socket.off('connect', loginOwnStaff); };
+  }, [tenantId]);
 
   const defaultPrinterConfig = {
     pizzas: 'none', drinks: 'none', kitchen: 'none', kitchenLabel: 'Cozinha Geral',
@@ -330,26 +402,33 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   });
 
   useEffect(() => {
-    socket.on('init_data', (d: any) => {
+    const onInit = (d: any) => {
+      if (tenantId && d.tenantId !== tenantId) return;
       if (d.pizzaFlavors) setPizzaFlavors(d.pizzaFlavors);
       if (d.pizzaCrusts) setPizzaCrusts(d.pizzaCrusts);
       if (d.pizzaSizes) setPizzaSizes(d.pizzaSizes);
-    });
+    };
+    socket.on('init_data', onInit);
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
-    socket.on('waiter_approved', (d: any) => {
+    const onWaiterApproved = (d: any) => {
       if (d?.status === 'approved') setIsApproved(true);
       else setIsApproved(false);
-    });
-    return () => {
-      socket.off('init_data');
-      socket.off('update_pizza_flavors');
-      socket.off('update_pizza_crusts');
-      socket.off('update_pizza_sizes');
-      socket.off('waiter_approved');
     };
-  }, []);
+    socket.on('waiter_approved', onWaiterApproved);
+    return () => {
+      socket.off('init_data', onInit);
+      socket.off('update_pizza_flavors', setPizzaFlavors);
+      socket.off('update_pizza_crusts', setPizzaCrusts);
+      socket.off('update_pizza_sizes', setPizzaSizes);
+      socket.off('waiter_approved', onWaiterApproved);
+    };
+  }, [tenantId]);
+
+  useEffect(() => {
+    setIsApproved(currentWaiter?.status === 'approved');
+  }, [currentWaiter]);
 
   return (
     <>
@@ -367,12 +446,24 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
           pizzariaConfig={pizzariaConfig}
           shiftStartedAt={shiftStartedAt}
           clockOffset={clockOffset}
+          canSubmitOrder={canMutate}
         />
       ) : (
-        <SelfOnboarding waiters={waiters} />
+        <SelfOnboarding
+          autoLogin={false}
+          onAuthStatus={(ack) => setIsApproved(ack.status === 'approved' || (ack.ok === true && !ack.status))}
+        />
       )}
     </>
   );
+}
+
+// Parquinho is deliberately outside FirebaseProvider: its dedicated Socket.IO
+// client receives only the PlaygroundData projection after operator auth.
+function PlaygroundRoute() {
+  const [searchParams] = useSearchParams();
+  const tenantId = searchParams.get('tenant') || '';
+  return <PlaygroundTerminal tenantId={tenantId} buildId={__BUILD_ID__} />;
 }
 
 export default function App() {
@@ -437,7 +528,8 @@ export default function App() {
           path="/financeiro"
           element={ownerUser ? <FinanceiroDashboard ownerUser={ownerUser} /> : <Navigate to="/login" replace />}
         />
-        <Route path="/waiter" element={<WaiterRoute />} />
+        <Route path="/waiter" element={<WaiterRoute ownerUser={ownerUser} />} />
+        <Route path="/parquinho" element={<PlaygroundRoute />} />
         <Route path="/presenca/:token" element={<AttendancePage />} />
         <Route path="/chamar/:tenantId/:tableId" element={<ChamarGarcomPage />} />
         <Route path="/mesa/:tenantId/:mesaId" element={<ClientePage />} />

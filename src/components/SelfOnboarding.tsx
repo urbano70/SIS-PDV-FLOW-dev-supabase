@@ -2,10 +2,22 @@ import React, { useState, useEffect } from 'react';
 import socket from '../lib/socket';
 import { User, ShieldCheck, Smartphone } from 'lucide-react';
 import { motion } from 'motion/react';
-import { Waiter } from '../types';
 import { toast } from 'sonner';
 
-export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] }) {
+interface WaiterAuthAck {
+  ok?: boolean;
+  status?: 'approved' | 'pending' | 'inactive' | 'rejected';
+  message?: string;
+  currentWaiter?: unknown;
+  waiter?: unknown;
+}
+
+interface SelfOnboardingProps {
+  onAuthStatus?: (ack: WaiterAuthAck) => void;
+  autoLogin?: boolean;
+}
+
+export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfOnboardingProps) {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     name: '',
@@ -15,32 +27,66 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
     password: ''
   });
   const [isWaiting, setIsWaiting] = useState(false);
-  const [mode, setMode] = useState<'register' | 'login'>('register');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [mode, setMode] = useState<'register' | 'login'>(() => {
+    try { return localStorage.getItem('waiter_credentials') ? 'login' : 'register'; }
+    catch { return 'register'; }
+  });
 
-  useEffect(() => {
-    const saved = localStorage.getItem('waiter_credentials');
-    if (saved && waiters.length > 0) {
-      const { name } = JSON.parse(saved);
-      const myRecord = waiters.find(w => w.name === name);
-      if (myRecord?.status === 'pending') setIsWaiting(true);
+  const applyLoginAck = (ack: WaiterAuthAck = {}) => {
+    setIsLoggingIn(false);
+    onAuthStatus?.(ack);
+    if (ack.status === 'approved' || ack.ok === true && !ack.status) {
+      setIsWaiting(false);
+      return;
     }
-  }, [waiters]);
+    if (ack.status === 'pending') {
+      setIsWaiting(true);
+      return;
+    }
+    if (ack.status === 'inactive' || ack.status === 'rejected' || ack.ok === false) {
+      setIsWaiting(false);
+      if (ack.message) toast.error(ack.message);
+    }
+  };
+
+  const loginSavedCredentials = (showError = false) => {
+    const savedData = localStorage.getItem('waiter_credentials');
+    if (!savedData || !socket.connected) return;
+    try {
+      const data = JSON.parse(savedData);
+      if (data.name && data.password) {
+        socket.emit('waiter_login', { name: data.name, password: data.password }, (ack: WaiterAuthAck) => applyLoginAck(ack));
+      }
+    } catch {
+      if (showError) toast.error('Não foi possível recuperar a sessão do garçom.');
+    }
+  };
 
   useEffect(() => {
     const savedData = localStorage.getItem('waiter_credentials');
     if (savedData) {
-      const data = JSON.parse(savedData);
-      setFormData(prev => ({ ...prev, ...data }));
-      // Try to login automatically if we have saved data
-      socket.emit('waiter_login', { name: data.name, password: data.password });
+      try {
+        const data = JSON.parse(savedData);
+        setFormData(prev => ({ ...prev, ...data }));
+      } catch {}
     }
-  }, []);
+    if (autoLogin) loginSavedCredentials();
+    const onConnect = () => loginSavedCredentials();
+    const onLoginAck = (ack: WaiterAuthAck) => applyLoginAck(ack);
+    if (autoLogin) socket.on('connect', onConnect);
+    socket.on('waiter_login_ack', onLoginAck);
+    return () => {
+      if (autoLogin) socket.off('connect', onConnect);
+      socket.off('waiter_login_ack', onLoginAck);
+    };
+  }, [autoLogin]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'register') {
       const waiterId = `waiter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const waiterData: Waiter = {
+      const waiterData = {
         id: waiterId,
         uid: null,
         name: formData.name,
@@ -51,7 +97,7 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
         status: 'pending',
         socketId: socket.id,
         createdAt: new Date().toISOString()
-      } as any;
+      };
 
       // Registro via socket (sempre funciona, mesmo sem Firestore)
       socket.emit('waiter_register', waiterData);
@@ -59,7 +105,8 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
       setIsWaiting(true);
       toast.success('Solicitação de acesso enviada com sucesso!');
     } else {
-      socket.emit('waiter_login', { name: formData.name, password: formData.password });
+      setIsLoggingIn(true);
+      socket.emit('waiter_login', { name: formData.name, password: formData.password }, (ack: WaiterAuthAck) => applyLoginAck(ack));
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
     }
   };
@@ -175,11 +222,12 @@ export default function SelfOnboarding({ waiters = [] }: { waiters?: Waiter[] })
             />
           </div>
 
-          <button 
+          <button
             type="submit"
-            className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+            disabled={isLoggingIn}
+            className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:scale-100"
           >
-            {mode === 'register' ? 'Solicitar Acesso' : 'Entrar'}
+            {mode === 'register' ? 'Solicitar Acesso' : isLoggingIn ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
 

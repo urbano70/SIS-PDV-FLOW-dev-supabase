@@ -13,6 +13,11 @@ html, body {
    Aplicado pelo script em main.tsx que detecta a resolução física real. */
 
 @layer utilities {
+  .h-screen { height: var(--app-viewport-height, 100dvh); }
+  .min-h-screen { min-height: var(--app-viewport-height, 100dvh); }
+  .max-h-\[90vh\] { max-height: calc(var(--app-viewport-height, 100dvh) * 0.9); }
+  .max-h-\[92vh\] { max-height: calc(var(--app-viewport-height, 100dvh) * 0.92); }
+  .max-h-\[95vh\] { max-height: calc(var(--app-viewport-height, 100dvh) * 0.95); }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }

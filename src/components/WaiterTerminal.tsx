@@ -7,10 +7,13 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import PaymentModal from './PaymentModal';
 import { OrderTimer } from './OrderTimer';
+import KitchenItemStatusBadge from './KitchenItemStatusBadge';
+import { isKitchenTracked, resolveKitchenItemType, type ItemActionAck } from '../lib/kitchenStatus';
 import {
   isBTAvailable, requestBTPrinter, connectBTPrinter, printBT, disconnectBT,
   buildOrderTicket, buildReceiptTicket, getConnectedDevice, type BTPrinterDevice,
 } from '../lib/bluetoothPrinter';
+import { isPlaygroundItem } from '../lib/playgroundClient';
 
 interface WaiterTerminalProps {
   tables: Table[];
@@ -25,10 +28,53 @@ interface WaiterTerminalProps {
   pizzariaConfig: PizzeriaConfig;
   shiftStartedAt?: string;
   clockOffset?: number;
+  canSubmitOrder?: () => boolean;
 }
 
-export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, pizzaSizes = [], isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0 }: WaiterTerminalProps) {
+export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFlavors, pizzaCrusts, pizzaSizes = [], isCashRegisterOpen, printerConfig, pizzariaConfig, shiftStartedAt, clockOffset = 0, canSubmitOrder = () => socket.connected }: WaiterTerminalProps) {
   const { canInstall, install } = usePWA('waiter');
+  const [pendingDeliveryKey, setPendingDeliveryKey] = useState<string | null>(null);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [deliveryErrorKey, setDeliveryErrorKey] = useState<string | null>(null);
+  const deliveryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (deliveryTimeoutRef.current) clearTimeout(deliveryTimeoutRef.current);
+  }, []);
+
+  const confirmDelivery = useCallback((orderId: string | number | undefined, itemId: string) => {
+    if (orderId === undefined || orderId === null) return;
+    if (!canSubmitOrder()) {
+      setDeliveryErrorKey(`${String(orderId)}:${itemId}`);
+      setDeliveryError('Sem conexão com o servidor. A entrega não foi confirmada.');
+      toast.error('Aguarde a conexão sincronizar antes de confirmar a entrega.');
+      return;
+    }
+    const key = `${String(orderId)}:${itemId}`;
+    if (pendingDeliveryKey) return;
+    setPendingDeliveryKey(key);
+    setDeliveryError(null);
+    setDeliveryErrorKey(null);
+    let settled = false;
+    const settle = (ack?: ItemActionAck) => {
+      if (settled) return;
+      settled = true;
+      if (deliveryTimeoutRef.current) clearTimeout(deliveryTimeoutRef.current);
+      deliveryTimeoutRef.current = null;
+      setPendingDeliveryKey(null);
+      if (ack?.ok) {
+        setDeliveryErrorKey(null);
+        toast.success('Entrega confirmada.');
+      } else {
+        const message = ack?.message || 'O servidor não confirmou a entrega.';
+        setDeliveryErrorKey(key);
+        setDeliveryError(message);
+        toast.error(message);
+      }
+    };
+    socket.emit('deliver_item', { orderId, itemId }, settle);
+    deliveryTimeoutRef.current = setTimeout(() => settle({ ok: false, message: 'O servidor não respondeu. A entrega continua pendente.' }), 8_000);
+  }, [canSubmitOrder, pendingDeliveryKey]);
 
   // Fila de alertas "Chama Garçom" — suporta múltiplas mesas simultâneas
   const [callAlertQueue, setCallAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
@@ -592,6 +638,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   };
 
   const submitOrder = async () => {
+    if (!canSubmitOrder()) { toast.error('Aguarde a conexão sincronizar. Seu carrinho foi mantido.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Peça ao gerente para abrir o caixa.');
       return;
@@ -1012,7 +1059,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                         c.items?.some((i: any) => i.id === (item as any).menuItemId || i.name === item.name) ||
                         (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === (item as any).menuItemId || i.name === item.name))
                       )?.type) || '';
-                      const pendingDelivery = !item.removed && !item.paid && !item.deliveredAt && DELIVERY_TYPES.has(itemType);
+                      const effectiveDeliveryType = resolveKitchenItemType(item, menu) || itemType;
+                      const needsPhysicalDelivery = !item.paid || (kdsEnabled && isKitchenTracked(item, menu));
+                      const pendingDelivery = !item.removed && needsPhysicalDelivery && !item.deliveredAt && DELIVERY_TYPES.has(effectiveDeliveryType);
+                      const deliveryKey = `${String(currentOrder.id)}:${item.id}`;
+                      const deliveryBusy = pendingDeliveryKey === deliveryKey;
                       return (
                       <div key={item.id} className={`flex justify-between items-start text-sm rounded-xl transition-colors ${item.removed ? 'opacity-40' : ''} ${item.paid ? 'bg-green-50 p-3 border border-green-100' : ''} ${pendingDelivery ? 'bg-green-50 p-3 border-2 border-green-400' : (item as any).kitchenStatus === 'preparing' ? 'bg-amber-50 p-3 border border-amber-200' : ''}`}>
                         <div className="flex-1 pr-4">
@@ -1020,33 +1071,18 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             <p className={`font-bold ${item.removed ? 'line-through' : ''} ${item.paid ? 'text-green-700' : ''}`}>
                               {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
                             </p>
-                            {!item.removed && !item.paid && itemShouldTrackTime(item) && (
-                              item.deliveredAt ? (
-                                <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold flex items-center gap-1 ml-1 shrink-0">
-                                  ✓ Entregue{(item as any).deliveredBy ? ` · ${(item as any).deliveredBy}` : ''}
-                                </span>
-                              ) : (
-                                <>
-                                  {item.timestamp && <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />}
-                                  {(item as any).kitchenStatus === 'ready' ? (
-                                    <span className="text-[9px] bg-green-600 text-white px-2 py-0.5 rounded-full font-bold animate-pulse ml-1 shrink-0">
-                                      ✓ Pronto — Retirar
-                                    </span>
-                                  ) : (item as any).kitchenStatus === 'oven' ? (
-                                    <span className="text-[9px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                      No Forno...
-                                    </span>
-                                  ) : (item as any).kitchenStatus === 'preparing' ? (
-                                    <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold ml-1 shrink-0">
-                                      Em preparo...
-                                    </span>
-                                  ) : null}
-                                </>
-                              )
+                            {!item.removed && !item.paid && itemShouldTrackTime(item) && !item.deliveredAt && item.timestamp && (
+                              <OrderTimer timestamp={item.timestamp} clockOffset={clockOffset} />
+                            )}
+                            {!item.removed && (
+                              <KitchenItemStatusBadge item={item} enabled={kdsEnabled} menu={menu} />
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
                           </div>
                           <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
+                            {((item as any).source === 'parquinho' || (item as any).isParquinho === true) && (
+                              <span className="text-violet-700 font-bold">Criança: {(item as any).childName?.trim() || 'Não informado'}</span>
+                            )}
                             {item.type === 'pizzas' ? (
                               item.observations && <span className="uppercase font-bold text-blue-700 italic">{item.observations}</span>
                             ) : (
@@ -1125,12 +1161,16 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                           )}
                           {pendingDelivery && (
                             <button
-                              onClick={() => socket.emit('deliver_item', { orderId: currentOrder?.id, itemId: item.id })}
-                              className="mt-2 w-full flex items-center justify-center gap-2 bg-orange-500 active:bg-orange-600 text-white py-2 rounded-xl font-bold text-xs uppercase tracking-wide active:scale-95 transition-transform"
+                              onClick={() => confirmDelivery(currentOrder?.id, item.id)}
+                              disabled={deliveryBusy}
+                              className="mt-2 w-full flex items-center justify-center gap-2 bg-orange-500 active:bg-orange-600 text-white py-2 rounded-xl font-bold text-xs uppercase tracking-wide active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-wait"
                             >
                               <span className="w-2 h-2 bg-white rounded-full animate-pulse shrink-0" />
-                              Confirmar Entrega
+                              {deliveryBusy ? 'Aguardando confirmação...' : 'Confirmar Entrega'}
                             </button>
+                          )}
+                          {deliveryError && deliveryErrorKey === deliveryKey && (
+                            <p className="mt-1 text-[10px] font-semibold text-red-600" role="alert">{deliveryError}</p>
                           )}
                         </div>
                         <div className="flex flex-col items-end space-y-1">
@@ -1350,10 +1390,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 const catType = selectedCat.type;
                 if (activeSubcategoryId) {
                   const sub = filteredSubcategories.find(s => s.id === activeSubcategoryId);
-                  return (sub?.items || []).filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: sub?.name, type: catType }));
+                  return (sub?.items || []).filter((i: any) => i.visible !== false && !isPlaygroundItem(i)).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: sub?.name, type: catType }));
                 }
-                const direct = (selectedCat.items || []).filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, type: catType })) as any[];
-                const subItems = filteredSubcategories.flatMap(s => s.items.filter((i: any) => i.visible !== false).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: s.name, type: catType })));
+                const direct = (selectedCat.items || []).filter((i: any) => i.visible !== false && !isPlaygroundItem(i)).map((i: any) => ({ ...i, type: catType })) as any[];
+                const subItems = filteredSubcategories.flatMap(s => s.items.filter((i: any) => i.visible !== false && !isPlaygroundItem(i)).map((i: any) => ({ ...i, _fromSubcategory: true, _subcategoryName: s.name, type: catType })));
                 return [...direct, ...subItems];
               })().map((item, idx) => (
                   <button
