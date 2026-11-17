@@ -1737,7 +1737,11 @@ async function startServer() {
               io.to('tenant:' + waiterTenantId).emit('update_waiters', publicWaiters(st.waiters));
             }
           } else {
-            const response = buildWaiterAuthAck(false, undefined, 'Cadastro já existente. Faça login ou solicite aprovação ao administrador.');
+            const conflictField = (waiterData.cpf && existing.cpf === waiterData.cpf) ? 'CPF' : 'nome+telefone';
+            const existingStatus = String(existing.status || 'desconhecido');
+            const response = buildWaiterAuthAck(false, undefined,
+              `${conflictField} já cadastrado (status: ${existingStatus}). Use dados diferentes ou faça login com as credenciais do cadastro existente.`
+            );
             ack?.(response);
             socket.emit('waiter_login_ack', response);
           }

@@ -29,6 +29,7 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
   });
   const [isWaiting, setIsWaiting] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [mode, setMode] = useState<'register' | 'login'>(() => {
     try { return localStorage.getItem('waiter_credentials') ? 'login' : 'register'; }
     catch { return 'register'; }
@@ -39,15 +40,19 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
     onAuthStatus?.(ack);
     if (ack.status === 'approved' || ack.ok === true && !ack.status) {
       setIsWaiting(false);
+      setFormError(null);
       return;
     }
     if (ack.status === 'pending') {
       setIsWaiting(true);
+      setFormError(null);
       return;
     }
     if (ack.status === 'inactive' || ack.status === 'rejected' || ack.ok === false) {
       setIsWaiting(false);
-      if (ack.message) toast.error(ack.message);
+      const msg = ack.message || 'Falha ao processar solicitação. Tente novamente.';
+      toast.error(msg);
+      setFormError(msg);
     }
   };
 
@@ -169,7 +174,7 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
             </div>
           </div>
           <button
-            onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
+            onClick={() => { setMode(mode === 'register' ? 'login' : 'register'); setFormError(null); }}
             className="text-xs font-bold underline"
           >
             {mode === 'register' ? 'Já tenho conta' : 'Novo cadastro'}
@@ -240,6 +245,12 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
               placeholder="••••••••"
             />
           </div>
+
+          {formError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 text-center">
+              {formError}
+            </div>
+          )}
 
           <button
             type="submit"
