@@ -364,12 +364,12 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 text-[#141414]">
-      <header className="bg-[#141414] text-[#E4E3E0] px-4 py-3 flex items-center justify-between shrink-0">
+      <header className="bg-[#141414] text-[#E4E3E0] px-4 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
-          <ShieldCheck size={20} />
+          <ShieldCheck size={26} />
           <div>
-            <h1 className="font-serif italic text-xl leading-none">Terminal Parquinho</h1>
-            <p className="text-[8px] uppercase tracking-widest opacity-45 mt-1">{operator?.name || 'Operador'}</p>
+            <h1 className="font-serif italic text-2xl leading-none">Terminal Parquinho</h1>
+            <p className="text-[11px] uppercase tracking-widest opacity-45 mt-1">{operator?.name || 'Operador'}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -388,17 +388,17 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
       <main className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="font-serif italic text-xl">Mesas</h2>
-            <p className="text-[9px] opacity-50">Toque em uma mesa para lançar Parquinho</p>
+            <h2 className="font-serif italic text-2xl">Mesas</h2>
+            <p className="text-xs opacity-50">Toque em uma mesa para lançar Parquinho</p>
           </div>
           {data?.config && (
-            <span className="text-[10px] font-bold bg-white border border-[#141414]/10 rounded-lg px-2.5 py-1.5 shrink-0">
+            <span className="text-sm font-bold bg-white border border-[#141414]/10 rounded-lg px-3 py-2 shrink-0">
               {formatPlaygroundMoney(data.config.parquinhoPrice)} / criança
             </span>
           )}
         </div>
 
-        <div className="grid grid-cols-5 sm:grid-cols-7 md:grid-cols-9 lg:grid-cols-11 gap-1.5">
+        <div className="grid grid-cols-5 sm:grid-cols-7 md:grid-cols-9 lg:grid-cols-11 gap-2">
           {(data?.tables || []).slice().sort((a, b) => a.id - b.id).map(table => {
             const selected = selectedTableId === table.id;
             const occupied = Boolean(table.occupied);
@@ -416,10 +416,10 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                 className={`aspect-square rounded-xl border-2 flex flex-col items-center justify-center relative transition-all
                   ${selected ? 'border-[#141414] bg-[#141414] text-white shadow-md' : occupied ? 'border-green-500 bg-green-500 text-white' : 'border-[#141414]/10 bg-white hover:border-[#141414]/40'}`}
               >
-                <span className="text-sm font-black leading-none">{table.id}</span>
-                <span className="text-[6px] uppercase font-bold opacity-70 mt-0.5">{occupied ? 'ativo' : 'livre'}</span>
+                <span className="text-base font-black leading-none">{table.id}</span>
+                <span className="text-[8px] uppercase font-bold opacity-70 mt-0.5">{occupied ? 'ativo' : 'livre'}</span>
                 {table.activeEntryIds.length > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-white text-green-700 rounded-full min-w-3.5 h-3.5 px-0.5 text-[7px] font-black flex items-center justify-center border border-green-300 shadow-sm">
+                  <span className="absolute -top-1 -right-1 bg-white text-green-700 rounded-full min-w-4 h-4 px-0.5 text-[9px] font-black flex items-center justify-center border border-green-300 shadow-sm">
                     {table.activeEntryIds.length}
                   </span>
                 )}
@@ -446,14 +446,14 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-[#141414]/8">
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[#141414]/8">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 bg-[#141414] rounded-xl flex items-center justify-center shrink-0">
-                  <span className="text-white font-black text-sm">{selectedTable.id}</span>
+                <div className="w-12 h-12 bg-[#141414] rounded-xl flex items-center justify-center shrink-0">
+                  <span className="text-white font-black text-xl">{selectedTable.id}</span>
                 </div>
                 <div>
-                  <h3 className="font-serif italic text-lg leading-none">Mesa {selectedTable.id}</h3>
-                  <span className={`text-[9px] uppercase font-black ${selectedTable.occupied ? 'text-green-600' : 'text-gray-400'}`}>
+                  <h3 className="font-serif italic text-2xl leading-none">Mesa {selectedTable.id}</h3>
+                  <span className={`text-xs uppercase font-black ${selectedTable.occupied ? 'text-green-600' : 'text-gray-400'}`}>
                     {selectedTable.occupied ? 'Ocupada · parquinho ativo' : 'Livre'}
                   </span>
                 </div>
@@ -470,13 +470,13 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
             {/* Active entries */}
             {selectedEntries.length > 0 && (
               <div className="px-4 pt-3 pb-2 border-b border-[#141414]/5">
-                <p className="text-[8px] uppercase tracking-wider font-black text-green-700 mb-2">
+                <p className="text-[11px] uppercase tracking-wider font-black text-green-700 mb-3">
                   {selectedEntries.length} criança{selectedEntries.length !== 1 ? 's' : ''} no parquinho agora
                 </p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {selectedEntries.map(entry => (
-                    <div key={entry.id} className="flex items-center gap-2 text-[10px] text-green-900 bg-green-50 rounded-lg px-2.5 py-1.5">
-                      <CheckCircle size={10} className="shrink-0" />
+                    <div key={entry.id} className="flex items-center gap-2 text-sm text-green-900 bg-green-50 rounded-lg px-3 py-2.5">
+                      <CheckCircle size={14} className="shrink-0" />
                       <span className="font-bold flex-1 truncate">{entry.childName || '—'}</span>
                       <span className="font-bold opacity-60 shrink-0">{entry.operatorName || '—'}</span>
                       <span className="font-mono font-black shrink-0">{formatPlaygroundMoney(entry.totalPrice)}</span>
@@ -487,15 +487,15 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
             )}
 
             {/* Launch form */}
-            <div className="p-4 space-y-3">
-              <p className="text-[8px] uppercase font-black tracking-wider opacity-50">
+            <div className="p-5 space-y-4">
+              <p className="text-[10px] uppercase font-black tracking-wider opacity-50">
                 Crianças a lançar {data?.config.parquinhoChildNameRequired ? '· nome obrigatório' : '· nome opcional'}
               </p>
 
               <div className="space-y-2">
                 {childNames.map((name, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <span className="w-5 h-5 bg-[#141414]/8 rounded-full flex items-center justify-center shrink-0 text-[9px] font-black text-[#141414]/60">
+                    <span className="w-7 h-7 bg-[#141414]/8 rounded-full flex items-center justify-center shrink-0 text-xs font-black text-[#141414]/60">
                       {index + 1}
                     </span>
                     <input
@@ -506,7 +506,7 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                         setChildNames(prev => prev.map((n, i) => i === index ? val : n));
                         setSubmitError('');
                       }}
-                      className="flex-1 bg-gray-50 border border-[#141414]/10 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#141414] disabled:bg-gray-100 disabled:opacity-60"
+                      className="flex-1 bg-gray-50 border border-[#141414]/10 rounded-xl px-4 py-3.5 text-base outline-none focus:border-[#141414] disabled:bg-gray-100 disabled:opacity-60"
                       placeholder={data?.config.parquinhoChildNameRequired ? 'Nome obrigatório' : 'Nome (opcional)'}
                       // eslint-disable-next-line jsx-a11y/no-autofocus
                       autoFocus={index === childNames.length - 1 && index > 0}
@@ -529,13 +529,13 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                 type="button"
                 onClick={() => setChildNames(prev => [...prev, ''])}
                 disabled={hasPendingLaunch || !data?.config.parquinhoEnabled}
-                className="w-full border border-dashed border-[#141414]/20 rounded-xl py-2.5 text-[10px] font-bold text-[#141414]/50 hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                className="w-full border border-dashed border-[#141414]/20 rounded-xl py-3.5 text-sm font-bold text-[#141414]/50 hover:border-[#141414]/40 hover:text-[#141414]/70 transition-colors disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                <Plus size={12} /> Adicionar outra criança
+                <Plus size={15} /> Adicionar outra criança
               </button>
 
               {/* Price summary */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 text-[11px]">
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 text-sm">
                 <span className="font-bold opacity-50">{childNames.length} {childNames.length === 1 ? 'criança' : 'crianças'}</span>
                 <span className="font-mono font-black">
                   {childNames.length} × {formatPlaygroundMoney(data?.config.parquinhoPrice)} = {typeof data?.config.parquinhoPrice === 'number' ? formatPlaygroundMoney(data.config.parquinhoPrice * childNames.length) : '—'}
@@ -570,14 +570,14 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                   type="button"
                   onClick={() => void submitLaunch()}
                   disabled={!canSubmit}
-                  className="w-full bg-[#141414] text-white rounded-xl py-3.5 text-[10px] font-black uppercase flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed"
+                  className="w-full bg-[#141414] text-white rounded-xl py-4 text-sm font-black uppercase flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed"
                 >
-                  <Send size={14} />
+                  <Send size={17} />
                   {childNames.length > 1 ? `Lançar ${childNames.length} crianças` : 'Lançar Parquinho'}
                 </button>
               )}
 
-              <p className="text-[8px] opacity-40 leading-relaxed">
+              <p className="text-[10px] opacity-40 leading-relaxed">
                 O servidor confirma preço, produto, caixa, aprovação e quantidade. Este terminal não exibe alimentos, bebidas, pagamentos ou cancelamentos.
               </p>
             </div>
