@@ -254,9 +254,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       persistPatch({ stockLog: data });
     };
     const handleUpdateWaiters = (data: Waiter[]) => {
-      if (!current() || !readyRef.current || !Array.isArray(data) || isWaiterMode) return;
+      if (!current() || !Array.isArray(data) || isWaiterMode) return;
       setWaiters(data);
-      persistPatch({ waiters: data });
+      if (readyRef.current) persistPatch({ waiters: data });
     };
 
     const handleInitData = (data: any) => {
