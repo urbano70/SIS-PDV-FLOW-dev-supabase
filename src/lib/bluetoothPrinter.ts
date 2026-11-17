@@ -193,11 +193,11 @@ function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
     const cm = new Map<string, number>();
     item.flavors.forEach(f => cm.set(f, (cm.get(f) || 0) + 1));
     cm.forEach((count, name) => {
-      const line = count > 1 ? `   ${count}x ${name}\n` : `   ${name}\n`;
+      const line = count > 1 ? `   - ${count}x ${name}\n` : `   - ${name}\n`;
       parts.push(encode(line));
     });
   }
-  if (item.crust) parts.push(encode(`   Borda: ${item.crust}\n`));
+  if (item.crust) parts.push(encode(`   - Borda: ${item.crust}\n`));
   return parts;
 }
 
@@ -212,14 +212,13 @@ function pizzaKitchenParts(item: TicketOrder['items'][0]): Uint8Array[] {
   const parts: Uint8Array[] = [];
 
   if (crusts.length > 0) {
-    parts.push(BOLD_ON, DOUBLE_HEIGHT, encode('Borda:\n'));
-    crusts.forEach(crust => parts.push(encode(`${crust}\n`)));
-    parts.push(NORMAL_SIZE, BOLD_OFF);
+    parts.push(BOLD_ON, encode('Borda:\n'), BOLD_OFF);
+    crusts.forEach(crust => parts.push(BOLD_ON, encode(`- ${crust}\n`), BOLD_OFF));
   }
 
   if (flavors.length > 0) {
-    parts.push(encode('Sabores:\n'));
-    flavors.forEach(({ name, count }) => parts.push(encode(`- ${count} X ${name}\n`)));
+    parts.push(BOLD_ON, encode('Sabores:\n'), BOLD_OFF);
+    flavors.forEach(({ name, count }) => parts.push(BOLD_ON, encode(`- ${count} X ${name}\n`), BOLD_OFF));
   }
 
   return parts;
@@ -249,8 +248,13 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
 
   for (const item of items) {
     const qty = item.quantity ?? 1;
-    parts.push(BOLD_ON, encode(`${qty}x ${pizzaBaseName(item)}\n`), BOLD_OFF);
-    parts.push(...(isPizzaKitchenItem(item) ? pizzaKitchenParts(item) : pizzaItemParts(item)));
+    const isPizza = isPizzaKitchenItem(item);
+    if (isPizza) {
+      parts.push(BOLD_ON, DOUBLE_HEIGHT, encode(`${qty}x ${pizzaBaseName(item)}\n`), NORMAL_SIZE, BOLD_OFF);
+    } else {
+      parts.push(BOLD_ON, encode(`${qty}x ${item.name}\n`), BOLD_OFF);
+    }
+    parts.push(...(isPizza ? pizzaKitchenParts(item) : pizzaItemParts(item)));
     if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
   }
 
