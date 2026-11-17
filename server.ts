@@ -1546,6 +1546,8 @@ async function startServer() {
         if (socket.connected === false || (socket as any).tenantId !== tid ||
             (socket as any).tenantGeneration !== tenantGeneration) return;
         if (admin ? !isAdminForTenant(tid) : !isApprovedWaiter(waiterForTenant(tid))) return;
+        // Garante que o socket do garçom está no tenant room para receber broadcasts futuros
+        if (!admin) socket.join(`tenant:${tid}`);
         const currentActor = authActorSafe((socket as any).authContext);
         const st = getState(tid);
         const ownWaiter = admin ? null : waiterForTenant(tid);
