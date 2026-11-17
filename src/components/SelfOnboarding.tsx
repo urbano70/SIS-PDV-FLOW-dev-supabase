@@ -100,7 +100,12 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
         createdAt: new Date().toISOString()
       };
 
-      // Registro via socket (sempre funciona, mesmo sem Firestore)
+      // Garante que o tenant está identificado antes do registro
+      let regTenantId = tenantId || '';
+      if (!regTenantId) {
+        try { regTenantId = localStorage.getItem('waiter_tenant_id') || ''; } catch {}
+      }
+      if (regTenantId) socket.emit('waiter_identify_tenant', { tenantId: regTenantId });
       socket.emit('waiter_register', waiterData);
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
       setIsWaiting(true);

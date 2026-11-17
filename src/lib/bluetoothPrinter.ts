@@ -186,7 +186,7 @@ export interface TicketOrder {
 }
 
 function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
-  const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
+  const isPizza = item.type === 'pizzas' || (!item.type && item.flavors && item.flavors.length > 0);
   if (!isPizza) return [];
   const parts: Uint8Array[] = [];
   if (item.flavors && item.flavors.length > 0) {

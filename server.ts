@@ -1704,6 +1704,11 @@ async function startServer() {
           ack?.(response);
           socket.emit('waiter_login_ack', response);
           if (sameCredentials) socket.emit('waiter_approved', { status: existing.status, waiter: sanitizeWaiter(existing) });
+          // Re-notify admin so a pending waiter that already registered shows up for approval.
+          if (existing.status === 'pending') {
+            io.to('tenant:' + waiterTenantId).emit('admin_notification', { type: 'NEW_WAITER', data: sanitizeWaiter(existing) });
+            io.to('tenant:' + waiterTenantId).emit('update_waiters', publicWaiters(st.waiters));
+          }
           return;
         }
 
