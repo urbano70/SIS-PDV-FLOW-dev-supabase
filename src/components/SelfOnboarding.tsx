@@ -74,12 +74,9 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
     }
     if (autoLogin) loginSavedCredentials();
     const onConnect = () => loginSavedCredentials();
-    const onLoginAck = (ack: WaiterAuthAck) => applyLoginAck(ack);
     if (autoLogin) socket.on('connect', onConnect);
-    socket.on('waiter_login_ack', onLoginAck);
     return () => {
       if (autoLogin) socket.off('connect', onConnect);
-      socket.off('waiter_login_ack', onLoginAck);
     };
   }, [autoLogin]);
 
@@ -106,10 +103,14 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true, tenantI
         try { regTenantId = localStorage.getItem('waiter_tenant_id') || ''; } catch {}
       }
       if (regTenantId) socket.emit('waiter_identify_tenant', { tenantId: regTenantId });
-      socket.emit('waiter_register', waiterData);
+      socket.emit('waiter_register', waiterData, (ack: WaiterAuthAck) => {
+        if (ack.ok !== false && ack.status !== 'inactive' && ack.status !== 'rejected') {
+          toast.success('Solicitação de acesso enviada com sucesso!');
+        }
+        applyLoginAck(ack);
+      });
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
       setIsWaiting(true);
-      toast.success('Solicitação de acesso enviada com sucesso!');
     } else {
       setIsLoggingIn(true);
       // Garante que o tenant está identificado antes do login (necessário quando
