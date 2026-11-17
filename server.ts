@@ -302,7 +302,17 @@ async function startServer() {
         case 'orders':   await assertSupabaseResult(db.from('orders').upsert({ ...orderToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'tables':   await assertSupabaseResult(db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'comandas': await assertSupabaseResult(db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
-        case 'waiters':  await assertSupabaseResult(db.from('waiters').upsert({ ...d, tenant_id: tid })); break;
+        case 'waiters':  await assertSupabaseResult(db.from('waiters').upsert({
+          id: d.id,
+          name: d.name,
+          cpf: d.cpf ?? null,
+          phone: d.phone ?? null,
+          birth_date: d.birthDate ?? null,
+          password: d.password ?? null,
+          status: d.status ?? 'pending',
+          uid: d.uid ?? null,
+          tenant_id: tid,
+        })); break;
         case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
         case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid })); break;
         case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid })); break;
@@ -1680,24 +1690,37 @@ async function startServer() {
       try {
         await loadTenantIfNeeded(waiterTenantId);
         if (socket.connected === false || (socket as any).pendingTenantId !== waiterTenantId ||
-            (socket as any).tenantGeneration !== registrationGeneration) return;
+            (socket as any).tenantGeneration !== registrationGeneration) {
+          fail('Sessão expirada. Tente novamente.');
+          return;
+        }
         const st = getState(waiterTenantId);
-        // Never let a duplicate registration replace a password or approval.
+        // Never let a duplicate registration replace a password or approval for active/approved waiters.
         const existing = st.waiters.find((candidate: any) =>
           (waiterData.cpf && candidate.cpf === waiterData.cpf) ||
           (waiterData.name === candidate.name && waiterData.phone === candidate.phone)
         );
         if (existing) {
           const sameCredentials = waiterCredentialsMatch(existing, waiterData.name, waiterData.password);
-          if (sameCredentials) {
+          const isPending = String(existing.status).toLowerCase() === 'pending';
+          if (sameCredentials || isPending) {
+            // Same credentials OR still pending: update record with new data and treat as re-login.
+            if (!sameCredentials && isPending) {
+              Object.assign(existing, {
+                name: waiterData.name,
+                phone: waiterData.phone,
+                cpf: waiterData.cpf,
+                birthDate: waiterData.birthDate,
+                password: waiterData.password,
+                socketId: socket.id,
+              });
+              await saveToSupabase('waiters', existing, String(existing.id), waiterTenantId);
+            }
             delete (socket as any).isAdmin;
             (socket as any).waiterId = existing.id;
             (socket as any).authContext = {
               role: 'waiter', tenantId: waiterTenantId, waiterId: String(existing.id), credentialsValidated: true,
             };
-          }
-          if (sameCredentials) {
-            // Same credentials: treat re-registration as a login so the waiter stays on the waiting screen.
             const response = buildWaiterAuthAck(true, existing);
             ack?.(response);
             socket.emit('waiter_login_ack', response);
