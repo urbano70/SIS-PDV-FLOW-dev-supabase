@@ -3267,9 +3267,9 @@ export default function Dashboard({
                       activeItems.forEach((item: any) => {
                         const label = `${item.quantity || 1}x ${item.name}`;
                         const price = `R$ ${item.price.toFixed(2)}`;
-                        const spaces = Math.max(1, lineLen - label.length - price.length);
                         if (printerConfig.boldItems) bold(true);
-                        text(label + ' '.repeat(spaces) + price); lf();
+                        text(label); lf();
+                        text(price.padStart(lineLen)); lf();
                         if (printerConfig.boldItems) bold(false);
                       });
                       line(); bold(true);
@@ -3289,14 +3289,14 @@ export default function Dashboard({
                         const _fs = is50mm ? '10px' : (printerConfig.itemFontSize || '12px');
                         const html = `<html><head><title>Resumo ${tableType} ${tableId}</title>
                           <style>body{font-family:monospace;padding:12px;width:${_pw};margin:0 auto;font-size:${_fs}}
-                          .sep{border-top:1px dashed #000;margin:8px 0}.item{display:flex;justify-content:space-between;margin-bottom:4px}
+                          .sep{border-top:1px dashed #000;margin:8px 0}.item{margin-bottom:6px}.price{text-align:right}
                           @media print{body{width:100%;margin:0}}</style></head><body>
                           <div style="text-align:center"><b>${printerConfig.establishmentName || ''}</b><br/>${printerConfig.address || ''}<br/>
                           <b>*** CONFERENCIA DE MESA ***</b></div>
                           <div class="sep"></div>
                           <div>${tableType}: ${tableId}<br/>Garcom: ${waiterName}<br/>${new Date().toLocaleString('pt-BR')}</div>
                           <div class="sep"></div>
-                          ${activeItems.map((i: any) => `<div class="item"><span>${i.quantity||1}x ${i.name}</span><span>R$ ${i.price.toFixed(2)}</span></div>`).join('')}
+                          ${activeItems.map((i: any) => `<div class="item"><div>${i.quantity||1}x ${i.name}</div><div class="price">R$ ${i.price.toFixed(2)}</div></div>`).join('')}
                           <div class="sep"></div>
                           <div style="text-align:right"><b>TOTAL: R$ ${total.toFixed(2)}</b></div>
                           <div style="text-align:center;font-size:9px;margin-top:12px">${printerConfig.receiptFooter || ''}</div>
