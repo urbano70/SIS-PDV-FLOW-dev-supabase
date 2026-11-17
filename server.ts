@@ -1779,6 +1779,7 @@ async function startServer() {
         return;
       }
       (socket as any).tenantId = waiterTenantId;
+      (socket as any).pendingTenantId = waiterTenantId;
       try {
         await loadTenantIfNeeded(waiterTenantId);
         if (!socket.connected) return;
