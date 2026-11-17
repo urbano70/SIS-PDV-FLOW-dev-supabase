@@ -349,16 +349,12 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
 
     const identifyConnection = (isReconnect: boolean) => {
       if (!current() || handshakeInFlightRef.current) return;
+      // In waiter mode, WaiterRouteInner owns tenant identification and login.
+      // Emitting waiter_identify_tenant here races with waiter_login unnecessarily.
+      if (isWaiterMode) return;
       const epoch = makeInitEpoch();
       pendingInitRef.current = { epoch, socketId: socket.id || null };
       const promise = (async () => {
-        if (isWaiterMode) {
-          if (!normalizedTenantId) return;
-          // Tenant identification is not authentication. Do not request or cache
-          // a full snapshot until the server confirms the waiter is approved.
-          socket.emit('waiter_identify_tenant', { tenantId: normalizedTenantId });
-          return;
-        }
 
         let token = isReconnect ? adminTokenRef.current : null;
         if (!token) {
