@@ -442,9 +442,10 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
           onClick={() => !hasPendingLaunch && setShowTablePopup(false)}
         >
           <div
-            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl max-h-[90dvh] overflow-hidden flex flex-col"
             onClick={e => e.stopPropagation()}
           >
+            <div className="flex-1 overflow-y-auto min-h-0">
             {/* Header */}
             <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[#141414]/8">
               <div className="flex items-center gap-3">
@@ -549,7 +550,7 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                 </div>
               )}
 
-              {hasPendingLaunch ? (
+              {hasPendingLaunch && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-[10px]">
                     <Clock3 size={13} className="shrink-0" />
@@ -565,7 +566,15 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                   </button>
                   <p className="text-[8px] opacity-40 font-mono break-all">requestId: {pending?.requestId}</p>
                 </div>
-              ) : (
+              )}
+
+              <p className="text-[10px] opacity-40 leading-relaxed">
+                O servidor confirma preço, produto, caixa, aprovação e quantidade. Este terminal não exibe alimentos, bebidas, pagamentos ou cancelamentos.
+              </p>
+            </div>
+            </div>
+            {!hasPendingLaunch && (
+              <div className="shrink-0 px-5 pb-5 pt-3 border-t border-[#141414]/5">
                 <button
                   type="button"
                   onClick={() => void submitLaunch()}
@@ -575,12 +584,8 @@ export default function PlaygroundTerminal({ tenantId, buildId = typeof __BUILD_
                   <Send size={17} />
                   {childNames.length > 1 ? `Lançar ${childNames.length} crianças` : 'Lançar Parquinho'}
                 </button>
-              )}
-
-              <p className="text-[10px] opacity-40 leading-relaxed">
-                O servidor confirma preço, produto, caixa, aprovação e quantidade. Este terminal não exibe alimentos, bebidas, pagamentos ou cancelamentos.
-              </p>
-            </div>
+              </div>
+            )}
           </div>
         </div>
       )}
