@@ -359,6 +359,13 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
   const [pizzaSizes, setPizzaSizes] = useState<any[]>([]);
   const waiterLoginKeyRef = useRef<string | null>(null);
 
+  // Persist tenant ID so the PWA can re-login even from start_url (/waiter, no ?tenant=)
+  useEffect(() => {
+    if (tenantId) {
+      try { localStorage.setItem('waiter_tenant_id', tenantId); } catch {}
+    }
+  }, [tenantId]);
+
   // This is the only reconnect/login owner for the waiter route. It remains
   // mounted while WaiterTerminal is shown, so a normal socket reconnect keeps
   // the approved waiter and never enables mutations before init_data arrives.
@@ -380,11 +387,15 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
       }
       try {
         const { name, password } = JSON.parse(saved);
-        const loginKey = `${socket.id || '__pending__'}:${tenantId || ''}`;
+        // Fallback para tenant salvo: necessário quando o PWA abre via start_url sem ?tenant=
+        let savedTenantId = '';
+        try { savedTenantId = localStorage.getItem('waiter_tenant_id') || ''; } catch {}
+        const effectiveTenantId = tenantId || savedTenantId;
+        const loginKey = `${socket.id || '__pending__'}:${effectiveTenantId}`;
         if (waiterLoginKeyRef.current === loginKey) return;
         if (name && password) {
           waiterLoginKeyRef.current = loginKey;
-          if (tenantId) socket.emit('waiter_identify_tenant', { tenantId });
+          if (effectiveTenantId) socket.emit('waiter_identify_tenant', { tenantId: effectiveTenantId });
           socket.emit('waiter_login', { name, password }, applyLoginAck);
         }
       } catch { setIsAutoLogging(false); }
@@ -469,6 +480,7 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
       ) : (
         <SelfOnboarding
           autoLogin={false}
+          tenantId={tenantId}
           onAuthStatus={(ack) => setIsApproved(ack.status === 'approved' || (ack.ok === true && !ack.status))}
         />
       )}
