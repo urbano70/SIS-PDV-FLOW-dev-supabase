@@ -427,7 +427,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           animate={{ scale: 1, y: 0, opacity: 1 }}
           exit={{ scale: 0.95, y: 16, opacity: 0 }}
           transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95vh]"
+          className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95dvh]"
         >
           <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
             <div>
@@ -941,7 +941,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col flex-1 min-h-0 space-y-4">
+              <div className="flex flex-col flex-1 min-h-0">
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 pb-1">
                 <div className="flex justify-between items-start shrink-0">
                   <button onClick={() => setStep('selection')} className="text-xs font-bold flex items-center opacity-50 hover:opacity-100">
                     <X size={14} className="mr-1 rotate-45" /> Voltar para seleção
@@ -986,7 +987,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="flex-1 bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm overflow-hidden min-h-0">
+                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm overflow-hidden max-h-48 md:max-h-64 shrink-0">
                   <div className="flex justify-between items-center pb-3 border-b border-[#141414]/5 shrink-0">
                     <span className="font-serif italic text-lg">Formas de Pagamento</span>
                     <div className="flex items-center space-x-2">
@@ -1095,10 +1096,10 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                     {errorMessage}
                   </motion.div>
                 )}
-
+                </div>
                 <button
                   onClick={handleFinishPayment}
-                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
+                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 mt-3 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
                 >
                   <Check size={20} />
                   <span>Finalizar Pagamento</span>
