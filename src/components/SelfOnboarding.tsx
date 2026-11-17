@@ -27,9 +27,14 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfO
     password: ''
   });
   const [isWaiting, setIsWaiting] = useState(false);
-  const [mode, setMode] = useState<'register' | 'login'>('register');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [mode, setMode] = useState<'register' | 'login'>(() => {
+    try { return localStorage.getItem('waiter_credentials') ? 'login' : 'register'; }
+    catch { return 'register'; }
+  });
 
   const applyLoginAck = (ack: WaiterAuthAck = {}) => {
+    setIsLoggingIn(false);
     onAuthStatus?.(ack);
     if (ack.status === 'approved' || ack.ok === true && !ack.status) {
       setIsWaiting(false);
@@ -100,6 +105,7 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfO
       setIsWaiting(true);
       toast.success('Solicitação de acesso enviada com sucesso!');
     } else {
+      setIsLoggingIn(true);
       socket.emit('waiter_login', { name: formData.name, password: formData.password }, (ack: WaiterAuthAck) => applyLoginAck(ack));
       localStorage.setItem('waiter_credentials', JSON.stringify(formData));
     }
@@ -216,11 +222,12 @@ export default function SelfOnboarding({ onAuthStatus, autoLogin = true }: SelfO
             />
           </div>
 
-          <button 
+          <button
             type="submit"
-            className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+            disabled={isLoggingIn}
+            className="w-full bg-[#141414] text-[#E4E3E0] py-5 rounded-2xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:scale-100"
           >
-            {mode === 'register' ? 'Solicitar Acesso' : 'Entrar'}
+            {mode === 'register' ? 'Solicitar Acesso' : isLoggingIn ? 'Entrando...' : 'Entrar'}
           </button>
         </form>
 

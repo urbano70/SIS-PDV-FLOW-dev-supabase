@@ -413,7 +413,8 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
     const onWaiterApproved = (d: any) => {
-      if (d?.status !== 'approved') setIsApproved(false);
+      if (d?.status === 'approved') setIsApproved(true);
+      else setIsApproved(false);
     };
     socket.on('waiter_approved', onWaiterApproved);
     return () => {

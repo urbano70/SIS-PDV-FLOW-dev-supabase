@@ -1512,8 +1512,6 @@ async function startServer() {
       const ack = typeof maybeAck === 'function'
         ? maybeAck
         : typeof request === 'function' ? request : undefined;
-      // Em produção, não transformar a ausência de identificação em tenant
-      // default: isso devolvia um snapshot vazio antes de admin_connect.
       const tid = String((socket as any).authContext?.tenantId || (socket as any).tenantId || '').trim();
       if (!tid) {
         ack?.({ ok: false, message: 'Estabelecimento não identificado.' });
@@ -1541,8 +1539,6 @@ async function startServer() {
           tenantId: tid,
           ready: true,
           buildId: __BUILD_ID__,
-          // ADM receives the complete password-free roster. A waiter receives
-          // only the server-established profile belonging to this socket.
           waiters: admin ? publicWaiters(st.waiters) : projectWaitersForActor(st.waiters, currentActor),
           orders: st.orders, tables: st.tables, comandas: st.comandas,
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
@@ -1776,12 +1772,10 @@ async function startServer() {
         return;
       }
       (socket as any).tenantId = waiterTenantId;
-      const requestedGeneration = (socket as any).tenantGeneration;
       try {
         await loadTenantIfNeeded(waiterTenantId);
         if (socket.connected === false || (socket as any).tenantId !== waiterTenantId ||
-            (socket as any).pendingTenantId !== waiterTenantId ||
-            (socket as any).tenantGeneration !== requestedGeneration) return;
+            (socket as any).pendingTenantId !== waiterTenantId) return;
         const st = getState(waiterTenantId);
         const waiter = findWaiterByCredentials(st.waiters, name, password);
         if (!waiter) {
