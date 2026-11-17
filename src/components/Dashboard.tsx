@@ -284,22 +284,28 @@ function buildEscPosKitchenTicket(
     const isPizza = item.type === 'pizzas' || (item.flavors && item.flavors.length > 0);
     const baseName = isPizza ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
     const firstLine = qty + baseName;
-    // Nome em double-height
-    push(0x1D, 0x21, 0x10);
+    // Nome — pizza em negrito+double-height para destaque, outros só double-height
     const dhLen = Math.floor(lineLen / 2);
-    wordWrap(firstLine, dhLen).forEach(l => { text(l); lf(); });
-    push(0x1D, 0x21, 0x00);
+    if (isPizza) {
+      push(0x1B, 0x45, 0x01, 0x1D, 0x21, 0x10);
+      wordWrap(firstLine, dhLen).forEach(l => { text(l); lf(); });
+      push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+    } else {
+      push(0x1D, 0x21, 0x10);
+      wordWrap(firstLine, dhLen).forEach(l => { text(l); lf(); });
+      push(0x1D, 0x21, 0x00);
+    }
     const pizzaDetails = getPizzaKitchenDetails(item);
     const formatPizzaDetails = item.type === 'pizzas' || (!item.type && isPizza);
 
-    // Bordas logo abaixo da descrição, em negrito e com altura maior.
+    // Borda em negrito tamanho normal (sem double-height) com traço na descrição.
     if (formatPizzaDetails && pizzaDetails.crusts.length > 0) {
-      push(0x1B, 0x45, 0x01, 0x1D, 0x21, 0x01);
+      push(0x1B, 0x45, 0x01);
       text('Borda:'); lf();
       pizzaDetails.crusts.forEach(name => {
-        wordWrap(name.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+        wordWrap('- ' + name.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
       });
-      push(0x1D, 0x21, 0x00, 0x1B, 0x45, 0x00);
+      push(0x1B, 0x45, 0x00);
     }
 
     // Preço em tamanho normal, alinhado à direita
@@ -309,12 +315,14 @@ function buildEscPosKitchenTicket(
       push(0x1B, 0x61, 0x00); // align left
     }
 
-    // Cada sabor mantém a quantidade de escolhas, inclusive quando é apenas uma.
+    // Sabores em negrito (mesmo tamanho da borda) com traço na descrição.
     if (formatPizzaDetails && pizzaDetails.flavors.length > 0) {
+      push(0x1B, 0x45, 0x01);
       text('Sabores:'); lf();
       pizzaDetails.flavors.forEach(({ count, name }) => {
         wordWrap(`- ${count} X ${name.toUpperCase()}`, lineLen).forEach(l => { text(l); lf(); });
       });
+      push(0x1B, 0x45, 0x00);
     } else if (isPizza && item.flavors && item.flavors.length > 0) {
       // Preserva a impressão legada dos itens de outros tipos que possuem flavors.
       const countMap = new Map<string, number>();
