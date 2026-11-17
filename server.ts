@@ -1696,18 +1696,20 @@ async function startServer() {
               role: 'waiter', tenantId: waiterTenantId, waiterId: String(existing.id), credentialsValidated: true,
             };
           }
-          const response = buildWaiterAuthAck(
-            false,
-            sameCredentials ? existing : undefined,
-            'Cadastro já existente. Faça login ou solicite aprovação ao administrador.',
-          );
-          ack?.(response);
-          socket.emit('waiter_login_ack', response);
-          if (sameCredentials) socket.emit('waiter_approved', { status: existing.status, waiter: sanitizeWaiter(existing) });
-          // Re-notify admin so a pending waiter that already registered shows up for approval.
-          if (existing.status === 'pending') {
-            io.to('tenant:' + waiterTenantId).emit('admin_notification', { type: 'NEW_WAITER', data: sanitizeWaiter(existing) });
-            io.to('tenant:' + waiterTenantId).emit('update_waiters', publicWaiters(st.waiters));
+          if (sameCredentials) {
+            // Same credentials: treat re-registration as a login so the waiter stays on the waiting screen.
+            const response = buildWaiterAuthAck(true, existing);
+            ack?.(response);
+            socket.emit('waiter_login_ack', response);
+            socket.emit('waiter_approved', { status: existing.status, waiter: sanitizeWaiter(existing) });
+            if (existing.status === 'pending') {
+              io.to('tenant:' + waiterTenantId).emit('admin_notification', { type: 'NEW_WAITER', data: sanitizeWaiter(existing) });
+              io.to('tenant:' + waiterTenantId).emit('update_waiters', publicWaiters(st.waiters));
+            }
+          } else {
+            const response = buildWaiterAuthAck(false, undefined, 'Cadastro já existente. Faça login ou solicite aprovação ao administrador.');
+            ack?.(response);
+            socket.emit('waiter_login_ack', response);
           }
           return;
         }
