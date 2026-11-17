@@ -1092,7 +1092,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                               </>
                             )}
                             <span>•</span>
-                            <span>Garçom: {item.waiterName || 'Desconhecido'}</span>
+                            <span>{((item as any).source === 'parquinho' || (item as any).isParquinho) ? 'Op.' : 'Garçom'}: {((item as any).operatorName || item.waiterName || 'Desconhecido').split(' ')[0]}</span>
                             {!item.removed && !item.paid && guestModeActive && (
                               assigningGuestToItemId === item.id ? (
                                 <div className="flex items-center gap-1 ml-1" onClick={e => e.stopPropagation()}>

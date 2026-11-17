@@ -612,8 +612,8 @@ const OrderDetails = ({
                     {(item.source === 'parquinho' || item.isParquinho === true) && (
                       <span className="text-[11px] text-violet-700 font-bold mt-0.5 leading-none">Criança: {item.childName?.trim() || 'Não informado'}</span>
                     )}
-                    {item.observations && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
-                    {item.waiterName && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {item.waiterName.split(' ')[0]}</span>}
+                    {item.observations && !(item.source === 'parquinho' || item.isParquinho === true) && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
+                    {(item.operatorName || item.waiterName) && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {(item.operatorName || item.waiterName || '').split(' ')[0]}</span>}
                     {guestModeActive && !item.removed && !item.paid && (
                       assigningGuestToItemId === item.id ? (
                         <div className="flex items-center gap-1 mt-1" onClick={e => e.stopPropagation()}>
