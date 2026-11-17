@@ -303,19 +303,19 @@ async function startServer() {
         case 'tables':   await assertSupabaseResult(db.from('tables').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'comandas': await assertSupabaseResult(db.from('comandas').upsert({ ...tableToRow(d), tenant_id: tid }, { onConflict: 'tenant_id,id' })); break;
         case 'waiters': {
-          const row = {
-            id: d.id,
-            name: d.name,
-            cpf: d.cpf ?? null,
-            phone: d.phone ?? null,
-            birth_date: d.birthDate ?? null,
-            password: d.password ?? null,
-            status: d.status ?? 'pending',
-            uid: d.uid ?? null,
-            tenant_id: tid,
-          };
-          console.log('[supabase][waiters] upsert row:', JSON.stringify(row));
-          await assertSupabaseResult(db.from('waiters').upsert(row));
+          // Usa RPC para evitar validação do schema cache do PostgREST
+          console.log('[supabase][waiters] upsert via rpc id:', d.id, 'tenant:', tid);
+          await assertSupabaseResult(db.rpc('upsert_waiter', {
+            p_id:         String(d.id ?? ''),
+            p_name:       String(d.name ?? ''),
+            p_cpf:        d.cpf        ?? null,
+            p_phone:      d.phone      ?? null,
+            p_birth_date: d.birthDate  ?? null,
+            p_password:   d.password   ?? null,
+            p_status:     d.status     ?? 'pending',
+            p_uid:        d.uid        ?? null,
+            p_tenant_id:  tid,
+          }));
           break;
         }
         case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
