@@ -2247,7 +2247,8 @@ export default function Dashboard({
       partialAmount,
       paymentMethod,
       payerName,
-      fromAdmin: true
+      fromAdmin: true,
+      adminCashRegisterName: activeCashRegisterName ?? undefined
     });
 
     // Handle receipt printing
