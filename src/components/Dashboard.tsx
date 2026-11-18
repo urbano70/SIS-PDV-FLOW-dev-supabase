@@ -5859,10 +5859,10 @@ export default function Dashboard({
 
               {/* ── Aba: Salão ── */}
               {settingsTab === 'salon' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 items-start">
 
               {/* Card: Estrutura do Salão — movido para o topo do grid */}
-              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+              <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
                   <LayoutDashboard className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Estrutura do Salão</h3>
@@ -5967,7 +5967,7 @@ export default function Dashboard({
               />
 
               {/* Card: Notificações de Lançamentos (movido para o grid) */}
-              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+              <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
                   <Bell className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Notificações</h3>
@@ -6009,7 +6009,7 @@ export default function Dashboard({
               </div>
 
               {/* Card: Configuração de Caixas */}
-              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm">
+              <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
                   <Wallet className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Configuração de Caixas</h3>
@@ -6106,7 +6106,7 @@ export default function Dashboard({
               </div>
 
               {/* Card: Taxa de Serviço */}
-              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm col-span-full md:col-span-1">
+              <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm col-span-full md:col-span-1">
                 <div className="flex items-center gap-2 mb-3">
                   <Percent className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none flex-1">Taxa de Serviço</h3>
@@ -6151,7 +6151,7 @@ export default function Dashboard({
               <div className="w-full max-w-xl">
 
               {/* Card: TesteDeForgo + Funcionamento unificado */}
-              <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
+              <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <Settings className="text-[#141414]" size={13} />
                   <h3 className="font-serif italic text-sm leading-none">Funcionamento</h3>
@@ -6258,10 +6258,10 @@ export default function Dashboard({
 
               {/* ── Aba: Impressão ── */}
               {settingsTab === 'print' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-4 items-start">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 items-start">
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
-                <div className="bg-white p-3 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
 
                   {/* ── Cabeçalho ── */}
                   <div className="flex items-center gap-2">
@@ -6546,8 +6546,8 @@ export default function Dashboard({
                 </div>
 
                 {/* ── Coluna 2: Comprovante + QR Code ────────────────────────── */}
-                <div className="flex flex-col gap-2.5">
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm flex flex-col gap-2">
+                <div className="flex flex-col gap-4">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-2">
                   <div className="flex items-center gap-2 mb-0.5">
                     <FileText className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Comprovante</h3>
@@ -6687,7 +6687,7 @@ export default function Dashboard({
                 </div>
 
                   {/* QR Code do Cliente por Mesa */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                  <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <Smartphone className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">QR Code das Mesas</h3>
@@ -6750,7 +6750,7 @@ export default function Dashboard({
               <div className="w-full max-w-xl">
 
                   {/* Dados */}
-                  <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                  <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                     <div className="flex items-center gap-2 mb-2">
                       <Database className="text-[#141414]" size={12} />
                       <h3 className="font-serif italic text-sm leading-none">Dados</h3>
@@ -6839,7 +6839,7 @@ export default function Dashboard({
               {settingsTab === 'fiscal' && (
               <div className="flex justify-center mb-4">
               <div className="w-full max-w-xl">
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
                   <div className="flex items-center gap-2 mb-3">
                     <FileText className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Configuração Fiscal (NFC-e)</h3>
@@ -7164,7 +7164,7 @@ export default function Dashboard({
                 })()}
 
                 {/* Notas Fiscais */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <FileText className="text-[#141414]" size={12} />
@@ -7270,7 +7270,7 @@ export default function Dashboard({
                 </div>
 
                 {/* Consulta por chave de acesso */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Search className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Consultar por Chave</h3>
@@ -7322,7 +7322,7 @@ export default function Dashboard({
                 </div>
 
                 {/* Exportação de XML em lote */}
-                <div className="bg-white p-2.5 rounded-xl border border-[#141414]/10 shadow-sm mt-2">
+                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
                   <div className="flex items-center gap-2 mb-2">
                     <Download className="text-[#141414]" size={12} />
                     <h3 className="font-serif italic text-sm leading-none">Exportar XMLs do Mês</h3>
