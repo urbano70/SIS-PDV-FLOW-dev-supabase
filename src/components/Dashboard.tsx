@@ -8938,7 +8938,7 @@ export default function Dashboard({
                           Sabores <span className="normal-case font-medium opacity-60">({selectedFlavors.length}/{maxFlavors})</span>
                         </p>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {pizzaFlavors.map((flavor, idx) => {
+                          {[...pizzaFlavors].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map((flavor, idx) => {
                             const flavorCount = selectedFlavors.filter(f => f.name === flavor.name).length;
                             const isSel = flavorCount > 0;
                             const hasExtra = flavor.price > 0;

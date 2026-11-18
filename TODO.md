@@ -48,7 +48,7 @@ Os itens concluídos correspondem à implementação e às evidências isoladas,
 
 ## Melhorias pendentes
 
-- [ ] **Sabores de pizza em ordem alfabética**: ordenar a lista de sabores (pizza_flavors) em ordem alfabética na tela de seleção do garçom/operador. Implementar apenas quando solicitado.
+- [x] **Sabores de pizza em ordem alfabética**: ordenar a lista de sabores (pizza_flavors) em ordem alfabética na tela de seleção do garçom/operador.
 
 ## Evidências
 
