@@ -2292,6 +2292,7 @@ export default function Dashboard({
   };
 
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
+    if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return; }
     const mapped = mapPaymentMethod(paymentMethod);
     setLastPaymentMethod(mapped);
     socket.emit('pay_items', {
@@ -2586,7 +2587,7 @@ export default function Dashboard({
 
   const confirmRemoval = () => {
     if (!itemToRemove) return;
-    
+    if (needsCaixa) { toast.error('Abra um caixa para remover itens.'); setCashRegisterPickerOpen(true); return; }
     socket.emit('remove_item', {
       orderId: itemToRemove.orderId,
       itemId: itemToRemove.item.id,
@@ -2636,6 +2637,7 @@ export default function Dashboard({
 
   const handleAddItem = (tableId: number, item: any) => {
     if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
+    if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(item)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
@@ -2758,6 +2760,7 @@ export default function Dashboard({
 
   const confirmQuantitySelection = () => {
     if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
+    if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(selectedQuantityItem)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
       toast.error('O caixa está fechado. Abra o caixa para adicionar itens.');
