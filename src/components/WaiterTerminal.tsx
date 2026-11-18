@@ -79,10 +79,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   // Fila de alertas "Chama Garçom" — suporta múltiplas mesas simultâneas
   const [callAlertQueue, setCallAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
   const callAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const callVibIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   // Fila de alertas "Pedir Conta"
   const [billAlertQueue, setBillAlertQueue] = useState<{ tableId: number; id: string }[]>([]);
   const billAudiosRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const billVibIntervalsRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   const dismissBillAlert = useCallback((id: string) => {
     setBillAlertQueue(prev => prev.filter(a => a.id !== id));
@@ -91,6 +93,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       if ((audio as any)._replayHandler) audio.removeEventListener('ended', (audio as any)._replayHandler);
       audio.pause(); audio.currentTime = 0; billAudiosRef.current.delete(id);
     }
+    const vibInt = billVibIntervalsRef.current.get(id);
+    if (vibInt !== undefined) { clearInterval(vibInt); billVibIntervalsRef.current.delete(id); }
+    if (navigator.vibrate) navigator.vibrate(0);
   }, []);
 
   const dismissCallAlert = useCallback((id: string) => {
@@ -100,13 +105,20 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       if ((audio as any)._replayHandler) audio.removeEventListener('ended', (audio as any)._replayHandler);
       audio.pause(); audio.currentTime = 0; callAudiosRef.current.delete(id);
     }
+    const vibInt = callVibIntervalsRef.current.get(id);
+    if (vibInt !== undefined) { clearInterval(vibInt); callVibIntervalsRef.current.delete(id); }
+    if (navigator.vibrate) navigator.vibrate(0);
   }, []);
 
   useEffect(() => {
     const handler = ({ tableId }: { tableId: number }) => {
       const id = `call-${tableId}-${Date.now()}`;
       setCallAlertQueue(prev => [...prev, { tableId, id }]);
-      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+        const vibInt = setInterval(() => { try { navigator.vibrate([500, 200, 500, 200, 500]); } catch {} }, 1500);
+        callVibIntervalsRef.current.set(id, vibInt);
+      }
       const audio = new Audio('/sounds/call-waiter.mp3');
       audio.loop = true;
       // fallback: re-play on 'ended' for browsers that ignore loop on short clips
@@ -124,7 +136,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     const handler = ({ tableId }: { tableId: number }) => {
       const id = `bill-${tableId}-${Date.now()}`;
       setBillAlertQueue(prev => [...prev, { tableId, id }]);
-      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+        const vibInt = setInterval(() => { try { navigator.vibrate([500, 200, 500, 200, 500]); } catch {} }, 1500);
+        billVibIntervalsRef.current.set(id, vibInt);
+      }
       const audio = new Audio('/sounds/call-waiter.mp3');
       audio.loop = true;
       const replay = () => { try { audio.currentTime = 0; audio.play().catch(() => {}); } catch {} };

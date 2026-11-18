@@ -829,7 +829,11 @@ export default function Dashboard({
     const handler = ({ tableId }: { tableId: number }) => {
       addCallNotification(tableId);
       setCallingTables(prev => new Set(prev).add(tableId));
-      if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+      if (navigator.vibrate) {
+        navigator.vibrate([500, 200, 500, 200, 500]);
+        if (callingVibIntervalRef.current) clearInterval(callingVibIntervalRef.current);
+        callingVibIntervalRef.current = setInterval(() => { try { navigator.vibrate([500, 200, 500, 200, 500]); } catch {} }, 1500);
+      }
       try {
         if (callingAudioRef.current) { callingAudioRef.current.pause(); }
         const audio = new Audio('/sounds/call-waiter.mp3');
@@ -877,6 +881,7 @@ export default function Dashboard({
   const [callingTables, setCallingTables] = useState<Set<number>>(new Set());
   const [callingTablePopup, setCallingTablePopup] = useState<number | null>(null);
   const callingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const callingVibIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Drag & drop de transferência de mesa
   const [stockLowAlerts, setStockLowAlerts] = useState<{ name: string; quantity: number; minQuantity: number }[]>([]);
@@ -10625,7 +10630,7 @@ export default function Dashboard({
                 <p className="text-xs text-[#141414]/50 mt-1">O cliente solicitou atendimento</p>
               </div>
               <button
-                onClick={() => { if (callingAudioRef.current) { callingAudioRef.current.pause(); callingAudioRef.current = null; } setCallingTablePopup(prev => { setCallingTables(s => { const ns = new Set(s); ns.delete(prev!); return ns; }); return null; }); }}
+                onClick={() => { if (callingAudioRef.current) { callingAudioRef.current.pause(); callingAudioRef.current = null; } if (callingVibIntervalRef.current) { clearInterval(callingVibIntervalRef.current); callingVibIntervalRef.current = null; } if (navigator.vibrate) navigator.vibrate(0); setCallingTablePopup(prev => { setCallingTables(s => { const ns = new Set(s); ns.delete(prev!); return ns; }); return null; }); }}
                 className="w-full py-3 rounded-xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:opacity-80 transition-opacity"
               >
                 OK — Já vou atender
