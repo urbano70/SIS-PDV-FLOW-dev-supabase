@@ -24,6 +24,7 @@ interface FirebaseContextType {
   canMutate: () => boolean;
   currentWaiter: Waiter | null;
   activeCashRegisterName: string | null;
+  openCashRegisterNames: string[];
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
   updatePizzeriaConfig: (config: PizzeriaConfig) => void;
   optimisticAddItemToOrder: (orderId: string | number, item: any) => void;
@@ -118,6 +119,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const [activeCashRegisterName, setActiveCashRegisterName] = useState<string | null>(() =>
     readActiveCashRegisterName(normalizedTenantId)
   );
+  const [openCashRegisterNames, setOpenCashRegisterNames] = useState<string[]>([]);
 
   // These refs intentionally survive renders but are reset when the tenant scope changes.
   // A reconnect never clears the visible state; it only blocks pre-ready updates until a
@@ -305,6 +307,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         }
       }
       if (data.isCashRegisterOpen !== undefined) { setIsCashRegisterOpen(data.isCashRegisterOpen); cachePatch.isCashRegisterOpen = data.isCashRegisterOpen; }
+      if (Array.isArray(data.openCashRegisterNames)) setOpenCashRegisterNames(data.openCashRegisterNames);
       if (data.pizzariaConfig) {
         const config = { ...data.pizzariaConfig };
         setPizzeriaConfig(config);
@@ -449,6 +452,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('update_comandas', handleUpdateComandas);
     socket.on('update_cash_register', handleUpdateCashRegister);
     socket.on('update_my_cash_register_name', handleUpdateMyCashRegisterName);
+    socket.on('update_open_cash_register_names', setOpenCashRegisterNames);
     socket.on('update_pizzaria_config', handleUpdatePizzeriaConfig);
     socket.on('update_shift_started_at', handleUpdateShiftStartedAt);
     socket.on('update_menu', handleUpdateMenu);
@@ -479,6 +483,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('update_comandas', handleUpdateComandas);
       socket.off('update_cash_register', handleUpdateCashRegister);
       socket.off('update_my_cash_register_name', handleUpdateMyCashRegisterName);
+      socket.off('update_open_cash_register_names', setOpenCashRegisterNames);
       socket.off('update_pizzaria_config', handleUpdatePizzeriaConfig);
       socket.off('update_shift_started_at', handleUpdateShiftStartedAt);
       socket.off('update_menu', handleUpdateMenu);
@@ -524,6 +529,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       canMutate,
       currentWaiter,
       activeCashRegisterName,
+      openCashRegisterNames,
       updateTableStatusLocal,
       updatePizzeriaConfig,
       clockOffset,

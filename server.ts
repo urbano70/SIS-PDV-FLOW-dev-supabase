@@ -1250,6 +1250,7 @@ async function startServer() {
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
           pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
           isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
+          openCashRegisterNames: getOpenCashRegisterNames(st.openCashRegisters),
           pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
           printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
         });
@@ -1356,6 +1357,7 @@ async function startServer() {
       if (JSON.stringify(releasedCashRegisters) !== JSON.stringify(stDis.openCashRegisters)) {
         stDis.openCashRegisters = releasedCashRegisters;
         saveToSupabase('config', cashRegisterConfigPatch(stDis), 'app', tenantId).catch(() => {});
+        io.to(tenantId).emit('update_open_cash_register_names', getOpenCashRegisterNames(releasedCashRegisters));
       }
       if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
@@ -1518,6 +1520,7 @@ async function startServer() {
         stock: defSt.stock, stockLog: defSt.stockLog, menu: defSt.menu,
         pizzaFlavors: defSt.pizzaFlavors, pizzaCrusts: defSt.pizzaCrusts, pizzaSizes: defSt.pizzaSizes,
         isCashRegisterOpen: defSt.isCashRegisterOpen, shiftStartedAt: defSt.shiftStartedAt,
+        openCashRegisterNames: getOpenCashRegisterNames(defSt.openCashRegisters),
         pizzariaConfig: defSt.pizzariaConfig, firebaseActive: !!db,
         printerAgentOnline: !!(defSt.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
       });
@@ -1561,6 +1564,7 @@ async function startServer() {
           stock: st.stock, stockLog: st.stockLog, menu: st.menu,
           pizzaFlavors: st.pizzaFlavors, pizzaCrusts: st.pizzaCrusts, pizzaSizes: st.pizzaSizes,
           isCashRegisterOpen: st.isCashRegisterOpen, shiftStartedAt: st.shiftStartedAt,
+          openCashRegisterNames: getOpenCashRegisterNames(st.openCashRegisters),
           pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
           printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
         };
@@ -1931,6 +1935,7 @@ async function startServer() {
       }
 
       io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
+      io.to(_room()).emit("update_open_cash_register_names", getOpenCashRegisterNames(_st().openCashRegisters));
       if (cashRegisterName !== undefined) {
         socket.emit("update_my_cash_register_name", isOpen ? cashRegisterName : null);
       }
@@ -2816,6 +2821,7 @@ async function startServer() {
         if (!order.paymentLog) order.paymentLog = [];
 
         const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? null;
+        const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
 
         const itemIds = Object.keys(selectedItems || {});
         const isPartialOnly = itemIds.length === 0;
@@ -2830,6 +2836,7 @@ async function startServer() {
           };
           if (payerName && typeof payerName === 'string') payment.payer = payerName.trim();
           if (cashRegisterAtPayment) payment.cashRegister = cashRegisterAtPayment;
+          if (waiterAtPayment) payment.closedByWaiter = waiterAtPayment;
           order.paymentLog.push(payment);
         } else if (itemIds.length > 0) {
           const activeItemsForTotal = (order.items || []).filter(i => !i.removed);
@@ -2852,6 +2859,7 @@ async function startServer() {
           };
           if (payerName && typeof payerName === 'string') itemPayment.payer = payerName.trim();
           if (cashRegisterAtPayment) itemPayment.cashRegister = cashRegisterAtPayment;
+          if (waiterAtPayment) itemPayment.closedByWaiter = waiterAtPayment;
           order.paymentLog.push(itemPayment);
           
           itemIds.forEach(itemId => {
