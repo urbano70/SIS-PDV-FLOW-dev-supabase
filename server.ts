@@ -1937,6 +1937,7 @@ async function startServer() {
       io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
       io.to(_room()).emit("update_open_cash_register_names", getOpenCashRegisterNames(_st().openCashRegisters));
       if (cashRegisterName !== undefined) {
+        (socket as any).activeCashRegisterName = isOpen ? cashRegisterName : null;
         socket.emit("update_my_cash_register_name", isOpen ? cashRegisterName : null);
       }
       await saveToSupabase('config', cashRegisterConfigPatch(_st(), { updatedAt: new Date().toISOString() }), 'app', _tid());
@@ -2820,7 +2821,7 @@ async function startServer() {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
         if (!order.paymentLog) order.paymentLog = [];
 
-        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (fromAdmin ? "ADM" : null);
+        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (socket as any).activeCashRegisterName ?? (fromAdmin ? "ADM" : null);
         const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
 
         const itemIds = Object.keys(selectedItems || {});
