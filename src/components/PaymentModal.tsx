@@ -987,18 +987,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm overflow-hidden max-h-48 md:max-h-64 shrink-0">
-                  <div className="flex justify-between items-center pb-3 border-b border-[#141414]/5 shrink-0">
-                    <span className="font-serif italic text-lg">Formas de Pagamento</span>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[10px] uppercase font-bold opacity-40">Restante:</span>
-                      <span className={`text-base md:text-lg font-bold ${remaining > 0.01 ? 'text-red-500' : 'text-green-600'}`}>
-                        R$ {Math.abs(remaining).toFixed(2)}
-                      </span>
-                    </div>
+                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm shrink-0">
+                  <div className="pb-2 border-b border-[#141414]/5 shrink-0">
+                    <span className="font-serif italic text-sm uppercase tracking-wide opacity-60">Formas de Pagamento</span>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto pr-1 md:pr-2 py-2 grid grid-cols-2 md:grid-cols-4 gap-2 content-start">
+                  <div className="pt-3 grid grid-cols-2 md:grid-cols-4 gap-2.5">
                     {(['Crédito', 'Débito', 'PIX', 'Dinheiro'] as PaymentMethod[]).map(method => {
                       const Icon = method === 'Crédito' || method === 'Débito' ? CreditCard : method === 'PIX' ? QrCode : Banknote;
                       const state = payments[method];
@@ -1007,7 +1001,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         <div
                           key={method}
                           ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
-                          className={`p-3 rounded-xl border-2 transition-all select-none flex flex-col ${
+                          className={`p-4 rounded-2xl border-2 transition-all select-none flex flex-col ${
                             state.enabled ? 'border-[#141414] bg-white shadow-sm' : 'border-[#141414]/5 bg-white/50 opacity-60'
                           }`}
                         >
@@ -1015,16 +1009,16 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                             <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`flex items-center space-x-2.5 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[48px]'}`}
+                              className={`flex items-center space-x-3 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[72px]'}`}
                             >
                               <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${
                                   state.enabled ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10 text-[#141414]/30 group-hover:border-[#141414]/30'
                                 }`}
                               >
-                                {state.enabled ? <Check size={16} /> : <Icon size={16} />}
+                                {state.enabled ? <Check size={20} /> : <Icon size={20} />}
                               </div>
-                              <span className={`font-bold text-sm truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
+                              <span className={`font-bold text-base truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
