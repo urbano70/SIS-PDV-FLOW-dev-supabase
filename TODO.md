@@ -46,6 +46,10 @@ Os itens concluídos correspondem à implementação e às evidências isoladas,
 - [ ] Confirmar publicação pelo identificador de build de servidor/frontend, sem confundir com PR criado.
 - [ ] Validar na sessão real dois operadores, KDS, reconexão, impressão e fluxo de pagamento/baixa.
 
+## Melhorias pendentes
+
+- [ ] **Sabores de pizza em ordem alfabética**: ordenar a lista de sabores (pizza_flavors) em ordem alfabética na tela de seleção do garçom/operador. Implementar apenas quando solicitado.
+
 ## Evidências
 
 Migração: 16 cenários SQL em banco descartável. Handlers, controles de permissão, catálogo reservado, turno/múltiplos caixas, HTTP, persistência, conexão, impressão, fechamento e atualização manual passaram nas suítes isoladas. Build passou; 13 diagnósticos TypeScript da linha de base, sem novos. Revisão independente concluída e bloqueios confirmados corrigidos. Não foram realizados pagamentos, emissão/cancelamento fiscal, login de operador ou impressão em hardware reais.
