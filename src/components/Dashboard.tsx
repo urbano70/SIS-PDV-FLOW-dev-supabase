@@ -1570,8 +1570,10 @@ export default function Dashboard({
                 const mc = p.method==='Dinheiro'?'#16a34a':p.method==='PIX'?'#2563eb':p.method==='Crédito'?'#7c3aed':'#ea580c';
                 const partial = p.type==='partial' ? `<span style="margin-left:6px;font-size:8px;background:#fef3c7;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:700">PARCIAL</span>` : '';
                 const payer = p.payer ? `<span style="margin-left:8px;font-size:11px;font-weight:700;color:#374151">${p.payer}</span>` : '';
+                const cashReg = p.cashRegister ? `<span style="margin-left:6px;font-size:8px;background:#dbeafe;color:#1d4ed8;padding:1px 4px;border-radius:3px;font-weight:700">Caixa: ${p.cashRegister}</span>` : '';
+                const closedBy = p.closedByWaiter ? `<span style="margin-left:6px;font-size:8px;background:#dcfce7;color:#15803d;padding:1px 4px;border-radius:3px;font-weight:700">Garçom: ${p.closedByWaiter}</span>` : '';
                 const pTime = new Date(p.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-                return `<tr style="background:#f0fdf4;border-top:1px solid #dcfce7"><td style="padding:3px 12px 3px 24px;font-size:11px"><span style="color:${mc};font-weight:700">${p.method}</span>${partial}${payer}</td><td style="padding:3px 12px;font-size:10px;color:#888">${pTime}</td><td style="padding:3px 12px;text-align:right;font-family:monospace;font-size:11px;font-weight:700;color:#16a34a">R$ ${p.amount.toFixed(2)}</td></tr>`;
+                return `<tr style="background:#f0fdf4;border-top:1px solid #dcfce7"><td style="padding:3px 12px 3px 24px;font-size:11px"><span style="color:${mc};font-weight:700">${p.method}</span>${partial}${payer}${cashReg}${closedBy}</td><td style="padding:3px 12px;font-size:10px;color:#888">${pTime}</td><td style="padding:3px 12px;text-align:right;font-family:monospace;font-size:11px;font-weight:700;color:#16a34a">R$ ${p.amount.toFixed(2)}</td></tr>`;
               }).join('')
             : '';
           return `<tr style="background:#f9f9f9;border-top:1px solid #ddd"><td colspan="2" style="padding:6px 12px;font-size:11px;font-weight:700">#${o.id} &nbsp; ${oDate.toLocaleDateString('pt-BR')} ${oDate.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td><td style="padding:6px 12px;text-align:right;font-family:monospace;font-size:12px;font-weight:700;color:#16a34a">R$ ${oTotal.toFixed(2)}</td></tr>${items}${payments}`;
@@ -5409,6 +5411,8 @@ export default function Dashboard({
                                                           }`}>{p.method}</span>
                                                           {p.type==='partial' && <span className="inline-block px-1 py-0.5 rounded text-[8px] font-bold bg-amber-100 text-amber-700 mr-1.5">PARCIAL</span>}
                                                           {p.payer && <span className="text-[10px] opacity-40">{p.payer}</span>}
+                                                          {p.cashRegister && <span className="inline-block px-1 py-0.5 rounded text-[8px] font-bold bg-blue-100 text-blue-700 ml-1">Cx: {p.cashRegister}</span>}
+                                                          {p.closedByWaiter && <span className="inline-block px-1 py-0.5 rounded text-[8px] font-bold bg-green-100 text-green-700 ml-1">Gç: {p.closedByWaiter}</span>}
                                                         </td>
                                                         <td className="py-1 px-3 text-[10px] opacity-40">{new Date(p.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</td>
                                                         <td className="py-1 px-3 text-right font-mono text-[11px] font-bold text-green-700 whitespace-nowrap">R$ {p.amount.toFixed(2)}</td>
@@ -8566,6 +8570,12 @@ export default function Dashboard({
                                   </div>
                                   {p.payer && (
                                     <p className="text-[11px] font-bold text-[#141414]/80 mt-0.5">{p.payer}</p>
+                                  )}
+                                  {(p.cashRegister || p.closedByWaiter) && (
+                                    <div className="flex flex-wrap gap-1 mt-0.5">
+                                      {p.cashRegister && <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">Caixa: {p.cashRegister}</span>}
+                                      {p.closedByWaiter && <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">Garçom: {p.closedByWaiter}</span>}
+                                    </div>
                                   )}
                                   <span className="text-[9px] opacity-40">{new Date(p.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
