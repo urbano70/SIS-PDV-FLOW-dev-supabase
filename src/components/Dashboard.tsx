@@ -1962,18 +1962,50 @@ export default function Dashboard({
     });
     const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
 
-    // Totais por método de pagamento
+    // Verifica se já existem pagamentos com cashRegister atribuído (feature nova)
+    const hasAttributedPayments = finishedOrders.some((o: any) =>
+      (o.paymentLog || []).some((p: any) => p.cashRegister)
+    );
+    // Filtra por caixa apenas quando há dados de atribuição e um caixa identificado
+    const useCaixaFilter = registerName !== '-' && hasAttributedPayments;
+
+    const caixaPayments = useCaixaFilter
+      ? finishedOrders.flatMap((o: any) =>
+          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.cashRegister === registerName)
+        )
+      : finishedOrders.flatMap((o: any) => (o.paymentLog || o.partialPayments || []));
+
+    // Pagamentos de garçons sem caixa atribuído (exibidos como informação separada)
+    const waiterPayments = useCaixaFilter
+      ? finishedOrders.flatMap((o: any) =>
+          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.closedByWaiter && !p.cashRegister)
+        )
+      : [];
+
+    // Pedidos com pelo menos um pagamento deste caixa (para itens/categorias)
+    const caixaOrders = useCaixaFilter
+      ? finishedOrders.filter((o: any) =>
+          (o.paymentLog || []).some((p: any) => p.cashRegister === registerName)
+        )
+      : finishedOrders;
+
+    // Totais por método de pagamento (deste caixa)
     const methodTotals: Record<string, number> = {};
-    finishedOrders.forEach((o: any) => {
-      (o.paymentLog || o.partialPayments || []).forEach((p: any) => {
-        const m = (p.method || 'Outros').trim();
-        methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
-      });
+    caixaPayments.forEach((p: any) => {
+      const m = (p.method || 'Outros').trim();
+      methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
     });
 
-    // Totais por produto
+    // Totais de garçons (informativo)
+    const waiterMethodTotals: Record<string, number> = {};
+    waiterPayments.forEach((p: any) => {
+      const m = (p.method || 'Outros').trim();
+      waiterMethodTotals[m] = (waiterMethodTotals[m] || 0) + (p.amount || 0);
+    });
+
+    // Totais por produto (pedidos deste caixa)
     const productTotals: Record<string, { qty: number; total: number }> = {};
-    finishedOrders.forEach((o: any) => {
+    caixaOrders.forEach((o: any) => {
       (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
         const k = i.name || 'Item';
         if (!productTotals[k]) productTotals[k] = { qty: 0, total: 0 };
@@ -1983,9 +2015,9 @@ export default function Dashboard({
       });
     });
 
-    // Totais por categoria
+    // Totais por categoria (pedidos deste caixa)
     const categoryTotals: Record<string, { qty: number; total: number }> = {};
-    finishedOrders.forEach((o: any) => {
+    caixaOrders.forEach((o: any) => {
       (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
         const cat = (i.type || 'outros').toUpperCase();
         if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
@@ -1995,12 +2027,13 @@ export default function Dashboard({
     });
 
     const totalBruto = Object.values(productTotals).reduce((s, v) => s + v.total, 0);
-    const totalDesc  = finishedOrders.reduce((s: number, o: any) => {
+    const totalDesc  = caixaOrders.reduce((s: number, o: any) => {
       const disc = o.discount ? (o.discountType === 'percentage' ? totalBruto * o.discount / 100 : o.discount) : 0;
       return s + disc;
     }, 0);
     const totalLiq   = totalBruto - totalDesc;
     const totalPaid  = Object.values(methodTotals).reduce((s, v) => s + v, 0);
+    const totalWaiterPaid = Object.values(waiterMethodTotals).reduce((s, v) => s + v, 0);
 
     const now = new Date();
     const registerName = activeCashRegisterName || pendingCloseRegisterName || '-';
@@ -2059,6 +2092,17 @@ export default function Dashboard({
     ln();
     bold(true); payRow('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ',')); bold(false);
     lf();
+
+    // Pagamentos de garçons (informativo, apenas no modo multi-caixa)
+    if (waiterPayments.length > 0) {
+      secTitle('PAGAMENTOS GARCONS');
+      bold(true); payRow('Metodo', 'Total'); bold(false);
+      ln();
+      Object.entries(waiterMethodTotals).sort((a, b) => b[1] - a[1]).forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
+      ln();
+      bold(true); payRow('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ',')); bold(false);
+      lf();
+    }
 
     // Itens vendidos
     secTitle('ITENS VENDIDOS');
@@ -2133,6 +2177,15 @@ export default function Dashboard({
       add(dash);
       fbPay('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ','));
       add('');
+      if (waiterPayments.length > 0) {
+        add('===== PAGAMENTOS GARCONS =====');
+        fbPay('Metodo', 'Total');
+        add(dash);
+        Object.entries(waiterMethodTotals).sort((a,b)=>b[1]-a[1]).forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
+        add(dash);
+        fbPay('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ','));
+        add('');
+      }
       add('===== ITENS VENDIDOS =====');
       fb3('Produto', 'Qtde', 'Total');
       add(dash);
