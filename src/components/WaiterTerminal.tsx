@@ -1533,7 +1533,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-3">
-                    {pizzaFlavors.map((flavor, idx) => {
+                    {[...pizzaFlavors].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')).map((flavor, idx) => {
                       const flavorCount = selectedFlavors.filter(f => f.name === flavor.name).length;
                       const isSelected = flavorCount > 0;
                       return (
