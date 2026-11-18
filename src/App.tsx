@@ -34,6 +34,7 @@ import FinanceiroDashboard from './pages/FinanceiroDashboard';
 import AttendancePage from './pages/AttendancePage';
 import { ChamarGarcomPage } from './pages/ChamarGarcomPage';
 import { ClientePage } from './pages/ClientePage';
+import DashboardLockScreen from './components/DashboardLockScreen';
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -497,9 +498,14 @@ function PlaygroundRoute() {
   return <PlaygroundTerminal tenantId={tenantId} buildId={__BUILD_ID__} />;
 }
 
+const PDV_UNLOCKED_KEY = 'pdv_session_unlocked';
+
 export default function App() {
   const [ownerUser, setOwnerUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dashboardLocked, setDashboardLocked] = useState(() => {
+    try { return sessionStorage.getItem(PDV_UNLOCKED_KEY) !== '1'; } catch { return false; }
+  });
 
   useEffect(() => {
     // Load cached session first (fast), then refresh metadata from server
@@ -547,9 +553,19 @@ export default function App() {
           path="/app/*"
           element={
             ownerUser ? (
-              <FirebaseProvider tenantId={ownerUser.id} isWaiterMode={false}>
-                <AppContent ownerUser={ownerUser} />
-              </FirebaseProvider>
+              dashboardLocked ? (
+                <DashboardLockScreen
+                  ownerEmail={ownerUser.email}
+                  onUnlock={() => {
+                    try { sessionStorage.setItem(PDV_UNLOCKED_KEY, '1'); } catch {}
+                    setDashboardLocked(false);
+                  }}
+                />
+              ) : (
+                <FirebaseProvider tenantId={ownerUser.id} isWaiterMode={false}>
+                  <AppContent ownerUser={ownerUser} />
+                </FirebaseProvider>
+              )
             ) : (
               <Navigate to="/login" replace />
             )
