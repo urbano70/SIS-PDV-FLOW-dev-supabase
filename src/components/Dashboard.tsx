@@ -814,7 +814,7 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, data: { shiftStartedAt } } = useFirebase();
+  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, data: { shiftStartedAt } } = useFirebase();
   // Mantém requests públicos/externalizados no fetch nativo e autentica apenas
   // a allowlist privada via fetchWithAdminAuth.
   const fetch = fetchWithAdminAuth;
@@ -1041,6 +1041,7 @@ export default function Dashboard({
   const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
+  const needsCaixa = isCashRegisterOpen && !activeCashRegisterName;
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
   const [newRegisterName, setNewRegisterName] = useState('');
   const [pickerNewName, setPickerNewName] = useState('');
@@ -2876,6 +2877,22 @@ export default function Dashboard({
 
   return (
     <div className="flex h-screen overflow-hidden relative">
+      {/* Gate: leitura quando caixa aberto em outro dispositivo */}
+      {needsCaixa && (
+        <div className="fixed bottom-0 left-0 right-0 z-[200] bg-amber-50 border-t-2 border-amber-300 px-4 py-3 flex items-center gap-3 shadow-lg">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-amber-800 leading-none mb-0.5">Painel em modo de visualização</p>
+            <p className="text-[10px] text-amber-700 leading-none truncate">Para realizar lançamentos ou alterações, abra seu caixa.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCashRegisterPickerOpen(true)}
+            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold uppercase px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Abrir Caixa
+          </button>
+        </div>
+      )}
       {/* Seed Progress Modal */}
       <AnimatePresence>
         {isSeedModalOpen && (
@@ -3428,7 +3445,7 @@ export default function Dashboard({
           </div>
         )}
 
-        {cashRegisterPickerOpen && !isCashRegisterOpen && (() => {
+        {cashRegisterPickerOpen && (!isCashRegisterOpen || needsCaixa) && (() => {
           const closePicker = () => {
             setCashRegisterPickerOpen(false);
             setPickerMode('list');
@@ -3475,12 +3492,21 @@ export default function Dashboard({
 
                 {pickerMode === 'list' && (
                   <>
-                    {(pizzariaConfig.cashRegisters ?? []).map((reg: any) => (
+                    {(pizzariaConfig.cashRegisters ?? [])
+                      .filter((reg: any) => !openCashRegisterNames.includes(reg.name))
+                      .map((reg: any) => (
                       <button key={reg.id} onClick={() => { setPickerSelectedReg(reg); setPickerPassword(''); setPickerMode('selected'); }} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2">
                         <Wallet size={10} className="text-[#141414]/40 shrink-0" />
                         <span className="flex-1 truncate">{reg.name}</span>
                         {reg.password && <Lock size={8} className="text-[#141414]/25 shrink-0" />}
                       </button>
+                    ))}
+                    {(pizzariaConfig.cashRegisters ?? []).filter((reg: any) => openCashRegisterNames.includes(reg.name)).map((reg: any) => (
+                      <div key={`open-${reg.id}`} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414]/30 flex items-center gap-2 cursor-not-allowed">
+                        <Wallet size={10} className="shrink-0" />
+                        <span className="flex-1 truncate">{reg.name}</span>
+                        <span className="text-[8px] text-amber-500 font-bold uppercase">Em uso</span>
+                      </div>
                     ))}
                     <div className="px-3 py-2.5 border-t border-[#141414]/5">
                       <button onClick={() => { setPickerMode('new'); setPickerNewName(''); setPickerPassword(''); setPickerConfirmPassword(''); }} className="w-full text-left text-[9px] font-bold text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors">
