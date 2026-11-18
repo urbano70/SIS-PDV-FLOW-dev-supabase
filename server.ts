@@ -2820,7 +2820,7 @@ async function startServer() {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
         if (!order.paymentLog) order.paymentLog = [];
 
-        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? null;
+        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (fromAdmin ? "ADM" : null);
         const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
 
         const itemIds = Object.keys(selectedItems || {});
