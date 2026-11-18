@@ -2815,13 +2815,13 @@ async function startServer() {
       }
     });
 
-    onTenantCommand("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin }) => {
+    onTenantCommand("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin, adminCashRegisterName }) => {
       const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       if (order) {
         console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
         if (!order.paymentLog) order.paymentLog = [];
 
-        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (socket as any).activeCashRegisterName ?? (fromAdmin ? "ADM" : null);
+        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (socket as any).activeCashRegisterName ?? adminCashRegisterName ?? (fromAdmin ? "ADM" : null);
         const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
 
         const itemIds = Object.keys(selectedItems || {});
