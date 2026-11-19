@@ -114,13 +114,18 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
     ? `<xNome>${esc(xNomeConsumidor.substring(0, 60))}</xNome>`
     : '';
 
-  // indIEDest: 1=contribuinte com IE, 2=isento, 9=não contribuinte / PF
+  // indIEDest: 1=contribuinte com IE, 2=isento (tag <IE>ISENTO</IE>), 9=não contribuinte/PF/IE vazia
+  const ieTrim = (ieDestinatario || '').trim();
   const indIEDest = cnpjConsumidor
-    ? (ieDestinatario && ieDestinatario.trim() && ieDestinatario.trim().toUpperCase() !== 'ISENTO' ? '1' : '2')
+    ? (ieTrim.toUpperCase() === 'ISENTO' ? '2'
+      : ieTrim ? '1'
+      : '9')
     : '9';
 
-  const ie = indIEDest === '1' && ieDestinatario
-    ? `<IE>${ieDestinatario.replace(/\D/g, '')}</IE>`
+  const ie = indIEDest === '1'
+    ? `<IE>${ieTrim.replace(/\D/g, '')}</IE>`
+    : indIEDest === '2'
+    ? `<IE>ISENTO</IE>`
     : '';
 
   const email = endDestinatario?.email
