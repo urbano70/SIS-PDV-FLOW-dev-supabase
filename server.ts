@@ -1946,6 +1946,27 @@ async function startServer() {
       saveCashRegisterReport(_tid(), isOpen ? 'open' : 'close', cashRegisterName ?? null, _st()).catch(() => {});
     }));
 
+    onTenantCommand("force_close_cash_register", requireAdmin(async (payload) => {
+      const cashRegisterName: string | undefined = typeof payload === 'object' && payload !== null ? payload.cashRegisterName : undefined;
+      if (!cashRegisterName) return;
+      const ownerSocketId = _st().openCashRegisters[cashRegisterName];
+      if (ownerSocketId) {
+        const ownerSocket = io.sockets.sockets.get(ownerSocketId);
+        if (ownerSocket?.connected) {
+          ownerSocket.emit("update_my_cash_register_name", null);
+          ownerSocket.emit("error_message", `O caixa "${cashRegisterName}" foi fechado remotamente pelo administrador.`);
+        }
+      }
+      const closedState = closeCashRegisterState(_st(), { cashRegisterName, socketId: ownerSocketId ?? socket.id });
+      _st().openCashRegisters = closedState.openCashRegisters;
+      _st().isCashRegisterOpen = closedState.isCashRegisterOpen;
+      io.to(_room()).emit("update_cash_register", _st().isCashRegisterOpen);
+      io.to(_room()).emit("update_open_cash_register_names", getOpenCashRegisterNames(_st().openCashRegisters));
+      await saveToSupabase('config', cashRegisterConfigPatch(_st(), { updatedAt: new Date().toISOString() }), 'app', _tid());
+      saveCashRegisterReport(_tid(), 'close', cashRegisterName, _st()).catch(() => {});
+      socket.emit("force_close_cash_register_ok", { cashRegisterName });
+    }));
+
     socket.on("get_cash_register_reports", requireAdmin(async (payload: { date?: string }) => {
       if (!db) { socket.emit("cash_register_reports_response", []); return; }
       try {
