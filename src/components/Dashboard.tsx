@@ -1059,6 +1059,26 @@ export default function Dashboard({
   const [auditDateStart, setAuditDateStart] = useState(() => new Date().toISOString().split('T')[0]);
   const [auditDateEnd, setAuditDateEnd] = useState(() => new Date().toISOString().split('T')[0]);
   const [auditTypeFilter, setAuditTypeFilter] = useState('all');
+
+  // NF-e modal states
+  const [nfeModalOpen, setNfeModalOpen] = useState(false);
+  const [nfeOrderId, setNfeOrderId] = useState<string | null>(null);
+  const [nfePagamento, setNfePagamento] = useState('dinheiro');
+  const [nfeTipo, setNfeTipo] = useState<'pf' | 'pj'>('pf');
+  const [nfeCpfCnpj, setNfeCpfCnpj] = useState('');
+  const [nfeNome, setNfeNome] = useState('');
+  const [nfeIe, setNfeIe] = useState('');
+  const [nfeEmail, setNfeEmail] = useState('');
+  const [nfeLogradouro, setNfeLogradouro] = useState('');
+  const [nfeNumero, setNfeNumero] = useState('');
+  const [nfeBairro, setNfeBairro] = useState('');
+  const [nfeMunicipio, setNfeMunicipio] = useState('');
+  const [nfeUf, setNfeUf] = useState('');
+  const [nfeCep, setNfeCep] = useState('');
+  const [nfeTelefone, setNfeTelefone] = useState('');
+  const [nfeCnpjLoading, setNfeCnpjLoading] = useState(false);
+  const [nfeLoading, setNfeLoading] = useState(false);
+
   const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
   // Sincroniza estado local quando dados do servidor chegam
@@ -2305,6 +2325,79 @@ export default function Dashboard({
     }
   };
 
+  const buscarCnpj = async () => {
+    const cnpj = nfeCpfCnpj.replace(/\D/g, '');
+    if (cnpj.length !== 14) { toast.error('CNPJ inválido'); return; }
+    setNfeCnpjLoading(true);
+    try {
+      const r = await fetch(`/api/fiscal/cnpj/${cnpj}`, {
+        headers: { 'x-tenant-id': tenantId || '', 'x-admin-token': (window as any).__adminToken || '' },
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'Falha ao buscar CNPJ'); return; }
+      setNfeNome(d.razaoSocial || '');
+      setNfeLogradouro(d.logradouro || '');
+      setNfeNumero(d.numero || '');
+      setNfeBairro(d.bairro || '');
+      setNfeMunicipio(d.municipio || '');
+      setNfeUf(d.uf || '');
+      setNfeCep(d.cep || '');
+      setNfeTelefone(d.telefone || '');
+      setNfeEmail(d.email || '');
+      toast.success('Dados importados da Receita Federal');
+    } catch (e: any) {
+      toast.error('Erro ao buscar CNPJ: ' + e.message);
+    } finally {
+      setNfeCnpjLoading(false);
+    }
+  };
+
+  const emitirNfe = async () => {
+    if (!nfeOrderId || !tenantId) return;
+    setNfeLoading(true);
+    try {
+      const r = await fetch(`/api/fiscal/nfe/${nfeOrderId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-tenant-id': tenantId,
+          'x-admin-token': (window as any).__adminToken || '',
+        },
+        body: JSON.stringify({
+          tenantId,
+          pagamento: nfePagamento,
+          destinatario: {
+            tipo: nfeTipo,
+            cpfCnpj: nfeCpfCnpj.replace(/\D/g, '') || undefined,
+            nome: nfeNome || undefined,
+            ie: nfeIe || undefined,
+            email: nfeEmail || undefined,
+            logradouro: nfeLogradouro || undefined,
+            numero: nfeNumero || undefined,
+            bairro: nfeBairro || undefined,
+            municipio: nfeMunicipio || undefined,
+            uf: nfeUf || undefined,
+            cep: nfeCep.replace(/\D/g, '') || undefined,
+            telefone: nfeTelefone.replace(/\D/g, '') || undefined,
+          },
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'Falha ao emitir NF-e'); return; }
+      if (d.status === 'AUTORIZADO' || d.status === 'AUTORIZADO_COM_ALERTA') {
+        toast.success(`NF-e autorizada! Protocolo: ${d.protocolo || ''}`);
+        if (d.urlDanfe) window.open(d.urlDanfe, '_blank');
+        setNfeModalOpen(false);
+      } else {
+        toast.error(`NF-e ${d.status}: ${d.xMotivo || d.error || ''}`);
+      }
+    } catch (e: any) {
+      toast.error('Falha ao emitir NF-e: ' + e.message);
+    } finally {
+      setNfeLoading(false);
+    }
+  };
+
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return; }
     const mapped = mapPaymentMethod(paymentMethod);
@@ -3046,6 +3139,130 @@ export default function Dashboard({
           </div>
         </div>
       )}
+
+      {/* Modal NF-e */}
+      <AnimatePresence>
+        {nfeModalOpen && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={e => { if (e.target === e.currentTarget && !nfeLoading) setNfeModalOpen(false); }}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+              <div className="bg-emerald-600 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="text-white" size={16} />
+                  <h2 className="text-white font-bold text-sm">Emitir NF-e</h2>
+                </div>
+                <button onClick={() => !nfeLoading && setNfeModalOpen(false)} className="text-white/80 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-4 space-y-3 max-h-[70vh] overflow-y-auto">
+                {/* Tipo de destinatário */}
+                <div className="flex gap-2">
+                  <button onClick={() => setNfeTipo('pf')}
+                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${nfeTipo === 'pf' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    Pessoa Física
+                  </button>
+                  <button onClick={() => setNfeTipo('pj')}
+                    className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${nfeTipo === 'pj' ? 'bg-emerald-600 text-white border-emerald-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+                    Pessoa Jurídica
+                  </button>
+                </div>
+                {/* CPF / CNPJ */}
+                <div>
+                  <label className="text-[9px] font-bold uppercase text-gray-500">{nfeTipo === 'pf' ? 'CPF (opcional)' : 'CNPJ *'}</label>
+                  <div className="flex gap-1 mt-0.5">
+                    <input value={nfeCpfCnpj} onChange={e => setNfeCpfCnpj(e.target.value)} placeholder={nfeTipo === 'pf' ? '000.000.000-00' : '00.000.000/0000-00'}
+                      className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                    {nfeTipo === 'pj' && (
+                      <button onClick={buscarCnpj} disabled={nfeCnpjLoading}
+                        className="px-2 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-200 disabled:opacity-50 transition-colors">
+                        {nfeCnpjLoading ? <div className="w-4 h-4 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" /> : <Search size={14} className="text-gray-600" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Nome / Razão Social */}
+                <div>
+                  <label className="text-[9px] font-bold uppercase text-gray-500">{nfeTipo === 'pf' ? 'Nome (opcional)' : 'Razão Social'}</label>
+                  <input value={nfeNome} onChange={e => setNfeNome(e.target.value)} placeholder={nfeTipo === 'pf' ? 'Nome completo' : 'Razão Social'}
+                    className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                </div>
+                {/* IE — apenas PJ */}
+                {nfeTipo === 'pj' && (
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Inscrição Estadual</label>
+                    <input value={nfeIe} onChange={e => setNfeIe(e.target.value)} placeholder="IE ou ISENTO"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                )}
+                {/* Endereço */}
+                <div className="grid grid-cols-3 gap-1">
+                  <div className="col-span-2">
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Logradouro</label>
+                    <input value={nfeLogradouro} onChange={e => setNfeLogradouro(e.target.value)} placeholder="Rua/Av."
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Número</label>
+                    <input value={nfeNumero} onChange={e => setNfeNumero(e.target.value)} placeholder="Nº"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Bairro</label>
+                    <input value={nfeBairro} onChange={e => setNfeBairro(e.target.value)} placeholder="Bairro"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">CEP</label>
+                    <input value={nfeCep} onChange={e => setNfeCep(e.target.value)} placeholder="00000-000"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <div className="col-span-2">
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Município</label>
+                    <input value={nfeMunicipio} onChange={e => setNfeMunicipio(e.target.value)} placeholder="Cidade"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">UF</label>
+                    <input value={nfeUf} onChange={e => setNfeUf(e.target.value.toUpperCase())} placeholder="MT" maxLength={2}
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                {/* Contato */}
+                <div className="grid grid-cols-2 gap-1">
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Telefone</label>
+                    <input value={nfeTelefone} onChange={e => setNfeTelefone(e.target.value)} placeholder="(00) 00000-0000"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">E-mail</label>
+                    <input value={nfeEmail} onChange={e => setNfeEmail(e.target.value)} placeholder="email@ex.com"
+                      className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                </div>
+                {/* Botões */}
+                <div className="flex gap-2 pt-1">
+                  <button disabled={nfeLoading} onClick={() => setNfeModalOpen(false)}
+                    className="flex-1 py-2 rounded-xl border border-gray-200 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
+                    Cancelar
+                  </button>
+                  <button disabled={nfeLoading} onClick={emitirNfe}
+                    className="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                    {nfeLoading ? 'Emitindo...' : <><FileText size={11} />Emitir NF-e</>}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Gate: leitura quando caixa aberto em outro dispositivo */}
       {needsCaixa && (
@@ -11064,6 +11281,21 @@ export default function Dashboard({
                     {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
                   </button>
                 </div>
+                <button disabled={nfcePostEmitting} onClick={() => {
+                    setNfcePostPayment(null);
+                    setNfcePostCpf('');
+                    setNfceConsolidar(false);
+                    setNfeOrderId(String(nfcePostPayment.orderId));
+                    setNfePagamento(nfcePostPayment.method || 'dinheiro');
+                    setNfeTipo('pf');
+                    setNfeCpfCnpj(''); setNfeNome(''); setNfeIe(''); setNfeEmail('');
+                    setNfeLogradouro(''); setNfeNumero(''); setNfeBairro('');
+                    setNfeMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
+                    setNfeModalOpen(true);
+                  }}
+                  className="w-full mt-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                  <FileText size={11} />Emitir NF-e
+                </button>
               </div>
             </motion.div>
           </motion.div>
