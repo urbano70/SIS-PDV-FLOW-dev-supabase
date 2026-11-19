@@ -132,8 +132,9 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
     : '';
 
   let ender = '';
-  if (endDestinatario?.logradouro) {
-    const cMun = endDestinatario.codigoMunicipio || '0000000';
+  // enderDest só é incluído quando há código IBGE válido (evita cMun=0000000)
+  if (endDestinatario?.logradouro && endDestinatario.codigoMunicipio && endDestinatario.codigoMunicipio !== '0000000') {
+    const cMun = endDestinatario.codigoMunicipio;
     const xMun = endDestinatario.municipio || 'NAO INFORMADO';
     const uf   = endDestinatario.uf || 'MT';
     const cep  = (endDestinatario.cep || '').replace(/\D/g, '').padEnd(8, '0');
