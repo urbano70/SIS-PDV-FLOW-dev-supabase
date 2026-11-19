@@ -150,7 +150,7 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
       `</enderDest>`;
   }
 
-  return `<dest>${id}${nome}${ender}${ie}<indIEDest>${indIEDest}</indIEDest>${email}</dest>`;
+  return `<dest>${id}${nome}${ender}<indIEDest>${indIEDest}</indIEDest>${ie}${email}</dest>`;
 }
 
 // ── Geração do XML NF-e ───────────────────────────────────────────────────────
