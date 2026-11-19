@@ -122,10 +122,9 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
       : '9')
     : '9';
 
+  // TIE aceita apenas [0-9]{2,14}; para indIEDest 2 e 9 não inclui a tag <IE>
   const ie = indIEDest === '1'
     ? `<IE>${ieTrim.replace(/\D/g, '')}</IE>`
-    : indIEDest === '2'
-    ? `<IE>ISENTO</IE>`
     : '';
 
   const email = endDestinatario?.email
