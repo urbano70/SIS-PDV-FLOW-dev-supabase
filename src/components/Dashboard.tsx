@@ -9815,13 +9815,24 @@ export default function Dashboard({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP</label>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP (dentro do Estado)</label>
                       <input
                         type="text"
                         maxLength={4}
                         value={(editingProduct.item as any).cfop || '5102'}
                         onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, cfop: e.target.value } as any })}
                         placeholder="Ex: 5102"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP (fora do Estado)</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={(editingProduct.item as any).cfopForaEstado || ''}
+                        onChange={(e) => setEditingProduct({ ...editingProduct, item: { ...editingProduct.item, cfopForaEstado: e.target.value } as any })}
+                        placeholder="Ex: 6102"
                         className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
                       />
                     </div>
@@ -10068,13 +10079,24 @@ export default function Dashboard({
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP</label>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP (dentro do Estado)</label>
                       <input
                         type="text"
                         maxLength={4}
                         value={(newProductData as any).cfop || '5102'}
                         onChange={(e) => setNewProductData({ ...newProductData, cfop: e.target.value } as any)}
                         placeholder="Ex: 5102"
+                        className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold opacity-50 mb-1 block">CFOP (fora do Estado)</label>
+                      <input
+                        type="text"
+                        maxLength={4}
+                        value={(newProductData as any).cfopForaEstado || ''}
+                        onChange={(e) => setNewProductData({ ...newProductData, cfopForaEstado: e.target.value } as any)}
+                        placeholder="Ex: 6102"
                         className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-3 font-bold outline-none focus:border-[#141414] text-sm"
                       />
                     </div>
