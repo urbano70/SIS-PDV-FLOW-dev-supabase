@@ -22,6 +22,14 @@ export interface ICMSTotais {
   vOutro: number; vNF: number; vTotTrib: number;
 }
 
+// NT 2026.010 — Reforma Tributária (IBS/CBS/IS)
+export interface IBSCBSTotais {
+  vCBS: number;    // W56 — Valor da CBS
+  vIBSUF: number;  // W41 — Valor do IBS UF
+  vIBSMun: number; // W46 — Valor do IBS Município
+  vIS: number;     // W33 — Valor do Imposto Seletivo
+}
+
 export interface ItemDanfeNFe {
   seq: number;
   codigo: string;
@@ -46,6 +54,7 @@ export interface DadosDanfeNFe {
   nomeFantasia?: string;
   cnpjFormatado: string;
   ie: string;
+  crt: string;
   enderecoCompleto: string;
   municipioUF: string;
   cepFormatado: string;
@@ -69,9 +78,20 @@ export interface DadosDanfeNFe {
   xNomeDest?: string;
   cnpjDestFormatado?: string;
   cpfDestFormatado?: string;
+  ieDest?: string;
+  endDest?: {
+    logradouro?: string;
+    numero?: string;
+    bairro?: string;
+    municipio?: string;
+    uf?: string;
+    cep?: string;
+    telefone?: string;
+  };
 
   // Totais
   totais: ICMSTotais;
+  ibscbs: IBSCBSTotais;
 
   // Itens
   itens: ItemDanfeNFe[];
@@ -190,11 +210,23 @@ export function extrairDadosDanfeNFe(intencao: IntencaoFiscal): DadosDanfeNFe {
 
   const totalPago = intencao.pagamentos.reduce((s, p) => s + p.vPag, 0);
 
+  // IBS/CBS/IS — NT 2026.010 (fase de teste em 2026, valores no XML futuro)
+  const g = (tag: string) => parseFloat(xmlTag(xml ?? '', tag) || '0') || 0;
+  const ibscbs: IBSCBSTotais = {
+    vCBS:    g('vCBS'),
+    vIBSUF:  g('vIBSUF'),
+    vIBSMun: g('vIBSMun'),
+    vIS:     g('vIS'),
+  };
+
+  const end = intencao.endDestinatario;
+
   return {
     razaoSocial:    emit.razaoSocial,
     nomeFantasia:   emit.nomeFantasia,
     cnpjFormatado:  fmtCnpj(emit.cnpj),
     ie:             emit.ie,
+    crt:            emit.crt,
     enderecoCompleto: `${emit.logradouro}, ${emit.numero}${emit.bairro ? ' - ' + emit.bairro : ''}`,
     municipioUF:    `${emit.municipio} - ${emit.uf}`,
     cepFormatado:   fmtCep(emit.cep),
@@ -215,8 +247,19 @@ export function extrairDadosDanfeNFe(intencao: IntencaoFiscal): DadosDanfeNFe {
     xNomeDest:        intencao.xNomeConsumidor,
     cnpjDestFormatado: intencao.cnpjConsumidor ? fmtCnpj(intencao.cnpjConsumidor) : undefined,
     cpfDestFormatado:  intencao.cpfConsumidor  ? fmtCpf(intencao.cpfConsumidor)   : undefined,
+    ieDest:           intencao.ieDestinatario,
+    endDest:          end ? {
+      logradouro: end.logradouro,
+      numero:     end.numero,
+      bairro:     end.bairro,
+      municipio:  end.municipio,
+      uf:         end.uf,
+      cep:        end.cep ? fmtCep(end.cep) : undefined,
+      telefone:   end.telefone,
+    } : undefined,
 
     totais,
+    ibscbs,
 
     itens: intencao.items.map((item, idx) => {
       const icms = icmsDoItem(item, emit.crt);
