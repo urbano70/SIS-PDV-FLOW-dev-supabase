@@ -158,6 +158,18 @@ function Cabecalho({ d }: { d: DadosDanfeNFe }) {
             </div>
           </td>
         </tr>
+        {/* Chave de acesso */}
+        <tr>
+          <td colSpan={3} style={{ ...CELL }}>
+            <span style={LBL}>Chave de Acesso</span>
+            <span style={{ fontSize: 8, fontFamily: 'Courier New, monospace', letterSpacing: '0.5px', display: 'block' }}>
+              {d.chaveAcessoFormatada}
+            </span>
+            <span style={{ fontSize: 6, color: '#333', display: 'block', marginTop: 1 }}>
+              Consulte a autenticidade em: {d.urlConsulta || 'www.sefaz.mt.gov.br'}
+            </span>
+          </td>
+        </tr>
       </tbody>
     </table>
   );
