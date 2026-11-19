@@ -4221,11 +4221,26 @@ async function startServer() {
     const {
       tenantId, pagamento,
       cnpjDestinatario, cpfDestinatario, xNomeDestinatario,
-      natOp,
+      natOp, destinatario,
     } = req.body as {
       tenantId: string; pagamento: string;
       cnpjDestinatario?: string; cpfDestinatario?: string; xNomeDestinatario?: string;
       natOp?: string;
+      destinatario?: {
+        tipo?: 'pf' | 'pj';
+        cpfCnpj?: string;
+        nome?: string;
+        ie?: string;
+        email?: string;
+        logradouro?: string;
+        numero?: string;
+        bairro?: string;
+        municipio?: string;
+        uf?: string;
+        cep?: string;
+        codigoMunicipio?: string;
+        telefone?: string;
+      };
     };
 
     if (!await requireAdminHttp(req, res, [tenantId])) return;
@@ -4285,6 +4300,12 @@ async function startServer() {
     }
     await sincronizarContador(tenantId, '55', serie, ambiente, highWaterMark, db ?? null);
 
+    // Destinatário: preferred from new 'destinatario' body field, fallback to legacy fields
+    const dest = destinatario || {};
+    const resolvedCnpj = dest.tipo === 'pj' ? (dest.cpfCnpj || cnpjDestinatario) : cnpjDestinatario;
+    const resolvedCpf  = dest.tipo === 'pf' ? (dest.cpfCnpj || cpfDestinatario)  : cpfDestinatario;
+    const resolvedNome = dest.nome || xNomeDestinatario;
+
     const items: ItemNota[] = (order.items || [])
       .filter((i: any) => !i.removed)
       .map((i: any, idx: number) => ({
@@ -4293,6 +4314,7 @@ async function startServer() {
         descricao: (i.name || 'Item').substring(0, 120),
         ncm: i.ncm || '21069090',
         cfop: i.cfop || '5102',
+        cfopForaEstado: i.cfopForaEstado || undefined,
         csosn: i.csosn || '400',
         cst: i.cst,
         unidade: i.unidade || 'UN',
@@ -4343,9 +4365,22 @@ async function startServer() {
       modelo: '55', ambiente, serie, tpEmis: '1',
       status: 'VALIDACAO_PENDENTE',
       emitente, items, pagamentos, total,
-      cnpjConsumidor: cnpjDestinatario?.replace(/\D/g, '') || undefined,
-      cpfConsumidor:  cpfDestinatario?.replace(/\D/g, '')  || undefined,
-      xNomeConsumidor: xNomeDestinatario || undefined,
+      cnpjConsumidor: resolvedCnpj?.replace(/\D/g, '') || undefined,
+      cpfConsumidor:  resolvedCpf?.replace(/\D/g, '')  || undefined,
+      xNomeConsumidor: resolvedNome || undefined,
+      ieDestinatario: dest.ie || undefined,
+      ufDestinatario: dest.uf || undefined,
+      endDestinatario: dest.logradouro ? {
+        logradouro: dest.logradouro,
+        numero: dest.numero,
+        bairro: dest.bairro,
+        municipio: dest.municipio,
+        uf: dest.uf,
+        cep: dest.cep,
+        codigoMunicipio: dest.codigoMunicipio,
+        telefone: dest.telefone,
+        email: dest.email,
+      } : undefined,
       observacoes: order.observations,
       hashPayload: createHash('sha256')
         .update(JSON.stringify({ orderId, items, total })).digest('hex'),
@@ -5290,6 +5325,34 @@ async function startServer() {
       .select('id,order_id,chave_acesso,qr_code,status,protocolo,total,ambiente,modelo,serie,numero,error_detail,cstat,xmotivo,created_at')
       .eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(50);
     return res.json({ notes: data || [] });
+  });
+
+  // GET /api/fiscal/cnpj/:cnpj — consulta CNPJ via BrasilAPI (proxy para evitar CORS no browser)
+  app.get("/api/fiscal/cnpj/:cnpj", async (req, res) => {
+    const rawCnpj = req.params.cnpj.replace(/\D/g, '');
+    if (rawCnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido' });
+    if (!await requireAdminHttp(req, res, [], false)) return;
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${rawCnpj}`);
+      if (!r.ok) return res.status(r.status).json({ error: `BrasilAPI retornou ${r.status}` });
+      const data = await r.json() as any;
+      return res.json({
+        cnpj: rawCnpj,
+        razaoSocial: data.razao_social || data.nome || '',
+        nomeFantasia: data.nome_fantasia || '',
+        situacao: data.descricao_situacao_cadastral || '',
+        logradouro: data.logradouro || '',
+        numero: data.numero || '',
+        bairro: data.bairro || '',
+        municipio: data.municipio || '',
+        uf: data.uf || '',
+        cep: (data.cep || '').replace(/\D/g, ''),
+        telefone: data.ddd_telefone_1 ? `${data.ddd_telefone_1}${data.telefone_1 || ''}`.replace(/\D/g, '') : '',
+        email: data.email || '',
+      });
+    } catch (e: any) {
+      return res.status(502).json({ error: `Falha ao consultar BrasilAPI: ${e.message}` });
+    }
   });
 
   // GET /api/backup/list — lista backups disponíveis no Storage
