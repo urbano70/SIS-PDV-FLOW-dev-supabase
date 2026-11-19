@@ -7043,7 +7043,7 @@ export default function Dashboard({
                       <button title="Preenche o banco de dados com os dados iniciais do sistema (mesas, cardápio padrão, configurações). Use apenas na configuração inicial ou para resetar o ambiente de testes." onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
                         <Database size={10} /><span className="text-[7px] font-bold uppercase">Seed DB</span>
                       </button>
-                      <button onClick={() => { setAuditModal(true); setAuditLoading(true); socket.emit('get_audit_log', { startDate: auditDateStart, endDate: auditDateEnd }); }} className="flex items-center justify-center space-x-1 py-1.5 bg-slate-50 text-slate-700 rounded-lg border border-slate-200 hover:bg-slate-100 transition-all active:scale-95 col-span-full">
+                      <button onClick={() => { setAuditModal(true); setAuditLoading(true); socket.emit('get_audit_log', { startDate: auditDateStart, endDate: auditDateEnd }); }} className="flex items-center justify-center space-x-1 py-1.5 bg-slate-50 text-slate-700 rounded-lg border border-slate-200 hover:bg-slate-100 transition-all active:scale-95">
                         <FileText size={10} /><span className="text-[7px] font-bold uppercase">Auditoria</span>
                       </button>
                     </div>
