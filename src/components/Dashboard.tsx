@@ -9095,6 +9095,7 @@ export default function Dashboard({
                         }
                         const _pl = order.paymentLog || []; const orderPayment = mapPaymentMethod(_pl[_pl.length - 1]?.method);
                         return (
+                          <>
                           <button
                             onClick={() => {
                               const total = (order.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
@@ -9112,7 +9113,6 @@ export default function Dashboard({
                           </button>
                           <button
                             onClick={() => {
-                              const _pl = order.paymentLog || [];
                               const _pm = mapPaymentMethod(_pl[_pl.length - 1]?.method) || 'dinheiro';
                               setNfeOrderId(String(order.id));
                               setNfePagamento(_pm);
@@ -9123,6 +9123,7 @@ export default function Dashboard({
                             <FileText size={13} />
                             Emitir NF-e
                           </button>
+                          </>
                         );
                       })()}
                     </div>
