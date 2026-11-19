@@ -813,8 +813,17 @@ async function startServer() {
       if (sRes.data) {
         const allItems = sRes.data.map(rowToStock);
         if (st.menu.length > 0) {
-          const trackedIds = new Set(st.menu.flatMap((c: any) => c.items || []).filter((i: any) => i.trackStock).map((i: any) => i.id));
+          const trackedMenuItems = st.menu.flatMap((c: any) => [...(c.items || []), ...(c.subcategories || []).flatMap((s: any) => s.items || [])]).filter((i: any) => i.trackStock);
+          const trackedIds = new Set(trackedMenuItems.map((i: any) => i.id));
           st.stock = allItems.filter((s: any) => trackedIds.has(s.menuItemId));
+          // reconcile: create missing stock rows for tracked items that have no Supabase entry
+          const stockIds = new Set(st.stock.map((s: any) => s.menuItemId));
+          const missing = trackedMenuItems.filter((i: any) => !stockIds.has(i.id));
+          if (missing.length > 0 && db) {
+            const fixedRows = missing.map((i: any) => ({ id: `${tenantId}:${i.id}`, menu_item_id: i.id, name: i.name || '', quantity: 0, min_quantity: 0, unit: 'un', history: [], tenant_id: tenantId }));
+            db.from('stock').upsert(fixedRows).then().catch(() => {});
+            st.stock.push(...missing.map((i: any) => ({ id: i.id, menuItemId: i.id, name: i.name, quantity: 0, unit: 'un', minQuantity: 0 })));
+          }
         } else { st.stock = allItems; }
         io.to(room).emit('update_stock', st.stock);
       }
@@ -2549,21 +2558,15 @@ async function startServer() {
         const allItems = _st().menu.flatMap((c: any) => [...c.items, ...(c.subcategories || []).flatMap((s: any) => s.items)]);
         const menuItem = allItems.find((i: any) => i.id === menuItemId);
         if (menuItem && !_st().stock.find((s: any) => s.menuItemId === menuItemId)) {
-          _st().stock.push({
-            id: menuItemId,
-            menuItemId,
-            name: menuItem.name,
-            quantity: 0,
-            unit: 'un',
-            minQuantity: 0,
-          });
+          const newEntry = { id: menuItemId, menuItemId, name: menuItem.name, quantity: 0, unit: 'un', minQuantity: 0 };
+          _st().stock.push(newEntry);
+          saveToSupabase('stock', newEntry, menuItemId, _tid()).catch(() => {});
         }
       } else {
+        const removing = _st().stock.find((s: any) => s.menuItemId === menuItemId);
         _st().stock = _st().stock.filter((s: any) => s.menuItemId !== menuItemId);
-        _st().stockLog = _st().stockLog.filter((l: any) => {
-          const entry = _st().stock.find((s: any) => s.menuItemId === menuItemId);
-          return entry ? l.itemName !== entry.name : true;
-        });
+        _st().stockLog = _st().stockLog.filter((l: any) => removing ? l.itemName !== removing.name : true);
+        if (db) db.from('stock').delete().eq('id', `${_tid()}:${menuItemId}`).then().catch(() => {});
       }
 
       io.to(_room()).emit("update_menu", _st().menu);
