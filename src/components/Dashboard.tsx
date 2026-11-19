@@ -9110,6 +9110,19 @@ export default function Dashboard({
                             <FileText size={13} />
                             Emitir NFC-e
                           </button>
+                          <button
+                            onClick={() => {
+                              const _pl = order.paymentLog || [];
+                              const _pm = mapPaymentMethod(_pl[_pl.length - 1]?.method) || 'dinheiro';
+                              setNfeOrderId(String(order.id));
+                              setNfePagamento(_pm);
+                              setNfeModalOpen(true);
+                            }}
+                            className="w-full mt-1.5 flex items-center justify-center gap-2 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase transition-colors"
+                          >
+                            <FileText size={13} />
+                            Emitir NF-e
+                          </button>
                         );
                       })()}
                     </div>
