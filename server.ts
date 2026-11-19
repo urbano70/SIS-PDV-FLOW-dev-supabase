@@ -5348,6 +5348,7 @@ async function startServer() {
           numero: est.numero || '',
           bairro: est.bairro || '',
           municipio: est.municipio?.nome || '',
+          codigoMunicipio: String(est.municipio?.ibge_id || ''),
           uf: est.estado?.sigla || '',
           cep: (est.cep || '').replace(/\D/g, ''),
           telefone: ddd && tel ? `${ddd}${tel}`.replace(/\D/g, '') : '',
@@ -5364,6 +5365,7 @@ async function startServer() {
         numero: data.numero || '',
         bairro: data.bairro || '',
         municipio: data.municipio || '',
+        codigoMunicipio: String(data.codigo_ibge || ''),
         uf: data.uf || '',
         cep: (data.cep || '').replace(/\D/g, ''),
         telefone: data.ddd_telefone_1 ? `${data.ddd_telefone_1}${data.telefone_1 || ''}`.replace(/\D/g, '') : '',
@@ -5393,6 +5395,29 @@ async function startServer() {
     }
   });
 
+  // GET /api/fiscal/cep/:cep — consulta endereço via ViaCEP
+  app.get("/api/fiscal/cep/:cep", async (req, res) => {
+    const rawCep = req.params.cep.replace(/\D/g, '');
+    if (rawCep.length !== 8) return res.status(400).json({ error: 'CEP inválido' });
+    if (!await requireAdminHttp(req, res, [], false)) return;
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
+      if (!r.ok) return res.status(r.status).json({ error: 'CEP não encontrado' });
+      const d = await r.json() as any;
+      if (d.erro) return res.status(404).json({ error: 'CEP não encontrado' });
+      return res.json({
+        logradouro: d.logradouro || '',
+        bairro: d.bairro || '',
+        municipio: d.localidade || '',
+        codigoMunicipio: String(d.ibge || ''),
+        uf: d.uf || '',
+        cep: rawCep,
+      });
+    } catch (e: any) {
+      return res.status(502).json({ error: 'Falha ao consultar CEP' });
+    }
+  });
+
   // GET /api/fiscal/cliente/:cpfcnpj — busca cliente salvo pelo CPF/CNPJ
   app.get("/api/fiscal/cliente/:cpfcnpj", async (req, res) => {
     if (!await requireAdminHttp(req, res, [], false)) return;
@@ -5411,7 +5436,7 @@ async function startServer() {
     if (!await requireAdminHttp(req, res, [], false)) return;
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     const tenantId = (req.headers['x-tenant-id'] as string) || '';
-    const { tipo, cpf_cnpj, nome, ie, email, logradouro, numero, bairro, municipio, uf, cep, telefone } = req.body;
+    const { tipo, cpf_cnpj, nome, ie, email, logradouro, numero, bairro, municipio, codigo_municipio, uf, cep, telefone } = req.body;
     const digits = (cpf_cnpj || '').replace(/\D/g, '');
     if (!digits) return res.status(400).json({ error: 'CPF/CNPJ obrigatório' });
     const row = {
@@ -5426,6 +5451,7 @@ async function startServer() {
       numero: numero || null,
       bairro: bairro || null,
       municipio: municipio || null,
+      codigo_municipio: codigo_municipio || null,
       uf: uf || null,
       cep: (cep || '').replace(/\D/g, '') || null,
       telefone: (telefone || '').replace(/\D/g, '') || null,
