@@ -5327,16 +5327,35 @@ async function startServer() {
     return res.json({ notes: data || [] });
   });
 
-  // GET /api/fiscal/cnpj/:cnpj — consulta CNPJ via BrasilAPI (proxy para evitar CORS no browser)
+  // GET /api/fiscal/cnpj/:cnpj — consulta CNPJ via CNPJ.ws (fallback BrasilAPI)
   app.get("/api/fiscal/cnpj/:cnpj", async (req, res) => {
     const rawCnpj = req.params.cnpj.replace(/\D/g, '');
     if (rawCnpj.length !== 14) return res.status(400).json({ error: 'CNPJ inválido' });
     if (!await requireAdminHttp(req, res, [], false)) return;
-    try {
-      const r = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${rawCnpj}`);
-      if (!r.ok) return res.status(r.status).json({ error: `BrasilAPI retornou ${r.status}` });
-      const data = await r.json() as any;
-      return res.json({
+
+    // helper: normaliza resposta para formato padrão
+    const normalize = (data: any, source: 'cnpjws' | 'brasilapi') => {
+      if (source === 'cnpjws') {
+        const est = data.estabelecimento || {};
+        const ddd = est.ddd1 || '';
+        const tel = est.telefone1 || '';
+        return {
+          cnpj: rawCnpj,
+          razaoSocial: data.razao_social || '',
+          nomeFantasia: est.nome_fantasia || data.razao_social || '',
+          situacao: est.situacao_cadastral || '',
+          logradouro: est.logradouro || '',
+          numero: est.numero || '',
+          bairro: est.bairro || '',
+          municipio: est.municipio?.nome || '',
+          uf: est.estado?.sigla || '',
+          cep: (est.cep || '').replace(/\D/g, ''),
+          telefone: ddd && tel ? `${ddd}${tel}`.replace(/\D/g, '') : '',
+          email: est.email || '',
+        };
+      }
+      // brasilapi
+      return {
         cnpj: rawCnpj,
         razaoSocial: data.razao_social || data.nome || '',
         nomeFantasia: data.nome_fantasia || '',
@@ -5349,9 +5368,28 @@ async function startServer() {
         cep: (data.cep || '').replace(/\D/g, ''),
         telefone: data.ddd_telefone_1 ? `${data.ddd_telefone_1}${data.telefone_1 || ''}`.replace(/\D/g, '') : '',
         email: data.email || '',
-      });
+      };
+    };
+
+    // 1ª tentativa: CNPJ.ws (mais confiável em ambientes cloud)
+    try {
+      const r1 = await fetch(`https://publica.cnpj.ws/cnpj/${rawCnpj}`, { headers: { 'Accept': 'application/json' } });
+      if (r1.ok) {
+        const d1 = await r1.json() as any;
+        return res.json(normalize(d1, 'cnpjws'));
+      }
+    } catch (_) { /* tenta próxima fonte */ }
+
+    // 2ª tentativa: BrasilAPI
+    try {
+      const r2 = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${rawCnpj}`);
+      if (r2.ok) {
+        const d2 = await r2.json() as any;
+        return res.json(normalize(d2, 'brasilapi'));
+      }
+      return res.status(r2.status).json({ error: 'CNPJ não encontrado ou indisponível' });
     } catch (e: any) {
-      return res.status(502).json({ error: `Falha ao consultar BrasilAPI: ${e.message}` });
+      return res.status(502).json({ error: 'Falha ao consultar CNPJ — tente novamente' });
     }
   });
 
