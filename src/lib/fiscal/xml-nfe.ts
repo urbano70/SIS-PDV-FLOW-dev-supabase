@@ -114,15 +114,13 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
     ? `<xNome>${esc(xNomeConsumidor.substring(0, 60))}</xNome>`
     : '';
 
-  // indIEDest: 1=contribuinte com IE, 2=isento (tag <IE>ISENTO</IE>), 9=não contribuinte/PF/IE vazia
+  // indIEDest: 1=PJ c/ IE número, 2=PJ isento/sem IE (SEFAZ exige 2 para CNPJ sem IE), 9=PF
   const ieTrim = (ieDestinatario || '').trim();
   const indIEDest = cnpjConsumidor
-    ? (ieTrim.toUpperCase() === 'ISENTO' ? '2'
-      : ieTrim ? '1'
-      : '9')
+    ? (ieTrim && ieTrim.toUpperCase() !== 'ISENTO' ? '1' : '2')
     : '9';
 
-  // TIE aceita apenas [0-9]{2,14}; para indIEDest 2 e 9 não inclui a tag <IE>
+  // TIE aceita apenas [0-9]{2,14} — para indIEDest 2 e 9 não inclui a tag <IE>
   const ie = indIEDest === '1'
     ? `<IE>${ieTrim.replace(/\D/g, '')}</IE>`
     : '';
