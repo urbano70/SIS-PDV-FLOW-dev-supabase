@@ -48,7 +48,7 @@ export function gerarChaveAcessoNFe(
 // ── Item ─────────────────────────────────────────────────────────────────────
 
 function xmlItemNFe(item: ItemNota, idx: number, crt: string, ufEmitente?: string, ufDestinatario?: string): string {
-  const nItem = pad(idx + 1, 3);
+  const nItem = String(idx + 1); // XSD: [1-9]{1}[0-9]{0,2} — sem zeros à esquerda
   const isSimples = crt === '1' || crt === '2';
   const cfop = (ufEmitente && ufDestinatario && ufEmitente !== ufDestinatario && item.cfopForaEstado)
     ? item.cfopForaEstado
