@@ -506,6 +506,18 @@ async function startServer() {
     }
   };
 
+  const writeAudit = (tenantId: string, type: string, actor: string | null, description: string, metadata?: Record<string, any>): void => {
+    if (!db) return;
+    db.from('audit_log').insert({
+      tenant_id: tenantId,
+      type,
+      actor: actor || null,
+      description,
+      metadata: metadata ?? null,
+      timestamp: new Date().toISOString(),
+    }).then().catch((e: any) => console.error('[audit]', e));
+  };
+
   const saveMenuToSupabase = (st: TenantState, tenantId: string) => {
     st.menu.forEach((cat: any, idx: number) => {
       saveToSupabase('menu', { ...cat, position: idx }, cat.name, tenantId).catch(() => {});
@@ -1846,6 +1858,8 @@ async function startServer() {
         (socket as any).waiterUid = waiter.uid;
         (socket as any).waiterCpf = waiter.cpf;
         (socket as any).waiterName = waiter.name;
+        writeAudit(waiterTenantId, 'waiter_connected', waiter.name,
+          `Garçom "${waiter.name}" conectou`);
         delete (socket as any)._pendingLogin;
         waiter.socketId = socket.id;
         const safeWaiter = sanitizeWaiter(waiter);
@@ -1944,6 +1958,10 @@ async function startServer() {
 
       // Save a report snapshot to cash_register_reports (non-blocking)
       saveCashRegisterReport(_tid(), isOpen ? 'open' : 'close', cashRegisterName ?? null, _st()).catch(() => {});
+      if (cashRegisterName) {
+        writeAudit(_tid(), isOpen ? 'caixa_open' : 'caixa_close', cashRegisterName,
+          isOpen ? `Caixa "${cashRegisterName}" aberto` : `Caixa "${cashRegisterName}" fechado`);
+      }
     }));
 
     onTenantCommand("force_close_cash_register", requireAdmin(async (payload) => {
@@ -1964,6 +1982,8 @@ async function startServer() {
       io.to(_room()).emit("update_open_cash_register_names", getOpenCashRegisterNames(_st().openCashRegisters));
       await saveToSupabase('config', cashRegisterConfigPatch(_st(), { updatedAt: new Date().toISOString() }), 'app', _tid());
       saveCashRegisterReport(_tid(), 'close', cashRegisterName, _st()).catch(() => {});
+      writeAudit(_tid(), 'caixa_force_close', cashRegisterName,
+        `Caixa "${cashRegisterName}" fechado remotamente pelo ADM`);
       socket.emit("force_close_cash_register_ok", { cashRegisterName });
     }));
 
@@ -1984,6 +2004,25 @@ async function startServer() {
       } catch (e) {
         console.error('[crr] erro ao buscar relatórios:', e);
         socket.emit("cash_register_reports_response", []);
+      }
+    }));
+
+    socket.on("get_audit_log", requireAdmin(async (payload: { startDate?: string; endDate?: string }) => {
+      if (!db) { socket.emit("audit_log_response", []); return; }
+      try {
+        let query = db.from('audit_log')
+          .select('*')
+          .eq('tenant_id', _tid())
+          .order('timestamp', { ascending: false })
+          .limit(500);
+        if (payload?.startDate) query = query.gte('timestamp', `${payload.startDate}T00:00:00.000Z`);
+        if (payload?.endDate)   query = query.lte('timestamp', `${payload.endDate}T23:59:59.999Z`);
+        const { data, error } = await query;
+        if (error) throw error;
+        socket.emit("audit_log_response", data || []);
+      } catch (e) {
+        console.error('[audit_log]', e);
+        socket.emit("audit_log_response", []);
       }
     }));
 
@@ -2284,6 +2323,9 @@ async function startServer() {
       });
       io.to(_room()).emit("update_menu", _st().menu);
       saveMenuToSupabase(_st(), _tid());
+      writeAudit(_tid(), 'product_updated', 'ADM',
+        `Produto atualizado em "${categoryName}"`,
+        { productId, fields: Object.keys(updatedData || {}) });
 
       // Sincroniza o nome no estoque se o produto for renomeado
       if (updatedData.name) {
@@ -2315,6 +2357,8 @@ async function startServer() {
       });
       io.to(_room()).emit("update_menu", _st().menu);
       saveMenuToSupabase(_st(), _tid());
+      writeAudit(_tid(), 'product_created', 'ADM',
+        `Produto "${productData.name}" criado em "${categoryName}"`);
     }));
 
     socket.on("add_category", requireAdmin((categoryData) => {
@@ -2470,6 +2514,9 @@ async function startServer() {
       });
       io.to(_room()).emit("update_menu", _st().menu);
       saveMenuToSupabase(_st(), _tid());
+      writeAudit(_tid(), 'product_deleted', 'ADM',
+        `Produto excluído de "${categoryName}"`,
+        { productId, categoryName });
     }));
 
     socket.on("toggle_stock_tracking", requireAdmin(({ menuItemId, categoryName, subcategoryId, enabled }) => {
@@ -2523,6 +2570,8 @@ async function startServer() {
       io.to(_room()).emit("update_stock", _st().stock);
       io.to(_room()).emit("update_stock_log", _st().stockLog);
       saveMenuToSupabase(_st(), _tid());
+      writeAudit(_tid(), 'stock_tracking', 'ADM',
+        `Controle de estoque ${enabled ? 'ativado' : 'desativado'} para item (${menuItemId})`);
     }));
 
     socket.on("update_stock_item", requireAdmin(({ menuItemId, quantity, minQuantity, unit, reason }) => {
@@ -2545,6 +2594,9 @@ async function startServer() {
           timestamp: new Date().toISOString(),
         }, ..._st().stockLog].slice(0, 100);
         io.to(_room()).emit("update_stock_log", _st().stockLog);
+        writeAudit(_tid(), 'stock_adjusted', 'ADM',
+          `Estoque de "${prev.name}" ajustado: ${change > 0 ? '+' : ''}${change}${(reason && String(reason).trim()) ? ` (${String(reason).trim()})` : ''}`,
+          { itemName: prev.name, change, reason: (reason && String(reason).trim()) ? String(reason).trim() : defaultReason });
       }
       io.to(_room()).emit("update_stock", _st().stock);
     }));
@@ -2747,6 +2799,9 @@ async function startServer() {
         if (cat?.type) resolvedType = cat.type;
       }
       const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
+      writeAudit(_tid(), 'item_added', resolvedWaiterName,
+        `"${item.name}" adicionado — Mesa ${order?.tableId ?? '?'}`,
+        { orderId, tableId: order?.tableId });
       if (!order.items) order.items = [];
       order.items.push(itemWithTimestamp);
 
@@ -2830,6 +2885,10 @@ async function startServer() {
             item.removedBy = removedBy || (waiter ? waiter.name : "Desconhecido"),
             item.removalReason = reason || "";
           }
+          const _removedActor = removedBy || (waiter ? waiter.name : 'ADM');
+          writeAudit(_tid(), 'item_removed', _removedActor,
+            `Item removido — Mesa ${order.tableId ?? '?'}${reason ? ` (${reason})` : ''}`,
+            { orderId, reason: reason || null });
           enqueueWrite('orders', order, String(order.id), _tid());
           io.to(_room()).emit("update_orders", _st().orders);
         }
@@ -2844,6 +2903,7 @@ async function startServer() {
 
         const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (socket as any).activeCashRegisterName ?? adminCashRegisterName ?? (fromAdmin ? "ADM" : null);
         const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
+        const _payActor = cashRegisterAtPayment || waiterAtPayment || 'Desconhecido';
 
         const itemIds = Object.keys(selectedItems || {});
         const isPartialOnly = itemIds.length === 0;
@@ -2988,7 +3048,13 @@ async function startServer() {
         io.to(_room()).emit("update_orders", _st().orders);
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
-        
+
+        const _paidAmount = (order.paymentLog || []).slice(-1)[0]?.amount ?? 0;
+        const _paidMethod = (order.paymentLog || []).slice(-1)[0]?.method ?? '?';
+        writeAudit(_tid(), 'payment', _payActor,
+          `Pagamento R$ ${Number(_paidAmount).toFixed(2)} (${_paidMethod}) — Mesa ${order.tableId ?? '?'}`,
+          { orderId, amount: _paidAmount, method: _paidMethod });
+
         await saveToSupabase('orders', order, String(order.id), _tid());
       }
     });
