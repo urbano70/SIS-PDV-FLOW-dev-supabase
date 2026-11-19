@@ -81,6 +81,7 @@ export interface ItemNota {
   ncm: string;
   cest?: string;
   cfop: string;
+  cfopForaEstado?: string;
   unidade: string;
   quantidade: number;         // Decimal — usar inteiro de centésimos ÷ 100 externamente
   valorUnitario: number;      // em reais, 10 casas decimais no XML
@@ -128,6 +129,19 @@ export interface IntencaoFiscal {
   cpfConsumidor?: string;
   cnpjConsumidor?: string;
   xNomeConsumidor?: string;
+  ieDestinatario?: string;
+  ufDestinatario?: string;
+  endDestinatario?: {
+    logradouro?: string;
+    numero?: string;
+    bairro?: string;
+    municipio?: string;
+    uf?: string;
+    cep?: string;
+    codigoMunicipio?: string;
+    telefone?: string;
+    email?: string;
+  };
 
   items: ItemNota[];
   pagamentos: PagamentoNota[];

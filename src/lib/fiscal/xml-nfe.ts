@@ -47,9 +47,12 @@ export function gerarChaveAcessoNFe(
 
 // ── Item ─────────────────────────────────────────────────────────────────────
 
-function xmlItemNFe(item: ItemNota, idx: number, crt: string): string {
+function xmlItemNFe(item: ItemNota, idx: number, crt: string, ufEmitente?: string, ufDestinatario?: string): string {
   const nItem = pad(idx + 1, 3);
   const isSimples = crt === '1' || crt === '2';
+  const cfop = (ufEmitente && ufDestinatario && ufEmitente !== ufDestinatario && item.cfopForaEstado)
+    ? item.cfopForaEstado
+    : (item.cfop || '5102');
 
   const impostoICMS = isSimples
     ? `<ICMS><ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}><orig>${item.origem}</orig><CSOSN>${item.csosn ?? '102'}</CSOSN></ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}></ICMS>`
@@ -66,7 +69,7 @@ function xmlItemNFe(item: ItemNota, idx: number, crt: string): string {
     `<xProd>${esc(item.descricao.substring(0, 120))}</xProd>` +
     `<NCM>${item.ncm}</NCM>` +
     (item.cest ? `<CEST>${item.cest}</CEST>` : '') +
-    `<CFOP>${item.cfop}</CFOP>` +
+    `<CFOP>${cfop}</CFOP>` +
     `<uCom>${esc(item.unidade)}</uCom>` +
     `<qCom>${dec(item.quantidade, 4)}</qCom>` +
     `<vUnCom>${dec(item.valorUnitario, 10)}</vUnCom>` +
@@ -98,7 +101,7 @@ function xmlPagamentosNFe(pags: PagamentoNota[]): string {
 // ── Destinatário ──────────────────────────────────────────────────────────────
 
 function xmlDestinatario(intencao: IntencaoFiscal): string {
-  const { cpfConsumidor, cnpjConsumidor, xNomeConsumidor } = intencao;
+  const { cpfConsumidor, cnpjConsumidor, xNomeConsumidor, ieDestinatario, endDestinatario } = intencao;
   if (!cpfConsumidor && !cnpjConsumidor) return '';
 
   const id = cnpjConsumidor
@@ -109,8 +112,40 @@ function xmlDestinatario(intencao: IntencaoFiscal): string {
     ? `<xNome>${esc(xNomeConsumidor.substring(0, 60))}</xNome>`
     : '';
 
-  // indIEDest: 9 = não contribuinte (padrão NF-e consumidor final)
-  return `<dest>${id}${nome}<indIEDest>9</indIEDest></dest>`;
+  // indIEDest: 1=contribuinte com IE, 2=isento, 9=não contribuinte / PF
+  const indIEDest = cnpjConsumidor
+    ? (ieDestinatario && ieDestinatario.trim() && ieDestinatario.trim().toUpperCase() !== 'ISENTO' ? '1' : '2')
+    : '9';
+
+  const ie = indIEDest === '1' && ieDestinatario
+    ? `<IE>${ieDestinatario.replace(/\D/g, '')}</IE>`
+    : '';
+
+  const email = endDestinatario?.email
+    ? `<email>${esc(endDestinatario.email.substring(0, 60))}</email>`
+    : '';
+
+  let ender = '';
+  if (endDestinatario?.logradouro) {
+    const cMun = endDestinatario.codigoMunicipio || '0000000';
+    const xMun = endDestinatario.municipio || 'NAO INFORMADO';
+    const uf   = endDestinatario.uf || 'MT';
+    const cep  = (endDestinatario.cep || '').replace(/\D/g, '').padEnd(8, '0');
+    ender =
+      `<enderDest>` +
+      `<xLgr>${esc((endDestinatario.logradouro || '').substring(0, 60))}</xLgr>` +
+      `<nro>${esc((endDestinatario.numero || 'SN').substring(0, 60))}</nro>` +
+      `<xBairro>${esc((endDestinatario.bairro || 'NAO INFORMADO').substring(0, 60))}</xBairro>` +
+      `<cMun>${cMun}</cMun>` +
+      `<xMun>${esc(xMun.substring(0, 60))}</xMun>` +
+      `<UF>${uf}</UF>` +
+      `<CEP>${cep}</CEP>` +
+      `<cPais>1058</cPais><xPais>Brasil</xPais>` +
+      (endDestinatario.telefone ? `<fone>${endDestinatario.telefone.replace(/\D/g, '')}</fone>` : '') +
+      `</enderDest>`;
+  }
+
+  return `<dest>${id}${nome}${ender}${ie}<indIEDest>${indIEDest}</indIEDest>${email}</dest>`;
 }
 
 // ── Geração do XML NF-e ───────────────────────────────────────────────────────
@@ -139,7 +174,9 @@ export function gerarXmlNFe(intencao: IntencaoFiscal, opts: OpcoesNFe = {}): str
   const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
   const natOp  = opts.natOp  ?? 'VENDA DE MERCADORIA';
-  const idDest = opts.idDest ?? '1';
+  const ufDestinatario = intencao.ufDestinatario || intencao.endDestinatario?.uf;
+  const autoIdDest = ufDestinatario && ufDestinatario !== emit.uf ? '2' : '1';
+  const idDest = opts.idDest ?? autoIdDest;
   const indPres = opts.indPres ?? '1';
   const finNFe  = opts.finNFe  ?? '1';
 
@@ -191,7 +228,7 @@ export function gerarXmlNFe(intencao: IntencaoFiscal, opts: OpcoesNFe = {}): str
     `<CRT>${emit.crt}</CRT>` +
     `</emit>` +
     xmlDestinatario(intencao) +
-    items.map((item, idx) => xmlItemNFe(item, idx, emit.crt)).join('') +
+    items.map((item, idx) => xmlItemNFe(item, idx, emit.crt, emit.uf, ufDestinatario)).join('') +
     `<total><ICMSTot>` +
     `<vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson>` +
     `<vFCPUFDest>0.00</vFCPUFDest><vICMSUFDest>0.00</vICMSUFDest><vICMSUFRemet>0.00</vICMSUFRemet>` +
