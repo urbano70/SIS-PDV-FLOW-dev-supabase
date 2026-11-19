@@ -1,7 +1,8 @@
 // DANFE NF-e — NT 2026.010 (Reforma Tributária) — Modelo 55, retrato A4
-// Implantação Produção: 01/12/2026
+// Layout: cabeçalho com barcode Code 128 (jsbarcode), conforme DANFE tradicional
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import JsBarcode from 'jsbarcode';
 import type { DadosDanfeNFe, ItemDanfeNFe } from '../../lib/fiscal/danfe-nfe';
 
 interface Props { dados: DadosDanfeNFe; }
@@ -9,11 +10,15 @@ interface Props { dados: DadosDanfeNFe; }
 const BRL = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const N4  = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 4 });
 
-const B: React.CSSProperties = { border: '1px solid #000' };
-const CELL: React.CSSProperties = { ...B, padding: '1px 3px', fontSize: 7, fontFamily: 'Arial,sans-serif', verticalAlign: 'top' };
+const BD: React.CSSProperties = { border: '1px solid #000' };
+const CELL: React.CSSProperties = { ...BD, padding: '1px 3px', fontSize: 7, fontFamily: 'Arial,sans-serif', verticalAlign: 'top' };
 const LBL: React.CSSProperties  = { fontSize: 6, textTransform: 'uppercase', display: 'block', letterSpacing: '0.3px' };
 const VAL: React.CSSProperties  = { fontSize: 8, fontWeight: 'bold', display: 'block' };
 const HDR: React.CSSProperties  = { ...CELL, background: '#ddd', fontSize: 7, fontWeight: 'bold', textTransform: 'uppercase', textAlign: 'center' };
+
+const CRT_LABEL: Record<string, string> = {
+  '1': 'Simples Nacional', '2': 'Simples Nacional – Exc.', '3': 'Regime Normal', '4': 'Simples Nacional – SIMEI',
+};
 
 function Cell({ label, value, style }: { label: string; value?: string; style?: React.CSSProperties }) {
   return (
@@ -27,12 +32,31 @@ function Td({ children, style }: { children?: React.ReactNode; style?: React.CSS
   return <td style={{ ...CELL, ...style }}>{children}</td>;
 }
 function SectionHead({ cols, title }: { cols: number; title: string }) {
-  return (
-    <tr><td colSpan={cols} style={HDR}>{title}</td></tr>
-  );
+  return <tr><td colSpan={cols} style={HDR}>{title}</td></tr>;
 }
 
-// ── Faixa alerta (homologação / contingência) ─────────────────────────────────
+// ── Código de barras Code 128 ─────────────────────────────────────────────────
+function Barcode({ value }: { value: string }) {
+  const ref = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (ref.current && value) {
+      try {
+        JsBarcode(ref.current, value, {
+          format: 'CODE128',
+          width: 1,
+          height: 40,
+          displayValue: false,
+          margin: 0,
+          background: '#ffffff',
+          lineColor: '#000000',
+        });
+      } catch { /* chave inválida — ignora */ }
+    }
+  }, [value]);
+  return <svg ref={ref} style={{ width: '100%', height: 40 }} />;
+}
+
+// ── Faixa alerta ──────────────────────────────────────────────────────────────
 function Alerta({ msg }: { msg: string }) {
   return (
     <div style={{ background: '#000', color: '#fff', textAlign: 'center', fontWeight: 'bold', fontSize: 9, padding: '3px 0', marginBottom: 2, fontFamily: 'Arial,sans-serif' }}>
@@ -44,18 +68,21 @@ function Alerta({ msg }: { msg: string }) {
 // ── Canhoto ───────────────────────────────────────────────────────────────────
 function Canhoto({ d }: { d: DadosDanfeNFe }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, marginBottom: 2 }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, marginBottom: 0 }}>
       <tbody>
         <tr>
           <Td style={{ width: '75%' }}>
-            <span style={LBL}>Recebemos de {d.nomeFantasia || d.razaoSocial} os produtos/serviços constantes da Nota Fiscal Eletrônica indicada ao lado</span>
-            <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
-              <span style={LBL}>Data de Recebimento: ___/___/______</span>
+            <span style={LBL}>
+              Recebemos de {d.nomeFantasia || d.razaoSocial} os produtos/serviços constantes da Nota Fiscal Eletrônica indicada ao lado.
+              Emissão: {d.dhEmissao.substring(0, 10)} &nbsp; Dest./Reme.: {d.xNomeDest || 'Consumidor Final'} &nbsp; Valor Total: {BRL(d.totais.vNF)}
+            </span>
+            <div style={{ display: 'flex', gap: 24, marginTop: 6 }}>
+              <span style={LBL}>Data do Recebimento: ___/___/______</span>
               <span style={LBL}>Identificação e Assinatura do Recebedor:</span>
             </div>
           </Td>
           <Td style={{ width: '25%', textAlign: 'center', verticalAlign: 'middle' }}>
-            <div style={{ fontSize: 12, fontWeight: 'bold', fontFamily: 'Arial' }}>NF-e</div>
+            <div style={{ fontSize: 12, fontWeight: 'bold', fontFamily: 'Arial', borderBottom: '1px solid #000', paddingBottom: 2, marginBottom: 2 }}>NF-e</div>
             <div style={{ fontSize: 7 }}>Nº {String(d.numero).padStart(9, '0')}</div>
             <div style={{ fontSize: 7 }}>Série {d.serie}</div>
           </Td>
@@ -65,61 +92,70 @@ function Canhoto({ d }: { d: DadosDanfeNFe }) {
   );
 }
 
-// ── Cabeçalho (emitente + barcode + NF-e nº) ──────────────────────────────────
+// ── Cabeçalho (emitente | DANFE+barcode+chave | NF-e#) ──────────────────────
 function Cabecalho({ d }: { d: DadosDanfeNFe }) {
-  const CRT_LABEL: Record<string, string> = { '1': 'Simples Nacional', '2': 'Simples Nacional – Excesso', '3': 'Regime Normal', '4': 'Simples Nacional – SIMEI' };
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <tbody>
         <tr>
           {/* Emitente */}
-          <td style={{ ...CELL, width: '55%', verticalAlign: 'middle', padding: '4px 6px' }}>
-            <div style={{ fontSize: 11, fontWeight: 'bold' }}>{d.nomeFantasia || d.razaoSocial}</div>
+          <td style={{ ...CELL, width: '38%', verticalAlign: 'middle', padding: '4px 6px' }}>
+            <div style={{ fontSize: 10, fontWeight: 'bold' }}>{d.nomeFantasia || d.razaoSocial}</div>
             {d.nomeFantasia && <div style={{ fontSize: 7 }}>{d.razaoSocial}</div>}
             <div style={{ fontSize: 7, marginTop: 1 }}>{d.enderecoCompleto}</div>
-            <div style={{ fontSize: 7 }}>{d.municipioUF} — CEP {d.cepFormatado}{d.fone ? ' — Fone: ' + d.fone : ''}</div>
-            <div style={{ fontSize: 7, marginTop: 1 }}>CNPJ: {d.cnpjFormatado} &nbsp; IE: {d.ie}</div>
+            <div style={{ fontSize: 7 }}>{d.municipioUF} — CEP {d.cepFormatado}</div>
+            {d.fone && <div style={{ fontSize: 7 }}>Fone: {d.fone}</div>}
+            <div style={{ fontSize: 7, marginTop: 1 }}>CNPJ: {d.cnpjFormatado}</div>
+            <div style={{ fontSize: 7 }}>IE: {d.ie}</div>
           </td>
-          {/* DANFE label + código barras */}
-          <td style={{ ...CELL, width: '25%', textAlign: 'center', verticalAlign: 'middle', padding: 4 }}>
-            <div style={{ fontSize: 20, fontWeight: 'bold', fontFamily: 'Arial', lineHeight: 1 }}>DANFE</div>
-            <div style={{ fontSize: 6, marginTop: 2, lineHeight: 1.4, textTransform: 'uppercase' }}>
-              Documento Auxiliar<br />da Nota Fiscal<br />Eletrônica
+
+          {/* DANFE label + barcode + chave de acesso */}
+          <td style={{ ...CELL, width: '42%', textAlign: 'center', verticalAlign: 'top', padding: '4px 6px' }}>
+            <div style={{ fontSize: 18, fontWeight: 'bold', fontFamily: 'Arial', lineHeight: 1 }}>DANFE</div>
+            <div style={{ fontSize: 6, marginTop: 1, lineHeight: 1.4, textTransform: 'uppercase' }}>
+              Documento Auxiliar da Nota Fiscal Eletrônica
             </div>
-            <div style={{ marginTop: 4 }}>
-              {/* Entrada/Saída */}
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
-                {(['ENTRADA', 'SAÍDA'] as const).map(t => (
-                  <div key={t} style={{ textAlign: 'center', fontSize: 6 }}>
-                    <div style={{ width: 12, height: 12, border: '1px solid #000', background: d.tpNF === t ? '#000' : '#fff', display: 'inline-block' }} />
-                    <div style={{ color: d.tpNF === t ? '#000' : '#888', fontWeight: d.tpNF === t ? 'bold' : 'normal' }}>{t}</div>
-                  </div>
-                ))}
+            <div style={{ fontSize: 7, marginTop: 3 }}>
+              <span style={{ marginRight: 8 }}>0 – ENTRADA</span>
+              <span>1 – SAÍDA</span>
+            </div>
+            <div style={{ fontSize: 7, fontWeight: 'bold' }}>Nº {String(d.numero).padStart(9, '0')}</div>
+            <div style={{ fontSize: 7 }}>Série {d.serie} &nbsp; Folha 1/1</div>
+            {/* Código de barras Code 128 da chave de acesso */}
+            {d.chaveAcesso && (
+              <div style={{ marginTop: 4, padding: '0 4px' }}>
+                <Barcode value={d.chaveAcesso} />
+              </div>
+            )}
+            <div style={{ marginTop: 2 }}>
+              <span style={LBL}>Chave de Acesso</span>
+              <div style={{ fontSize: 7, fontFamily: 'Courier New, monospace', letterSpacing: '0.3px', marginTop: 1 }}>
+                {d.chaveAcessoFormatada}
               </div>
             </div>
-          </td>
-          {/* NF-e nº */}
-          <td style={{ ...CELL, width: '20%', textAlign: 'center', verticalAlign: 'middle', padding: 3 }}>
-            <div style={{ fontSize: 8, fontWeight: 'bold', borderBottom: '1px solid #000', paddingBottom: 2, marginBottom: 2 }}>
-              NF-e Nº {String(d.numero).padStart(9, '0')}
+            <div style={{ fontSize: 6, color: '#333', marginTop: 2 }}>
+              Consulte a autenticidade em: {d.urlConsulta || 'www.sefaz.mt.gov.br'}
             </div>
+          </td>
+
+          {/* NF-e Nº (canto superior direito) */}
+          <td style={{ ...CELL, width: '20%', textAlign: 'center', verticalAlign: 'top', padding: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 'bold', fontFamily: 'Arial', borderBottom: '1px solid #000', paddingBottom: 2, marginBottom: 2 }}>NF-e</div>
+            <div style={{ fontSize: 8, fontWeight: 'bold' }}>Nº {String(d.numero).padStart(9, '0')}</div>
             <div style={{ fontSize: 7 }}>Série {d.serie}</div>
             <div style={{ fontSize: 7, marginTop: 2 }}>Folha 1/1</div>
-            <div style={{ fontSize: 6, marginTop: 6, color: '#555' }}>
+            {/* Entrada / Saída */}
+            <div style={{ marginTop: 6, display: 'flex', justifyContent: 'center', gap: 8 }}>
+              {(['ENTRADA', 'SAÍDA'] as const).map(t => (
+                <div key={t} style={{ textAlign: 'center', fontSize: 6 }}>
+                  <div style={{ width: 12, height: 12, border: '1px solid #000', background: d.tpNF === t ? '#000' : '#fff', display: 'inline-block' }} />
+                  <div style={{ color: d.tpNF === t ? '#000' : '#888', fontWeight: d.tpNF === t ? 'bold' : 'normal' }}>{t}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 6, marginTop: 6, color: '#444', lineHeight: 1.3 }}>
               {CRT_LABEL[d.crt] || `CRT ${d.crt}`}
             </div>
-          </td>
-        </tr>
-        {/* Chave de acesso */}
-        <tr>
-          <td colSpan={3} style={{ ...CELL }}>
-            <span style={LBL}>Chave de Acesso</span>
-            <span style={{ fontSize: 8, fontFamily: 'Courier New, monospace', letterSpacing: '0.5px', display: 'block' }}>
-              {d.chaveAcessoFormatada}
-            </span>
-            <span style={{ fontSize: 6, color: '#333', display: 'block', marginTop: 1 }}>
-              Consulte a autenticidade em: {d.urlConsulta || 'www.sefaz.mt.gov.br'}
-            </span>
           </td>
         </tr>
       </tbody>
@@ -127,10 +163,10 @@ function Cabecalho({ d }: { d: DadosDanfeNFe }) {
   );
 }
 
-// ── Natureza + Protocolo ──────────────────────────────────────────────────────
+// ── Natureza + Protocolo + IE/CNPJ/CRT ───────────────────────────────────────
 function NatOp({ d }: { d: DadosDanfeNFe }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <tbody>
         <tr>
           <Td style={{ width: '45%' }}>
@@ -171,7 +207,7 @@ function NatOp({ d }: { d: DadosDanfeNFe }) {
           <Cell label="CNPJ / CPF" value={d.cnpjFormatado} />
           <Td>
             <span style={LBL}>Código do Regime Tributário</span>
-            <span style={VAL}>{d.crt} – {({ '1': 'Simples Nacional', '2': 'Simples Nacional – Exc.', '3': 'Regime Normal', '4': 'Simples Nacional – SIMEI' } as Record<string, string>)[d.crt] || ''}</span>
+            <span style={VAL}>{d.crt} – {CRT_LABEL[d.crt] || ''}</span>
           </Td>
         </tr>
       </tbody>
@@ -184,7 +220,7 @@ function Destinatario({ d }: { d: DadosDanfeNFe }) {
   const docDest = d.cnpjDestFormatado ? `CNPJ: ${d.cnpjDestFormatado}` : d.cpfDestFormatado ? `CPF: ${d.cpfDestFormatado}` : '—';
   const end = d.endDest;
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={4} title="Destinatário / Remetente" /></thead>
       <tbody>
         <tr>
@@ -254,7 +290,7 @@ function Destinatario({ d }: { d: DadosDanfeNFe }) {
 function TotalProdutos({ d }: { d: DadosDanfeNFe }) {
   const t = d.totais;
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={6} title="Total dos Produtos e Total da Nota" /></thead>
       <tbody>
         <tr>
@@ -274,7 +310,7 @@ function TotalProdutos({ d }: { d: DadosDanfeNFe }) {
 function TotalICMS({ d }: { d: DadosDanfeNFe }) {
   const t = d.totais;
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={6} title="Total do ICMS / IPI" /></thead>
       <tbody>
         <tr>
@@ -286,12 +322,12 @@ function TotalICMS({ d }: { d: DadosDanfeNFe }) {
           <Cell label="Trib. Aprox. Total"    value={`R$ ${BRL(t.vTotTrib)}`} />
         </tr>
         <tr>
-          <Cell label="Valor do FCP"              value={`R$ 0,00`} />
-          <Cell label="Valor FCP retido por ST"   value={`R$ 0,00`} />
-          <Cell label="Valor DIFAL na UF dest."   value={`R$ 0,00`} />
-          <Cell label="Valor FCP na UF dest."     value={`R$ 0,00`} />
-          <Cell label="BC ICMS Monofásico"        value={`R$ 0,00`} />
-          <Cell label="Valor ICMS Monofásico"     value={`R$ 0,00`} />
+          <Cell label="Valor do FCP"              value="R$ 0,00" />
+          <Cell label="Valor FCP retido por ST"   value="R$ 0,00" />
+          <Cell label="Valor DIFAL na UF dest."   value="R$ 0,00" />
+          <Cell label="Valor FCP na UF dest."     value="R$ 0,00" />
+          <Cell label="BC ICMS Monofásico"        value="R$ 0,00" />
+          <Cell label="Valor ICMS Monofásico"     value="R$ 0,00" />
         </tr>
       </tbody>
     </table>
@@ -302,7 +338,7 @@ function TotalICMS({ d }: { d: DadosDanfeNFe }) {
 function TotalIBSCBS({ d }: { d: DadosDanfeNFe }) {
   const r = d.ibscbs;
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={4} title="Total do IBS / CBS / IS" /></thead>
       <tbody>
         <tr>
@@ -312,10 +348,10 @@ function TotalIBSCBS({ d }: { d: DadosDanfeNFe }) {
           <Cell label="Valor do Imposto Seletivo" value={`R$ ${BRL(r.vIS)}`} />
         </tr>
         <tr>
-          <Cell label="Valor IBS Monofásico"           value={`R$ 0,00`} />
-          <Cell label="Valor CBS Monofásica"           value={`R$ 0,00`} />
-          <Cell label="Valor IBS Monof. por Retenção"  value={`R$ 0,00`} />
-          <Cell label="Valor CBS Monof. por Retenção"  value={`R$ 0,00`} />
+          <Cell label="Valor IBS Monofásico"           value="R$ 0,00" />
+          <Cell label="Valor CBS Monofásica"           value="R$ 0,00" />
+          <Cell label="Valor IBS Monof. por Retenção"  value="R$ 0,00" />
+          <Cell label="Valor CBS Monof. por Retenção"  value="R$ 0,00" />
         </tr>
       </tbody>
     </table>
@@ -325,7 +361,7 @@ function TotalIBSCBS({ d }: { d: DadosDanfeNFe }) {
 // ── Transportador ─────────────────────────────────────────────────────────────
 function Transportador() {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={4} title="Transportador / Volumes Transportados" /></thead>
       <tbody>
         <tr>
@@ -345,7 +381,7 @@ function TabelaItens({ d }: { d: DadosDanfeNFe }) {
   const temIBS  = d.ibscbs.vCBS + d.ibscbs.vIBSUF + d.ibscbs.vIBSMun + d.ibscbs.vIS > 0;
 
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none', fontSize: 7 }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none', fontSize: 7 }}>
       <thead>
         <SectionHead cols={temICMS || temIBS ? 12 : 9} title="Dados dos Produtos / Serviços" />
         <tr style={{ background: '#eee' }}>
@@ -400,7 +436,7 @@ function TabelaItens({ d }: { d: DadosDanfeNFe }) {
 // ── Pagamentos ────────────────────────────────────────────────────────────────
 function Pagamentos({ d }: { d: DadosDanfeNFe }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={3} title="Forma de Pagamento" /></thead>
       <tbody>
         {d.pagamentos.map((p, i) => (
@@ -424,14 +460,14 @@ function Pagamentos({ d }: { d: DadosDanfeNFe }) {
 // ── Dados Adicionais + QR Code ────────────────────────────────────────────────
 function DadosAdicionais({ d }: { d: DadosDanfeNFe }) {
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', ...B, borderTop: 'none' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', ...BD, borderTop: 'none' }}>
       <thead><SectionHead cols={3} title="Dados Adicionais" /></thead>
       <tbody>
         <tr>
           <Td style={{ width: '55%', minHeight: 36 }}>
             <span style={LBL}>Informações Complementares</span>
             <span style={{ fontSize: 7, display: 'block', marginTop: 2, whiteSpace: 'pre-wrap' }}>
-              {d.observacoes || 'Documento emitido a título de exemplo de leiaute (Reforma Tributária – IBS/CBS/IS).'}
+              {d.observacoes || ''}
             </span>
           </Td>
           <Td style={{ width: '25%', minHeight: 36 }}>
@@ -440,8 +476,8 @@ function DadosAdicionais({ d }: { d: DadosDanfeNFe }) {
           <Td style={{ width: '20%', textAlign: 'center', verticalAlign: 'middle' }}>
             <span style={LBL}>QR Code</span>
             {/* QR Code — NT a ser publicada (NT 2026.010 §4.5) */}
-            <div style={{ width: 60, height: 60, border: '1px solid #ccc', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ fontSize: 5, color: '#aaa', textAlign: 'center' }}>QR Code<br />(em breve)</span>
+            <div style={{ width: 60, height: 60, border: '1px dashed #aaa', margin: '2px auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 5, color: '#aaa', textAlign: 'center' }}>NT §4.5<br />(pendente)</span>
             </div>
           </Td>
         </tr>
