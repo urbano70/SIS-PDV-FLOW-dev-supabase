@@ -1076,7 +1076,9 @@ export default function Dashboard({
   const [nfeUf, setNfeUf] = useState('');
   const [nfeCep, setNfeCep] = useState('');
   const [nfeTelefone, setNfeTelefone] = useState('');
+  const [nfeCodigoMunicipio, setNfeCodigoMunicipio] = useState('');
   const [nfeCnpjLoading, setNfeCnpjLoading] = useState(false);
+  const [nfeCepLoading, setNfeCepLoading] = useState(false);
   const [nfeLoading, setNfeLoading] = useState(false);
   const [nfeSaving, setNfeSaving] = useState(false);
   const [nfeSaved, setNfeSaved] = useState(false);
@@ -2342,6 +2344,7 @@ export default function Dashboard({
       setNfeNumero(d.numero || '');
       setNfeBairro(d.bairro || '');
       setNfeMunicipio(d.municipio || '');
+      setNfeCodigoMunicipio(d.codigoMunicipio || '');
       setNfeUf(d.uf || '');
       setNfeCep(d.cep || '');
       setNfeTelefone(d.telefone || '');
@@ -2378,6 +2381,7 @@ export default function Dashboard({
             numero: nfeNumero || undefined,
             bairro: nfeBairro || undefined,
             municipio: nfeMunicipio || undefined,
+            codigoMunicipio: nfeCodigoMunicipio || undefined,
             uf: nfeUf || undefined,
             cep: nfeCep.replace(/\D/g, '') || undefined,
             telefone: nfeTelefone.replace(/\D/g, '') || undefined,
@@ -2421,6 +2425,7 @@ export default function Dashboard({
         setNfeNumero(d.numero || '');
         setNfeBairro(d.bairro || '');
         setNfeMunicipio(d.municipio || '');
+        setNfeCodigoMunicipio(d.codigo_municipio || '');
         setNfeUf(d.uf || '');
         setNfeCep(d.cep || '');
         setNfeTelefone(d.telefone || '');
@@ -2430,6 +2435,30 @@ export default function Dashboard({
     }, 400);
     return () => clearTimeout(timer);
   }, [nfeCpfCnpj, nfeModalOpen]);
+
+  // Auto-busca CEP para preencher município e código IBGE
+  useEffect(() => {
+    if (!nfeModalOpen) return;
+    const digits = nfeCep.replace(/\D/g, '');
+    if (digits.length !== 8) return;
+    const timer = setTimeout(async () => {
+      setNfeCepLoading(true);
+      try {
+        const r = await fetch(`/api/fiscal/cep/${digits}`, {
+          headers: { 'x-tenant-id': tenantId || '', 'x-admin-token': (window as any).__adminToken || '' },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.logradouro && !nfeLogradouro) setNfeLogradouro(d.logradouro);
+        if (d.bairro && !nfeBairro) setNfeBairro(d.bairro);
+        if (d.municipio) setNfeMunicipio(d.municipio);
+        if (d.codigoMunicipio) setNfeCodigoMunicipio(d.codigoMunicipio);
+        if (d.uf) setNfeUf(d.uf);
+      } catch (_) {}
+      finally { setNfeCepLoading(false); }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [nfeCep, nfeModalOpen]);
 
   const salvarCliente = async () => {
     const digits = nfeCpfCnpj.replace(/\D/g, '');
@@ -2444,6 +2473,7 @@ export default function Dashboard({
           nome: nfeNome || null, ie: nfeIe || null, email: nfeEmail || null,
           logradouro: nfeLogradouro || null, numero: nfeNumero || null,
           bairro: nfeBairro || null, municipio: nfeMunicipio || null,
+          codigo_municipio: nfeCodigoMunicipio || null,
           uf: nfeUf || null, cep: nfeCep || null, telefone: nfeTelefone || null,
         }),
       });
@@ -3276,16 +3306,21 @@ export default function Dashboard({
                       className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
                   </div>
                   <div>
-                    <label className="text-[9px] font-bold uppercase text-gray-500">CEP</label>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">CEP {nfeCepLoading && <span className="text-emerald-600">...</span>}</label>
                     <input value={nfeCep} onChange={e => setNfeCep(e.target.value)} placeholder="00000-000"
                       className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-4 gap-1">
                   <div className="col-span-2">
-                    <label className="text-[9px] font-bold uppercase text-gray-500">Município</label>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Município {nfeCepLoading && <span className="text-emerald-600">...</span>}</label>
                     <input value={nfeMunicipio} onChange={e => setNfeMunicipio(e.target.value)} placeholder="Cidade"
                       className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-gray-500">Cód. IBGE</label>
+                    <input value={nfeCodigoMunicipio} onChange={e => setNfeCodigoMunicipio(e.target.value.replace(/\D/g, '').slice(0,7))} placeholder="0000000" maxLength={7}
+                      className={`w-full mt-0.5 border rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500 ${nfeCodigoMunicipio.length === 7 ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'}`} />
                   </div>
                   <div>
                     <label className="text-[9px] font-bold uppercase text-gray-500">UF</label>
@@ -9183,7 +9218,7 @@ export default function Dashboard({
                               setNfeCpfCnpj('');
                               setNfeNome(''); setNfeIe(''); setNfeEmail('');
                               setNfeLogradouro(''); setNfeNumero(''); setNfeBairro('');
-                              setNfeMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
+                              setNfeMunicipio(''); setNfeCodigoMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
                               setNfeModalOpen(true);
                             }}
                             className="w-full mt-1.5 flex items-center justify-center gap-2 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase transition-colors"
@@ -11395,7 +11430,7 @@ export default function Dashboard({
                     setNfeSaved(false);
                     setNfeCpfCnpj(''); setNfeNome(''); setNfeIe(''); setNfeEmail('');
                     setNfeLogradouro(''); setNfeNumero(''); setNfeBairro('');
-                    setNfeMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
+                    setNfeMunicipio(''); setNfeCodigoMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
                     setNfeModalOpen(true);
                   }}
                   className="w-full mt-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
