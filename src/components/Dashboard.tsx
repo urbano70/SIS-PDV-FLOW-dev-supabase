@@ -1891,6 +1891,10 @@ export default function Dashboard({
     socket.on('active_caixas', handleActiveCaixas);
     socket.on('cash_register_conflict', handleCashRegConflict);
     socket.on('fiscal_note_emitted', handleFiscalNoteEmitted);
+    const handleForceCloseOk = ({ cashRegisterName }: { cashRegisterName: string }) => {
+      toast.success(`Caixa "${cashRegisterName}" fechado com sucesso.`);
+    };
+    socket.on('force_close_cash_register_ok', handleForceCloseOk);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1902,6 +1906,7 @@ export default function Dashboard({
       socket.off('active_caixas', handleActiveCaixas);
       socket.off('cash_register_conflict', handleCashRegConflict);
       socket.off('fiscal_note_emitted', handleFiscalNoteEmitted);
+      socket.off('force_close_cash_register_ok', handleForceCloseOk);
     };
   }, []);
 
@@ -6102,6 +6107,34 @@ export default function Dashboard({
                   <h3 className="font-serif italic text-sm leading-none flex-1">Configuração de Caixas</h3>
                   <span className="text-[7px] text-green-600 font-bold uppercase opacity-0 select-none" id="cr-saved-badge" />
                 </div>
+
+                {/* Caixas abertos agora */}
+                {openCashRegisterNames.length > 0 && (
+                  <div className="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-2.5 space-y-1.5">
+                    <p className="text-[8px] font-black uppercase tracking-wider text-amber-700">Caixas abertos agora</p>
+                    {openCashRegisterNames.map(name => (
+                      <div key={name} className="flex items-center gap-2 bg-white border border-amber-100 rounded-lg px-2 py-1.5">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${name === activeCashRegisterName ? 'bg-green-500' : 'bg-amber-400'}`} />
+                        <span className="text-[9px] font-semibold text-[#141414] flex-1">
+                          {name}
+                          {name === activeCashRegisterName && <span className="ml-1 text-[8px] text-green-600 font-bold">(este dispositivo)</span>}
+                        </span>
+                        {name !== activeCashRegisterName && (
+                          <button
+                            onClick={() => {
+                              if (!confirm(`Fechar o caixa "${name}" remotamente? O dispositivo que o abriu será notificado.`)) return;
+                              socket.emit('force_close_cash_register', { cashRegisterName: name });
+                              toast.info(`Fechando "${name}"…`);
+                            }}
+                            className="shrink-0 text-[8px] font-bold text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 px-1.5 py-0.5 rounded-lg transition-colors"
+                          >
+                            Fechar
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {isCashRegisterOpen && (
                   <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 rounded-lg px-2 py-1 mb-2">
                     <Lock size={9} className="text-red-500 shrink-0" />
