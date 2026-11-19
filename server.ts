@@ -5393,6 +5393,49 @@ async function startServer() {
     }
   });
 
+  // GET /api/fiscal/cliente/:cpfcnpj — busca cliente salvo pelo CPF/CNPJ
+  app.get("/api/fiscal/cliente/:cpfcnpj", async (req, res) => {
+    if (!await requireAdminHttp(req, res, [], false)) return;
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const digits = req.params.cpfcnpj.replace(/\D/g, '');
+    if (digits.length !== 11 && digits.length !== 14) return res.status(400).json({ error: 'CPF/CNPJ inválido' });
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+    const { data, error } = await db.from('clientes').select('*').eq('id', `${tenantId}:${digits}`).maybeSingle();
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: 'Cliente não encontrado' });
+    return res.json(data);
+  });
+
+  // POST /api/fiscal/cliente — salva/atualiza cliente
+  app.post("/api/fiscal/cliente", express.json(), async (req, res) => {
+    if (!await requireAdminHttp(req, res, [], false)) return;
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    const tenantId = (req.headers['x-tenant-id'] as string) || '';
+    const { tipo, cpf_cnpj, nome, ie, email, logradouro, numero, bairro, municipio, uf, cep, telefone } = req.body;
+    const digits = (cpf_cnpj || '').replace(/\D/g, '');
+    if (!digits) return res.status(400).json({ error: 'CPF/CNPJ obrigatório' });
+    const row = {
+      id: `${tenantId}:${digits}`,
+      tenant_id: tenantId,
+      tipo: tipo || 'pf',
+      cpf_cnpj: digits,
+      nome: nome || null,
+      ie: ie || null,
+      email: email || null,
+      logradouro: logradouro || null,
+      numero: numero || null,
+      bairro: bairro || null,
+      municipio: municipio || null,
+      uf: uf || null,
+      cep: (cep || '').replace(/\D/g, '') || null,
+      telefone: (telefone || '').replace(/\D/g, '') || null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await db.from('clientes').upsert(row, { onConflict: 'id' });
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true });
+  });
+
   // GET /api/backup/list — lista backups disponíveis no Storage
   app.get("/api/backup/list", async (req, res) => {
     if (!await requireAdminHttp(req, res, [], false)) return;

@@ -1078,6 +1078,8 @@ export default function Dashboard({
   const [nfeTelefone, setNfeTelefone] = useState('');
   const [nfeCnpjLoading, setNfeCnpjLoading] = useState(false);
   const [nfeLoading, setNfeLoading] = useState(false);
+  const [nfeSaving, setNfeSaving] = useState(false);
+  const [nfeSaved, setNfeSaved] = useState(false);
 
   const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
@@ -2398,6 +2400,63 @@ export default function Dashboard({
     }
   };
 
+  // Auto-busca cliente salvo ao digitar CPF/CNPJ no modal NF-e
+  useEffect(() => {
+    if (!nfeModalOpen) return;
+    setNfeSaved(false);
+    const digits = nfeCpfCnpj.replace(/\D/g, '');
+    if (digits.length !== 11 && digits.length !== 14) return;
+    const timer = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/fiscal/cliente/${digits}`, {
+          headers: { 'x-tenant-id': tenantId || '', 'x-admin-token': (window as any).__adminToken || '' },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        setNfeTipo(d.tipo || 'pf');
+        setNfeNome(d.nome || '');
+        setNfeIe(d.ie || '');
+        setNfeEmail(d.email || '');
+        setNfeLogradouro(d.logradouro || '');
+        setNfeNumero(d.numero || '');
+        setNfeBairro(d.bairro || '');
+        setNfeMunicipio(d.municipio || '');
+        setNfeUf(d.uf || '');
+        setNfeCep(d.cep || '');
+        setNfeTelefone(d.telefone || '');
+        setNfeSaved(true);
+        toast.success('Cliente encontrado e carregado');
+      } catch (_) {}
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [nfeCpfCnpj, nfeModalOpen]);
+
+  const salvarCliente = async () => {
+    const digits = nfeCpfCnpj.replace(/\D/g, '');
+    if (digits.length !== 11 && digits.length !== 14) { toast.error('Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido'); return; }
+    setNfeSaving(true);
+    try {
+      const r = await fetch('/api/fiscal/cliente', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-tenant-id': tenantId || '', 'x-admin-token': (window as any).__adminToken || '' },
+        body: JSON.stringify({
+          tipo: nfeTipo, cpf_cnpj: digits,
+          nome: nfeNome || null, ie: nfeIe || null, email: nfeEmail || null,
+          logradouro: nfeLogradouro || null, numero: nfeNumero || null,
+          bairro: nfeBairro || null, municipio: nfeMunicipio || null,
+          uf: nfeUf || null, cep: nfeCep || null, telefone: nfeTelefone || null,
+        }),
+      });
+      if (!r.ok) { const d = await r.json(); toast.error(d.error || 'Erro ao salvar cliente'); return; }
+      setNfeSaved(true);
+      toast.success('Cliente salvo! Agora você pode emitir a NF-e.');
+    } catch (e: any) {
+      toast.error('Erro ao salvar cliente: ' + e.message);
+    } finally {
+      setNfeSaving(false);
+    }
+  };
+
   const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
     if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return; }
     const mapped = mapPaymentMethod(paymentMethod);
@@ -3249,12 +3308,16 @@ export default function Dashboard({
                 </div>
                 {/* Botões */}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfeLoading} onClick={() => setNfeModalOpen(false)}
-                    className="flex-1 py-2 rounded-xl border border-gray-200 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  <button disabled={nfeLoading || nfeSaving} onClick={() => setNfeModalOpen(false)}
+                    className="py-2 px-3 rounded-xl border border-gray-200 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Cancelar
                   </button>
-                  <button disabled={nfeLoading} onClick={emitirNfe}
-                    className="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                  <button disabled={nfeLoading || nfeSaving} onClick={salvarCliente}
+                    className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                    {nfeSaving ? 'Salvando...' : <><Save size={11} />Salvar</>}
+                  </button>
+                  <button disabled={nfeLoading || nfeSaving || !nfeSaved} onClick={emitirNfe}
+                    className={`flex-1 py-2 rounded-xl text-[9px] font-bold uppercase flex items-center justify-center gap-1 transition-colors ${nfeSaved ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}>
                     {nfeLoading ? 'Emitindo...' : <><FileText size={11} />Emitir NF-e</>}
                   </button>
                 </div>
@@ -9116,6 +9179,11 @@ export default function Dashboard({
                               const _pm = mapPaymentMethod(_pl[_pl.length - 1]?.method) || 'dinheiro';
                               setNfeOrderId(String(order.id));
                               setNfePagamento(_pm);
+                              setNfeSaved(false);
+                              setNfeCpfCnpj('');
+                              setNfeNome(''); setNfeIe(''); setNfeEmail('');
+                              setNfeLogradouro(''); setNfeNumero(''); setNfeBairro('');
+                              setNfeMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
                               setNfeModalOpen(true);
                             }}
                             className="w-full mt-1.5 flex items-center justify-center gap-2 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase transition-colors"
@@ -11324,6 +11392,7 @@ export default function Dashboard({
                     setNfeOrderId(String(nfcePostPayment.orderId));
                     setNfePagamento(nfcePostPayment.method || 'dinheiro');
                     setNfeTipo('pf');
+                    setNfeSaved(false);
                     setNfeCpfCnpj(''); setNfeNome(''); setNfeIe(''); setNfeEmail('');
                     setNfeLogradouro(''); setNfeNumero(''); setNfeBairro('');
                     setNfeMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
