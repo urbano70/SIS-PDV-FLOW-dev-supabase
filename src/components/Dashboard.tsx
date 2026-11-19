@@ -1053,6 +1053,12 @@ export default function Dashboard({
   const [cashRegisterConflict, setCashRegisterConflict] = useState<{ cashRegisterName: string; password: string } | null>(null);
   const pendingPickerPasswordRef = useRef<string>('');
   const [cashRegisterReportModal, setCashRegisterReportModal] = useState(false);
+  const [auditModal, setAuditModal] = useState(false);
+  const [auditLog, setAuditLog] = useState<any[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditDateStart, setAuditDateStart] = useState(() => new Date().toISOString().split('T')[0]);
+  const [auditDateEnd, setAuditDateEnd] = useState(() => new Date().toISOString().split('T')[0]);
+  const [auditTypeFilter, setAuditTypeFilter] = useState('all');
   const [pendingCloseRegisterName, setPendingCloseRegisterName] = useState<string | undefined>(undefined);
 
   // Sincroniza estado local quando dados do servidor chegam
@@ -1895,6 +1901,8 @@ export default function Dashboard({
       toast.success(`Caixa "${cashRegisterName}" fechado com sucesso.`);
     };
     socket.on('force_close_cash_register_ok', handleForceCloseOk);
+    const handleAuditLog = (data: any[]) => { setAuditLog(data); setAuditLoading(false); };
+    socket.on('audit_log_response', handleAuditLog);
     return () => {
       socket.off('printer_agent_status', handleAgentStatus);
       socket.off('init_data', handleInitData);
@@ -1907,6 +1915,7 @@ export default function Dashboard({
       socket.off('cash_register_conflict', handleCashRegConflict);
       socket.off('fiscal_note_emitted', handleFiscalNoteEmitted);
       socket.off('force_close_cash_register_ok', handleForceCloseOk);
+      socket.off('audit_log_response', handleAuditLog);
     };
   }, []);
 
@@ -2941,6 +2950,103 @@ export default function Dashboard({
 
   return (
     <div className="flex h-screen overflow-hidden relative">
+      {/* Modal: Auditoria */}
+      {auditModal && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setAuditModal(false)} />
+          <div className="relative bg-[#E4E3E0] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="flex items-center gap-3 px-5 py-4 border-b border-[#141414]/10">
+              <FileText size={16} className="text-[#141414]" />
+              <h2 className="font-serif italic text-lg font-bold text-[#141414] flex-1">Auditoria</h2>
+              <button onClick={() => setAuditModal(false)} className="text-[#141414]/40 hover:text-[#141414] transition-colors"><X size={18} /></button>
+            </div>
+            <div className="px-4 py-3 border-b border-[#141414]/10 flex flex-wrap gap-2 items-center">
+              <input type="date" value={auditDateStart} onChange={e => setAuditDateStart(e.target.value)}
+                className="border border-[#141414]/15 rounded-lg px-2 py-1 text-[10px] bg-white outline-none focus:ring-1 focus:ring-[#141414]" />
+              <span className="text-[9px] opacity-40">até</span>
+              <input type="date" value={auditDateEnd} onChange={e => setAuditDateEnd(e.target.value)}
+                className="border border-[#141414]/15 rounded-lg px-2 py-1 text-[10px] bg-white outline-none focus:ring-1 focus:ring-[#141414]" />
+              <button onClick={() => { setAuditLoading(true); socket.emit('get_audit_log', { startDate: auditDateStart, endDate: auditDateEnd }); }}
+                className="bg-[#141414] text-white px-3 py-1 rounded-lg text-[9px] font-bold hover:opacity-80 transition-opacity">Buscar</button>
+              <select value={auditTypeFilter} onChange={e => setAuditTypeFilter(e.target.value)}
+                className="border border-[#141414]/15 rounded-lg px-2 py-1 text-[9px] bg-white outline-none ml-auto">
+                <option value="all">Todos</option>
+                <option value="caixa">Caixa</option>
+                <option value="item">Itens</option>
+                <option value="payment">Pagamentos</option>
+                <option value="product">Produtos</option>
+                <option value="stock">Estoque</option>
+                <option value="waiter">Garçons</option>
+              </select>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
+              {auditLoading ? (
+                <div className="flex items-center justify-center py-12 opacity-40">
+                  <span className="text-sm">Carregando…</span>
+                </div>
+              ) : (() => {
+                const filtered = auditLog.filter(e => {
+                  if (auditTypeFilter === 'all') return true;
+                  if (auditTypeFilter === 'caixa') return e.type.startsWith('caixa');
+                  if (auditTypeFilter === 'item') return e.type === 'item_added' || e.type === 'item_removed';
+                  if (auditTypeFilter === 'payment') return e.type === 'payment';
+                  if (auditTypeFilter === 'product') return e.type.startsWith('product');
+                  if (auditTypeFilter === 'stock') return e.type.startsWith('stock');
+                  if (auditTypeFilter === 'waiter') return e.type === 'waiter_connected';
+                  return true;
+                });
+                if (filtered.length === 0) return (
+                  <div className="flex items-center justify-center py-12 opacity-40">
+                    <span className="text-sm">Nenhum registro encontrado.</span>
+                  </div>
+                );
+                const typeColors: Record<string, string> = {
+                  caixa_open: 'bg-green-100 text-green-700',
+                  caixa_close: 'bg-slate-100 text-slate-600',
+                  caixa_force_close: 'bg-red-100 text-red-700',
+                  item_added: 'bg-blue-100 text-blue-700',
+                  item_removed: 'bg-orange-100 text-orange-700',
+                  payment: 'bg-purple-100 text-purple-700',
+                  product_created: 'bg-teal-100 text-teal-700',
+                  product_updated: 'bg-cyan-100 text-cyan-700',
+                  product_deleted: 'bg-red-100 text-red-600',
+                  stock_adjusted: 'bg-yellow-100 text-yellow-700',
+                  stock_tracking: 'bg-yellow-50 text-yellow-600',
+                  waiter_connected: 'bg-indigo-100 text-indigo-700',
+                };
+                const typeLabels: Record<string, string> = {
+                  caixa_open: 'Caixa Aberto', caixa_close: 'Caixa Fechado', caixa_force_close: 'Fechamento Forçado',
+                  item_added: 'Item Adicionado', item_removed: 'Item Removido', payment: 'Pagamento',
+                  product_created: 'Produto Criado', product_updated: 'Produto Editado', product_deleted: 'Produto Excluído',
+                  stock_adjusted: 'Ajuste Estoque', stock_tracking: 'Controle Estoque', waiter_connected: 'Garçom Conectou',
+                };
+                return filtered.map((entry: any) => {
+                  const colorClass = typeColors[entry.type] || 'bg-[#141414]/5 text-[#141414]/60';
+                  const label = typeLabels[entry.type] || entry.type;
+                  const ts = new Date(entry.timestamp);
+                  return (
+                    <div key={entry.id} className="flex items-start gap-2.5 bg-white rounded-xl px-3 py-2 border border-[#141414]/5">
+                      <span className={`shrink-0 mt-0.5 text-[7px] font-black uppercase px-1.5 py-0.5 rounded-md whitespace-nowrap ${colorClass}`}>{label}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] font-semibold text-[#141414] leading-tight truncate">{entry.description}</p>
+                        {entry.actor && <p className="text-[9px] text-[#141414]/40 mt-0.5">{entry.actor}</p>}
+                      </div>
+                      <span className="shrink-0 text-[8px] text-[#141414]/30 whitespace-nowrap">
+                        {ts.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} {ts.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+            <div className="px-4 py-3 border-t border-[#141414]/10 flex justify-between items-center">
+              <span className="text-[8px] opacity-40">{auditLog.length} registro(s) carregado(s)</span>
+              <button onClick={() => setAuditModal(false)} className="bg-[#141414] text-white px-4 py-2 rounded-xl text-[9px] font-bold hover:opacity-80 transition-opacity">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Gate: leitura quando caixa aberto em outro dispositivo */}
       {needsCaixa && (
         <div className="fixed bottom-0 left-0 right-0 z-[200] bg-amber-50 border-t-2 border-amber-300 px-4 py-3 flex items-center gap-3 shadow-lg">
@@ -6936,6 +7042,9 @@ export default function Dashboard({
                       </button>
                       <button title="Preenche o banco de dados com os dados iniciais do sistema (mesas, cardápio padrão, configurações). Use apenas na configuração inicial ou para resetar o ambiente de testes." onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
                         <Database size={10} /><span className="text-[7px] font-bold uppercase">Seed DB</span>
+                      </button>
+                      <button onClick={() => { setAuditModal(true); setAuditLoading(true); socket.emit('get_audit_log', { startDate: auditDateStart, endDate: auditDateEnd }); }} className="flex items-center justify-center space-x-1 py-1.5 bg-slate-50 text-slate-700 rounded-lg border border-slate-200 hover:bg-slate-100 transition-all active:scale-95 col-span-full">
+                        <FileText size={10} /><span className="text-[7px] font-bold uppercase">Auditoria</span>
                       </button>
                     </div>
                   </div>
