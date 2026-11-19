@@ -2359,6 +2359,11 @@ export default function Dashboard({
 
   const emitirNfe = async () => {
     if (!nfeOrderId || !tenantId) return;
+    // Validar código IBGE quando há endereço
+    if (nfeLogradouro && (!nfeCodigoMunicipio || nfeCodigoMunicipio === '0000000')) {
+      toast.error('Informe o Código IBGE do município. Dica: preencha o CEP para buscar automaticamente.');
+      return;
+    }
     setNfeLoading(true);
     try {
       const r = await fetch(`/api/fiscal/nfe/${nfeOrderId}`, {
