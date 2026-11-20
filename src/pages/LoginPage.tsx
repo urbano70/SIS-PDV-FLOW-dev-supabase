@@ -281,6 +281,18 @@ export default function LoginPage() {
             Voltar ao início
           </button>
         </p>
+
+        {mode === 'login' && (
+          <p className="text-center mt-4">
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="text-[10px] text-[#141414]/15 hover:text-[#141414]/30 transition-colors"
+            >
+              modo dev
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ import LandingPage from './pages/LandingPage';
 import DanfePage from './pages/DanfePage';
 import DanfeNFePage from './pages/DanfeNFePage';
 import LoginPage from './pages/LoginPage';
+import AdminPage from './pages/AdminPage';
 import UserPanel from './pages/UserPanel';
 import FinanceiroDashboard from './pages/FinanceiroDashboard';
 import AttendancePage from './pages/AttendancePage';
@@ -582,6 +583,7 @@ export default function App() {
         <Route path="/mesa/:tenantId/:mesaId" element={<ClientePage />} />
         <Route path="/danfe/nfce/:chaveAcesso" element={<DanfePage />} />
         <Route path="/danfe/nfe/:chaveAcesso" element={<DanfeNFePage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

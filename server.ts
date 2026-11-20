@@ -6017,6 +6017,120 @@ async function startServer() {
 
   // ── End PDF Reservation API ────────────────────────────────────────────────
 
+  // ── Dev Admin API ────────────────────────────────────────────────────────────
+  {
+    const devTokens = new Set<string>();
+    const DEV_USER = process.env.ADMIN_DEV_USER || 'urbanodev';
+    const DEV_PASS = process.env.ADMIN_DEV_PASS || '';
+
+    const requireDevToken = (req: any, res: any): boolean => {
+      const token = req.headers['x-dev-token'];
+      if (!token || !devTokens.has(String(token))) {
+        res.status(401).json({ error: 'Token inválido' });
+        return false;
+      }
+      return true;
+    };
+
+    app.post('/api/dev/login', express.json(), (req, res) => {
+      const { username, password } = req.body || {};
+      if (!DEV_PASS || username !== DEV_USER || password !== DEV_PASS) {
+        return res.status(401).json({ error: 'Credenciais inválidas' });
+      }
+      const token = randomUUID();
+      devTokens.add(token);
+      setTimeout(() => devTokens.delete(token), 24 * 60 * 60 * 1000);
+      return res.json({ token });
+    });
+
+    app.get('/api/dev/tenants', async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      if (!db) return res.json({ tenants: [] });
+      try {
+        const { data, error } = await (db.auth as any).admin.listUsers({ perPage: 500 });
+        if (error) return res.json({ tenants: [], error: error.message });
+        const list = (data?.users || []).map((u: any) => ({
+          id: u.id,
+          email: u.email || '',
+          name: u.user_metadata?.establishment_name || '',
+          plan: u.user_metadata?.plan || 'free',
+          createdAt: u.created_at,
+          lastSignIn: u.last_sign_in_at,
+          isOnline: tenants.has(u.id),
+        }));
+        return res.json({ tenants: list });
+      } catch (e: any) {
+        return res.json({ tenants: [], error: e.message });
+      }
+    });
+
+    app.get('/api/dev/tenants/:id/orders', async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const { id } = req.params;
+      if (!db) return res.json({ orders: [] });
+      const { data } = await db.from('orders')
+        .select('id,table_id,waiter_name,status,is_comanda,timestamp,items,payment_log')
+        .eq('tenant_id', id)
+        .order('timestamp', { ascending: false })
+        .limit(50);
+      return res.json({ orders: data || [] });
+    });
+
+    app.get('/api/dev/tenants/:id/notes', async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const { id } = req.params;
+      if (!db) return res.json({ notes: [] });
+      const { data } = await db.from('fiscal_notes')
+        .select('id,order_id,chave_acesso,status,protocolo,total,ambiente,modelo,serie,numero,error_detail,created_at')
+        .eq('tenant_id', id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      return res.json({ notes: data || [] });
+    });
+
+    app.get('/api/dev/tenants/:id/cashiers', async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const { id } = req.params;
+      if (!db) return res.json({ cashiers: [] });
+      const { data } = await db.from('cash_register_reports')
+        .select('id,cash_register_name,opened_at,closed_at,total_sales,created_at')
+        .eq('tenant_id', id)
+        .order('created_at', { ascending: false })
+        .limit(30);
+      return res.json({ cashiers: data || [] });
+    });
+
+    app.get('/api/dev/tenants/:id/waiters', async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const { id } = req.params;
+      const st = tenants.get(id);
+      if (st?.waiters?.length) {
+        return res.json({ waiters: (st.waiters as any[]).map((w: any) => ({ id: w.id, name: w.name, status: w.status, role: w.role })) });
+      }
+      if (!db) return res.json({ waiters: [] });
+      const { data } = await db.from('waiters')
+        .select('id,name,status,role,created_at')
+        .eq('tenant_id', id);
+      return res.json({ waiters: data || [] });
+    });
+
+    app.get('/api/dev/server', (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const mem = process.memoryUsage();
+      return res.json({
+        uptime: Math.floor(process.uptime()),
+        memRss: mem.rss,
+        memHeap: mem.heapUsed,
+        memHeapTotal: mem.heapTotal,
+        connectedSockets: (io.engine as any).clientsCount ?? 0,
+        activeTenants: tenants.size,
+        nodeVersion: process.version,
+        platform: process.platform,
+      });
+    });
+  }
+  // ── End Dev Admin API ─────────────────────────────────────────────────────
+
   // Vite middleware
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
