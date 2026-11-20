@@ -68,7 +68,8 @@ export default function DanfeNFePage() {
       <style>{`
         @media print {
           .danfe-nfe-actions { display: none !important; }
-          body { background: #fff !important; }
+          body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+          body > div { background: #fff !important; padding: 0 !important; align-items: flex-start !important; }
         }
       `}</style>
     </div>

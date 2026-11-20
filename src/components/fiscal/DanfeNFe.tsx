@@ -504,8 +504,6 @@ export default function DanfeNFe({ dados }: Props) {
     <>
       <style>{`
         @media print {
-          body > *:not(#danfe-nfe-root) { display: none !important; }
-          #danfe-nfe-root { display: block !important; }
           @page { margin: 8mm; size: A4 portrait; }
           .danfe-nfe-actions { display: none !important; }
         }
