@@ -2412,6 +2412,16 @@ export default function Dashboard({
     }
   };
 
+  // Carrega fiscalConfig ao abrir modal NF-e (se ainda não carregado)
+  useEffect(() => {
+    if (!nfeModalOpen || !tenantId) return;
+    if (fiscalConfig !== null) return;
+    fetch(`/api/fiscal/config/${tenantId}`)
+      .then(r => r.json())
+      .then(d => setFiscalConfig(d.config || {}))
+      .catch(() => setFiscalConfig({}));
+  }, [nfeModalOpen]);
+
   // Auto-busca cliente salvo ao digitar CPF/CNPJ no modal NF-e
   useEffect(() => {
     if (!nfeModalOpen) return;
@@ -3350,7 +3360,7 @@ export default function Dashboard({
                   </div>
                 </div>
                 {/* Item consolidado (Refeição) */}
-                {fiscalConfig?.itemConsolidado?.id && (
+                {fiscalConfig?.itemConsolidado?.name && (
                   <button
                     type="button"
                     onClick={() => setNfeConsolidar(v => !v)}
@@ -3359,7 +3369,7 @@ export default function Dashboard({
                     <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${nfeConsolidar ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
                       {nfeConsolidar && <span className="text-[8px] leading-none">✓</span>}
                     </span>
-                    Emitir como item único: "{fiscalConfig.itemConsolidado.name}"
+                    Emitir como item único: "{fiscalConfig.itemConsolidado?.name}"
                   </button>
                 )}
                 {/* Botões */}
