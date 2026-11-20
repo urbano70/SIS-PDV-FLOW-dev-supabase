@@ -505,7 +505,16 @@ export default function DanfeNFe({ dados }: Props) {
       <style>{`
         @media print {
           @page { margin: 8mm; size: A4 portrait; }
-          .danfe-nfe-actions { display: none !important; }
+          body * { visibility: hidden !important; }
+          #danfe-nfe-root,
+          #danfe-nfe-root * { visibility: visible !important; }
+          #danfe-nfe-root {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 210mm !important;
+            background: #fff !important;
+          }
         }
         #danfe-nfe-root { background: #fff; }
       `}</style>
