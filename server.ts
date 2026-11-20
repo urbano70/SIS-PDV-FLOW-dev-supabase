@@ -4221,11 +4221,12 @@ async function startServer() {
     const {
       tenantId, pagamento,
       cnpjDestinatario, cpfDestinatario, xNomeDestinatario,
-      natOp, destinatario,
+      natOp, destinatario, consolidarItem,
     } = req.body as {
       tenantId: string; pagamento: string;
       cnpjDestinatario?: string; cpfDestinatario?: string; xNomeDestinatario?: string;
       natOp?: string;
+      consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string };
       destinatario?: {
         tipo?: 'pf' | 'pj';
         cpfCnpj?: string;
@@ -4306,9 +4307,29 @@ async function startServer() {
     const resolvedCpf  = dest.tipo === 'pf' ? (dest.cpfCnpj || cpfDestinatario)  : cpfDestinatario;
     const resolvedNome = dest.nome || xNomeDestinatario;
 
-    const items: ItemNota[] = (order.items || [])
-      .filter((i: any) => !i.removed)
-      .map((i: any, idx: number) => ({
+    const orderItemsRaw = (order.items || []).filter((i: any) => !i.removed);
+    if (orderItemsRaw.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
+    const orderTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+
+    let items: ItemNota[];
+    if (consolidarItem?.id) {
+      items = [{
+        seq: 1,
+        codigo: '100',
+        descricao: (consolidarItem.name || 'Refeição').substring(0, 120),
+        ncm: consolidarItem.ncm || '21069090',
+        cfop: consolidarItem.cfop || '5102',
+        csosn: consolidarItem.csosn || '400',
+        cst: consolidarItem.cst,
+        unidade: consolidarItem.unidade || 'UN',
+        origem: '0',
+        quantidade: 1,
+        valorUnitario: orderTotal,
+        valorTotal: orderTotal,
+        piscofins: { cst: '07' },
+      }];
+    } else {
+      items = orderItemsRaw.map((i: any, idx: number) => ({
         seq: idx + 1,
         codigo: String(100 + idx),
         descricao: (i.name || 'Item').substring(0, 120),
@@ -4325,8 +4346,8 @@ async function startServer() {
         piscofins: { cst: i.pisCofinsCst || '07' },
         gtin: i.gtin || undefined,
       }));
+    }
 
-    if (items.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
     const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
     const tPag = T_PAG[pagamento] || T_PAG.outros;

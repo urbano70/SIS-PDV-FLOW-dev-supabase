@@ -1064,6 +1064,7 @@ export default function Dashboard({
   const [nfeModalOpen, setNfeModalOpen] = useState(false);
   const [nfeOrderId, setNfeOrderId] = useState<string | null>(null);
   const [nfePagamento, setNfePagamento] = useState('dinheiro');
+  const [nfeConsolidar, setNfeConsolidar] = useState(false);
   const [nfeTipo, setNfeTipo] = useState<'pf' | 'pj'>('pf');
   const [nfeCpfCnpj, setNfeCpfCnpj] = useState('');
   const [nfeNome, setNfeNome] = useState('');
@@ -2376,6 +2377,7 @@ export default function Dashboard({
         body: JSON.stringify({
           tenantId,
           pagamento: nfePagamento,
+          consolidarItem: nfeConsolidar ? fiscalConfig?.itemConsolidado : undefined,
           destinatario: {
             tipo: nfeTipo,
             cpfCnpj: nfeCpfCnpj.replace(/\D/g, '') || undefined,
@@ -2399,6 +2401,7 @@ export default function Dashboard({
         toast.success(`NF-e autorizada! Protocolo: ${d.protocolo || ''}`);
         if (d.urlDanfe) window.open(d.urlDanfe, '_blank');
         setNfeModalOpen(false);
+        setNfeConsolidar(false);
       } else {
         toast.error(`NF-e ${d.status}: ${d.xMotivo || d.error || ''}`);
       }
@@ -3346,9 +3349,22 @@ export default function Dashboard({
                       className="w-full mt-0.5 border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] outline-none focus:ring-1 focus:ring-emerald-500" />
                   </div>
                 </div>
+                {/* Item consolidado (Refeição) */}
+                {fiscalConfig?.itemConsolidado?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setNfeConsolidar(v => !v)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-[9px] font-bold transition-all text-left ${nfeConsolidar ? 'bg-emerald-50 border-emerald-400 text-emerald-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}
+                  >
+                    <span className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0 ${nfeConsolidar ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
+                      {nfeConsolidar && <span className="text-[8px] leading-none">✓</span>}
+                    </span>
+                    Emitir como item único: "{fiscalConfig.itemConsolidado.name}"
+                  </button>
+                )}
                 {/* Botões */}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfeLoading || nfeSaving} onClick={() => setNfeModalOpen(false)}
+                  <button disabled={nfeLoading || nfeSaving} onClick={() => { setNfeModalOpen(false); setNfeConsolidar(false); }}
                     className="py-2 px-3 rounded-xl border border-gray-200 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Cancelar
                   </button>
