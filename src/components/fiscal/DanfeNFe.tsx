@@ -148,7 +148,9 @@ function Cabecalho({ d }: { d: DadosDanfeNFe }) {
             <div style={{ marginTop: 6, display: 'flex', justifyContent: 'center', gap: 8 }}>
               {(['ENTRADA', 'SAÍDA'] as const).map(t => (
                 <div key={t} style={{ textAlign: 'center', fontSize: 6 }}>
-                  <div style={{ width: 12, height: 12, border: '1px solid #000', background: d.tpNF === t ? '#000' : '#fff', display: 'inline-block' }} />
+                  <div style={{ width: 12, height: 12, border: '1px solid #000', background: d.tpNF === t ? '#000' : '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 'bold', WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' } as React.CSSProperties}>
+                    {d.tpNF === t ? '✓' : ''}
+                  </div>
                   <div style={{ color: d.tpNF === t ? '#000' : '#888', fontWeight: d.tpNF === t ? 'bold' : 'normal' }}>{t}</div>
                 </div>
               ))}
@@ -514,6 +516,12 @@ export default function DanfeNFe({ dados }: Props) {
             left: 0 !important;
             width: 210mm !important;
             background: #fff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          #danfe-nfe-root * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
         }
         #danfe-nfe-root { background: #fff; }
