@@ -58,15 +58,19 @@ export default function LoginPage() {
         const signUpData = await signUpOwner(email, password, establishmentName, planParam || 'free');
         const userId = signUpData?.user?.id;
         if (!userId) throw new Error('Erro ao criar conta. Tente novamente.');
-        await fetch('/api/auth/request-activation', {
+        const actResp = await fetch('/api/auth/request-activation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId, email, name: establishmentName }),
         });
         setPendingUserId(userId);
         setActivationCode('');
-        setActivationError('');
         setActivationPopup(true);
+        if (!actResp.ok) {
+          setActivationError('Servidor ainda atualizando. Feche e tente novamente em instantes.');
+        } else {
+          setActivationError('');
+        }
 
       } else if (mode === 'forgot') {
         await sendPasswordReset(email);
