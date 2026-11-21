@@ -67,7 +67,14 @@ const TOKEN_KEY = 'fechaconta_dev_token';
 
 function devFetch(path: string, init: RequestInit = {}) {
   const token = sessionStorage.getItem(TOKEN_KEY) || '';
-  return fetch(path, { ...init, headers: { ...(init.headers || {}), 'x-dev-token': token } });
+  return fetch(path, { ...init, headers: { ...(init.headers || {}), 'x-dev-token': token } })
+    .then(r => {
+      if (r.status === 401) {
+        sessionStorage.removeItem(TOKEN_KEY);
+        window.dispatchEvent(new Event('dev-unauthorized'));
+      }
+      return r;
+    });
 }
 
 function fmtDate(iso: string | null) {
@@ -625,6 +632,12 @@ export default function AdminPage() {
     sessionStorage.removeItem(TOKEN_KEY);
     setToken('');
   };
+
+  useEffect(() => {
+    const handler = () => { sessionStorage.removeItem(TOKEN_KEY); setToken(''); };
+    window.addEventListener('dev-unauthorized', handler);
+    return () => window.removeEventListener('dev-unauthorized', handler);
+  }, []);
 
   if (!token) return <LoginScreen onLogin={handleLogin} />;
   return <Dashboard onLogout={handleLogout} />;
