@@ -24,6 +24,12 @@ export async function getSession() {
   return session;
 }
 
+export async function forceRefreshSession() {
+  const { data, error } = await supabase.auth.refreshSession();
+  if (error || !data.session) return null;
+  return data.session;
+}
+
 export function onAuthStateChange(callback: (user: any) => void) {
   return supabase.auth.onAuthStateChange((_event, session) => {
     callback(session?.user ?? null);
