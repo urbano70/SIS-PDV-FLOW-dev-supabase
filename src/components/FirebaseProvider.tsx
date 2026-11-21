@@ -452,7 +452,9 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (!current()) return;
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
-        toast.error('Sessão expirada. Recarregue a página.');
+        toast.error('Sessão expirada. Faça login novamente.');
+        setLoading(false);
+        supabase.auth.signOut().catch(() => {});
         return;
       }
       // getSession() returns the CACHED (possibly expired) token, so force a
