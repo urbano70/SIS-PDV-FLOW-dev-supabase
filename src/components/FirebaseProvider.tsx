@@ -448,11 +448,13 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       identifyConnection(true);
     };
 
-    const handleAuthError = async () => {
+    const handleAuthError = async (data: any) => {
       if (!current()) return;
+      const serverMsg: string = data?.message || '(sem mensagem)';
+      console.error('[auth_error do servidor]', serverMsg);
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
-        toast.error('Sessão expirada. Faça login novamente.');
+        toast.error(`Sessão expirada. Faça login novamente. [${serverMsg}]`);
         setLoading(false);
         forceLocalSignOut().catch(() => {});
         return;
