@@ -99,6 +99,23 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     });
   }, [ownerUser?.user_metadata?.establishment_name, ownerUser?.user_metadata?.address, ownerUser?.user_metadata?.phone_whatsapp, ownerUser?.user_metadata?.establishment_email]);
 
+  // Quando o tenant (ownerUser.id) muda, reseta campos tenant-específicos do printerConfig
+  // Evita que nome/logo de um tenant apareça no dashboard de outro tenant (contaminação de localStorage)
+  useEffect(() => {
+    if (!ownerUser?.id) return;
+    const savedTenantId = localStorage.getItem('printerConfigTenantId');
+    if (savedTenantId === ownerUser.id) return;
+    const metaName = ownerUser.user_metadata?.establishment_name;
+    setPrinterConfig((prev: any) => {
+      const updated = { ...prev, establishmentName: metaName || defaultPrinterConfig.establishmentName, logoUrl: '' };
+      try {
+        localStorage.setItem('printerConfig', JSON.stringify(updated));
+        localStorage.setItem('printerConfigTenantId', ownerUser.id);
+      } catch {}
+      return updated;
+    });
+  }, [ownerUser?.id]);
+
   useEffect(() => {
     if (waiters.length === 0) return;
 
@@ -142,8 +159,11 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   // Persiste printerConfig no localStorage sempre que mudar (garante que alterações feitas no
   // Dashboard não se percam ao recarregar ou atualizar o sistema)
   useEffect(() => {
-    try { localStorage.setItem('printerConfig', JSON.stringify(printerConfig)); } catch {}
-  }, [printerConfig]);
+    try {
+      localStorage.setItem('printerConfig', JSON.stringify(printerConfig));
+      if (ownerUser?.id) localStorage.setItem('printerConfigTenantId', ownerUser.id);
+    } catch {}
+  }, [printerConfig, ownerUser?.id]);
 
   // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
   useEffect(() => {
