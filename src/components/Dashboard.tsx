@@ -6416,7 +6416,7 @@ export default function Dashboard({
                   <button
                     key={tab.key}
                     onClick={() => setSettingsTab(tab.key)}
-                    className={`px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-t-lg transition-colors border-b-2 -mb-px ${settingsTab === tab.key ? 'border-[#141414] text-[#141414] bg-white' : 'border-transparent text-[#141414]/40 hover:text-[#141414]/70 hover:bg-[#141414]/4'}`}
+                    className={`px-5 py-2.5 text-xs font-semibold uppercase tracking-wide rounded-t-lg transition-colors border-b-2 -mb-px ${settingsTab === tab.key ? 'border-[#141414] text-[#141414] bg-white' : 'border-transparent text-[#141414]/40 hover:text-[#141414]/70 hover:bg-[#141414]/4'}`}
                   >
                     {tab.label}
                   </button>
@@ -7434,190 +7434,189 @@ export default function Dashboard({
                 return null;
               })()}
               {settingsTab === 'fiscal' && (
-              <div className="flex justify-center mb-4">
-              <div className="w-full max-w-xl">
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FileText className="text-[#141414]" size={12} />
-                    <h3 className="font-serif italic text-sm leading-none">Configuração Fiscal (NFC-e)</h3>
-                  </div>
-                  {fiscalConfigLoading ? (
-                    <div className="text-center py-8 opacity-40 text-xs">Carregando configuração...</div>
-                  ) : null}
-                  {(() => {
-                    const cfg = fiscalConfig || {};
-                    const upd = (key: string, val: string) => setFiscalConfig((prev: any) => ({ ...(prev || {}), [key]: val }));
-                    const field = (label: string, key: string, placeholder?: string, type = 'text', hint?: string) => (
-                      <div className="flex flex-col gap-0.5">
-                        <label className="text-[7px] font-bold uppercase text-[#141414]/50">{label}{hint && <span className="normal-case font-normal ml-1 text-[#141414]/30">({hint})</span>}</label>
-                        <input type={type} value={cfg[key] || ''} onChange={e => upd(key, e.target.value)} placeholder={placeholder}
-                          className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none focus:ring-1 focus:ring-[#141414]/30" />
-                      </div>
-                    );
-                    const isHom = (cfg.ambiente || 'homologacao') === 'homologacao';
-                    return (
-                      <div className="space-y-3">
-
-                        {/* Ambiente — destaque no topo */}
-                        <div className={`flex items-center justify-between rounded-lg px-3 py-2 border-2 ${isHom ? 'border-amber-400 bg-amber-50' : 'border-green-500 bg-green-50'}`}>
-                          <div>
-                            <p className="text-[8px] font-black uppercase tracking-widest">{isHom ? '⚠ Homologação (testes)' : '✓ Produção'}</p>
-                            <p className="text-[7px] text-[#141414]/50 mt-0.5">{isHom ? 'Notas não têm validade fiscal — use para configurar e testar.' : 'Notas têm validade fiscal. Troque somente com autorização do contador.'}</p>
-                          </div>
-                          <select value={cfg.ambiente || 'homologacao'} onChange={e => upd('ambiente', e.target.value)}
-                            className="border border-[#141414]/15 rounded px-2 py-1 text-[8px] font-bold focus:outline-none ml-3 shrink-0">
-                            <option value="homologacao">Homologação</option>
-                            <option value="producao">Produção</option>
-                          </select>
-                        </div>
-
-                        {/* Dados do emitente */}
+              <div className="space-y-4 mb-4">
+                {fiscalConfigLoading && <div className="text-center py-8 opacity-40 text-sm">Carregando configuração...</div>}
+                {(() => {
+                  const cfg = fiscalConfig || {};
+                  const upd = (key: string, val: string) => setFiscalConfig((prev: any) => ({ ...(prev || {}), [key]: val }));
+                  const field = (label: string, key: string, placeholder?: string, type = 'text', hint?: string) => (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs font-semibold uppercase text-[#141414]/50">{label}{hint && <span className="normal-case font-normal ml-1 text-[#141414]/30">({hint})</span>}</label>
+                      <input type={type} value={cfg[key] || ''} onChange={e => upd(key, e.target.value)} placeholder={placeholder}
+                        className="border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414]/30" />
+                    </div>
+                  );
+                  const isHom = (cfg.ambiente || 'homologacao') === 'homologacao';
+                  return (
+                    <>
+                      {/* Banner: Ambiente */}
+                      <div className={`flex items-center justify-between rounded-2xl px-5 py-4 border-2 ${isHom ? 'border-amber-400 bg-amber-50' : 'border-green-500 bg-green-50'}`}>
                         <div>
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Dados do Emitente</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {field('CNPJ', 'cnpj', '00.000.000/0001-00')}
-                            {field('Inscrição Estadual', 'ie', '0000000000000')}
-                            {field('Razão Social', 'razaoSocial', 'Nome da empresa')}
-                            {field('Nome Fantasia', 'nomeFantasia', 'Opcional')}
-                            <div className="flex flex-col gap-0.5">
-                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Regime Tributário (CRT)</label>
-                              <select value={cfg.crt || cfg.regime || '1'} onChange={e => upd('crt', e.target.value)}
-                                className="border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
-                                <option value="1">1 — Simples Nacional</option>
-                                <option value="2">2 — Simples Nacional Excesso</option>
-                                <option value="3">3 — Regime Normal</option>
-                              </select>
-                            </div>
-                            {field('CNAE Principal', 'cnaePrincipal', '5611201', 'text', 'restaurante=5611201')}
-                            {field('Telefone', 'telefone', '(65) 99999-9999')}
-                          </div>
+                          <p className="text-sm font-black uppercase tracking-widest">{isHom ? '⚠ Homologação (testes)' : '✓ Produção ativa'}</p>
+                          <p className="text-xs text-[#141414]/60 mt-0.5">{isHom ? 'Notas não têm validade fiscal — use para configurar e testar.' : 'Notas têm validade fiscal. Troque somente com autorização do contador.'}</p>
                         </div>
+                        <select value={cfg.ambiente || 'homologacao'} onChange={e => upd('ambiente', e.target.value)}
+                          className="border border-[#141414]/15 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none ml-4 shrink-0">
+                          <option value="homologacao">Homologação</option>
+                          <option value="producao">Produção</option>
+                        </select>
+                      </div>
 
-                        {/* Endereço */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Endereço</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            {field('Logradouro', 'logradouro', 'Rua, Av...')}
-                            {field('Número', 'numero', 'SN')}
-                            {field('Bairro', 'bairro', '')}
-                            {field('CEP', 'cep', '78000-000')}
-                            {field('Município', 'municipio', 'Cuiabá')}
-                            {field('UF', 'uf', 'MT')}
-                            {field('Código IBGE', 'codigoMunicipio', '5103403', 'text', 'Cuiabá=5103403')}
-                          </div>
+                      {/* Card: Dados do Emitente */}
+                      <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <FileText className="text-[#141414]" size={16} />
+                          <h3 className="font-serif italic text-base leading-none">Dados do Emitente</h3>
                         </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          {field('CNPJ', 'cnpj', '00.000.000/0001-00')}
+                          {field('Inscrição Estadual', 'ie', '0000000000000')}
+                          {field('Razão Social', 'razaoSocial', 'Nome da empresa')}
+                          {field('Nome Fantasia', 'nomeFantasia', 'Opcional')}
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold uppercase text-[#141414]/50">Regime Tributário (CRT)</label>
+                            <select value={cfg.crt || cfg.regime || '1'} onChange={e => upd('crt', e.target.value)}
+                              className="border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                              <option value="1">1 — Simples Nacional</option>
+                              <option value="2">2 — Simples Nacional Excesso</option>
+                              <option value="3">3 — Regime Normal</option>
+                            </select>
+                          </div>
+                          {field('CNAE Principal', 'cnaePrincipal', '5611201', 'text', 'restaurante=5611201')}
+                          {field('Telefone', 'telefone', '(65) 99999-9999')}
+                        </div>
+                      </div>
 
-                        {/* Séries e numeração */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Séries e Numeração</p>
-                          <div className="grid grid-cols-2 gap-2">
+                      {/* Card: Endereço */}
+                      <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Settings className="text-[#141414]" size={16} />
+                          <h3 className="font-serif italic text-base leading-none">Endereço</h3>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          {field('Logradouro', 'logradouro', 'Rua, Av...')}
+                          {field('Número', 'numero', 'SN')}
+                          {field('Bairro', 'bairro', '')}
+                          {field('CEP', 'cep', '78000-000')}
+                          {field('Município', 'municipio', 'Cuiabá')}
+                          {field('UF', 'uf', 'MT')}
+                          {field('Código IBGE', 'codigoMunicipio', '5103403', 'text', 'Cuiabá=5103403')}
+                        </div>
+                      </div>
+
+                      {/* Séries + CSC lado a lado */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                          <h3 className="font-serif italic text-base leading-none mb-4">Séries e Numeração</h3>
+                          <div className="space-y-3">
                             {field('Série NFC-e Homologação', 'serieNFCeHom', '1')}
                             {field('Série NFC-e Produção', 'serieNFCeProd', '1')}
                             {field('Série NF-e Homologação', 'serieNFEHom', '1')}
                             {field('Série NF-e Produção', 'serieNFEProd', '1')}
                           </div>
-                          <p className="text-[7px] text-[#141414]/40 mt-1">Confirme os últimos números usados com o contador antes de ativar em produção.</p>
+                          <p className="text-xs text-[#141414]/40 mt-3">Confirme os últimos números usados com o contador antes de ativar em produção.</p>
                         </div>
-
-                        {/* CSC por ambiente */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">CSC — Código de Segurança do Contribuinte</p>
-                          <p className="text-[7px] text-[#141414]/40 mb-2">Obtido no portal SEFAZ-MT. CSC e ID são diferentes para homologação e produção.</p>
-                          <div className="space-y-2">
-                            <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-2">
-                              <p className="text-[7px] font-bold uppercase text-amber-700 mb-1">Homologação</p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {field('ID CSC Homologação', 'cscHomId', '000001')}
-                                {field('CSC Homologação', 'cscHom', 'Token da SEFAZ-MT')}
+                        <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                          <h3 className="font-serif italic text-base leading-none mb-1">CSC</h3>
+                          <p className="text-xs text-[#141414]/40 mb-3">Código de Segurança do Contribuinte — obtido no portal SEFAZ.</p>
+                          <div className="space-y-3">
+                            <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+                              <p className="text-xs font-bold uppercase text-amber-700 mb-2">Homologação</p>
+                              <div className="space-y-2">
+                                {field('ID CSC', 'cscHomId', '000001')}
+                                {field('CSC Token', 'cscHom', 'Token da SEFAZ-MT')}
                               </div>
                             </div>
-                            <div className="rounded-lg border border-green-200 bg-green-50/50 p-2">
-                              <p className="text-[7px] font-bold uppercase text-green-700 mb-1">Produção</p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {field('ID CSC Produção', 'cscProdId', '000001')}
-                                {field('CSC Produção', 'cscProd', 'Token da SEFAZ-MT')}
+                            <div className="rounded-xl border border-green-200 bg-green-50/50 p-3">
+                              <p className="text-xs font-bold uppercase text-green-700 mb-2">Produção</p>
+                              <div className="space-y-2">
+                                {field('ID CSC', 'cscProdId', '000001')}
+                                {field('CSC Token', 'cscProd', 'Token da SEFAZ-MT')}
                               </div>
                             </div>
                           </div>
                         </div>
+                      </div>
 
-                        {/* Certificado A1 */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Certificado Digital A1</p>
-                          {cfg.certificadoCarregado && (
-                            <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 mb-2">
-                              <span className="text-green-600 text-[9px]">✓</span>
-                              <div>
-                                <p className="text-[8px] font-bold text-green-700">Certificado ativo no servidor</p>
-                                {cfg.certificadoTitular && <p className="text-[7px] text-green-600">{cfg.certificadoTitular}</p>}
-                                {cfg.certificadoValidadeFim && <p className="text-[7px] text-green-600">Válido até {new Date(cfg.certificadoValidadeFim).toLocaleDateString('pt-BR')}</p>}
-                              </div>
-                            </div>
-                          )}
-                          <div className="grid grid-cols-1 gap-2">
-                            <div className="flex flex-col gap-0.5">
-                              <label className="text-[7px] font-bold uppercase text-[#141414]/50">Arquivo .pfx ou .p12</label>
-                              <div className="flex items-center gap-2">
-                                <label className="flex-1 flex items-center gap-2 px-3 py-2 border border-dashed border-[#141414]/20 rounded cursor-pointer hover:bg-[#141414]/5 transition-colors">
-                                  <Upload size={12} className="opacity-40 shrink-0" />
-                                  <span className="text-[9px] opacity-50 truncate">
-                                    {cfg.certificadoA1Base64 ? '✓ Novo certificado selecionado — salve para aplicar' : cfg.certificadoCarregado ? 'Substituir certificado atual' : 'Clique para selecionar .pfx ou .p12'}
-                                  </span>
-                                  <input type="file" accept=".pfx,.p12" className="hidden" onChange={e => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    const reader = new FileReader();
-                                    reader.onload = (ev) => {
-                                      const base64 = (ev.target?.result as string).split(',')[1];
-                                      setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: base64 }));
-                                      toast.success('Certificado selecionado. Informe a senha e salve.');
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }} />
-                                </label>
-                                {cfg.certificadoA1Base64 && (
-                                  <button onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: '' }))} className="text-[9px] text-red-500 hover:text-red-700 shrink-0">Remover</button>
-                                )}
-                              </div>
-                            </div>
-                            {field('Senha do Certificado', 'certificadoSenha', '••••••••', 'password')}
-                            <p className="text-[7px] text-[#141414]/40">A senha não é armazenada no banco após a validação. O arquivo .pfx fica criptografado no servidor.</p>
-                          </div>
+                      {/* Card: Certificado Digital A1 */}
+                      <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Lock className="text-[#141414]" size={16} />
+                          <h3 className="font-serif italic text-base leading-none">Certificado Digital A1</h3>
                         </div>
+                        {cfg.certificadoCarregado && (
+                          <div className="flex items-center gap-3 rounded-xl border border-green-300 bg-green-50 px-4 py-3 mb-4">
+                            <span className="text-green-600 text-base">✓</span>
+                            <div>
+                              <p className="text-sm font-bold text-green-700">Certificado ativo no servidor</p>
+                              {cfg.certificadoTitular && <p className="text-xs text-green-600">{cfg.certificadoTitular}</p>}
+                              {cfg.certificadoValidadeFim && <p className="text-xs text-green-600">Válido até {new Date(cfg.certificadoValidadeFim).toLocaleDateString('pt-BR')}</p>}
+                            </div>
+                          </div>
+                        )}
+                        <div className="space-y-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-xs font-semibold uppercase text-[#141414]/50">Arquivo .pfx ou .p12</label>
+                            <div className="flex items-center gap-2">
+                              <label className="flex-1 flex items-center gap-2 px-3 py-2.5 border border-dashed border-[#141414]/20 rounded-lg cursor-pointer hover:bg-[#141414]/5 transition-colors">
+                                <Upload size={14} className="opacity-40 shrink-0" />
+                                <span className="text-sm opacity-50 truncate">
+                                  {cfg.certificadoA1Base64 ? '✓ Novo certificado selecionado — salve para aplicar' : cfg.certificadoCarregado ? 'Substituir certificado atual' : 'Clique para selecionar .pfx ou .p12'}
+                                </span>
+                                <input type="file" accept=".pfx,.p12" className="hidden" onChange={e => {
+                                  const file = e.target.files?.[0];
+                                  if (!file) return;
+                                  const reader = new FileReader();
+                                  reader.onload = (ev) => {
+                                    const base64 = (ev.target?.result as string).split(',')[1];
+                                    setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: base64 }));
+                                    toast.success('Certificado selecionado. Informe a senha e salve.');
+                                  };
+                                  reader.readAsDataURL(file);
+                                }} />
+                              </label>
+                              {cfg.certificadoA1Base64 && (
+                                <button onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), certificadoA1Base64: '' }))} className="text-sm text-red-500 hover:text-red-700 shrink-0">Remover</button>
+                              )}
+                            </div>
+                          </div>
+                          {field('Senha do Certificado', 'certificadoSenha', '••••••••', 'password')}
+                          <p className="text-xs text-[#141414]/40">A senha não é armazenada no banco após a validação. O arquivo .pfx fica criptografado no servidor.</p>
+                        </div>
+                      </div>
 
-                        {/* Emissão Automática de NFC-e */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1.5">Emissão Automática de NFC-e</p>
+                      {/* Card: Configurações de Emissão */}
+                      <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4">
+                          <FileText className="text-[#141414]" size={16} />
+                          <h3 className="font-serif italic text-base leading-none">Configurações de Emissão</h3>
+                        </div>
+                        <div className="mb-4">
+                          <label className="text-xs font-semibold uppercase text-[#141414]/50 mb-1.5 block">Emissão Automática de NFC-e</label>
                           <select value={cfg.emissaoNfce || 'desativado'} onChange={e => upd('emissaoNfce', e.target.value)}
-                            className="w-full border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none">
+                            className="w-full border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none">
                             <option value="desativado">Desativado — emitir manualmente</option>
                             <option value="apos_confirmacao">Perguntar após pagamento</option>
                             <option value="automatico_cartao_pix">Automático em Cartão e PIX (perguntar em Dinheiro)</option>
                             <option value="automatico_sempre">Automático em todas as operações</option>
                           </select>
-                          <p className="text-[7px] text-[#141414]/40 mt-1">Requer configuração fiscal salva e certificado ativo no servidor.</p>
+                          <p className="text-xs text-[#141414]/40 mt-1">Requer configuração fiscal salva e certificado ativo no servidor.</p>
                         </div>
-
-                        {/* Emissão Assíncrona */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <p className="text-[8px] font-bold text-[#141414]">Emissão Assíncrona</p>
-                              <p className="text-[7px] text-[#141414]/40 mt-0.5 leading-tight">Responde imediatamente "registrada" e transmite para SEFAZ em segundo plano. Elimina a espera de 2-3s.</p>
-                            </div>
-                            <button
-                              onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), emissaoAssincrona: !(prev?.emissaoAssincrona) }))}
-                              className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${cfg.emissaoAssincrona ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
-                            >
-                              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${cfg.emissaoAssincrona ? 'translate-x-4' : ''}`} />
-                            </button>
+                        <div className="flex items-center justify-between gap-3 py-3 border-t border-[#141414]/10">
+                          <div>
+                            <p className="text-sm font-bold text-[#141414]">Emissão Assíncrona</p>
+                            <p className="text-xs text-[#141414]/40 mt-0.5 leading-tight">Responde imediatamente "registrada" e transmite para SEFAZ em segundo plano. Elimina a espera de 2–3s.</p>
                           </div>
+                          <button
+                            onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), emissaoAssincrona: !(prev?.emissaoAssincrona) }))}
+                            className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${cfg.emissaoAssincrona ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.emissaoAssincrona ? 'translate-x-5' : ''}`} />
+                          </button>
                         </div>
-
-                        {/* Item Consolidado */}
-                        <div className="border-t border-[#141414]/10 pt-2">
-                          <p className="text-[7px] font-bold uppercase text-[#141414]/50 mb-1">Item Consolidado</p>
-                          <p className="text-[7px] text-[#141414]/40 mb-2">Ao emitir NFC-e, permite substituir todos os itens por um único produto (ex: "Refeição"). O produto deve ter NCM e dados fiscais configurados.</p>
+                        <div className="border-t border-[#141414]/10 pt-3">
+                          <label className="text-xs font-semibold uppercase text-[#141414]/50 mb-1 block">Item Consolidado</label>
+                          <p className="text-xs text-[#141414]/40 mb-2">Ao emitir NFC-e, permite substituir todos os itens por um único produto (ex: "Refeição").</p>
                           <select
                             value={cfg.itemConsolidado?.id || ''}
                             onChange={e => {
@@ -7631,7 +7630,7 @@ export default function Dashboard({
                               }
                               if (found) setFiscalConfig((prev: any) => ({ ...(prev || {}), itemConsolidado: { id: found.id, name: found.name, ncm: found.ncm, cfop: found.cfop, csosn: found.csosn, cst: found.cst, unidade: found.unidade } }));
                             }}
-                            className="w-full border border-[#141414]/15 rounded px-2 py-1 text-[9px] focus:outline-none"
+                            className="w-full border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none"
                           >
                             <option value="">— Nenhum —</option>
                             {menu.flatMap((cat: any) => [
@@ -7640,70 +7639,69 @@ export default function Dashboard({
                             ]).map((opt: any) => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
                           </select>
                           {cfg.itemConsolidado?.id && (
-                            <div className="mt-1.5 bg-gray-50 rounded px-2 py-1.5 text-[8px] space-y-0.5">
+                            <div className="mt-2 bg-gray-50 rounded-lg px-3 py-2 text-xs space-y-0.5">
                               <p className="font-bold text-[#141414]">{cfg.itemConsolidado.name}</p>
                               <p className="text-[#141414]/50">NCM: {cfg.itemConsolidado.ncm || '—'} · CFOP: {cfg.itemConsolidado.cfop || '—'} · CSOSN: {cfg.itemConsolidado.csosn || '—'}</p>
                             </div>
                           )}
                         </div>
-
-                        {/* Ações */}
-                        <div className="flex gap-2 pt-1 border-t border-[#141414]/10">
-                          <button
-                            disabled={fiscalConfigSaving}
-                            onClick={async () => {
-                              if (!tenantId) { toast.error('Faça login para salvar.'); return; }
-                              setFiscalConfigSaving(true);
-                              try {
-                                const res = await fetch(`/api/fiscal/config/${tenantId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fiscalConfig) });
-                                const d = await res.json();
-                                if (!res.ok) throw new Error(d.error || res.statusText);
-                                toast.success(d.certificadoCarregado ? 'Configuração salva e certificado validado!' : 'Configuração fiscal salva!');
-                                // Recarregar para exibir metadados do certificado
-                                const r2 = await fetch(`/api/fiscal/config/${tenantId}`);
-                                if (r2.ok) { const d2 = await r2.json(); setFiscalConfig((prev: any) => ({ ...(prev || {}), ...(d2.config || {}), certificadoA1Base64: prev?.certificadoA1Base64 })); }
-                              } catch (e: any) { toast.error('Erro: ' + e.message); }
-                              setFiscalConfigSaving(false);
-                            }}
-                            className="flex-1 py-1.5 bg-[#141414] text-white rounded-lg text-[8px] font-bold uppercase hover:bg-[#141414]/80 transition-colors disabled:opacity-50"
-                          >{fiscalConfigSaving ? 'Salvando...' : 'Salvar Configuração'}</button>
-                          <button
-                            onClick={async () => {
-                              if (!tenantId) return;
-                              setSefazStatus(s => ({ ...s, checking: true }));
-                              try {
-                                const res = await fetch(`/api/fiscal/status/${tenantId}`);
-                                const d = await res.json();
-                                const parse = (svc: any) => svc
-                                  ? { online: svc.online ?? (svc.cStat === '107'), cStat: svc.cStat || '', xMotivo: svc.xMotivo || d.error || 'Sem resposta' }
-                                  : { online: false, cStat: '', xMotivo: d.error || 'Sem resposta' };
-                                setSefazStatus({ checking: false, nfce: parse(d.nfce), nfe: parse(d.nfe), checkedAt: new Date().toLocaleTimeString('pt-BR') });
-                              } catch (e: any) {
-                                const err = { online: false, cStat: '', xMotivo: e.message || 'Falha na requisição' };
-                                setSefazStatus({ checking: false, nfce: err, nfe: err, checkedAt: new Date().toLocaleTimeString('pt-BR') });
-                              }
-                            }}
-                            disabled={sefazStatus.checking}
-                            className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg text-[8px] font-bold uppercase hover:bg-blue-100 transition-colors disabled:opacity-50"
-                          >{sefazStatus.checking ? 'Verificando...' : 'Verificar SEFAZ'}</button>
-                          <button
-                            onClick={async () => {
-                              if (!tenantId) return;
-                              setFiscalConfigLoading(true);
-                              try {
-                                const res = await fetch(`/api/fiscal/config/${tenantId}`);
-                                if (res.ok) { const d = await res.json(); setFiscalConfig(d.config || d); toast.success('Configuração carregada.'); }
-                                else toast.error('Nenhuma configuração encontrada.');
-                              } catch { toast.error('Erro ao carregar configuração.'); }
-                              setFiscalConfigLoading(false);
-                            }}
-                            className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-[8px] font-bold uppercase hover:bg-gray-200 transition-colors"
-                          >{fiscalConfigLoading ? '...' : 'Carregar'}</button>
-                        </div>
                       </div>
-                    );
-                  })()}
-                </div>
+
+                      {/* Barra de Ações */}
+                      <div className="flex gap-3">
+                        <button
+                          disabled={fiscalConfigSaving}
+                          onClick={async () => {
+                            if (!tenantId) { toast.error('Faça login para salvar.'); return; }
+                            setFiscalConfigSaving(true);
+                            try {
+                              const res = await fetch(`/api/fiscal/config/${tenantId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fiscalConfig) });
+                              const d = await res.json();
+                              if (!res.ok) throw new Error(d.error || res.statusText);
+                              toast.success(d.certificadoCarregado ? 'Configuração salva e certificado validado!' : 'Configuração fiscal salva!');
+                              const r2 = await fetch(`/api/fiscal/config/${tenantId}`);
+                              if (r2.ok) { const d2 = await r2.json(); setFiscalConfig((prev: any) => ({ ...(prev || {}), ...(d2.config || {}), certificadoA1Base64: prev?.certificadoA1Base64 })); }
+                            } catch (e: any) { toast.error('Erro: ' + e.message); }
+                            setFiscalConfigSaving(false);
+                          }}
+                          className="flex-1 py-2.5 bg-[#141414] text-white rounded-xl text-sm font-bold uppercase hover:bg-[#141414]/80 transition-colors disabled:opacity-50"
+                        >{fiscalConfigSaving ? 'Salvando...' : 'Salvar Configuração'}</button>
+                        <button
+                          onClick={async () => {
+                            if (!tenantId) return;
+                            setSefazStatus(s => ({ ...s, checking: true }));
+                            try {
+                              const res = await fetch(`/api/fiscal/status/${tenantId}`);
+                              const d = await res.json();
+                              const parse = (svc: any) => svc
+                                ? { online: svc.online ?? (svc.cStat === '107'), cStat: svc.cStat || '', xMotivo: svc.xMotivo || d.error || 'Sem resposta' }
+                                : { online: false, cStat: '', xMotivo: d.error || 'Sem resposta' };
+                              setSefazStatus({ checking: false, nfce: parse(d.nfce), nfe: parse(d.nfe), checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                            } catch (e: any) {
+                              const err = { online: false, cStat: '', xMotivo: e.message || 'Falha na requisição' };
+                              setSefazStatus({ checking: false, nfce: err, nfe: err, checkedAt: new Date().toLocaleTimeString('pt-BR') });
+                            }
+                          }}
+                          disabled={sefazStatus.checking}
+                          className="px-4 py-2.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-xl text-sm font-bold uppercase hover:bg-blue-100 transition-colors disabled:opacity-50"
+                        >{sefazStatus.checking ? 'Verificando...' : 'Verificar SEFAZ'}</button>
+                        <button
+                          onClick={async () => {
+                            if (!tenantId) return;
+                            setFiscalConfigLoading(true);
+                            try {
+                              const res = await fetch(`/api/fiscal/config/${tenantId}`);
+                              if (res.ok) { const d = await res.json(); setFiscalConfig(d.config || d); toast.success('Configuração carregada.'); }
+                              else toast.error('Nenhuma configuração encontrada.');
+                            } catch { toast.error('Erro ao carregar configuração.'); }
+                            setFiscalConfigLoading(false);
+                          }}
+                          className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl text-sm font-bold uppercase hover:bg-gray-200 transition-colors"
+                        >{fiscalConfigLoading ? '...' : 'Carregar'}</button>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 {/* Painel de status SEFAZ */}
                 {(sefazStatus.nfce !== null || sefazStatus.nfe !== null || sefazStatus.checking) && (() => {
@@ -7716,42 +7714,42 @@ export default function Dashboard({
                     : 'bg-red-50 border-red-200';
                   const headerColor = sefazStatus.checking ? 'text-blue-700' : allOnline ? 'text-green-700' : anyOnline ? 'text-amber-700' : 'text-red-700';
                   return (
-                    <div className={`mt-2 p-3 rounded-xl border ${bg}`}>
+                    <div className={`p-4 rounded-2xl border ${bg}`}>
                       <div className="flex items-center justify-between mb-2">
-                        <p className={`text-[9px] font-black uppercase tracking-wide ${headerColor}`}>
+                        <p className={`text-sm font-black uppercase tracking-wide ${headerColor}`}>
                           {sefazStatus.checking ? 'Verificando SEFAZ-MT...' : 'SEFAZ-MT — Status dos Serviços'}
                         </p>
-                        {sefazStatus.checkedAt && <span className="text-[7px] opacity-50 shrink-0">{sefazStatus.checkedAt}</span>}
+                        {sefazStatus.checkedAt && <span className="text-xs opacity-50 shrink-0">{sefazStatus.checkedAt}</span>}
                       </div>
                       {sefazStatus.checking ? (
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
-                          <span className="text-[8px] text-blue-600">Consultando autorizadores NFC-e e NF-e em paralelo...</span>
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                          <span className="text-sm text-blue-600">Consultando autorizadores NFC-e e NF-e em paralelo...</span>
                         </div>
                       ) : (
-                        <div className="space-y-1.5">
+                        <div className="space-y-2">
                           {([
                             { label: 'NFC-e (mod. 65)', s: sefazStatus.nfce },
                             { label: 'NF-e  (mod. 55)', s: sefazStatus.nfe  },
                           ] as const).map(({ label, s }) => (
-                            <div key={label} className="flex items-start gap-1.5">
-                              <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${s?.online ? 'bg-green-500' : 'bg-red-500'}`} />
+                            <div key={label} className="flex items-start gap-2">
+                              <div className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${s?.online ? 'bg-green-500' : 'bg-red-500'}`} />
                               <div className="flex-1 min-w-0">
-                                <span className={`text-[8px] font-bold ${s?.online ? 'text-green-700' : 'text-red-700'}`}>{label}</span>
-                                <span className={`text-[7px] ml-1.5 ${s?.online ? 'text-green-600' : 'text-red-600'}`}>
+                                <span className={`text-sm font-bold ${s?.online ? 'text-green-700' : 'text-red-700'}`}>{label}</span>
+                                <span className={`text-xs ml-2 ${s?.online ? 'text-green-600' : 'text-red-600'}`}>
                                   {s?.online ? '— Em Operação' : s?.cStat ? `— cStat ${s.cStat}` : '— Indisponível'}
                                 </span>
                                 {s?.xMotivo && (
-                                  <p className={`text-[7px] mt-0.5 opacity-70 truncate ${s.online ? 'text-green-600' : 'text-red-600'}`}>{s.xMotivo}</p>
+                                  <p className={`text-xs mt-0.5 opacity-70 truncate ${s.online ? 'text-green-600' : 'text-red-600'}`}>{s.xMotivo}</p>
                                 )}
                               </div>
                             </div>
                           ))}
                           {!allOnline && (
-                            <div className="mt-1.5 flex items-center gap-3 pt-1 border-t border-current/10">
+                            <div className="mt-2 flex items-center gap-3 pt-2 border-t border-current/10">
                               <a href="https://www.nfe.fazenda.gov.br/portal/disponibilidade.aspx" target="_blank" rel="noopener noreferrer"
-                                className="text-[7px] text-red-600 underline font-bold">Ver status oficial Portal NF-e →</a>
-                              <span className="text-[7px] text-red-500 opacity-70">Pode ser bloqueio de rede do servidor</span>
+                                className="text-xs text-red-600 underline font-bold">Ver status oficial Portal NF-e →</a>
+                              <span className="text-xs text-red-500 opacity-70">Pode ser bloqueio de rede do servidor</span>
                             </div>
                           )}
                         </div>
@@ -7760,15 +7758,15 @@ export default function Dashboard({
                   );
                 })()}
 
-                {/* Notas Fiscais */}
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
-                  <div className="flex items-center justify-between mb-2">
+                {/* Notas Emitidas */}
+                <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <FileText className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">Notas Emitidas</h3>
+                      <FileText className="text-[#141414]" size={16} />
+                      <h3 className="font-serif italic text-base leading-none">Notas Emitidas</h3>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setInutilizarModal(true)} className="text-[7px] font-bold uppercase text-orange-500 hover:text-orange-700 border border-orange-200 rounded px-1.5 py-0.5 transition-colors">Inutilizar</button>
+                      <button onClick={() => setInutilizarModal(true)} className="text-xs font-bold uppercase text-orange-500 hover:text-orange-700 border border-orange-200 rounded-lg px-2 py-1 transition-colors">Inutilizar</button>
                       <button
                         disabled={reconciliarLoading}
                         onClick={async () => {
@@ -7787,17 +7785,17 @@ export default function Dashboard({
                           } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
                           finally { setReconciliarLoading(false); }
                         }}
-                        className="text-[7px] font-bold uppercase text-blue-600 hover:text-blue-800 border border-blue-200 rounded px-1.5 py-0.5 transition-colors disabled:opacity-50"
+                        className="text-xs font-bold uppercase text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-2 py-1 transition-colors disabled:opacity-50"
                       >{reconciliarLoading ? '...' : 'Reconciliar'}</button>
                       <button onClick={async () => {
                         if (!tenantId) return;
                         const res = await fetch(`/api/fiscal/notes/${tenantId}`);
                         if (res.ok) { const d = await res.json(); setFiscalNotes(Array.isArray(d) ? d : (d.notes || [])); }
-                      }} className="text-[7px] font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
+                      }} className="text-xs font-bold uppercase text-[#141414]/50 hover:text-[#141414] transition-colors">Atualizar</button>
                     </div>
                   </div>
                   {reconciliarResult && reconciliarResult.total > 0 && (
-                    <div className="mb-2 bg-blue-50 border border-blue-100 rounded px-2 py-1 flex items-center gap-3 text-[7px]">
+                    <div className="mb-3 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex items-center gap-3 text-xs">
                       <span className="font-bold text-blue-700">Reconciliação</span>
                       <span className="text-green-700">✓ {reconciliarResult.autorizados} autorizada(s)</span>
                       {reconciliarResult.rejeitados > 0 && <span className="text-red-600">✗ {reconciliarResult.rejeitados} rejeitada(s)</span>}
@@ -7805,9 +7803,9 @@ export default function Dashboard({
                     </div>
                   )}
                   {fiscalNotes.length === 0 ? (
-                    <p className="text-[8px] text-[#141414]/40 text-center py-2">Nenhuma nota emitida.</p>
+                    <p className="text-sm text-[#141414]/40 text-center py-3">Nenhuma nota emitida.</p>
                   ) : (
-                    <div className="space-y-1 max-h-56 overflow-y-auto">
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
                       {fiscalNotes.map((n: any) => {
                         const st = (n.status || '').toUpperCase();
                         const _cancelLimitMin = (n.modelo || '65') === '55' ? 24 * 60 : 30;
@@ -7823,13 +7821,13 @@ export default function Dashboard({
                           st === 'CONTINGENCIA_PENDENTE_TRANSMISSAO' ? 'text-amber-600' :
                           'text-yellow-600';
                         return (
-                          <div key={n.id} className="flex items-center gap-2 bg-gray-50 rounded px-2 py-1 text-[7.5px]">
+                          <div key={n.id} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5 text-xs">
                             <div className="flex-1 min-w-0">
                               <span className={`font-bold ${statusColor}`}>{st}</span>
                               <span className="text-[#141414]/50 ml-1.5">#{n.order_id}</span>
                               {n.modelo && <span className="text-[#141414]/30 ml-1">mod.{n.modelo}</span>}
                               {n.chave_acesso && (
-                                <span className="font-mono text-[6.5px] text-[#141414]/30 ml-1.5">{n.chave_acesso.slice(-9)}</span>
+                                <span className="font-mono text-[9px] text-[#141414]/30 ml-1.5">{n.chave_acesso.slice(-9)}</span>
                               )}
                             </div>
                             {n.chave_acesso && st !== 'INUTILIZADO' && st !== 'REJEITADO' && (
@@ -7837,7 +7835,7 @@ export default function Dashboard({
                                 href={`/danfe/${n.modelo === '55' ? 'nfe' : 'nfce'}/${n.chave_acesso}?tenant=${encodeURIComponent(tenantId || '')}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors"
+                                className="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors"
                               >DANFE</a>
                             )}
                             {n.chave_acesso && (st === 'AUTORIZADO' || st === 'AUTORIZADO_COM_ALERTA' || st === 'CANCELADO' || st === 'EPEC_AUTORIZADO' || st === 'CONTINGENCIA_PENDENTE_TRANSMISSAO') && (
@@ -7850,13 +7848,13 @@ export default function Dashboard({
                                     toast.error(e.message || 'Erro ao baixar XML.');
                                   }
                                 }}
-                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-gray-600 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
+                                className="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600 border border-gray-200 rounded hover:bg-gray-100 transition-colors"
                               >XML</button>
                             )}
                             {canCancel && (
                               <button
                                 onClick={() => { setCancelModal({ chaveAcesso: n.chave_acesso, modelo: n.modelo || '65', orderId: n.order_id, dhRecbto: n.dh_recbto }); setCancelMotivo(''); }}
-                                className="shrink-0 px-1.5 py-0.5 text-[6.5px] font-bold uppercase text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+                                className="shrink-0 px-2 py-0.5 text-[10px] font-bold uppercase text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
                               >Cancelar</button>
                             )}
                           </div>
@@ -7866,11 +7864,11 @@ export default function Dashboard({
                   )}
                 </div>
 
-                {/* Consulta por chave de acesso */}
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Search className="text-[#141414]" size={12} />
-                    <h3 className="font-serif italic text-sm leading-none">Consultar por Chave</h3>
+                {/* Consultar por Chave */}
+                <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Search className="text-[#141414]" size={16} />
+                    <h3 className="font-serif italic text-base leading-none">Consultar por Chave</h3>
                   </div>
                   <div className="flex gap-2">
                     <input
@@ -7878,7 +7876,7 @@ export default function Dashboard({
                       onChange={e => { setConsultaChave(e.target.value.replace(/\D/g, '')); setConsultaResult(null); }}
                       placeholder="44 dígitos da chave de acesso"
                       maxLength={44}
-                      className="flex-1 text-[8px] font-mono border border-[#141414]/15 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      className="flex-1 text-sm font-mono border border-[#141414]/15 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400"
                     />
                     <button
                       disabled={consultaLoading || consultaChave.length !== 44}
@@ -7894,49 +7892,49 @@ export default function Dashboard({
                         } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
                         finally { setConsultaLoading(false); }
                       }}
-                      className="shrink-0 px-2 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-[7px] font-bold uppercase transition-colors disabled:opacity-40"
+                      className="shrink-0 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold uppercase transition-colors disabled:opacity-40"
                     >{consultaLoading ? '...' : 'Consultar'}</button>
                   </div>
                   {consultaChave.length > 0 && consultaChave.length < 44 && (
-                    <p className="text-[7px] text-[#141414]/40 mt-0.5">{44 - consultaChave.length} dígitos restantes</p>
+                    <p className="text-xs text-[#141414]/40 mt-1">{44 - consultaChave.length} dígitos restantes</p>
                   )}
                   {consultaResult && (
-                    <div className="mt-2 bg-gray-50 border border-[#141414]/10 rounded px-2 py-1.5 space-y-0.5">
+                    <div className="mt-3 bg-gray-50 border border-[#141414]/10 rounded-lg px-3 py-2.5 space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="text-[7px] font-bold uppercase text-[#141414]/40">cStat</span>
-                        <span className="text-[8px] font-mono font-bold text-[#141414]">{consultaResult.cStat}</span>
-                        <span className="text-[8px] text-[#141414]/70">— {consultaResult.xMotivo}</span>
+                        <span className="text-xs font-bold uppercase text-[#141414]/40">cStat</span>
+                        <span className="text-sm font-mono font-bold text-[#141414]">{consultaResult.cStat}</span>
+                        <span className="text-sm text-[#141414]/70">— {consultaResult.xMotivo}</span>
                       </div>
                       {consultaResult.protocolo && (
                         <div className="flex items-center gap-2">
-                          <span className="text-[7px] font-bold uppercase text-[#141414]/40">Protocolo</span>
-                          <span className="text-[8px] font-mono text-[#141414]">{consultaResult.protocolo}</span>
-                          {consultaResult.dhRecbto && <span className="text-[7px] text-[#141414]/40">{new Date(consultaResult.dhRecbto).toLocaleString('pt-BR')}</span>}
+                          <span className="text-xs font-bold uppercase text-[#141414]/40">Protocolo</span>
+                          <span className="text-sm font-mono text-[#141414]">{consultaResult.protocolo}</span>
+                          {consultaResult.dhRecbto && <span className="text-xs text-[#141414]/40">{new Date(consultaResult.dhRecbto).toLocaleString('pt-BR')}</span>}
                         </div>
                       )}
                     </div>
                   )}
                 </div>
 
-                {/* Exportação de XML em lote */}
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm mt-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Download className="text-[#141414]" size={12} />
-                    <h3 className="font-serif italic text-sm leading-none">Exportar XMLs do Mês</h3>
+                {/* Exportar XMLs */}
+                <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Download className="text-[#141414]" size={16} />
+                    <h3 className="font-serif italic text-base leading-none">Exportar XMLs do Mês</h3>
                   </div>
-                  <p className="text-[7px] text-[#141414]/40 mb-2">ZIP com todos os XMLs autorizados — para entrega à contabilidade (SPED).</p>
-                  <div className="flex gap-2 items-end">
+                  <p className="text-xs text-[#141414]/40 mb-3">ZIP com todos os XMLs autorizados — para entrega à contabilidade (SPED).</p>
+                  <div className="flex gap-3 items-end">
                     <div>
-                      <label className="text-[7px] font-bold uppercase text-[#141414]/40 block mb-0.5">Mês</label>
-                      <select value={xmlLoteMes} onChange={e => setXmlLoteMes(e.target.value)} className="border border-[#141414]/15 rounded px-2 py-1.5 text-[8px] focus:outline-none">
+                      <label className="text-xs font-semibold uppercase text-[#141414]/40 block mb-1">Mês</label>
+                      <select value={xmlLoteMes} onChange={e => setXmlLoteMes(e.target.value)} className="border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none">
                         {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m, i) => (
                           <option key={i+1} value={String(i+1)}>{m}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="text-[7px] font-bold uppercase text-[#141414]/40 block mb-0.5">Ano</label>
-                      <select value={xmlLoteAno} onChange={e => setXmlLoteAno(e.target.value)} className="border border-[#141414]/15 rounded px-2 py-1.5 text-[8px] focus:outline-none">
+                      <label className="text-xs font-semibold uppercase text-[#141414]/40 block mb-1">Ano</label>
+                      <select value={xmlLoteAno} onChange={e => setXmlLoteAno(e.target.value)} className="border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none">
                         {Array.from({ length: 4 }, (_, i) => new Date().getFullYear() - i).map(y => (
                           <option key={y} value={String(y)}>{y}</option>
                         ))}
@@ -7954,14 +7952,13 @@ export default function Dashboard({
                         } catch (e: any) { toast.error(e.message || 'Erro de rede.'); }
                         finally { setXmlLoteLoading(false); }
                       }}
-                      className="px-3 py-1.5 bg-[#141414] hover:bg-[#141414]/80 text-white rounded text-[7px] font-bold uppercase transition-colors disabled:opacity-40 flex items-center gap-1"
+                      className="px-4 py-2 bg-[#141414] hover:bg-[#141414]/80 text-white rounded-lg text-sm font-bold uppercase transition-colors disabled:opacity-40 flex items-center gap-1.5"
                     >
-                      <Download size={9} />
+                      <Download size={14} />
                       {xmlLoteLoading ? 'Gerando...' : 'Baixar ZIP'}
                     </button>
                   </div>
                 </div>
-              </div>
               </div>
               )}
 
