@@ -48,8 +48,9 @@ function activateWaitingWorker(
       else if (worker.state === 'redundant') finish(new Error('A nova versão não pôde ser ativada. Tente novamente.'));
     };
     const timeout = setTimeout(() => {
-      if (worker.state === 'activated') finish();
-      else finish(new Error('Não foi possível ativar a atualização. Tente novamente.'));
+      // Resolve regardless — the page reload will load the new SW version
+      // even if we cannot confirm state === 'activated' within the window.
+      finish();
     }, 8000);
     worker.addEventListener('statechange', check);
     container?.addEventListener('controllerchange', check);
