@@ -6117,6 +6117,38 @@ async function startServer() {
 
   // ── End PDF Reservation API ────────────────────────────────────────────────
 
+  // ── Activation Codes ─────────────────────────────────────────────────────────
+  const activationCodes = new Map<string, { code: string; email: string; name: string; userId: string; createdAt: number }>();
+
+  app.post('/api/auth/request-activation', express.json(), async (req, res) => {
+    const { userId, email, name } = req.body || {};
+    if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios' });
+    for (const [k, v] of activationCodes.entries()) {
+      if (v.userId === userId) activationCodes.delete(k);
+    }
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    activationCodes.set(userId, { code, email, name: name || '', userId, createdAt: Date.now() });
+    setTimeout(() => activationCodes.delete(userId), 24 * 60 * 60 * 1000);
+    return res.json({ ok: true });
+  });
+
+  app.post('/api/auth/activate', express.json(), async (req, res) => {
+    const { userId, code } = req.body || {};
+    if (!userId || !code) return res.status(400).json({ error: 'userId e code são obrigatórios' });
+    const entry = activationCodes.get(String(userId));
+    if (!entry) return res.status(404).json({ error: 'Código não encontrado ou expirado' });
+    if (entry.code !== String(code)) return res.status(400).json({ error: 'Código incorreto' });
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    try {
+      const { error: updateErr } = await (db.auth as any).admin.updateUserById(userId, { email_confirm: true });
+      if (updateErr) return res.status(500).json({ error: updateErr.message });
+      activationCodes.delete(String(userId));
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
+  });
+
   // ── Dev Admin API ────────────────────────────────────────────────────────────
   {
     const devTokens = new Set<string>();
@@ -6230,6 +6262,14 @@ async function startServer() {
       } catch (e: any) {
         return res.status(500).json({ error: e.message });
       }
+    });
+
+    app.get('/api/dev/pending-activations', (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const list = [...activationCodes.values()]
+        .map(v => ({ userId: v.userId, email: v.email, name: v.name, code: v.code, createdAt: new Date(v.createdAt).toISOString() }))
+        .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
+      return res.json({ activations: list });
     });
 
     app.get('/api/dev/server', (req, res) => {
