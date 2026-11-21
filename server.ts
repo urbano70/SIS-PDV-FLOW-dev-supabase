@@ -6268,6 +6268,41 @@ async function startServer() {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 
+  // Graceful shutdown: drena writes pendentes antes de sair (evita perda de dados no deploy)
+  const drainAllPendingWrites = async () => {
+    for (const [key, timer] of _writeTimers.entries()) {
+      clearTimeout(timer);
+      _writeTimers.delete(key);
+      const p = _writePayload.get(key);
+      if (p) {
+        _writePayload.delete(key);
+        try { await saveToSupabase(p.collection, p.data, p.docId, p.tenantId); } catch (e: any) {
+          console.error(`[shutdown] falha ao salvar ${p.collection}/${p.docId}:`, e?.message);
+        }
+      }
+    }
+    const inFlight = [..._tenantWriteTails.values()];
+    if (inFlight.length > 0) await Promise.allSettled(inFlight);
+  };
+
+  const gracefulShutdown = async (signal: string) => {
+    console.log(`[shutdown] ${signal} recebido — drenando ${_writeTimers.size} writes pendentes...`);
+    httpServer.close();
+    try {
+      await Promise.race([
+        drainAllPendingWrites(),
+        new Promise<void>(resolve => setTimeout(resolve, 8000)),
+      ]);
+      console.log('[shutdown] Writes drenados. Saindo.');
+    } catch (e: any) {
+      console.error('[shutdown] Erro ao drenar writes:', e?.message);
+    }
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
+
   // Reconciliação automática de RESULTADO_DESCONHECIDO a cada 5 minutos.
   // Só processa tenants cujos certificados já estejam carregados em memória.
   const RECON_INTERVAL_MS = 5 * 60_000;
