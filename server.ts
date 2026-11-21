@@ -6214,6 +6214,24 @@ async function startServer() {
       return res.json({ waiters: data || [] });
     });
 
+    app.post('/api/dev/confirm-user', express.json(), async (req, res) => {
+      if (!requireDevToken(req, res)) return;
+      const { email } = req.body || {};
+      if (!email || typeof email !== 'string') return res.status(400).json({ error: 'email obrigatório' });
+      if (!db) return res.status(503).json({ error: 'DB não disponível' });
+      try {
+        const { data: listData, error: listErr } = await (db.auth as any).admin.listUsers({ perPage: 500 });
+        if (listErr) return res.status(500).json({ error: listErr.message });
+        const user = (listData?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (!user) return res.status(404).json({ error: `Usuário com e-mail "${email}" não encontrado` });
+        const { error: updateErr } = await (db.auth as any).admin.updateUserById(user.id, { email_confirm: true });
+        if (updateErr) return res.status(500).json({ error: updateErr.message });
+        return res.json({ ok: true, userId: user.id, email: user.email });
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+      }
+    });
+
     app.get('/api/dev/server', (req, res) => {
       if (!requireDevToken(req, res)) return;
       const mem = process.memoryUsage();
