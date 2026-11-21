@@ -1660,13 +1660,15 @@ export default function Dashboard({
     (setPrinterConfig as any)((latest: any) => {
       try {
         localStorage.setItem('printerConfig', JSON.stringify(latest));
+        // Persiste no Supabase para não perder ao trocar de navegador ou dispositivo
+        socket.emit('save_printer_config', latest);
         // Sincroniza nome e logo com o servidor para exibição na página da mesa
         socket.emit('update_pizzaria_config', {
           establishmentName: latest.establishmentName || '',
           logoUrl: latest.logoUrl || '',
         });
         toast.success('Configurações salvas!', {
-          description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
+          description: 'Impressoras e cupom salvos no servidor.'
         });
       } catch {
         toast.error('Erro ao salvar configurações.');
@@ -6855,26 +6857,26 @@ export default function Dashboard({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 items-start">
 
                 {/* ── Coluna 1: Impressão ─────────────────────────────────────── */}
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-5">
 
                   {/* ── Cabeçalho ── */}
                   <div className="flex items-center gap-2">
-                    <Printer className="text-[#141414]" size={13} />
-                    <h3 className="font-serif italic text-sm leading-none flex-1">Impressoras</h3>
-                    <span className={`flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full ${printerAgentOnline ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-400'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${printerAgentOnline ? 'bg-green-500 animate-pulse' : 'bg-red-300'}`} />
+                    <Printer className="text-[#141414]" size={16} />
+                    <h3 className="font-serif italic text-base leading-none flex-1">Impressoras</h3>
+                    <span className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full ${printerAgentOnline ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-400'}`}>
+                      <span className={`w-2.5 h-2.5 rounded-full ${printerAgentOnline ? 'bg-green-500 animate-pulse' : 'bg-red-300'}`} />
                       {printerAgentOnline ? 'Agente conectado' : 'Agente offline'}
                     </span>
                   </div>
 
                   {/* ── Passo 1: Agente ── */}
-                  <div className="rounded-xl border border-[#141414]/8 p-2.5 bg-[#fafafa] space-y-1.5">
-                    <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">① Agente de impressão</p>
+                  <div className="rounded-xl border border-[#141414]/8 p-4 bg-[#fafafa] space-y-3">
+                    <p className="text-xs font-black uppercase tracking-wider opacity-40">① Agente de impressão</p>
                     {!printerAgentOnline ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {pendingAgentSocketId ? (
                           <>
-                            <p className="text-[8px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                            <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed">
                               Agente detectado aguardando pareamento. Clique abaixo para vincular ao seu estabelecimento.
                             </p>
                             <button
@@ -6882,43 +6884,43 @@ export default function Dashboard({
                                 socket.emit('claim_printer_agent', { agentSocketId: pendingAgentSocketId });
                                 setPendingAgentSocketId(null);
                               }}
-                              className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                              className="w-full flex items-center justify-center gap-2 text-sm font-bold py-2 px-4 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                             >
                               🖨️ Parear Agente
                             </button>
                           </>
                         ) : (
                           <>
-                            <p className="text-[8px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
-                              Agente offline. Verifique se o agente está rodando no PC e clique em Reconectar.
+                            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                              Agente offline. Verifique se o agente está rodando no PC e clique em Verificar agente.
                             </p>
                             <button
-                              onClick={() => { socket.disconnect(); socket.connect(); }}
-                              className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
+                              onClick={() => { socket.emit('request_agent_status'); }}
+                              className="w-full flex items-center justify-center gap-2 text-sm font-bold py-2 px-4 rounded-lg bg-amber-600 text-white hover:bg-amber-700 transition-colors"
                             >
-                              <span className="w-2.5 h-2.5 border border-white border-t-transparent rounded-full" style={{animation:'spin 1s linear infinite'}} />
-                              Reconectar
+                              <RefreshCcw size={14} />
+                              Verificar agente
                             </button>
                           </>
                         )}
                       </div>
                     ) : scanRunning ? (
-                      <p className="text-[8px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5 leading-relaxed flex items-center gap-1.5">
-                        <span className="w-3 h-3 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                      <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed flex items-center gap-2">
+                        <span className="w-4 h-4 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
                         Buscando impressoras na rede e no Windows...
                       </p>
                     ) : scanPrinters.length > 0 ? (
-                      <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                      <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 leading-relaxed">
                         {scanPrinters.length} impressora(s) encontrada(s). Clique em "Adicionar" para cadastrar.
                       </p>
                     ) : (
-                      <p className="text-[8px] text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                      <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 leading-relaxed">
                         Agente conectado. Buscando impressoras automaticamente...
                       </p>
                     )}
                     <a href="/download/fechaconta-agente.exe" download
-                      className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
-                      <Download size={9} /> Baixar Agente (.exe) para Windows
+                      className="flex items-center justify-center gap-2 text-sm font-bold py-2 px-4 rounded-lg bg-[#141414] text-[#E4E3E0] hover:opacity-80 transition-opacity w-full">
+                      <Download size={14} /> Baixar Agente (.exe) para Windows
                     </a>
                     <button type="button" onClick={async () => {
                       try {
@@ -6927,24 +6929,24 @@ export default function Dashboard({
                         toast.error(e.message || 'Erro ao baixar config.json.');
                       }
                     }}
-                      className="flex items-center justify-center gap-1.5 text-[8px] font-bold py-1.5 px-3 rounded-lg bg-blue-700 text-white hover:opacity-80 transition-opacity w-full">
-                      <Download size={9} /> Baixar config.json do Agente
+                      className="flex items-center justify-center gap-2 text-sm font-bold py-2 px-4 rounded-lg bg-blue-700 text-white hover:opacity-80 transition-opacity w-full">
+                      <Download size={14} /> Baixar config.json do Agente
                     </button>
-                    <p className="text-[7px] text-[#141414]/50 leading-tight">
+                    <p className="text-xs text-[#141414]/50 leading-tight">
                       Coloque o <strong>config.json</strong> na mesma pasta do exe antes de iniciar o agente.
                     </p>
                     {printerAgentOnline && (
                       <button
                         onClick={() => { setScanPrinters([]); setScanRunning(true); socket.emit('scan_printers_request'); }}
-                        className="w-full flex items-center justify-center gap-1.5 text-[8px] font-bold py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                        className="w-full flex items-center justify-center gap-2 text-sm font-bold py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                       >
-                        <Search size={9} /> {scanPrinters.length > 0 ? 'Buscar novamente' : 'Buscar impressoras disponíveis'}
+                        <Search size={14} /> {scanPrinters.length > 0 ? 'Buscar novamente' : 'Buscar impressoras disponíveis'}
                       </button>
                     )}
                     {/* ── Impressoras descobertas (inline) ── */}
                     {scanPrinters.length > 0 && (
-                      <div className="space-y-1 pt-1 border-t border-[#141414]/8">
-                        <p className="text-[7px] font-black uppercase tracking-wider opacity-40">Impressoras descobertas</p>
+                      <div className="space-y-2 pt-2 border-t border-[#141414]/8">
+                        <p className="text-xs font-black uppercase tracking-wider opacity-40">Impressoras descobertas</p>
                         {scanPrinters.map((p, i) => {
                           const extractedIp = p.portName?.match(/(\d{1,3}(?:\.\d{1,3}){3})/)?.[1] || '';
                           const displayName = p.localName || p.ip || '';
@@ -6955,14 +6957,14 @@ export default function Dashboard({
                             r.name === displayName || (p.ip && r.ip === p.ip)
                           );
                           return (
-                            <div key={i} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 border transition-all ${alreadyAdded ? 'bg-green-50 border-green-200' : 'bg-white border-[#141414]/8'}`}>
+                            <div key={i} className={`flex items-center gap-2 rounded-lg px-3 py-2 border transition-all ${alreadyAdded ? 'bg-green-50 border-green-200' : 'bg-white border-[#141414]/8'}`}>
                               <div className="flex-1 min-w-0">
-                                <p className="font-bold text-[8px] leading-tight truncate">{displayName}</p>
-                                <p className="text-[7px] opacity-40 truncate">{displaySub}</p>
+                                <p className="font-bold text-sm leading-tight truncate">{displayName}</p>
+                                <p className="text-xs opacity-40 truncate">{displaySub}</p>
                               </div>
                               {alreadyAdded ? (
-                                <span className="shrink-0 text-[7px] font-bold text-green-600 flex items-center gap-0.5">
-                                  <CheckCircle size={9} /> OK
+                                <span className="shrink-0 text-xs font-bold text-green-600 flex items-center gap-1">
+                                  <CheckCircle size={12} /> OK
                                 </span>
                               ) : (
                                 <button
@@ -6977,7 +6979,7 @@ export default function Dashboard({
                                     setScanAssigning(entry);
                                     setScanModalOpen(true);
                                   }}
-                                  className="shrink-0 text-[7px] font-bold bg-[#141414] text-white px-2 py-1 rounded-md hover:opacity-80 transition-opacity"
+                                  className="shrink-0 text-sm font-bold bg-[#141414] text-white px-3 py-1.5 rounded-md hover:opacity-80 transition-opacity"
                                 >
                                   Adicionar
                                 </button>
@@ -6990,49 +6992,49 @@ export default function Dashboard({
                   </div>
 
                   {/* ── Passo 2: Impressoras cadastradas ── */}
-                  <div className="space-y-2">
-                    <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">② Impressoras cadastradas</p>
+                  <div className="space-y-3">
+                    <p className="text-xs font-black uppercase tracking-wider opacity-40">② Impressoras cadastradas</p>
                     {(printerConfig.registeredPrinters || []).length === 0 ? (
-                      <p className="text-[8px] opacity-40 text-center py-2">Nenhuma impressora cadastrada. Use "Buscar" ou adicione manualmente.</p>
+                      <p className="text-sm opacity-40 text-center py-3">Nenhuma impressora cadastrada. Use "Buscar" ou adicione manualmente.</p>
                     ) : (
-                      <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                         {(printerConfig.registeredPrinters || []).map((p: any, idx: number) => (
-                          <div key={idx} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] p-2 space-y-1.5">
-                            <div className="flex items-center gap-1.5">
+                          <div key={idx} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] p-3 space-y-2">
+                            <div className="flex items-center gap-2">
                               <div className="flex-1 min-w-0">
-                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">Nome / Apelido</label>
+                                <label className="text-xs uppercase font-bold opacity-35 leading-none block mb-1">Nome / Apelido</label>
                                 <input
                                   type="text"
                                   value={p.name}
                                   onChange={(e) => { const name = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], name }; return { ...prev, registeredPrinters: u }; }); }}
                                   placeholder="ex: Cozinha, Bar, Caixa..."
-                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                  className="w-full bg-white border border-[#141414]/10 rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none"
                                 />
                               </div>
                               <button onClick={() => handleTestPrinter(p.name)}
-                                className="shrink-0 text-[7px] bg-[#141414] text-white px-2 py-1 rounded-md font-bold uppercase hover:opacity-80">Testar</button>
+                                className="shrink-0 text-xs bg-[#141414] text-white px-3 py-2 rounded-lg font-bold uppercase hover:opacity-80">Testar</button>
                               <button onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: prev.registeredPrinters.filter((_: any, i: number) => i !== idx) }))}
-                                className="shrink-0 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={11} /></button>
+                                className="shrink-0 text-red-400 hover:text-red-600 transition-colors"><Trash2 size={14} /></button>
                             </div>
-                            <div className="flex gap-1.5">
+                            <div className="flex gap-2">
                               <div className="flex-1 min-w-0">
-                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">IP da Impressora</label>
+                                <label className="text-xs uppercase font-bold opacity-35 leading-none block mb-1">IP da Impressora</label>
                                 <input
                                   type="text"
                                   value={p.ip || ''}
                                   onChange={(e) => { const ip = e.target.value; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], ip }; return { ...prev, registeredPrinters: u }; }); }}
                                   placeholder="192.168.1.10  (deixe vazio se USB)"
-                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-mono font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                  className="w-full bg-white border border-[#141414]/10 rounded-lg py-1.5 px-3 font-mono font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none"
                                 />
                               </div>
-                              <div className="w-14 shrink-0">
-                                <label className="text-[6.5px] uppercase font-bold opacity-35 leading-none block mb-0.5">Porta</label>
+                              <div className="w-20 shrink-0">
+                                <label className="text-xs uppercase font-bold opacity-35 leading-none block mb-1">Porta</label>
                                 <input
                                   type="text"
                                   value={p.port || '9100'}
                                   onChange={(e) => { const port = Number(e.target.value) || 9100; (setPrinterConfig as any)((prev: any) => { const u = [...prev.registeredPrinters]; u[idx] = { ...u[idx], port }; return { ...prev, registeredPrinters: u }; }); }}
                                   placeholder="9100"
-                                  className="w-full bg-white border border-[#141414]/10 rounded-md py-0.5 px-1.5 font-mono font-bold text-[8px] focus:ring-1 focus:ring-[#141414] outline-none"
+                                  className="w-full bg-white border border-[#141414]/10 rounded-lg py-1.5 px-3 font-mono font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none"
                                 />
                               </div>
                             </div>
@@ -7042,44 +7044,44 @@ export default function Dashboard({
                     )}
                     <button
                       onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, registeredPrinters: [...(prev.registeredPrinters || []), { name: '', ip: '', port: 9100 }] }))}
-                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/40 py-1.5 rounded-lg text-[7.5px] font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/60 transition-colors"
+                      className="w-full border border-dashed border-[#141414]/20 text-[#141414]/40 py-2 rounded-lg text-sm font-bold uppercase hover:border-[#141414]/40 hover:text-[#141414]/60 transition-colors"
                     >
                       + Adicionar manualmente
                     </button>
                   </div>
 
                   {/* ── Passo 3: Roteamento ── */}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div>
-                      <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">③ Para onde imprimir?</p>
-                      <p className="text-[7px] opacity-35 mt-0.5">Defina qual impressora recebe cada tipo de pedido. "Auto" envia automaticamente ao lançar o item.</p>
+                      <p className="text-xs font-black uppercase tracking-wider opacity-40">③ Para onde imprimir?</p>
+                      <p className="text-xs opacity-35 mt-1">Defina qual impressora recebe cada tipo de pedido. "Auto" envia automaticamente ao lançar o item.</p>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {([
-                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   pwKey: 'pizzasPaperWidth', label: pizzariaConfig.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={10} /> },
-                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   pwKey: 'drinksPaperWidth',  label: 'Bebidas',  icon: <Beer size={10} /> },
-                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  pwKey: 'kitchenPaperWidth', label: 'Lanches',  icon: <ChefHat size={10} /> },
-                        { key: 'receipts', autoKey: 'autoPrintReceipts', pwKey: null,                label: 'Recibos',  icon: <FileText size={10} /> },
-                        { key: 'fiscal',   autoKey: 'autoPrintFiscal',   pwKey: null,                label: 'Notas Fiscais (NFC-e)', icon: <Receipt size={10} /> },
+                        { key: 'pizzas',   autoKey: 'autoPrintPizzas',   pwKey: 'pizzasPaperWidth', label: pizzariaConfig.enabled ? 'Pratos / Pizzas' : 'Pratos', icon: <Pizza size={13} /> },
+                        { key: 'drinks',   autoKey: 'autoPrintDrinks',   pwKey: 'drinksPaperWidth',  label: 'Bebidas',  icon: <Beer size={13} /> },
+                        { key: 'kitchen',  autoKey: 'autoPrintKitchen',  pwKey: 'kitchenPaperWidth', label: 'Lanches',  icon: <ChefHat size={13} /> },
+                        { key: 'receipts', autoKey: 'autoPrintReceipts', pwKey: null,                label: 'Recibos',  icon: <FileText size={13} /> },
+                        { key: 'fiscal',   autoKey: 'autoPrintFiscal',   pwKey: null,                label: 'Notas Fiscais (NFC-e)', icon: <Receipt size={13} /> },
                       ] as const).map(({ key, autoKey, pwKey, label, icon }) => (
-                        <div key={key} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] px-2.5 py-2">
-                          <div className="flex items-center gap-2 mb-1.5">
+                        <div key={key} className="rounded-lg border border-[#141414]/8 bg-[#fafafa] px-3 py-2.5">
+                          <div className="flex items-center gap-2 mb-2">
                             <span className="opacity-50">{icon}</span>
-                            <span className="text-[8.5px] font-black opacity-70 flex-1">{label}</span>
+                            <span className="text-sm font-black opacity-70 flex-1">{label}</span>
                             <button
                               onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [autoKey]: !(prev as any)[autoKey] }))}
                               title="Impressão automática ao lançar"
-                              className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-[7px] font-bold transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white' : 'bg-[#141414]/8 text-[#141414]/40'}`}
+                              className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all ${(printerConfig as any)[autoKey] ? 'bg-green-500 text-white' : 'bg-[#141414]/8 text-[#141414]/40'}`}
                             >
-                              <span className={`w-1.5 h-1.5 rounded-full ${(printerConfig as any)[autoKey] ? 'bg-white' : 'bg-[#141414]/30'}`} />
+                              <span className={`w-2 h-2 rounded-full ${(printerConfig as any)[autoKey] ? 'bg-white' : 'bg-[#141414]/30'}`} />
                               Auto
                             </button>
                           </div>
-                          <div className="flex gap-1.5">
+                          <div className="flex gap-2">
                             <select
                               value={(printerConfig as any)[key] || 'none'}
                               onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, [key]: v })); }}
-                              className="flex-1 bg-white border border-[#141414]/10 rounded-md py-1 px-1.5 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                              className="flex-1 bg-white border border-[#141414]/10 rounded-lg py-1.5 px-2 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
                             >
                               <option value="none">— Sem impressora —</option>
                               {(printerConfig.registeredPrinters || []).filter((p: any) => p.name).map((p: any, i: number) => (
@@ -7087,12 +7089,12 @@ export default function Dashboard({
                               ))}
                             </select>
                             {pwKey && (
-                              <div className="flex bg-[#141414]/5 rounded-md overflow-hidden border border-[#141414]/10">
+                              <div className="flex bg-[#141414]/5 rounded-lg overflow-hidden border border-[#141414]/10">
                                 {(['80mm', '48mm'] as const).map(pw => (
                                   <button
                                     key={pw}
                                     onClick={() => (setPrinterConfig as any)((prev: any) => ({ ...prev, [pwKey]: pw }))}
-                                    className={`px-1.5 py-1 text-[7px] font-bold transition-all ${((printerConfig as any)[pwKey] || '80mm') === pw ? 'bg-white shadow-sm text-[#141414]' : 'opacity-35'}`}
+                                    className={`px-2 py-1.5 text-xs font-bold transition-all ${((printerConfig as any)[pwKey] || '80mm') === pw ? 'bg-white shadow-sm text-[#141414]' : 'opacity-35'}`}
                                   >{pw}</button>
                                 ))}
                               </div>
@@ -7104,24 +7106,24 @@ export default function Dashboard({
                   </div>
 
                   {/* ── Passo 4: Destino de impressão ── */}
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <div className="flex-1">
-                        <p className="text-[7.5px] font-black uppercase tracking-wider opacity-40">④ Destino de impressão</p>
-                        <p className="text-[7px] opacity-35 mt-0.5">Enviar impressões deste navegador para outro caixa ativo na rede.</p>
+                        <p className="text-xs font-black uppercase tracking-wider opacity-40">④ Destino de impressão</p>
+                        <p className="text-xs opacity-35 mt-1">Enviar impressões deste navegador para outro caixa ativo na rede.</p>
                       </div>
                       <button
                         onClick={() => { setActiveCaixas([]); socket.emit('get_active_caixas'); }}
-                        className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg border border-[#141414]/15 text-[7px] font-bold hover:bg-[#141414]/5 transition-colors"
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#141414]/15 text-xs font-bold hover:bg-[#141414]/5 transition-colors"
                         title="Atualizar lista de caixas ativos"
                       >
-                        <RefreshCcw size={9} /> Atualizar
+                        <RefreshCcw size={12} /> Atualizar
                       </button>
                     </div>
                     <select
                       value={(printerConfig as any).targetPrintCaixa || 'local'}
                       onChange={(e) => { const v = e.target.value; (setPrinterConfig as any)((prev: any) => ({ ...prev, targetPrintCaixa: v })); }}
-                      className="w-full bg-white border border-[#141414]/10 rounded-lg py-1.5 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
+                      className="w-full bg-white border border-[#141414]/10 rounded-lg py-2 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none appearance-none cursor-pointer"
                     >
                       <option value="local">— Este computador (padrão) —</option>
                       {activeCaixas.map((name) => (
@@ -7129,91 +7131,91 @@ export default function Dashboard({
                       ))}
                     </select>
                     {activeCaixas.length === 0 && (
-                      <p className="text-[7px] opacity-35 text-center">Clique em "Atualizar" para ver os caixas abertos.</p>
+                      <p className="text-xs opacity-35 text-center">Clique em "Atualizar" para ver os caixas abertos.</p>
                     )}
                   </div>
 
                   <button onClick={handleSavePrinters}
-                    className="w-full bg-[#141414] text-[#E4E3E0] py-2 rounded-xl font-bold hover:opacity-90 transition-opacity text-[9px] uppercase tracking-wide">
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-2.5 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm uppercase tracking-wide">
                     Salvar configurações
                   </button>
                 </div>
 
                 {/* ── Coluna 2: Comprovante + QR Code ────────────────────────── */}
                 <div className="flex flex-col gap-4">
-                <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-2">
+                <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm flex flex-col gap-3">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <FileText className="text-[#141414]" size={12} />
-                    <h3 className="font-serif italic text-sm leading-none">Comprovante</h3>
+                    <FileText className="text-[#141414]" size={16} />
+                    <h3 className="font-serif italic text-base leading-none">Comprovante</h3>
                   </div>
 
                   {/* Identificação */}
                   <div>
-                    <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Nome do Estabelecimento</label>
-                    <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                    <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Nome do Estabelecimento</label>
+                    <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">CNPJ / CPF</label>
-                      <input type="text" value={printerConfig.cnpj || ''} onChange={(e) => setPrinterConfig({...printerConfig, cnpj: e.target.value})} placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">CNPJ / CPF</label>
+                      <input type="text" value={printerConfig.cnpj || ''} onChange={(e) => setPrinterConfig({...printerConfig, cnpj: e.target.value})} placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
                     </div>
                     <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Título do Cupom</label>
-                      <input type="text" value={printerConfig.receiptTitle || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptTitle: e.target.value})} placeholder="COMPROVANTE" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Endereço</label>
-                      <input type="text" value={printerConfig.address} onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
-                    </div>
-                    <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Telefone</label>
-                      <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Título do Cupom</label>
+                      <input type="text" value={printerConfig.receiptTitle || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptTitle: e.target.value})} placeholder="COMPROVANTE" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Cabeçalho (2ª linha)</label>
-                      <input type="text" value={printerConfig.receiptHeader || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptHeader: e.target.value})} placeholder="Slogan ou info extra" className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Endereço</label>
+                      <input type="text" value={printerConfig.address} onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
                     </div>
                     <div>
-                      <label className="text-[7px] uppercase font-bold opacity-45 mb-0.5 block leading-none">Mensagem de Rodapé</label>
-                      <input type="text" value={printerConfig.receiptFooter} onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1 px-2 font-bold text-[8.5px] focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Telefone</label>
+                      <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Cabeçalho (2ª linha)</label>
+                      <input type="text" value={printerConfig.receiptHeader || ''} onChange={(e) => setPrinterConfig({...printerConfig, receiptHeader: e.target.value})} placeholder="Slogan ou info extra" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Mensagem de Rodapé</label>
+                      <input type="text" value={printerConfig.receiptFooter} onChange={(e) => setPrinterConfig({...printerConfig, receiptFooter: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
                     </div>
                   </div>
 
                   {/* Layout */}
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="flex flex-col gap-1">
-                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Papel</span>
+                      <span className="text-xs uppercase font-bold opacity-45 leading-none">Papel</span>
                       <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
                         {['50mm', '80mm'].map((pw) => (
-                          <button key={pw} onClick={() => setPrinterConfig({...printerConfig, paperWidth: pw})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.paperWidth || '80mm') === pw ? 'bg-white shadow-sm' : 'opacity-40'}`}>{pw}</button>
+                          <button key={pw} onClick={() => setPrinterConfig({...printerConfig, paperWidth: pw})} className={`px-2.5 py-1 text-xs font-bold rounded transition-all ${(printerConfig.paperWidth || '80mm') === pw ? 'bg-white shadow-sm' : 'opacity-40'}`}>{pw}</button>
                         ))}
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Fonte</span>
+                      <span className="text-xs uppercase font-bold opacity-45 leading-none">Fonte</span>
                       <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
                         {['10px', '12px', '14px', '16px'].map((size) => (
-                          <button key={size} onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}>
+                          <button key={size} onClick={() => setPrinterConfig({...printerConfig, itemFontSize: size})} className={`px-2.5 py-1 text-xs font-bold rounded transition-all ${printerConfig.itemFontSize === size ? 'bg-white shadow-sm' : 'opacity-40'}`}>
                             {size === '10px' ? 'P' : size === '12px' ? 'M' : size === '14px' ? 'G' : 'XG'}
                           </button>
                         ))}
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Negrito</span>
+                      <span className="text-xs uppercase font-bold opacity-45 leading-none">Negrito</span>
                       <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
-                        <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${printerConfig.boldItems ? 'bg-white shadow-sm' : 'opacity-40'}`} style={{ fontWeight: 900 }}>N</button>
+                        <button onClick={() => setPrinterConfig({...printerConfig, boldItems: !printerConfig.boldItems})} className={`px-2.5 py-1 text-xs font-bold rounded transition-all ${printerConfig.boldItems ? 'bg-white shadow-sm' : 'opacity-40'}`} style={{ fontWeight: 900 }}>N</button>
                       </div>
                     </div>
                     <div className="flex flex-col gap-1">
-                      <span className="text-[7px] uppercase font-bold opacity-45 leading-none">Vias</span>
+                      <span className="text-xs uppercase font-bold opacity-45 leading-none">Vias</span>
                       <div className="flex bg-[#141414]/5 p-0.5 rounded-lg">
                         {[1, 2].map((n) => (
-                          <button key={n} onClick={() => setPrinterConfig({...printerConfig, printCopies: n})} className={`px-2 py-0.5 text-[7px] font-bold rounded transition-all ${(printerConfig.printCopies || 1) === n ? 'bg-white shadow-sm' : 'opacity-40'}`}>{n}x</button>
+                          <button key={n} onClick={() => setPrinterConfig({...printerConfig, printCopies: n})} className={`px-2.5 py-1 text-xs font-bold rounded transition-all ${(printerConfig.printCopies || 1) === n ? 'bg-white shadow-sm' : 'opacity-40'}`}>{n}x</button>
                         ))}
                       </div>
                     </div>
@@ -7221,27 +7223,27 @@ export default function Dashboard({
 
                   {/* Opções de exibição */}
                   <div>
-                    <span className="text-[7px] uppercase font-bold opacity-45 leading-none block mb-1">Exibir no Cupom</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <Users size={9} />
-                        <span className="text-[5.5px] opacity-60 leading-none">Garçom</span>
+                    <span className="text-xs uppercase font-bold opacity-45 leading-none block mb-2">Exibir no Cupom</span>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setPrinterConfig({...printerConfig, showWaiter: !printerConfig.showWaiter})} className={`flex flex-col items-center p-2 rounded-lg border transition-all gap-1 ${printerConfig.showWaiter ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Users size={12} />
+                        <span className="text-xs opacity-60 leading-none">Garçom</span>
                       </button>
-                      <button onClick={() => setPrinterConfig({...printerConfig, showDateTime: printerConfig.showDateTime === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showDateTime !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <Clock size={9} />
-                        <span className="text-[5.5px] opacity-60 leading-none">Data/Hora</span>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showDateTime: printerConfig.showDateTime === false ? true : false})} className={`flex flex-col items-center p-2 rounded-lg border transition-all gap-1 ${printerConfig.showDateTime !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Clock size={12} />
+                        <span className="text-xs opacity-60 leading-none">Data/Hora</span>
                       </button>
-                      <button onClick={() => setPrinterConfig({...printerConfig, showPaymentMethods: printerConfig.showPaymentMethods === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showPaymentMethods !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <CreditCard size={9} />
-                        <span className="text-[5.5px] opacity-60 leading-none">Pagamento</span>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showPaymentMethods: printerConfig.showPaymentMethods === false ? true : false})} className={`flex flex-col items-center p-2 rounded-lg border transition-all gap-1 ${printerConfig.showPaymentMethods !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <CreditCard size={12} />
+                        <span className="text-xs opacity-60 leading-none">Pagamento</span>
                       </button>
-                      <button onClick={() => setPrinterConfig({...printerConfig, showItemObs: printerConfig.showItemObs === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showItemObs !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <MessageSquare size={9} />
-                        <span className="text-[5.5px] opacity-60 leading-none">Obs. Item</span>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showItemObs: printerConfig.showItemObs === false ? true : false})} className={`flex flex-col items-center p-2 rounded-lg border transition-all gap-1 ${printerConfig.showItemObs !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <MessageSquare size={12} />
+                        <span className="text-xs opacity-60 leading-none">Obs. Item</span>
                       </button>
-                      <button onClick={() => setPrinterConfig({...printerConfig, showRemovedItems: printerConfig.showRemovedItems === false ? true : false})} className={`flex flex-col items-center p-1.5 rounded-lg border transition-all gap-0.5 ${printerConfig.showRemovedItems !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
-                        <Trash2 size={9} />
-                        <span className="text-[5.5px] opacity-60 leading-none">Removidos</span>
+                      <button onClick={() => setPrinterConfig({...printerConfig, showRemovedItems: printerConfig.showRemovedItems === false ? true : false})} className={`flex flex-col items-center p-2 rounded-lg border transition-all gap-1 ${printerConfig.showRemovedItems !== false ? 'border-[#141414] bg-[#141414]/5' : 'border-[#141414]/10 opacity-40'}`}>
+                        <Trash2 size={12} />
+                        <span className="text-xs opacity-60 leading-none">Removidos</span>
                       </button>
                     </div>
                   </div>
@@ -7281,44 +7283,44 @@ export default function Dashboard({
                 </div>
 
                   {/* QR Code do Cliente por Mesa */}
-                  <div className="bg-white p-4 rounded-2xl border border-[#141414]/10 shadow-sm">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Smartphone className="text-[#141414]" size={12} />
-                      <h3 className="font-serif italic text-sm leading-none">QR Code das Mesas</h3>
+                  <div className="bg-white p-5 rounded-2xl border border-[#141414]/10 shadow-sm">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Smartphone className="text-[#141414]" size={16} />
+                      <h3 className="font-serif italic text-base leading-none">QR Code das Mesas</h3>
                     </div>
-                    <p className="text-[8px] opacity-40 mb-3">Imprima e cole na mesa. O cliente acessa o menu ao escanear.</p>
+                    <p className="text-sm opacity-40 mb-4">Imprima e cole na mesa. O cliente acessa o menu ao escanear.</p>
 
                     {/* Timeout de inatividade */}
-                    <div className="flex items-center justify-between mb-3 pb-3 border-b border-[#141414]/8">
+                    <div className="flex items-center justify-between mb-4 pb-4 border-b border-[#141414]/8">
                       <div>
-                        <p className="text-[8px] font-bold leading-none">Expirar sessão por inatividade</p>
-                        <p className="text-[6px] opacity-40 mt-0.5">
+                        <p className="text-sm font-bold leading-none">Expirar sessão por inatividade</p>
+                        <p className="text-xs opacity-40 mt-1">
                           {((pizzariaConfig as any).clientSessionTimeoutMin ?? 0) > 0
                             ? `Expira após ${(pizzariaConfig as any).clientSessionTimeoutMin} min sem pedido`
                             : 'Sessão expira somente ao dar baixa na mesa'}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <div className="flex items-center gap-2 shrink-0 ml-3">
                         <input
                           type="number"
                           min={0}
                           max={240}
                           value={(pizzariaConfig as any).clientSessionTimeoutMin ?? 0}
                           onChange={e => updatePizzeriaConfig({ ...pizzariaConfig, clientSessionTimeoutMin: Number(e.target.value) })}
-                          className="w-12 text-center text-[9px] font-bold border border-[#141414]/20 rounded-md px-1 py-1"
+                          className="w-14 text-center text-sm font-bold border border-[#141414]/20 rounded-lg px-2 py-1.5"
                         />
-                        <span className="text-[8px] opacity-40">min</span>
+                        <span className="text-sm opacity-40">min</span>
                       </div>
                     </div>
 
                     {/* Seletor de mesa */}
                     <div className="flex items-end gap-2">
                       <div className="flex-1">
-                        <label className="text-[7px] font-black uppercase opacity-40 tracking-wider block mb-1">Número da mesa</label>
+                        <label className="text-xs font-black uppercase opacity-40 tracking-wider block mb-1">Número da mesa</label>
                         <select
                           value={qrMesaSelected}
                           onChange={e => setQrMesaSelected(Number(e.target.value))}
-                          className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[10px] focus:ring-1 focus:ring-[#141414] outline-none"
+                          className="w-full bg-[#141414]/5 border-none rounded-lg py-2 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none"
                         >
                           {Array.from({ length: pizzariaConfig.numTables ?? 10 }, (_, i) => i + 1).map(n => (
                             <option key={n} value={n}>Mesa {n}</option>
@@ -7327,9 +7329,9 @@ export default function Dashboard({
                       </div>
                       <button
                         onClick={() => setQrMesaModal({ num: qrMesaSelected })}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-[#141414] text-[#E4E3E0] rounded-lg text-[9px] font-bold uppercase hover:opacity-80 transition-opacity shrink-0"
+                        className="flex items-center gap-2 px-4 py-2 bg-[#141414] text-[#E4E3E0] rounded-lg text-sm font-bold uppercase hover:opacity-80 transition-opacity shrink-0"
                       >
-                        <QrCode size={10} /> Gerar QR Code
+                        <QrCode size={13} /> Gerar QR Code
                       </button>
                     </div>
                   </div>

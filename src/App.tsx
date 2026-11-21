@@ -170,6 +170,14 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       if (data.pizzaFlavors) setPizzaFlavors(data.pizzaFlavors);
       if (data.pizzaCrusts) setPizzaCrusts(data.pizzaCrusts);
       if (data.pizzaSizes) setPizzaSizes(data.pizzaSizes);
+      // Restaura printerConfig do servidor (Supabase) se existir, fundindo com o localStorage
+      if (data.printerConfig && Object.keys(data.printerConfig).length > 0) {
+        setPrinterConfig((prev: any) => {
+          const merged = { ...prev, ...data.printerConfig };
+          try { localStorage.setItem('printerConfig', JSON.stringify(merged)); } catch {}
+          return merged;
+        });
+      }
     };
     socket.on('init_data', onInit);
 

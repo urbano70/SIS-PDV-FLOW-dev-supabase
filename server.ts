@@ -171,6 +171,7 @@ async function startServer() {
     lastOrderDate: string;
     pizzariaConfig: any;
     fiscalConfig: FiscalConfig | null;
+    printerConfig: any;
     printerAgentSocket: any;
     printSocket: any;
     openCashRegisters: Record<string, string>;
@@ -209,6 +210,7 @@ async function startServer() {
       lastOrderDate: '',
       pizzariaConfig: { enabled: false, yellowMinutes: 15, orangeMinutes: 20, redMinutes: 25, inactivityMinutes: 30, kdsEnabled: false, waiterCanPay: true },
       fiscalConfig: null,
+      printerConfig: {},
       printerAgentSocket: null,
       printSocket: null,
       openCashRegisters: {},
@@ -669,7 +671,7 @@ async function startServer() {
       // resposta do banco; falha de escrita mantém loaded=false e bloqueia init.
       await waitForTenantWrites(tenantId);
       const readRevision = tenantWriteRevision(tenantId);
-      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes] = await Promise.all([
+      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes, pcfgRes] = await Promise.all([
         db.from('waiters').select('*').eq('tenant_id', tenantId),
         db.from('orders').select('*').eq('tenant_id', tenantId),
         db.from('tables').select('*').eq('tenant_id', tenantId).order('id'),
@@ -681,8 +683,9 @@ async function startServer() {
         db.from('pizza_crusts').select('*').eq('tenant_id', tenantId),
         db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).maybeSingle(),
         db.from('config').select('data').eq('id', `${tenantId}:stockLog`).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:printerConfig`).maybeSingle(),
       ]);
-      const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes]
+      const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes, pcfgRes]
         .map((result: any) => result?.error)
         .find(Boolean);
       if (queryError) throw queryError;
@@ -851,6 +854,10 @@ async function startServer() {
       if ((slRes as any).data?.data?.stockLog?.length) {
         st.stockLog = (slRes as any).data.data.stockLog;
         io.to(room).emit('update_stock_log', st.stockLog);
+      }
+
+      if ((pcfgRes as any).data?.data && Object.keys((pcfgRes as any).data.data).length > 0) {
+        st.printerConfig = (pcfgRes as any).data.data;
       }
 
       // Load fiscal config
@@ -1599,6 +1606,7 @@ async function startServer() {
           openCashRegisterNames: getOpenCashRegisterNames(st.openCashRegisters),
           pizzariaConfig: st.pizzariaConfig, firebaseActive: !!db,
           printerAgentOnline: !!(st.printerAgentSocket?.connected), serverNow: new Date().toISOString(),
+          printerConfig: Object.keys(st.printerConfig || {}).length > 0 ? st.printerConfig : undefined,
         };
         if (!admin && safeOwnWaiter) snapshot.currentWaiter = safeOwnWaiter;
         socket.emit("init_data", snapshot);
@@ -1609,6 +1617,12 @@ async function startServer() {
         ack?.({ ok: false, message: 'Não foi possível carregar os dados deste tenant.' });
       }
     });
+
+    socket.on("save_printer_config", requireAdmin((config: any) => {
+      if (!config || typeof config !== 'object' || Array.isArray(config)) return;
+      _st().printerConfig = config;
+      saveToSupabase('config', config, 'printerConfig', _tid()).catch(console.error);
+    }));
 
     socket.on("update_pizzaria_config", requireAdmin(async (config: any, rawAck?: any) => {
       const ack = typeof rawAck === 'function' ? rawAck : undefined;
@@ -3635,6 +3649,18 @@ async function startServer() {
         socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
         return;
       }
+      // Recupera referência perdida após restart (mesma lógica de request_agent_status)
+      if (!_st().printerAgentSocket?.connected) {
+        const tid = _tid();
+        io.sockets.sockets.forEach((s: any) => {
+          if (s.isPrinterAgent && s.tenantId === tid && s.connected) {
+            _st().printerAgentSocket = s;
+          }
+        });
+        if (_st().printerAgentSocket?.connected) {
+          io.to('tenant:' + tid).emit('printer_agent_status', { online: true });
+        }
+      }
       if (_st().printerAgentSocket?.connected) {
         _st().printerAgentSocket.emit("scan_printers_request");
       } else {
@@ -3677,6 +3703,18 @@ async function startServer() {
         // Caixa alvo não encontrado — cai no fluxo normal
       }
 
+      // Recupera referência perdida após restart antes de tentar imprimir
+      if (!_st().printerAgentSocket?.connected) {
+        const tid = _tid();
+        io.sockets.sockets.forEach((s: any) => {
+          if (s.isPrinterAgent && s.tenantId === tid && s.connected) {
+            _st().printerAgentSocket = s;
+          }
+        });
+        if (_st().printerAgentSocket?.connected) {
+          io.to('tenant:' + tid).emit('printer_agent_status', { online: true });
+        }
+      }
       if (_st().printerAgentSocket && _st().printerAgentSocket.connected) {
         _st().printerAgentSocket.emit("do_print", { ip, port, localName, data });
         return;
