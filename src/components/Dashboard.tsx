@@ -2412,7 +2412,18 @@ export default function Dashboard({
     }
   };
 
-  // Carrega fiscalConfig ao abrir modal NF-e (se ainda não carregado)
+  // Carrega fiscalConfig em background assim que tenantId fica disponível.
+  // Necessário para que a lógica de emissão automática após pagamento funcione
+  // sem depender de o usuário ter visitado a aba Configurações → Fiscal antes.
+  useEffect(() => {
+    if (!tenantId || fiscalConfig !== null) return;
+    fetch(`/api/fiscal/config/${tenantId}`)
+      .then(r => r.json())
+      .then(d => setFiscalConfig(d.config || {}))
+      .catch(() => setFiscalConfig({}));
+  }, [tenantId]);
+
+  // Carrega fiscalConfig ao abrir modal NF-e (garantia extra caso já não esteja)
   useEffect(() => {
     if (!nfeModalOpen || !tenantId) return;
     if (fiscalConfig !== null) return;
