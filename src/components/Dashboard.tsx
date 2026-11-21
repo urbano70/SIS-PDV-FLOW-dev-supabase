@@ -3948,6 +3948,20 @@ export default function Dashboard({
                     <span>Liberar Mesa</span>
                   </button>
                 )}
+                {detailActiveOrder && detailCurrentItem?.status !== 'free' && detailActiveOrder.status !== 'finalizada' && detailActiveOrder.status !== 'paid' && (
+                  <button
+                    onClick={() => {
+                      if (!window.confirm('Forçar liberação descarta o pedido sem registrar pagamento. Continuar?')) return;
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar.'); return; }
+                      socket.emit('force_release_table', { orderId: detailActiveOrder.id });
+                      toast.success('Mesa liberada à força!');
+                    }}
+                    className="px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-orange-600 hover:bg-orange-700 text-white flex items-center space-x-1"
+                    title="Libera a mesa descartando o pedido sem pagamento (uso emergencial)"
+                  >
+                    <span>Forçar Liberação</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
