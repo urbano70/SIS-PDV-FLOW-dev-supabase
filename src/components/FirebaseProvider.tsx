@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { getSession } from '../lib/auth';
+import { forceRefreshSession, getSession } from '../lib/auth';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -448,20 +448,28 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       identifyConnection(true);
     };
 
-    const handleAuthError = () => {
+    const handleAuthError = async () => {
       if (!current()) return;
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
         toast.error('Sessão expirada. Recarregue a página.');
         return;
       }
-      // Discard the cached (possibly expired) token so identifyConnection fetches
-      // a fresh one from Supabase (which auto-refreshes the access token).
-      adminTokenRef.current = null;
+      // getSession() returns the CACHED (possibly expired) token, so force a
+      // real network refresh to get a new access token from Supabase.
+      try {
+        const fresh = await forceRefreshSession();
+        adminTokenRef.current = fresh?.access_token ?? null;
+      } catch {
+        adminTokenRef.current = null;
+      }
+      if (!current() || !adminTokenRef.current) return;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       pendingInitRef.current = null;
-      identifyConnection(false);
+      // Use isReconnect=true so identifyConnection uses adminTokenRef directly
+      // instead of calling getSession() again.
+      identifyConnection(true);
     };
 
     socket.on('init_data', handleInitData);
