@@ -50,9 +50,11 @@ export function gerarChaveAcessoNFe(
 function xmlItemNFe(item: ItemNota, idx: number, crt: string, ufEmitente?: string, ufDestinatario?: string): string {
   const nItem = String(idx + 1); // XSD: [1-9]{1}[0-9]{0,2} — sem zeros à esquerda
   const isSimples = crt === '1' || crt === '2';
-  const cfop = (ufEmitente && ufDestinatario && ufEmitente !== ufDestinatario && item.cfopForaEstado)
-    ? item.cfopForaEstado
-    : (item.cfop || '5102');
+  const isInterestadual = !!(ufEmitente && ufDestinatario && ufEmitente !== ufDestinatario);
+  const cfopBase = item.cfop || '5102';
+  const cfop = isInterestadual
+    ? (item.cfopForaEstado || (cfopBase.startsWith('5') ? '6' + cfopBase.slice(1) : cfopBase))
+    : cfopBase;
 
   const impostoICMS = isSimples
     ? `<ICMS><ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}><orig>${item.origem}</orig><CSOSN>${item.csosn ?? '102'}</CSOSN></ICMSSN${item.csosn?.startsWith('9') ? '900' : '102'}></ICMS>`
