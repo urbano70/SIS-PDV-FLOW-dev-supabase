@@ -134,6 +134,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const handshakeInFlightRef = useRef<Promise<void> | null>(null);
   const adminTokenRef = useRef<string | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authRetryCountRef = useRef(0);
 
   const canMutate = () => socket.connected && readyRef.current && navigator.onLine;
 
@@ -327,6 +328,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (buildId) cachePatch.buildId = buildId;
 
       readyRef.current = true;
+      authRetryCountRef.current = 0;
       pendingInitRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
@@ -446,6 +448,22 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       identifyConnection(true);
     };
 
+    const handleAuthError = () => {
+      if (!current()) return;
+      authRetryCountRef.current += 1;
+      if (authRetryCountRef.current > 2) {
+        toast.error('Sessão expirada. Recarregue a página.');
+        return;
+      }
+      // Discard the cached (possibly expired) token so identifyConnection fetches
+      // a fresh one from Supabase (which auto-refreshes the access token).
+      adminTokenRef.current = null;
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+      pendingInitRef.current = null;
+      identifyConnection(false);
+    };
+
     socket.on('init_data', handleInitData);
     socket.on('update_orders', handleUpdateOrders);
     socket.on('update_tables', handleUpdateTables);
@@ -462,6 +480,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     socket.on('relay_print_job', handleRelayPrintJob);
     socket.on('error_message', handleErrorMessage);
     socket.on('connect', handleReconnect);
+    socket.on('auth_error', handleAuthError);
     socket.on('waiter_approved', handleWaiterApproved);
     socket.on('waiter_status_changed', handleWaiterStatusChanged);
 
@@ -493,6 +512,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       socket.off('relay_print_job', handleRelayPrintJob);
       socket.off('error_message', handleErrorMessage);
       socket.off('connect', handleReconnect);
+      socket.off('auth_error', handleAuthError);
       socket.off('waiter_approved', handleWaiterApproved);
       socket.off('waiter_status_changed', handleWaiterStatusChanged);
     };
