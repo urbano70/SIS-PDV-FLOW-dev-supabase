@@ -348,7 +348,7 @@ function buildEscPosKitchenTicket(
       text('+ ADICIONAIS:'); lf();
       push(0x1B, 0x45, 0x00);
       (item.adicionais as { name: string; price: number }[]).forEach(a => {
-        wordWrap(`+ ${a.name.toUpperCase()} R$${a.price.toFixed(2)}`, lineLen).forEach(l => { text(l); lf(); });
+        wordWrap(`+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}`, lineLen).forEach(l => { text(l); lf(); });
       });
     }
   });
@@ -1804,7 +1804,7 @@ export default function Dashboard({
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
           ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
           ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
-          ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${a.price.toFixed(2)}</div>`).join('') : ''}
+          ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}</div>`).join('') : ''}
         `;
         }).join(`<div class="sep"></div>`);
         const html = `<html><head><style>
