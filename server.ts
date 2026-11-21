@@ -669,7 +669,7 @@ async function startServer() {
       // resposta do banco; falha de escrita mantém loaded=false e bloqueia init.
       await waitForTenantWrites(tenantId);
       const readRevision = tenantWriteRevision(tenantId);
-      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes] = await Promise.all([
+      const [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes] = await Promise.all([
         db.from('waiters').select('*').eq('tenant_id', tenantId),
         db.from('orders').select('*').eq('tenant_id', tenantId),
         db.from('tables').select('*').eq('tenant_id', tenantId).order('id'),
@@ -680,8 +680,9 @@ async function startServer() {
         db.from('pizza_flavors').select('*').eq('tenant_id', tenantId),
         db.from('pizza_crusts').select('*').eq('tenant_id', tenantId),
         db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:stockLog`).maybeSingle(),
       ]);
-      const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes]
+      const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes]
         .map((result: any) => result?.error)
         .find(Boolean);
       if (queryError) throw queryError;
@@ -845,6 +846,11 @@ async function startServer() {
           }
         }
         io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
+      }
+
+      if ((slRes as any).data?.data?.stockLog?.length) {
+        st.stockLog = (slRes as any).data.data.stockLog;
+        io.to(room).emit('update_stock_log', st.stockLog);
       }
 
       // Load fiscal config
@@ -1188,6 +1194,7 @@ async function startServer() {
     if (newEntries.length > 0) {
       st.stockLog = [...newEntries, ...st.stockLog].slice(0, 100);
       io.to(room).emit("update_stock_log", st.stockLog);
+      saveToSupabase('config', { stockLog: st.stockLog }, 'stockLog', tenantId).catch(() => {});
     }
     io.to(room).emit("update_stock", st.stock);
     if (lowAlerts.length > 0) {
@@ -2601,6 +2608,7 @@ async function startServer() {
           timestamp: new Date().toISOString(),
         }, ..._st().stockLog].slice(0, 100);
         io.to(_room()).emit("update_stock_log", _st().stockLog);
+        saveToSupabase('config', { stockLog: _st().stockLog }, 'stockLog', _tid()).catch(console.error);
         writeAudit(_tid(), 'stock_adjusted', 'ADM',
           `Estoque de "${prev.name}" ajustado: ${change > 0 ? '+' : ''}${change}${(reason && String(reason).trim()) ? ` (${String(reason).trim()})` : ''}`,
           { itemName: prev.name, change, reason: (reason && String(reason).trim()) ? String(reason).trim() : defaultReason });
@@ -3579,9 +3587,11 @@ async function startServer() {
         // Persist the same tenant-scoped state before acknowledging completion.
         try {
           if (db) {
-            await db.from('orders').delete().eq('tenant_id', tenantId).neq('id', '');
+            // Preserva histórico: apenas marca pedidos ativos como finalizados em vez de deletar
+            await db.from('orders').update({ status: 'finalizada' }).eq('tenant_id', tenantId).neq('status', 'finalizada');
             await db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId);
             await db.from('comandas').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId);
+            await db.from('config').upsert({ id: `${tenantId}:stockLog`, data: { stockLog: [] }, tenant_id: tenantId });
             await saveToSupabase('config', cashRegisterConfigPatch(st), 'app', tenantId);
           }
         } catch (err) {
