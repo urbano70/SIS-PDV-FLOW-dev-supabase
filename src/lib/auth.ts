@@ -19,6 +19,13 @@ export async function signOutOwner() {
   await supabase.auth.signOut();
 }
 
+/** Clears the local Supabase session without a server round-trip.
+ * Use when the token is already invalid (expired, revoked) so the
+ * global signOut HTTP call would fail and leave the cache dirty. */
+export async function forceLocalSignOut() {
+  await supabase.auth.signOut({ scope: 'local' });
+}
+
 export async function getSession() {
   const { data: { session } } = await supabase.auth.getSession();
   return session;

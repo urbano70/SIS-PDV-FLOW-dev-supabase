@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { forceRefreshSession, getSession, signOutOwner } from '../lib/auth';
+import { forceLocalSignOut, forceRefreshSession, getSession } from '../lib/auth';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -454,7 +454,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (authRetryCountRef.current > 2) {
         toast.error('Sessão expirada. Faça login novamente.');
         setLoading(false);
-        signOutOwner().catch(() => {});
+        forceLocalSignOut().catch(() => {});
         return;
       }
       // getSession() returns the CACHED (possibly expired) token, so force a
