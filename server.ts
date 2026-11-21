@@ -3485,6 +3485,40 @@ async function startServer() {
       }
     });
 
+    onTenantCommand("force_release_table", requireAdmin(async ({ orderId }) => {
+      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
+      if (!order || order.status === 'finalizada' || order.status === 'paid') return;
+
+      order.status = 'finalizada';
+      (order as any).forceReleased = true;
+
+      const entitiesToUpdate: any[] = [];
+      _st().tables.forEach((t: any) => {
+        if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+          t.status = 'free'; t.currentOrder = null; t.linkedTo = null;
+          entitiesToUpdate.push({ entity: t, collection: 'tables' });
+        }
+      });
+      _st().comandas.forEach((c: any) => {
+        if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+          c.status = 'free'; c.currentOrder = null; c.linkedTo = null;
+          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+        }
+      });
+
+      io.to(_room()).emit('update_orders', _st().orders);
+      io.to(_room()).emit('update_tables', _st().tables);
+      io.to(_room()).emit('update_comandas', _st().comandas);
+
+      await saveToSupabase('orders', order, String(order.id), _tid());
+      for (const item of entitiesToUpdate) {
+        await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
+      }
+      writeAudit(_tid(), 'force_release' as any, 'ADM',
+        `Mesa liberada à força — Pedido ${orderId}`, { orderId });
+      console.log(`[force_release_table] pedido ${orderId} finalizado e mesa liberada`);
+    }));
+
     onTenantCommand("request_bill", async ({ tableId, isComanda }) => {
       const targetList = isComanda ? _st().comandas : _st().tables;
       const table = targetList.find(t => t.id === tableId);
