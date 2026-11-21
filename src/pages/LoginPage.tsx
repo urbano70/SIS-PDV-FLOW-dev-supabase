@@ -67,7 +67,9 @@ export default function LoginPage() {
         setActivationCode('');
         setActivationPopup(true);
         if (!actResp.ok) {
-          setActivationError('Servidor ainda atualizando. Feche e tente novamente em instantes.');
+          let errMsg = `Erro ${actResp.status} ao gerar código.`;
+          try { const d = await actResp.json(); if (d.error) errMsg = d.error; } catch {}
+          setActivationError(errMsg + ' Informe ao suporte: ' + errMsg);
         } else {
           setActivationError('');
         }
