@@ -1531,10 +1531,7 @@ async function startServer() {
 
     // Admin dashboard registra-se como socket de impressão exclusivo do tenant
     socket.on("register_print_socket", () => {
-      if (!isAdminForTenant(_tid())) {
-        socket.emit('auth_error', { message: 'Socket de impressão exige administrador autenticado.' });
-        return;
-      }
+      if (!isAdminForTenant(_tid())) return;
       _st().printSocket = socket;
     });
 
