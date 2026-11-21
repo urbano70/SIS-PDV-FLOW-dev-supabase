@@ -816,6 +816,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                 </span>
                               )}
                               {item.observations && <p className="text-[9px] text-blue-700 italic font-bold">Obs: {item.observations}</p>}
+                              {(item as any).adicionais?.length > 0 && <p className="text-[9px] text-orange-600 font-bold">+ {(item as any).adicionais.map((a: any) => `${a.name} (+R$ ${a.price.toFixed(2)})`).join(' | ')}</p>}
                               {item.discount ? (
                                 <div className="flex items-center space-x-2 mt-0.5">
                                   <p className="text-[9px] text-green-600 font-bold uppercase">

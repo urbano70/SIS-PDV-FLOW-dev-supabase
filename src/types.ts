@@ -29,6 +29,7 @@ export interface PizzaItem {
   deliveredBy?: string; // Waiter who marked as delivered
   kitchenStatus?: 'waiting' | 'preparing' | 'oven' | 'ready';
   guestName?: string; // Guest name when guest mode is active
+  adicionais?: { name: string; price: number }[];
 }
 
 export interface DeliveryRecord {
@@ -141,6 +142,7 @@ export interface MenuSubcategory {
   position: number;
   visible: boolean;
   trackTime?: boolean;
+  isAdicional?: boolean;
   items: MenuItem[];
 }
 

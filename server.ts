@@ -2489,6 +2489,7 @@ async function startServer() {
           position: (cat.subcategories || []).length,
           visible: true,
           trackTime: false,
+          isAdicional: subcategoryData.isAdicional || false,
           items: [],
         };
         return { ...cat, subcategories: [...(cat.subcategories || []), newSub] };
