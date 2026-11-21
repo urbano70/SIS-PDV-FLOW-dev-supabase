@@ -4818,7 +4818,7 @@ export default function Dashboard({
                         {category.name}
                       </button>
                     ))}
-                    {pizzariaConfig.enabled && (
+                    {pizzariaConfig.enabled && menu.some((cat: any) => cat.type === 'pizzas' && ((cat.items?.length ?? 0) > 0 || (cat.subcategories || []).some((sub: any) => (sub.items?.length ?? 0) > 0))) && (
                       <>
                         <button
                           onClick={() => {
@@ -5100,7 +5100,7 @@ export default function Dashboard({
                   );
                 })}
 
-                {pizzariaConfig.enabled && (<>
+                {pizzariaConfig.enabled && menu.some((cat: any) => cat.type === 'pizzas' && ((cat.items?.length ?? 0) > 0 || (cat.subcategories || []).some((sub: any) => (sub.items?.length ?? 0) > 0))) && (<>
                 <div id="category-sabores-pizzas" className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                   <div className="bg-gray-50 px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center">
                     <div className="flex items-center space-x-4">
