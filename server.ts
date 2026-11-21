@@ -6117,32 +6117,45 @@ async function startServer() {
 
   // ── End PDF Reservation API ────────────────────────────────────────────────
 
-  // ── Activation Codes ─────────────────────────────────────────────────────────
-  const activationCodes = new Map<string, { code: string; email: string; name: string; userId: string; createdAt: number }>();
+  // ── Activation Codes (stored in Supabase user_metadata) ─────────────────────
 
   app.post('/api/auth/request-activation', express.json(), async (req, res) => {
     const { userId, email, name } = req.body || {};
     if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios' });
-    for (const [k, v] of activationCodes.entries()) {
-      if (v.userId === userId) activationCodes.delete(k);
+    if (!db) return res.status(503).json({ error: 'DB não disponível' });
+    try {
+      const { data: userData, error: getUserErr } = await (db.auth as any).admin.getUserById(userId);
+      if (getUserErr || !userData?.user) return res.status(404).json({ error: 'Usuário não encontrado' });
+      const existingMeta = userData.user.user_metadata || {};
+      const code = String(Math.floor(1000 + Math.random() * 9000));
+      const { error: updateErr } = await (db.auth as any).admin.updateUserById(userId, {
+        user_metadata: { ...existingMeta, activation_code: code, activation_name: name || '' },
+      });
+      if (updateErr) return res.status(500).json({ error: updateErr.message });
+      console.log(`[activation] código ${code} gerado para ${email} (${userId})`);
+      return res.json({ ok: true });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
     }
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    activationCodes.set(userId, { code, email, name: name || '', userId, createdAt: Date.now() });
-    setTimeout(() => activationCodes.delete(userId), 24 * 60 * 60 * 1000);
-    return res.json({ ok: true });
   });
 
   app.post('/api/auth/activate', express.json(), async (req, res) => {
     const { userId, code } = req.body || {};
     if (!userId || !code) return res.status(400).json({ error: 'userId e code são obrigatórios' });
-    const entry = activationCodes.get(String(userId));
-    if (!entry) return res.status(404).json({ error: 'Código não encontrado ou expirado' });
-    if (entry.code !== String(code)) return res.status(400).json({ error: 'Código incorreto' });
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     try {
-      const { error: updateErr } = await (db.auth as any).admin.updateUserById(userId, { email_confirm: true });
-      if (updateErr) return res.status(500).json({ error: updateErr.message });
-      activationCodes.delete(String(userId));
+      const { data: userData, error: getUserErr } = await (db.auth as any).admin.getUserById(userId);
+      if (getUserErr || !userData?.user) return res.status(404).json({ error: 'Usuário não encontrado' });
+      const user = userData.user;
+      const storedCode = user.user_metadata?.activation_code;
+      if (!storedCode) return res.status(404).json({ error: 'Nenhum código gerado para este usuário' });
+      if (String(storedCode) !== String(code)) return res.status(400).json({ error: 'Código incorreto' });
+      const existingMeta = user.user_metadata || {};
+      const { error: confirmErr } = await (db.auth as any).admin.updateUserById(userId, {
+        email_confirm: true,
+        user_metadata: { ...existingMeta, activation_code: null },
+      });
+      if (confirmErr) return res.status(500).json({ error: confirmErr.message });
       return res.json({ ok: true });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
@@ -6264,12 +6277,26 @@ async function startServer() {
       }
     });
 
-    app.get('/api/dev/pending-activations', (req, res) => {
+    app.get('/api/dev/pending-activations', async (req, res) => {
       if (!requireDevToken(req, res)) return;
-      const list = [...activationCodes.values()]
-        .map(v => ({ userId: v.userId, email: v.email, name: v.name, code: v.code, createdAt: new Date(v.createdAt).toISOString() }))
-        .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
-      return res.json({ activations: list });
+      if (!db) return res.json({ activations: [] });
+      try {
+        const { data: listData, error: listErr } = await (db.auth as any).admin.listUsers({ perPage: 500 });
+        if (listErr) return res.status(500).json({ error: listErr.message });
+        const list = (listData?.users || [])
+          .filter((u: any) => !u.email_confirmed_at && u.user_metadata?.activation_code)
+          .map((u: any) => ({
+            userId: u.id,
+            email: u.email || '',
+            name: u.user_metadata?.establishment_name || u.user_metadata?.activation_name || '',
+            code: u.user_metadata?.activation_code,
+            createdAt: u.created_at,
+          }))
+          .sort((a: any, b: any) => (a.createdAt > b.createdAt ? -1 : 1));
+        return res.json({ activations: list });
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message });
+      }
     });
 
 
