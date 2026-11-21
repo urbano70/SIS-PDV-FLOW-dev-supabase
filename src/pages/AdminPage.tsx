@@ -60,7 +60,7 @@ interface ServerStats {
   platform: string;
 }
 type TenantTab = 'orders' | 'notes' | 'cashiers' | 'waiters';
-type MainTab = 'tenants' | 'server';
+type MainTab = 'tenants' | 'server' | 'activations';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const TOKEN_KEY = 'fechaconta_dev_token';
@@ -196,6 +196,71 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub?: s
       <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">{label}</p>
       <p className="text-white text-2xl font-bold">{value}</p>
       {sub && <p className="text-gray-500 text-xs mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+// ── Activations Panel ────────────────────────────────────────────────────────
+interface PendingActivation {
+  userId: string;
+  email: string;
+  name: string;
+  code: string;
+  createdAt: string;
+}
+
+function ActivationsPanel() {
+  const [activations, setActivations] = useState<PendingActivation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await devFetch('/api/dev/pending-activations');
+      if (r.ok) {
+        const d = await r.json();
+        setActivations(d.activations || []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-white font-semibold">Ativações Pendentes</h2>
+          <p className="text-gray-500 text-xs mt-0.5">Novos cadastros aguardando código de ativação</p>
+        </div>
+        <button onClick={refresh} className="text-xs text-indigo-400 hover:text-indigo-300">↻ Atualizar</button>
+      </div>
+
+      {loading ? (
+        <div className="text-gray-500 text-sm">Carregando…</div>
+      ) : activations.length === 0 ? (
+        <div className="bg-[#1A1A1A] border border-white/5 rounded-xl p-8 text-center text-gray-600 text-sm">
+          Nenhuma ativação pendente
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {activations.map(a => (
+            <div key={a.userId} className="bg-[#1A1A1A] border border-white/5 rounded-xl p-5 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-white font-medium truncate">{a.name || 'Sem nome'}</p>
+                <p className="text-gray-500 text-xs truncate mt-0.5">{a.email}</p>
+                <p className="text-gray-600 text-[10px] mt-1">{fmtDate(a.createdAt)}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-1">Código</p>
+                <p className="text-white text-3xl font-bold font-mono tracking-[0.3em]">{a.code}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -474,6 +539,7 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
           </div>
           <div className="flex border border-white/10 rounded-lg overflow-hidden">
             <button onClick={() => setMainTab('tenants')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mainTab === 'tenants' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>Estabelecimentos</button>
+            <button onClick={() => setMainTab('activations')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mainTab === 'activations' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>Ativações</button>
             <button onClick={() => setMainTab('server')} className={`px-3 py-1.5 text-xs font-semibold transition-colors ${mainTab === 'server' ? 'bg-indigo-600 text-white' : 'text-gray-500 hover:text-gray-300'}`}>Servidor</button>
           </div>
           <button onClick={onLogout} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">Sair</button>
@@ -483,6 +549,8 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       {/* Body */}
       {mainTab === 'server' ? (
         <ServerPanel />
+      ) : mainTab === 'activations' ? (
+        <ActivationsPanel />
       ) : (
         <div className="flex flex-1 overflow-hidden">
           {/* Tenant sidebar */}

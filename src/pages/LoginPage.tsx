@@ -26,6 +26,12 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const [activationPopup, setActivationPopup] = useState(false);
+  const [pendingUserId, setPendingUserId] = useState('');
+  const [activationCode, setActivationCode] = useState('');
+  const [activationLoading, setActivationLoading] = useState(false);
+  const [activationError, setActivationError] = useState('');
+
   useEffect(() => {
     if (isReset) setMode('reset');
   }, [isReset]);
@@ -49,8 +55,18 @@ export default function LoginPage() {
         navigate('/portal');
 
       } else if (mode === 'signup') {
-        await signUpOwner(email, password, establishmentName, planParam || 'free');
-        setSuccessMsg('Verifique seu e-mail para confirmar o cadastro antes de entrar.');
+        const signUpData = await signUpOwner(email, password, establishmentName, planParam || 'free');
+        const userId = signUpData?.user?.id;
+        if (!userId) throw new Error('Erro ao criar conta. Tente novamente.');
+        await fetch('/api/auth/request-activation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, email, name: establishmentName }),
+        });
+        setPendingUserId(userId);
+        setActivationCode('');
+        setActivationError('');
+        setActivationPopup(true);
 
       } else if (mode === 'forgot') {
         await sendPasswordReset(email);
@@ -76,6 +92,34 @@ export default function LoginPage() {
     }
   };
 
+  const handleActivate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActivationError('');
+    if (activationCode.length !== 4) {
+      setActivationError('Digite os 4 dígitos do código.');
+      return;
+    }
+    setActivationLoading(true);
+    try {
+      const r = await fetch('/api/auth/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: pendingUserId, code: activationCode }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setActivationError(d.error || 'Código inválido.');
+        return;
+      }
+      await signInOwner(email, password);
+      navigate('/portal');
+    } catch (err: any) {
+      setActivationError(err?.message || 'Erro ao ativar conta.');
+    } finally {
+      setActivationLoading(false);
+    }
+  };
+
   const titles: Record<string, string> = {
     login: 'Entrar',
     signup: 'Criar conta',
@@ -85,6 +129,54 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-[#E4E3E0] flex items-center justify-center p-4">
+      {/* Activation Code Popup */}
+      {activationPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-2xl border border-[#141414]/10 shadow-xl p-8 w-full max-w-sm">
+            <div className="text-center mb-6">
+              <div className="w-12 h-12 bg-[#141414] rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </div>
+              <h2 className="font-serif italic text-xl font-bold text-[#141414]">Código de Ativação</h2>
+              <p className="text-sm text-[#141414]/60 mt-2">
+                Sua conta foi criada. Informe o código de 4 dígitos gerado pelo administrador para ativar o acesso.
+              </p>
+            </div>
+            <form onSubmit={handleActivate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-[#141414] mb-1">Código de ativação</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{4}"
+                  maxLength={4}
+                  value={activationCode}
+                  onChange={e => setActivationCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="0000"
+                  autoFocus
+                  required
+                  className="w-full px-4 py-3 rounded-xl border border-[#141414]/20 bg-[#F5F5F3] text-[#141414] text-center text-2xl font-bold tracking-[0.5em] placeholder-[#141414]/20 focus:outline-none focus:ring-2 focus:ring-[#141414]/20"
+                />
+              </div>
+              {activationError && (
+                <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                  {activationError}
+                </div>
+              )}
+              <button
+                type="submit"
+                disabled={activationLoading || activationCode.length !== 4}
+                className="w-full py-3 bg-[#141414] text-[#E4E3E0] rounded-xl font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {activationLoading ? 'Verificando...' : 'Ativar conta'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2 mb-8">
