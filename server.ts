@@ -832,6 +832,10 @@ async function startServer() {
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
       if (cfgPizRes.data?.data) {
         st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) };
+        if ((cfgPizRes.data.data as any).pizzaSizes?.length) {
+          st.pizzaSizes = (cfgPizRes.data.data as any).pizzaSizes;
+          io.to(room).emit('update_pizza_sizes', st.pizzaSizes);
+        }
         if (st.pizzariaConfig.parquinhoEnabled) {
           const playgroundConfig = normalizePlaygroundConfig(tenantId, st.pizzariaConfig);
           const product = ensurePlaygroundProduct(st.menu, tenantId, playgroundConfig.parquinhoPrice);
@@ -2602,6 +2606,9 @@ async function startServer() {
           { itemName: prev.name, change, reason: (reason && String(reason).trim()) ? String(reason).trim() : defaultReason });
       }
       io.to(_room()).emit("update_stock", _st().stock);
+      // Persist updated stock item
+      const updated = _st().stock.find((s: any) => (s.menuItemId ?? s.id) === menuItemId);
+      if (updated) saveToSupabase('stock', updated, menuItemId, _tid()).catch(console.error);
     }));
 
     socket.on("update_pizza_flavor", requireAdmin(({ flavorName, updatedData }) => {
@@ -2618,14 +2625,14 @@ async function startServer() {
         const newName = updatedData.name || flavorName;
         // Se o nome mudou, remove a linha antiga antes de inserir a nova
         if (updatedData.name && updatedData.name !== flavorName) {
-          db.from('pizza_flavors').delete().eq('id', `${_tid()}:${flavorName}`).catch(console.error);
+          db.from('pizza_flavors').delete().eq('id', `${_tid()}:${flavorName}`).then().catch(console.error);
         }
         const updated = _st().pizzaFlavors.find(f => f.name === newName);
         if (updated) db.from('pizza_flavors').upsert({
           id: `${_tid()}:${newName}`, name: newName,
           category: updated.category || null, price: updated.price || null,
           available: updated.available !== false, tenant_id: _tid(),
-        }).catch(console.error);
+        }).then().catch(console.error);
       }
     }));
 
@@ -2640,7 +2647,7 @@ async function startServer() {
           id: `${_tid()}:${flavorData.name}`, name: flavorData.name,
           category: flavorData.category || null, price: flavorData.price || null,
           available: flavorData.available !== false, tenant_id: _tid(),
-        }).catch(console.error);
+        }).then().catch(console.error);
       }
     }));
 
@@ -2650,34 +2657,47 @@ async function startServer() {
       // Persist
       if (db) {
         db.from('pizza_flavors').delete()
-          .eq('tenant_id', _tid()).eq('name', flavorName).catch(console.error);
+          .eq('tenant_id', _tid()).eq('name', flavorName).then().catch(console.error);
       }
     }));
+
+    const savePizzaSizesToDb = () => {
+      _st().pizzariaConfig = { ..._st().pizzariaConfig, pizzaSizes: _st().pizzaSizes };
+      saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid()).catch(console.error);
+    };
 
     socket.on("update_pizza_crust", requireAdmin(({ oldName, newName }) => {
       _st().pizzaCrusts = _st().pizzaCrusts.map(c => c === oldName ? newName : c);
       io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
+      if (db) {
+        db.from('pizza_crusts').delete().eq('id', `${_tid()}:${oldName}`).then().catch(console.error);
+        db.from('pizza_crusts').upsert({ id: `${_tid()}:${newName}`, name: newName, tenant_id: _tid() }).then().catch(console.error);
+      }
     }));
 
     socket.on("add_pizza_crust", requireAdmin((crustName) => {
       _st().pizzaCrusts.push(crustName);
       io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
+      saveToSupabase('pizzaCrusts', { name: crustName }, crustName, _tid()).catch(console.error);
     }));
 
     socket.on("delete_pizza_crust", requireAdmin((crustName) => {
       _st().pizzaCrusts = _st().pizzaCrusts.filter(c => c !== crustName);
       io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
+      if (db) db.from('pizza_crusts').delete().eq('tenant_id', _tid()).eq('name', crustName).then().catch(console.error);
     }));
 
     socket.on("add_pizza_size", requireAdmin((sizeData) => {
       _st().pizzaSizes.push(sizeData);
       io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
+      savePizzaSizesToDb();
     }));
 
     socket.on("update_pizza_size", requireAdmin(({ index, updatedData }) => {
       if (index >= 0 && index < _st().pizzaSizes.length) {
         _st().pizzaSizes[index] = { ..._st().pizzaSizes[index], ...updatedData };
         io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
+        savePizzaSizesToDb();
       }
     }));
 
@@ -2685,12 +2705,14 @@ async function startServer() {
       if (index >= 0 && index < _st().pizzaSizes.length) {
         _st().pizzaSizes.splice(index, 1);
         io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
+        savePizzaSizesToDb();
       }
     }));
 
     socket.on("reorder_pizza_sizes", requireAdmin((newOrder: any[]) => {
       _st().pizzaSizes = newOrder;
       io.to(_room()).emit("update_pizza_sizes", _st().pizzaSizes);
+      savePizzaSizesToDb();
     }));
 
     socket.on("bulk_import", requireAdmin(async ({ menu: importedMenu, stock: importedStock, pizzaFlavors: impFlavors, pizzaCrusts: impCrusts, pizzariaConfig: impPizConfig, stockLog: impStockLog }) => {
