@@ -2760,9 +2760,9 @@ async function startServer() {
         if (USE_POSTGRES) { for (const f of _st().pizzaFlavors) await pgSave('_st().pizzaFlavors', f); }
         else if (db) {
           try {
-            await db.from('pizza_flavors').delete().neq('id', '');
+            await db.from('pizza_flavors').delete().eq('tenant_id', _tid());
             for (const f of _st().pizzaFlavors) {
-              await db.from('pizza_flavors').upsert({ id: f.name, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false });
+              await db.from('pizza_flavors').upsert({ id: `${_tid()}:${f.name}`, name: f.name, category: f.category || null, price: f.price || null, available: f.available !== false, tenant_id: _tid() });
             }
           } catch {}
         }
@@ -2773,9 +2773,9 @@ async function startServer() {
         if (USE_POSTGRES) { for (const c of _st().pizzaCrusts) await pgSave('_st().pizzaCrusts', { name: c }, c); }
         else if (db) {
           try {
-            await db.from('pizza_crusts').delete().neq('id', '');
+            await db.from('pizza_crusts').delete().eq('tenant_id', _tid());
             for (const c of _st().pizzaCrusts) {
-              await db.from('pizza_crusts').upsert({ id: c, name: c });
+              await db.from('pizza_crusts').upsert({ id: `${_tid()}:${c}`, name: c, tenant_id: _tid() });
             }
           } catch {}
         }
