@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-const PRIVATE_ADMIN_API = /^\/api\/(?:fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
+export const PRIVATE_ADMIN_API = /^\/api\/(?:fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
 
 function getRequestUrl(input: RequestInfo | URL): URL | null {
   if (typeof window === 'undefined') return null;
@@ -32,7 +32,20 @@ function nativeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Resp
 export async function getAdminAccessToken(): Promise<string | null> {
   const { data, error } = await supabase.auth.getSession();
   if (error) return null;
-  return data.session?.access_token ?? null;
+  const token = data.session?.access_token ?? null;
+  if (!token) return null;
+  // Check if the token is expired (exp claim in JWT payload)
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000) + 10) {
+      const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError || !refreshed.session) return null;
+      return refreshed.session.access_token;
+    }
+  } catch {
+    // JWT parse failed — just return the token as-is; the server will validate
+  }
+  return token;
 }
 
 /**
