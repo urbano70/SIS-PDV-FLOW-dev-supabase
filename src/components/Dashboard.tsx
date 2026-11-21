@@ -1660,13 +1660,15 @@ export default function Dashboard({
     (setPrinterConfig as any)((latest: any) => {
       try {
         localStorage.setItem('printerConfig', JSON.stringify(latest));
+        // Persiste no Supabase para não perder ao trocar de navegador ou dispositivo
+        socket.emit('save_printer_config', latest);
         // Sincroniza nome e logo com o servidor para exibição na página da mesa
         socket.emit('update_pizzaria_config', {
           establishmentName: latest.establishmentName || '',
           logoUrl: latest.logoUrl || '',
         });
         toast.success('Configurações salvas!', {
-          description: 'Direcionamento e detalhes do cupom persistidos no dispositivo.'
+          description: 'Impressoras e cupom salvos no servidor.'
         });
       } catch {
         toast.error('Erro ao salvar configurações.');
