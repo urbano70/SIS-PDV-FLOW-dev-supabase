@@ -6120,21 +6120,25 @@ async function startServer() {
   // ── Activation Codes (stored in Supabase user_metadata) ─────────────────────
 
   app.post('/api/auth/request-activation', express.json(), async (req, res) => {
-    const { userId, email, name } = req.body || {};
-    if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios' });
+    const { email, name } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'email é obrigatório' });
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     try {
+      // Find user by email (avoids fake userId from Supabase's signUp security sanitization)
+      const { data: listData, error: listErr } = await (db.auth as any).admin.listUsers({ perPage: 500 });
+      if (listErr) return res.status(500).json({ error: listErr.message });
+      const user = (listData?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+      if (!user) return res.status(404).json({ error: 'Usuário não localizado após cadastro. Aguarde e tente novamente.' });
       const code = String(Math.floor(1000 + Math.random() * 9000));
-      // updateUserById merges user_metadata, so existing fields (establishment_name, plan) are preserved
-      const { error: updateErr } = await (db.auth as any).admin.updateUserById(userId, {
+      const { error: updateErr } = await (db.auth as any).admin.updateUserById(user.id, {
         user_metadata: { activation_code: code },
       });
       if (updateErr) {
         console.error('[activation] updateUserById error:', updateErr.message);
         return res.status(500).json({ error: updateErr.message });
       }
-      console.log(`[activation] código ${code} gerado para ${email} (${userId})`);
-      return res.json({ ok: true });
+      console.log(`[activation] código ${code} gerado para ${email} (${user.id})`);
+      return res.json({ ok: true, userId: user.id });
     } catch (e: any) {
       console.error('[activation] exception:', e.message);
       return res.status(500).json({ error: e.message });
