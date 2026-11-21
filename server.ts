@@ -5784,6 +5784,49 @@ async function startServer() {
     res.send(JSON.stringify(cfg, null, 2));
   });
 
+  // Força liberação de mesa mesmo com pedido ativo (uso emergencial admin)
+  app.post("/api/force-release-table", async (req, res) => {
+    const tenantId: string = String(req.body?.tenantId || '').trim();
+    const orderId: string = String(req.body?.orderId || '').trim();
+    if (!tenantId || !orderId) return res.status(400).json({ error: 'tenantId e orderId obrigatórios' });
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
+    const st = getState(tenantId);
+    const order = st.orders.find((o: any) => String(o.id) === orderId);
+    if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
+    if (order.status === 'finalizada' || order.status === 'paid') return res.json({ ok: true, message: 'Pedido já finalizado' });
+    order.status = 'finalizada';
+    (order as any).forceReleased = true;
+    const entitiesToUpdate: any[] = [];
+    st.tables = st.tables.map((t: any) => {
+      if (t.currentOrder && String(t.currentOrder) === orderId) {
+        const freed = { ...t, status: 'free', currentOrder: null, linkedTo: null };
+        entitiesToUpdate.push({ entity: freed, collection: 'tables' });
+        return freed;
+      }
+      return t;
+    });
+    st.comandas = st.comandas.map((c: any) => {
+      if (c.currentOrder && String(c.currentOrder) === orderId) {
+        const freed = { ...c, status: 'free', currentOrder: null, linkedTo: null };
+        entitiesToUpdate.push({ entity: freed, collection: 'comandas' });
+        return freed;
+      }
+      return c;
+    });
+    io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
+    io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
+    io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+    if (db) {
+      saveToSupabase('orders', order, orderId, tenantId).catch(() => {});
+      for (const item of entitiesToUpdate) {
+        saveToSupabase(item.collection, item.entity, String(item.entity.id), tenantId).catch(() => {});
+      }
+    }
+    writeAudit(tenantId, 'force_release' as any, 'ADM',
+      `Mesa liberada à força (HTTP) — Pedido ${orderId}`, { orderId });
+    res.json({ ok: true, freed: entitiesToUpdate.length });
+  });
+
   // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
   app.post("/api/fix-tables", async (req, res) => {
     const tenantId: string = String(req.body?.tenantId || '').trim();

@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-export const PRIVATE_ADMIN_API = /^\/api\/(?:fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
+export const PRIVATE_ADMIN_API = /^\/api\/(?:fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|force-release-table(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
 
 function getRequestUrl(input: RequestInfo | URL): URL | null {
   if (typeof window === 'undefined') return null;
