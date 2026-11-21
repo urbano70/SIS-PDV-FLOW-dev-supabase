@@ -2606,22 +2606,52 @@ async function startServer() {
 
     socket.on("update_pizza_flavor", requireAdmin(({ flavorName, updatedData }) => {
       _st().pizzaFlavors = _st().pizzaFlavors.map(f => {
-        if (f.name === flavorName) {
-          return { ...f, ...updatedData };
-        }
+        if (f.name === flavorName) return { ...f, ...updatedData };
         return f;
       });
       io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
+      // Persist
+      if (USE_POSTGRES) {
+        const updated = _st().pizzaFlavors.find(f => f.name === (updatedData.name || flavorName));
+        if (updated) pgSave('pizzaFlavors', updated).catch(console.error);
+      } else if (db) {
+        const newName = updatedData.name || flavorName;
+        // Se o nome mudou, remove a linha antiga antes de inserir a nova
+        if (updatedData.name && updatedData.name !== flavorName) {
+          db.from('pizza_flavors').delete().eq('id', `${_tid()}:${flavorName}`).catch(console.error);
+        }
+        const updated = _st().pizzaFlavors.find(f => f.name === newName);
+        if (updated) db.from('pizza_flavors').upsert({
+          id: `${_tid()}:${newName}`, name: newName,
+          category: updated.category || null, price: updated.price || null,
+          available: updated.available !== false, tenant_id: _tid(),
+        }).catch(console.error);
+      }
     }));
 
     socket.on("add_pizza_flavor", requireAdmin((flavorData) => {
       _st().pizzaFlavors.push(flavorData);
       io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
+      // Persist
+      if (USE_POSTGRES) {
+        pgSave('pizzaFlavors', flavorData).catch(console.error);
+      } else if (db) {
+        db.from('pizza_flavors').upsert({
+          id: `${_tid()}:${flavorData.name}`, name: flavorData.name,
+          category: flavorData.category || null, price: flavorData.price || null,
+          available: flavorData.available !== false, tenant_id: _tid(),
+        }).catch(console.error);
+      }
     }));
 
     socket.on("delete_pizza_flavor", requireAdmin((flavorName) => {
       _st().pizzaFlavors = _st().pizzaFlavors.filter(f => f.name !== flavorName);
       io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
+      // Persist
+      if (db) {
+        db.from('pizza_flavors').delete()
+          .eq('tenant_id', _tid()).eq('name', flavorName).catch(console.error);
+      }
     }));
 
     socket.on("update_pizza_crust", requireAdmin(({ oldName, newName }) => {
