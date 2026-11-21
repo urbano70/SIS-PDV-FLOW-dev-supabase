@@ -6124,17 +6124,19 @@ async function startServer() {
     if (!userId || !email) return res.status(400).json({ error: 'userId e email são obrigatórios' });
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     try {
-      const { data: userData, error: getUserErr } = await (db.auth as any).admin.getUserById(userId);
-      if (getUserErr || !userData?.user) return res.status(404).json({ error: 'Usuário não encontrado' });
-      const existingMeta = userData.user.user_metadata || {};
       const code = String(Math.floor(1000 + Math.random() * 9000));
+      // updateUserById merges user_metadata, so existing fields (establishment_name, plan) are preserved
       const { error: updateErr } = await (db.auth as any).admin.updateUserById(userId, {
-        user_metadata: { ...existingMeta, activation_code: code, activation_name: name || '' },
+        user_metadata: { activation_code: code },
       });
-      if (updateErr) return res.status(500).json({ error: updateErr.message });
+      if (updateErr) {
+        console.error('[activation] updateUserById error:', updateErr.message);
+        return res.status(500).json({ error: updateErr.message });
+      }
       console.log(`[activation] código ${code} gerado para ${email} (${userId})`);
       return res.json({ ok: true });
     } catch (e: any) {
+      console.error('[activation] exception:', e.message);
       return res.status(500).json({ error: e.message });
     }
   });
@@ -6144,16 +6146,16 @@ async function startServer() {
     if (!userId || !code) return res.status(400).json({ error: 'userId e code são obrigatórios' });
     if (!db) return res.status(503).json({ error: 'DB não disponível' });
     try {
-      const { data: userData, error: getUserErr } = await (db.auth as any).admin.getUserById(userId);
-      if (getUserErr || !userData?.user) return res.status(404).json({ error: 'Usuário não encontrado' });
-      const user = userData.user;
+      const { data: listData, error: listErr } = await (db.auth as any).admin.listUsers({ perPage: 500 });
+      if (listErr) return res.status(500).json({ error: listErr.message });
+      const user = (listData?.users || []).find((u: any) => u.id === userId);
+      if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
       const storedCode = user.user_metadata?.activation_code;
-      if (!storedCode) return res.status(404).json({ error: 'Nenhum código gerado para este usuário' });
+      if (!storedCode) return res.status(404).json({ error: 'Nenhum código gerado. Contate o administrador.' });
       if (String(storedCode) !== String(code)) return res.status(400).json({ error: 'Código incorreto' });
-      const existingMeta = user.user_metadata || {};
       const { error: confirmErr } = await (db.auth as any).admin.updateUserById(userId, {
         email_confirm: true,
-        user_metadata: { ...existingMeta, activation_code: null },
+        user_metadata: { activation_code: null },
       });
       if (confirmErr) return res.status(500).json({ error: confirmErr.message });
       return res.json({ ok: true });
