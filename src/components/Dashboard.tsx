@@ -1879,6 +1879,7 @@ export default function Dashboard({
     };
     const handleInitData = (data: any) => {
       if (typeof data?.printerAgentOnline === 'boolean') setPrinterAgentOnline(data.printerAgentOnline);
+      socket.emit('register_print_socket');
     };
     const handleScanResult = (data: { printers: {ip: string; port: number}[]; error?: string }) => {
       setScanRunning(false);
@@ -1903,7 +1904,6 @@ export default function Dashboard({
     };
     const handleReconnect = () => {
       socket.emit('request_agent_status');
-      socket.emit('register_print_socket');
     };
     const handleCashRegReports = (data: any[]) => {
       setCashRegReportList(data);
