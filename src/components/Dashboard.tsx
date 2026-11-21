@@ -282,7 +282,8 @@ function buildEscPosKitchenTicket(
     const priceStr = item.price != null ? 'R$' + Number(item.price).toFixed(2).replace('.', ',') : '';
     // For pizzas with flavors, show base name only (strip "(flavors)" part)
     const isPizza = item.type === 'pizzas' || (!item.type && item.flavors && item.flavors.length > 0);
-    const baseName = isPizza ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
+    const rawPizzaName = (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim();
+    const baseName = isPizza ? ('Pizza ' + rawPizzaName) : (item.name || '');
     const firstLine = qty + baseName;
     // Nome — pizza em negrito+double-height para destaque, outros só double-height
     const dhLen = Math.floor(lineLen / 2);
@@ -1763,7 +1764,8 @@ export default function Dashboard({
         const _obsFs  = paperWidth === '48mm' ? '10px' : '14px';
         const itemsHtml = items.map(item => {
           const isPiz = item.type === 'pizzas' || (!item.type && item.flavors && item.flavors.length > 0);
-          const baseN = isPiz ? (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim() : (item.name || '');
+          const rawPizN = (item.name || '').replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim();
+          const baseN = isPiz ? ('Pizza ' + rawPizN) : (item.name || '');
           const formatPizzaDetails = item.type === 'pizzas' || (!item.type && isPiz);
           const pizzaDetails = getPizzaKitchenDetails(item);
           let flavorsHtml = '';
