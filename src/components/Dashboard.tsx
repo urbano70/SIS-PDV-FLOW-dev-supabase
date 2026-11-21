@@ -342,6 +342,15 @@ function buildEscPosKitchenTicket(
     if (item.observations) {
       wordWrap('OBS: ' + item.observations.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
+
+    if (item.adicionais?.length > 0) {
+      push(0x1B, 0x45, 0x01);
+      text('+ ADICIONAIS:'); lf();
+      push(0x1B, 0x45, 0x00);
+      (item.adicionais as { name: string; price: number }[]).forEach(a => {
+        wordWrap(`+ ${a.name.toUpperCase()} R$${a.price.toFixed(2)}`, lineLen).forEach(l => { text(l); lf(); });
+      });
+    }
   });
 
   // Garçom — garante tamanho normal e alinhamento esquerdo antes de imprimir
@@ -614,6 +623,7 @@ const OrderDetails = ({
                       <span className="text-[11px] text-violet-700 font-bold mt-0.5 leading-none">Criança: {item.childName?.trim() || 'Não informado'}</span>
                     )}
                     {item.observations && !(item.source === 'parquinho' || item.isParquinho === true) && <span className="text-[11px] text-blue-700 italic opacity-70 mt-0.5 leading-none">Obs: {item.observations}</span>}
+                    {(item as any).adicionais?.length > 0 && <span className="text-[11px] text-orange-600 font-bold mt-0.5 leading-none">+ {(item as any).adicionais.map((a: any) => a.name).join(', ')}</span>}
                     {(item.operatorName || item.waiterName) && <span className="text-[11px] text-[#141414] opacity-30 mt-0.5 leading-none">por {(item.operatorName || item.waiterName || '').split(' ')[0]}</span>}
                     {guestModeActive && !item.removed && !item.paid && (
                       assigningGuestToItemId === item.id ? (
@@ -1181,7 +1191,8 @@ export default function Dashboard({
   const [newProductSubcategoryId, setNewProductSubcategoryId] = useState<string | null>(null);
   const [newProductData, setNewProductData] = useState({ name: '', price: 0, ingredients: '' });
   const [isAddSubcategoryModalOpen, setIsAddSubcategoryModalOpen] = useState(false);
-  const [newSubcategoryData, setNewSubcategoryData] = useState({ categoryName: '', name: '' });
+  const [newSubcategoryData, setNewSubcategoryData] = useState({ categoryName: '', name: '', isAdicional: false });
+  const [selectedAdicionais, setSelectedAdicionais] = useState<{ name: string; price: number }[]>([]);
   const [editingSubcategory, setEditingSubcategory] = useState<{categoryName: string, subcategoryId: string, name: string} | null>(null);
   const [isEditFlavorModalOpen, setIsEditFlavorModalOpen] = useState(false);
   const [isAddFlavorModalOpen, setIsAddFlavorModalOpen] = useState(false);
@@ -1793,6 +1804,7 @@ export default function Dashboard({
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
           ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
           ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+          ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${a.price.toFixed(2)}</div>`).join('') : ''}
         `;
         }).join(`<div class="sep"></div>`);
         const html = `<html><head><style>
@@ -3001,6 +3013,7 @@ export default function Dashboard({
 
     const category = menu.find(cat => cat.items?.some(i => i.name === selectedQuantityItem.name));
 
+    const adicionaisTotal = selectedAdicionais.reduce((s, a) => s + a.price, 0);
     const newItem = {
       id: Math.random().toString(36).substr(2, 9),
       menuItemId: selectedQuantityItem.id,
@@ -3010,11 +3023,12 @@ export default function Dashboard({
       size: 'G',
       extras: [],
       observations: [...lancheSemOpcoes, ...(itemObservations ? [itemObservations] : [])].join(', '),
-      price: selectedQuantityItem.price * itemQuantity,
+      price: (selectedQuantityItem.price + adicionaisTotal) * itemQuantity,
       quantity: itemQuantity,
       waiterName: 'ADM',
       ingredients: selectedQuantityItem.ingredients,
       guestName: admGuestForItem || undefined,
+      adicionais: selectedAdicionais.length > 0 ? selectedAdicionais : undefined,
     };
 
     const selectedTOrC = (isComandaSelected ? comandas : tables).find((t: any) => String(t.id) === String(targetId));
@@ -3060,6 +3074,7 @@ export default function Dashboard({
     }
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
+    setSelectedAdicionais([]);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
     toast.success('Item adicionado pelo ADM');
@@ -9685,21 +9700,57 @@ export default function Dashboard({
 
                 {(() => {
                   const selCat = menu.find((c: any) =>
-                    c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name)
+                    c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
+                    (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
                   );
-                  if (!selCat?.mostrarOpcionalMilhoCebola) return null;
+                  const adicionalSubs = (selCat?.subcategories || []).filter((s: any) => s.isAdicional && s.items?.length > 0);
                   return (
-                    <div className="space-y-2">
-                      <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Ingredientes</label>
-                      <div className="flex flex-col gap-2">
-                        {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => (
-                          <label key={opt} className="flex items-center gap-2.5 cursor-pointer">
-                            <input type="checkbox" className="w-4 h-4 accent-[#141414]" checked={lancheSemOpcoes.includes(opt)} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
-                            <span className="text-sm font-semibold">{opt}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                    <>
+                      {selCat?.mostrarOpcionalMilhoCebola && (
+                        <div className="space-y-2">
+                          <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Ingredientes</label>
+                          <div className="flex flex-col gap-2">
+                            {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => (
+                              <label key={opt} className="flex items-center gap-2.5 cursor-pointer">
+                                <input type="checkbox" className="w-4 h-4 accent-[#141414]" checked={lancheSemOpcoes.includes(opt)} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
+                                <span className="text-sm font-semibold">{opt}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {adicionalSubs.length > 0 && (
+                        <div className="space-y-3">
+                          <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Adicionais</label>
+                          {adicionalSubs.map((sub: any) => (
+                            <div key={sub.id} className="space-y-1.5">
+                              {adicionalSubs.length > 1 && <p className="text-[10px] font-bold opacity-50 uppercase px-1">{sub.name}</p>}
+                              {sub.items.map((aItem: any) => {
+                                const isChecked = selectedAdicionais.some(a => a.name === aItem.name);
+                                return (
+                                  <label key={aItem.id} className="flex items-center justify-between gap-2 cursor-pointer p-3 rounded-xl border border-[#141414]/10 hover:bg-orange-50 hover:border-orange-200 transition-colors">
+                                    <div className="flex items-center gap-2.5">
+                                      <input
+                                        type="checkbox"
+                                        className="w-4 h-4 accent-orange-500"
+                                        checked={isChecked}
+                                        onChange={e => setSelectedAdicionais(prev =>
+                                          e.target.checked
+                                            ? [...prev, { name: aItem.name, price: aItem.price }]
+                                            : prev.filter(a => a.name !== aItem.name)
+                                        )}
+                                      />
+                                      <span className="text-sm font-semibold">{aItem.name}</span>
+                                    </div>
+                                    <span className="text-sm font-bold text-orange-600">+R$ {aItem.price.toFixed(2)}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
 
@@ -9732,12 +9783,15 @@ export default function Dashboard({
                 <div className="pt-4 border-t border-[#141414]/10">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-sm font-bold opacity-50 uppercase">Total do Item</span>
-                    <span className="text-2xl font-bold">R$ {( (selectedQuantityItem?.price || 0) * itemQuantity).toFixed(2)}</span>
+                    <span className="text-2xl font-bold">
+                      R$ {(((selectedQuantityItem?.price || 0) + selectedAdicionais.reduce((s, a) => s + a.price, 0)) * itemQuantity).toFixed(2)}
+                    </span>
                   </div>
                   <div className="flex space-x-3">
                     <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
+                        setSelectedAdicionais([]);
                         setIsAddItemModalOpen(true);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
@@ -10387,13 +10441,25 @@ export default function Dashboard({
                   className="w-full bg-gray-50 border border-[#141414]/10 rounded-xl p-4 font-bold outline-none focus:border-[#141414]"
                 />
               </div>
+              <label className="flex items-center gap-3 cursor-pointer p-4 bg-orange-50 border border-orange-200 rounded-xl">
+                <input
+                  type="checkbox"
+                  checked={newSubcategoryData.isAdicional}
+                  onChange={e => setNewSubcategoryData({ ...newSubcategoryData, isAdicional: e.target.checked })}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <div>
+                  <p className="text-sm font-bold text-orange-800">Subcategoria de Adicionais</p>
+                  <p className="text-[11px] text-orange-600 mt-0.5">Os itens desta subcategoria serão oferecidos como adicionais no momento do pedido</p>
+                </div>
+              </label>
               <div className="flex gap-3">
                 <button onClick={() => setIsAddSubcategoryModalOpen(false)} className="flex-1 bg-gray-100 p-4 rounded-xl font-bold hover:bg-gray-200">Cancelar</button>
                 <button
                   onClick={() => {
                     if (!newSubcategoryData.name) return toast.error('Nome obrigatório');
-                    socket.emit('add_subcategory', { categoryName: newSubcategoryData.categoryName, subcategoryData: { name: newSubcategoryData.name } });
-                    setNewSubcategoryData({ categoryName: '', name: '' });
+                    socket.emit('add_subcategory', { categoryName: newSubcategoryData.categoryName, subcategoryData: { name: newSubcategoryData.name, isAdicional: newSubcategoryData.isAdicional } });
+                    setNewSubcategoryData({ categoryName: '', name: '', isAdicional: false });
                     setIsAddSubcategoryModalOpen(false);
                     toast.success('Subcategoria adicionada!');
                   }}
