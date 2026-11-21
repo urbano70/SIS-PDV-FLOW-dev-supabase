@@ -361,6 +361,10 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
   const [isFlavorObsOpen, setIsFlavorObsOpen] = useState(false);
   const [isQuantityModalOpen, setIsQuantityModalOpen] = useState(false);
   const [selectedQuantityItem, setSelectedQuantityItem] = useState<any>(null);
+  const [selectedAdicionais, setSelectedAdicionais] = useState<{ name: string; price: number }[]>([]);
+  const [adicionaisExpanded, setAdicionaisExpanded] = useState(false);
+  const [cartAdModalIdx, setCartAdModalIdx] = useState<number | null>(null);
+  const [cartAdModalSelected, setCartAdModalSelected] = useState<{ name: string; price: number }[]>([]);
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemObservations, setItemObservations] = useState('');
   const [drinkCups, setDrinkCups] = useState(0);
@@ -552,15 +556,17 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       quantity: qty,
       ingredients: pizza.ingredients,
       guestName: guestModeActive && pizza.guestName ? pizza.guestName : undefined,
+      adicionais: pizza.adicionais,
     };
 
     // Merge existing items in cart if identical
     setCart(prevCart => {
-      const existingItemIndex = prevCart.findIndex(item => 
-        item.name === newItem.name && 
-        item.crust === newItem.crust && 
+      const existingItemIndex = prevCart.findIndex(item =>
+        item.name === newItem.name &&
+        item.crust === newItem.crust &&
         JSON.stringify(item.flavors) === JSON.stringify(newItem.flavors) &&
-        item.observations === newItem.observations
+        item.observations === newItem.observations &&
+        JSON.stringify((item as any).adicionais) === JSON.stringify(newItem.adicionais)
       );
 
       if (existingItemIndex !== -1) {
@@ -590,9 +596,12 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       (cat.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem.id || i.name === selectedQuantityItem.name))
     );
 
+    const adicionaisTotal = selectedAdicionais.reduce((s, a) => s + a.price, 0);
     const itemToAdd = {
       ...selectedQuantityItem,
       type: selectedQuantityItem.type || category?.type,
+      price: selectedQuantityItem.price + adicionaisTotal,
+      adicionais: selectedAdicionais.length > 0 ? [...selectedAdicionais] : undefined,
       observations: (() => {
         const isBeverage = (selectedQuantityItem?.type || category?.type) === 'bebidas';
         const parts: string[] = [];
@@ -614,6 +623,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     addToCart(itemToAdd);
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
+    setSelectedAdicionais([]);
+    setAdicionaisExpanded(false);
     setSelectedGuestForItem('');
     setModalNewGuest('');
   };
@@ -1095,6 +1106,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                             )}
                             {item.paid && <span className="text-[8px] bg-green-600 text-white px-1 rounded uppercase font-bold">pago</span>}
                           </div>
+                          {(item as any).adicionais?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {(item as any).adicionais.map((ad: any) => (
+                                <span key={ad.name} className="text-[9px] font-bold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
+                                  +{ad.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <div className="flex flex-wrap gap-x-2 text-[10px] opacity-70 font-medium mt-1">
                             {((item as any).source === 'parquinho' || (item as any).isParquinho === true) && (
                               <span className="text-violet-700 font-bold">Criança: {(item as any).childName?.trim() || 'Não informado'}</span>
@@ -1830,6 +1850,54 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </div>
                 )}
 
+                {/* Adicionais section */}
+                {(() => {
+                  const selCat = menu.find((c: any) =>
+                    c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
+                    (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
+                  );
+                  const adSubs = (selCat?.subcategories || []).filter((s: any) => s.isAdicional && (s.items?.length ?? 0) > 0);
+                  if (adSubs.length === 0) return null;
+                  const allAdItems = adSubs.flatMap((s: any) => s.items || []);
+                  return (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setAdicionaisExpanded(v => !v)}
+                        className={`w-full flex items-center justify-between py-2.5 px-4 rounded-2xl border-2 font-bold text-sm transition-all ${adicionaisExpanded || selectedAdicionais.length > 0 ? 'bg-orange-500 text-white border-orange-500' : 'border-orange-200 text-orange-700 bg-orange-50'}`}
+                      >
+                        <span>Adicionais{selectedAdicionais.length > 0 ? ` (${selectedAdicionais.length})` : ''}</span>
+                        <span className="text-xs">{adicionaisExpanded ? '▲' : '▼'}</span>
+                      </button>
+                      {adicionaisExpanded && (
+                        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-3 space-y-2">
+                          {allAdItems.map((adItem: any) => {
+                            const sel = selectedAdicionais.some(a => a.name === adItem.name);
+                            return (
+                              <label key={adItem.id || adItem.name} className="flex items-center justify-between cursor-pointer gap-2">
+                                <div className="flex items-center gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={sel}
+                                    onChange={e => setSelectedAdicionais(prev =>
+                                      e.target.checked
+                                        ? [...prev, { name: adItem.name, price: adItem.price }]
+                                        : prev.filter(a => a.name !== adItem.name)
+                                    )}
+                                    className="w-4 h-4 accent-orange-500 shrink-0"
+                                  />
+                                  <span className="text-sm font-semibold">{adItem.name}</span>
+                                </div>
+                                <span className="text-sm font-bold text-orange-600 shrink-0">+R$ {adItem.price.toFixed(2)}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {guestModeActive && (
                   <div className="space-y-2">
                     <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Vincular a Convidado</label>
@@ -1882,13 +1950,15 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                 <div className="pt-4 border-t border-[#141414]/10">
                   <div className="flex justify-between items-center mb-6">
                     <span className="text-sm font-bold opacity-50 uppercase">Total do Item</span>
-                    <span className="text-2xl font-bold">R$ {( (selectedQuantityItem?.price || 0) * itemQuantity).toFixed(2)}</span>
+                    <span className="text-2xl font-bold">R$ {(((selectedQuantityItem?.price || 0) + selectedAdicionais.reduce((s, a) => s + a.price, 0)) * itemQuantity).toFixed(2)}</span>
                   </div>
                   <div className="flex space-x-3">
                     <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
                         setSelectedQuantityItem(null);
+                        setSelectedAdicionais([]);
+                        setAdicionaisExpanded(false);
                       }}
                       className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
                     >
@@ -1936,19 +2006,65 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
               </div>
               <div className="max-h-72 overflow-y-auto">
                 {cart.map((item, idx) => (
-                  <div key={idx} className={`flex justify-between items-center px-5 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <span className="flex-1 pr-3 font-bold text-sm">
-                      {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
-                    </span>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="font-mono font-bold text-sm">R$ {item.price.toFixed(2)}</span>
-                      <button
-                        onClick={() => { setCart(cart.filter((_, i) => i !== idx)); if (cart.length === 1) setIsCartPopupOpen(false); }}
-                        className="text-red-400 hover:text-red-600 transition-colors"
-                      >
-                        <X size={14} />
-                      </button>
+                  <div key={idx} className={`px-5 py-3 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className="flex-1 pr-3 font-bold text-sm">
+                        {item.quantity && item.quantity > 1 ? `${item.quantity}x ` : ''}{item.name}
+                      </span>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="font-mono font-bold text-sm">R$ {item.price.toFixed(2)}</span>
+                        <button
+                          onClick={() => { setCart(cart.filter((_, i) => i !== idx)); if (cart.length === 1) setIsCartPopupOpen(false); }}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
                     </div>
+                    {/* Adicionais chips */}
+                    {(item as any).adicionais?.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1 items-center">
+                        {(item as any).adicionais.map((ad: any) => (
+                          <span key={ad.name} className="inline-flex items-center gap-1 bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            {ad.name} +R${ad.price.toFixed(2)}
+                            <button
+                              onClick={() => setCart(prev => prev.map((ci, i) => {
+                                if (i !== idx) return ci;
+                                const qty = ci.quantity || 1;
+                                const newAds = (ci as any).adicionais?.filter((a: any) => a.name !== ad.name);
+                                return { ...ci, price: ci.price - ad.price * qty, adicionais: newAds?.length ? newAds : undefined };
+                              }))}
+                              className="text-orange-500 hover:text-red-500 transition-colors"
+                            >
+                              <X size={9} />
+                            </button>
+                          </span>
+                        ))}
+                        <button
+                          onClick={() => { setCartAdModalSelected((item as any).adicionais || []); setCartAdModalIdx(idx); }}
+                          className="inline-flex items-center gap-0.5 bg-orange-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full hover:bg-orange-600 transition-colors"
+                        >
+                          <Plus size={9} /> mais
+                        </button>
+                      </div>
+                    )}
+                    {/* Botão adicionar adicionais quando item ainda não tem */}
+                    {!(item as any).adicionais?.length && (() => {
+                      const cat = menu.find((c: any) =>
+                        c.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name) ||
+                        (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId || i.name === item.name))
+                      );
+                      const hasAds = (cat?.subcategories || []).some((s: any) => s.isAdicional && (s.items?.length ?? 0) > 0);
+                      if (!hasAds) return null;
+                      return (
+                        <button
+                          onClick={() => { setCartAdModalSelected([]); setCartAdModalIdx(idx); }}
+                          className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 bg-orange-50 hover:bg-orange-100 px-2 py-0.5 rounded-full transition-colors"
+                        >
+                          <Plus size={9} /> Adicionais
+                        </button>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -1959,6 +2075,86 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             </motion.div>
           </motion.div>
         )}
+      </AnimatePresence>
+
+      {/* Cart Adicionais Edit Modal */}
+      <AnimatePresence>
+        {cartAdModalIdx !== null && (() => {
+          const cartItem = cart[cartAdModalIdx];
+          if (!cartItem) return null;
+          const cat = menu.find((c: any) =>
+            c.items?.some((i: any) => i.id === cartItem.menuItemId || i.name === cartItem.name) ||
+            (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === cartItem.menuItemId || i.name === cartItem.name))
+          );
+          const adSubs = (cat?.subcategories || []).filter((s: any) => s.isAdicional && (s.items?.length ?? 0) > 0);
+          const allAdItems = adSubs.flatMap((s: any) => s.items || []);
+          return (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50"
+              onClick={() => setCartAdModalIdx(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
+                className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl border-2 border-orange-200 space-y-4"
+              >
+                <div className="flex justify-between items-center">
+                  <h3 className="font-bold text-base">Adicionais — {cartItem.name}</h3>
+                  <button onClick={() => setCartAdModalIdx(null)} className="opacity-50 hover:opacity-100"><X size={18} /></button>
+                </div>
+                <div className="space-y-2">
+                  {allAdItems.map((adItem: any) => {
+                    const sel = cartAdModalSelected.some(a => a.name === adItem.name);
+                    return (
+                      <label key={adItem.id || adItem.name} className="flex items-center justify-between cursor-pointer gap-2 py-1">
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={sel}
+                            onChange={e => setCartAdModalSelected(prev =>
+                              e.target.checked
+                                ? [...prev, { name: adItem.name, price: adItem.price }]
+                                : prev.filter(a => a.name !== adItem.name)
+                            )}
+                            className="w-4 h-4 accent-orange-500 shrink-0"
+                          />
+                          <span className="text-sm font-semibold">{adItem.name}</span>
+                        </div>
+                        <span className="text-sm font-bold text-orange-600 shrink-0">+R$ {adItem.price.toFixed(2)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={() => setCartAdModalIdx(null)}
+                    className="flex-1 py-3 rounded-2xl border border-[#141414] font-bold text-sm"
+                  >Cancelar</button>
+                  <button
+                    onClick={() => {
+                      setCart(prev => prev.map((ci, i) => {
+                        if (i !== cartAdModalIdx) return ci;
+                        const qty = ci.quantity || 1;
+                        const oldAds: { name: string; price: number }[] = (ci as any).adicionais || [];
+                        const oldTotal = oldAds.reduce((s, a) => s + a.price, 0);
+                        const newTotal = cartAdModalSelected.reduce((s, a) => s + a.price, 0);
+                        const baseUnitPrice = ci.price / qty - oldTotal;
+                        return {
+                          ...ci,
+                          price: (baseUnitPrice + newTotal) * qty,
+                          adicionais: cartAdModalSelected.length > 0 ? cartAdModalSelected : undefined,
+                        };
+                      }));
+                      setCartAdModalIdx(null);
+                    }}
+                    className="flex-1 py-3 rounded-2xl bg-orange-500 text-white font-bold text-sm hover:bg-orange-600 transition-colors"
+                  >Confirmar</button>
+                </div>
+              </motion.div>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
 
       {/* Observation Modal */}
