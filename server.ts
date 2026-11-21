@@ -321,7 +321,7 @@ async function startServer() {
           break;
         }
         case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
-        case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.id}`, tenant_id: tid })); break;
+        case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.menuItemId || d.id}`, tenant_id: tid })); break;
         case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid })); break;
         case 'pizzaFlavors': await assertSupabaseResult(db.from('pizza_flavors').upsert({ id: `${tid}:${d.name}`, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false, tenant_id: tid })); break;
         case 'pizzaCrusts':  await assertSupabaseResult(db.from('pizza_crusts').upsert({ id: `${tid}:${d.name || docId}`, name: d.name || docId, tenant_id: tid })); break;
@@ -1208,7 +1208,7 @@ async function startServer() {
       io.to(room).emit("stock_low_alert", lowAlerts);
     }
     for (const updated of updatedStockEntries) {
-      saveToSupabase('stock', updated, updated.id, tenantId);
+      saveToSupabase('stock', updated, updated.menuItemId || updated.id, tenantId);
     }
   };
 
