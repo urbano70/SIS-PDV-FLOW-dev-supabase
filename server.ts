@@ -6272,6 +6272,7 @@ async function startServer() {
       return res.json({ activations: list });
     });
 
+
     app.get('/api/dev/server', (req, res) => {
       if (!requireDevToken(req, res)) return;
       const mem = process.memoryUsage();
