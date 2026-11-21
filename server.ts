@@ -3635,6 +3635,18 @@ async function startServer() {
         socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
         return;
       }
+      // Recupera referência perdida após restart (mesma lógica de request_agent_status)
+      if (!_st().printerAgentSocket?.connected) {
+        const tid = _tid();
+        io.sockets.sockets.forEach((s: any) => {
+          if (s.isPrinterAgent && s.tenantId === tid && s.connected) {
+            _st().printerAgentSocket = s;
+          }
+        });
+        if (_st().printerAgentSocket?.connected) {
+          io.to('tenant:' + tid).emit('printer_agent_status', { online: true });
+        }
+      }
       if (_st().printerAgentSocket?.connected) {
         _st().printerAgentSocket.emit("scan_printers_request");
       } else {
@@ -3677,6 +3689,18 @@ async function startServer() {
         // Caixa alvo não encontrado — cai no fluxo normal
       }
 
+      // Recupera referência perdida após restart antes de tentar imprimir
+      if (!_st().printerAgentSocket?.connected) {
+        const tid = _tid();
+        io.sockets.sockets.forEach((s: any) => {
+          if (s.isPrinterAgent && s.tenantId === tid && s.connected) {
+            _st().printerAgentSocket = s;
+          }
+        });
+        if (_st().printerAgentSocket?.connected) {
+          io.to('tenant:' + tid).emit('printer_agent_status', { online: true });
+        }
+      }
       if (_st().printerAgentSocket && _st().printerAgentSocket.connected) {
         _st().printerAgentSocket.emit("do_print", { ip, port, localName, data });
         return;
