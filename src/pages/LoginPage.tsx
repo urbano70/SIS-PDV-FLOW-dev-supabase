@@ -61,18 +61,20 @@ export default function LoginPage() {
         const actResp = await fetch('/api/auth/request-activation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, email, name: establishmentName }),
+          body: JSON.stringify({ email, name: establishmentName }),
         });
-        setPendingUserId(userId);
+        let realUserId = userId;
+        let actErrMsg = '';
+        try {
+          const d = await actResp.json();
+          if (d.userId) realUserId = d.userId;
+          if (!actResp.ok && d.error) actErrMsg = d.error;
+        } catch {}
+        if (!actResp.ok && !actErrMsg) actErrMsg = `Erro ${actResp.status} ao gerar código de ativação.`;
+        setPendingUserId(realUserId);
         setActivationCode('');
+        setActivationError(actErrMsg);
         setActivationPopup(true);
-        if (!actResp.ok) {
-          let errMsg = `Erro ${actResp.status} ao gerar código.`;
-          try { const d = await actResp.json(); if (d.error) errMsg = d.error; } catch {}
-          setActivationError(errMsg + ' Informe ao suporte: ' + errMsg);
-        } else {
-          setActivationError('');
-        }
 
       } else if (mode === 'forgot') {
         await sendPasswordReset(email);
