@@ -3881,6 +3881,39 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Proxy de renovação de token: o browser chama este endpoint (mesmo domínio)
+  // e o servidor faz a chamada ao Supabase auth — contorna extensões que bloqueiam
+  // requisições diretas ao domínio do Supabase.
+  app.post("/api/auth/refresh", express.json({ limit: '4kb' }), async (req, res) => {
+    try {
+      const { refresh_token } = req.body ?? {};
+      if (!refresh_token || typeof refresh_token !== 'string' || refresh_token.length < 20) {
+        res.status(400).json({ error: 'refresh_token inválido' });
+        return;
+      }
+      const supabaseBase = (process.env.SUPABASE_URL || 'https://iagflqaopurjnnzkunph.supabase.co').replace(/\/$/, '');
+      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2ZscWFvcHVyam5uemt1bnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDk1MjcsImV4cCI6MjA5NTU4NTUyN30.A6OxNQ3gRUMzr-KLicnm83mG3SrT7U4J8CP6EjMZRmo';
+      const upstream = await fetch(`${supabaseBase}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
+        body: JSON.stringify({ refresh_token }),
+      });
+      const payload = await upstream.json() as any;
+      if (!upstream.ok || !payload.access_token) {
+        res.status(401).json({ error: payload.error_description || payload.msg || 'Refresh falhou' });
+        return;
+      }
+      res.json({
+        access_token: payload.access_token,
+        refresh_token: payload.refresh_token ?? refresh_token,
+        expires_in: payload.expires_in ?? 3600,
+        token_type: payload.token_type ?? 'bearer',
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: 'Erro interno ao renovar sessão' });
+    }
+  });
+
   app.get("/api/version", (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.json({ ...appVersion, pr: LATEST_PR });

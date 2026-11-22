@@ -45,6 +45,43 @@ export async function forceRefreshSession() {
   return data.session;
 }
 
+/**
+ * Renova o token via endpoint proxy no próprio servidor, contornando extensões
+ * de browser que bloqueiam requisições diretas ao domínio do Supabase.
+ * Atualiza o localStorage diretamente para que os fallbacks subsequentes
+ * encontrem o novo access_token sem depender do SDK.
+ */
+export async function refreshViaProxy(): Promise<{ access_token: string } | null> {
+  try {
+    const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    const stored = raw ? JSON.parse(raw) : null;
+    const refresh_token: string | undefined = stored?.refresh_token;
+    if (!refresh_token) return null;
+
+    const res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data?.access_token) return null;
+
+    // Persiste os novos tokens no localStorage para os fallbacks do SDK
+    if (stored) {
+      stored.access_token = data.access_token;
+      if (data.refresh_token) stored.refresh_token = data.refresh_token;
+      if (data.expires_in) stored.expires_at = Math.floor(Date.now() / 1000) + data.expires_in;
+      localStorage.setItem(key, JSON.stringify(stored));
+    }
+    return { access_token: data.access_token };
+  } catch {
+    return null;
+  }
+}
+
 export function onAuthStateChange(callback: (user: any) => void) {
   return supabase.auth.onAuthStateChange((_event, session) => {
     callback(session?.user ?? null);
