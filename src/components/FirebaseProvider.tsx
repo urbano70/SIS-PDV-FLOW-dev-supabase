@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import socket, { isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
+import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
 import { forceLocalSignOut, forceRefreshSession, getSession } from '../lib/auth';
@@ -171,6 +171,12 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     pendingInitRef.current = null;
     approvedRequestSocketRef.current = null;
     adminTokenRef.current = null;
+    // App.tsx fires admin_connect while DashboardLockScreen is visible, before
+    // this provider mounts. The dedup in socket.ts records that emission and
+    // would silently skip the first admin_connect here (same token + same socket
+    // connection), causing init_data to never arrive. Clear the dedup so this
+    // provider's first handshake always reaches the server.
+    clearAdminConnectDedup();
     // The previous scope may still be awaiting getSession(). It must not block
     // the new tenant's handshake; its completion is ignored by `current()`.
     handshakeInFlightRef.current = null;
