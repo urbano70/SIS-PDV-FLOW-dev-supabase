@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { forceLocalSignOut, forceRefreshSession, getSession } from '../lib/auth';
+import { forceLocalSignOut, forceRefreshSession } from '../lib/auth';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -269,8 +269,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     };
 
     const handleInitData = (data: any) => {
-      console.log('[PDV-DIAG] init_data recebido', { tenantId: data?.tenantId, normalizedTenantId, tables: data?.tables?.length });
-      if (!current()) { console.log('[PDV-DIAG] init_data ignorado: provider desmontado'); return; }
+      if (!current()) return;
       const snapshotWaiter = data?.currentWaiter || data?.current_waiter || data?.waiter;
       const safeSnapshotWaiter = isWaiterMode && snapshotWaiter && typeof snapshotWaiter === 'object'
         ? (() => {
@@ -291,13 +290,11 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       // This is intentionally strict for a scoped provider. A pre-auth/default or
       // old-tenant snapshot is ignored and cannot wipe current/cache state.
       if (!isInitDataAccepted(data, normalizedTenantId, pending?.epoch)) {
-        console.log('[PDV-DIAG] init_data REJEITADO por isInitDataAccepted', { dataTenantId: data?.tenantId, normalizedTenantId, epoch: pending?.epoch, dataEpoch: (data as any)?.initEpoch ?? (data as any)?.epoch });
         return;
       }
       // Once ready, an unsolicited duplicate init on the same connection can be an
       // older snapshot caused by a second auth listener. Only a reconnect opens this gate.
       if (readyRef.current && (!pending || pending.socketId === (socket.id || null))) {
-        console.log('[PDV-DIAG] init_data IGNORADO: já pronto e mesma conexão');
         return;
       }
 
@@ -340,7 +337,6 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       const buildId = getSnapshotBuildId(data);
       if (buildId) cachePatch.buildId = buildId;
 
-      console.log('[PDV-DIAG] init_data ACEITO - readyRef = true', { tables: data?.tables?.length, normalizedTenantId });
       readyRef.current = true;
       authRetryCountRef.current = 0;
       pendingInitRef.current = null;
@@ -367,11 +363,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     };
 
     const identifyConnection = (isReconnect: boolean) => {
-      console.log('[PDV-DIAG] identifyConnection chamada', { isReconnect, socketConnected: socket.connected, socketId: socket.id, hasPendingHandshake: !!handshakeInFlightRef.current, normalizedTenantId });
-      if (!current() || handshakeInFlightRef.current) { console.log('[PDV-DIAG] identifyConnection ignorada (disposed ou handshake em voo)'); return; }
+      if (!current() || handshakeInFlightRef.current) return;
       // In waiter mode, WaiterRouteInner owns tenant identification and login.
       // Emitting waiter_identify_tenant here races with waiter_login unnecessarily.
-      if (isWaiterMode) { console.log('[PDV-DIAG] identifyConnection ignorada (waiterMode)'); return; }
+      if (isWaiterMode) return;
       const epoch = makeInitEpoch();
       pendingInitRef.current = { epoch, socketId: socket.id || null };
       const promise = (async () => {
@@ -379,7 +374,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         let token = isReconnect ? adminTokenRef.current : null;
         if (!token) {
           try {
-            const session = await getSession();
+            const session = await forceRefreshSession();
             token = session?.access_token ?? null;
           } catch {
             token = null;
@@ -404,7 +399,6 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         // re-set it.  Clear again synchronously right before emit — these two
         // statements are atomic from JavaScript's perspective.
         clearAdminConnectDedup();
-        console.log('[PDV-DIAG] emitindo admin_connect', { socketId: socket.id, tokenPrefix: token.slice(0, 20) });
         socket.emit('admin_connect', token);
         if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = setTimeout(() => {
@@ -479,8 +473,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
 
     const handleAuthError = async (data: any) => {
       if (!current()) return;
+      if (readyRef.current) return;
       const serverMsg: string = data?.message || '(sem mensagem)';
-      console.error('[PDV-DIAG] auth_error do servidor', serverMsg, { counter: authRetryCountRef.current + 1 });
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
         toast.error(`Sessão expirada. Faça login novamente. [${serverMsg}]`);

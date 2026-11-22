@@ -5750,6 +5750,36 @@ async function startServer() {
     }
   });
 
+  // Popula apenas as mesas (upsert, sem apagar pedidos ou outros dados)
+  app.post("/api/seed-tables", async (req, res) => {
+    if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
+    const tenantId: string = String(req.body?.tenantId || '').trim();
+    if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
+    if (!await requireAdminHttp(req, res, [tenantId])) return;
+    const count: number = Math.max(1, Math.min(200, Number(req.body?.count ?? 40)));
+    try {
+      await db.from('tables').upsert(
+        Array.from({ length: count }, (_, i) => ({
+          id: i + 1,
+          status: 'free',
+          current_order: null,
+          linked_to: null,
+          tenant_id: tenantId,
+        })),
+        { onConflict: 'tenant_id,id' }
+      );
+      const st = getState(tenantId);
+      if (st.tables.length === 0) {
+        st.tables = Array.from({ length: count }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+        io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
+      }
+      res.json({ ok: true, count });
+    } catch (err: any) {
+      console.error("[seed-tables] Erro:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Atualiza apenas o menu (sem apagar pedidos, mesas, sabores, etc.)
   app.post("/api/seed-menu", async (req, res) => {
     if (!db) return res.status(503).json({ error: "Supabase não inicializado" });
