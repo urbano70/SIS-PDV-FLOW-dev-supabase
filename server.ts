@@ -775,10 +775,13 @@ async function startServer() {
       } else if (db) {
         // Supabase sem mesas para este tenant: semeia as 40 padrão automaticamente
         const defaultRows = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }));
+        // Garante memória consistente: pode estar vazia após reload forçado (st.loaded=false por tables=[])
+        if (st.tables.length === 0) {
+          st.tables = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
+        }
         db.from('tables').upsert(defaultRows, { onConflict: 'tenant_id,id' }).then(() => {
           console.log(`[supabase][${tenantId}] 40 mesas padrão semeadas automaticamente`);
         }).catch((e: any) => console.warn(`[supabase][${tenantId}] Falha ao semear mesas:`, e));
-        // st.tables já tem 40 mesas do defaultTenantState; emite para clientes conectados
         if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
       }
 
@@ -803,6 +806,9 @@ async function startServer() {
         });
         st.comandas.sort((a, b) => a.id - b.id);
         io.to(room).emit('update_comandas', st.comandas);
+      } else if (st.comandas.length === 0) {
+        // Sem comandas no Supabase e memória vazia: restaura 50 padrão
+        st.comandas = Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: 'free', currentOrder: null, linkedTo: null }));
       }
 
       if (cfgRes.data?.data) {
