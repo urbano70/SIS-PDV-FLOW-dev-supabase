@@ -127,6 +127,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const cacheRef = useRef<Record<string, any>>(initialCache ?? {});
   const lifecycleRef = useRef(0);
   const readyRef = useRef(false);
+  const everReadyRef = useRef(false);
   const waiterApprovedRef = useRef(false);
   const pendingInitRef = useRef<{ epoch: string; socketId: string | null } | null>(null);
   const approvedRequestSocketRef = useRef<string | null>(null);
@@ -338,6 +339,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       if (buildId) cachePatch.buildId = buildId;
 
       readyRef.current = true;
+      everReadyRef.current = true;
       authRetryCountRef.current = 0;
       pendingInitRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
@@ -382,7 +384,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         }
         if (!current() || isAutoAuthSuspended()) return;
         if (!token) {
-          if (!readyRef.current) {
+          if (!everReadyRef.current) {
             toast.error('Sessão expirada. Faça login novamente.');
             setLoading(false);
             forceLocalSignOut().catch(() => {});
@@ -464,6 +466,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       // Preserve the last known state for a seamless reconnect, but reject update
       // arrays until a fresh, tenant-tagged init snapshot is ready.
       readyRef.current = false;
+      authRetryCountRef.current = 0;
       pendingInitRef.current = null;
       approvedRequestSocketRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
@@ -477,9 +480,11 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       const serverMsg: string = data?.message || '(sem mensagem)';
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
-        toast.error(`Sessão expirada. Faça login novamente. [${serverMsg}]`);
-        setLoading(false);
-        forceLocalSignOut().catch(() => {});
+        if (!everReadyRef.current) {
+          toast.error(`Sessão expirada. Faça login novamente. [${serverMsg}]`);
+          setLoading(false);
+          forceLocalSignOut().catch(() => {});
+        }
         return;
       }
       // getSession() returns the CACHED (possibly expired) token, so force a
@@ -492,9 +497,11 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       }
       if (!current()) return;
       if (!adminTokenRef.current) {
-        toast.error('Sessão expirada. Faça login novamente.');
-        setLoading(false);
-        forceLocalSignOut().catch(() => {});
+        if (!everReadyRef.current) {
+          toast.error('Sessão expirada. Faça login novamente.');
+          setLoading(false);
+          forceLocalSignOut().catch(() => {});
+        }
         return;
       }
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
