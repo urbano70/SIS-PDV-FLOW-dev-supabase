@@ -16,7 +16,15 @@ export async function signUpOwner(email: string, password: string, establishment
 }
 
 export async function signOutOwner() {
-  await supabase.auth.signOut({ scope: 'local' });
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } catch {}
+  // Fallback: se o SDK não limpou por falha de rede, remove as chaves manualmente
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.startsWith('sb-'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch {}
 }
 
 /** Clears the local Supabase session without a server round-trip.
