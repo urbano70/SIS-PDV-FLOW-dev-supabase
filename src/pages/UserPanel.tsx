@@ -170,8 +170,8 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   // ── Misc ──────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     setLoggingOut(true);
-    try { await signOutOwner(); window.location.href = '/login'; }
-    catch { toast.error('Erro ao sair.'); setLoggingOut(false); }
+    try { await signOutOwner(); } catch {}
+    window.location.href = '/login';
   };
 
   const displayType = formData.establishment_type === 'Outros'
