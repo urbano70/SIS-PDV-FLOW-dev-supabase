@@ -1348,20 +1348,26 @@ export default function Dashboard({
     const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'premium') as keyof typeof PLAN_CONFIG];
     // KDS is an explicit tenant setting, not a cache/default-plan side effect.
     // Keep the existing plan UI restrictions, but never rewrite this flag here.
+    const maxTableId = tables.length > 0 ? Math.max(...tables.map(t => Number(t.id) || 0)) : 0;
+    const currentNumTables = pizzariaConfig.numTables ?? cfg.maxTables;
     const needsUpdate =
       (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
+      (!cfg.tablesLocked && maxTableId > currentNumTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
-      pizzariaConfig.enabled !== cfg.pizzaEnabled;
+      (cfg.tablesLocked && pizzariaConfig.enabled !== cfg.pizzaEnabled);
     if (needsUpdate) {
       // A partial patch does not overwrite another PC's KDS, price or branding.
+      // For locked plans (free/essencial): enforce maxTables and pizza=false.
+      // For unlocked plans (premium): only auto-expand numTables to fit existing tables;
+      // pizza enable/disable is the tenant's choice and must not be overridden here.
       socket.emit('update_pizzaria_config', {
-        numTables: cfg.tablesLocked ? cfg.maxTables : (pizzariaConfig.numTables ?? cfg.maxTables),
+        numTables: cfg.tablesLocked ? cfg.maxTables : Math.max(currentNumTables, maxTableId),
         comandasEnabled: cfg.comandasEnabled,
-        enabled: cfg.pizzaEnabled,
+        ...(cfg.tablesLocked ? { enabled: cfg.pizzaEnabled } : {}),
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, pizzariaConfig.numTables]);
+  }, [plan, pizzariaConfig.numTables, tables.length]);
 
   // Seed default menu once when menu is empty
   useEffect(() => {
