@@ -370,7 +370,15 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
             token = null;
           }
         }
-        if (!token || !current() || isAutoAuthSuspended()) return;
+        if (!current() || isAutoAuthSuspended()) return;
+        if (!token) {
+          if (!readyRef.current) {
+            toast.error('Sessão expirada. Faça login novamente.');
+            setLoading(false);
+            forceLocalSignOut().catch(() => {});
+          }
+          return;
+        }
         adminTokenRef.current = token;
         // admin_connect itself produces the authoritative init_data response. Do
         // not race it with request_init_data; a delayed fallback is only for a
@@ -467,7 +475,13 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       } catch {
         adminTokenRef.current = null;
       }
-      if (!current() || !adminTokenRef.current) return;
+      if (!current()) return;
+      if (!adminTokenRef.current) {
+        toast.error('Sessão expirada. Faça login novamente.');
+        setLoading(false);
+        forceLocalSignOut().catch(() => {});
+        return;
+      }
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       pendingInitRef.current = null;
