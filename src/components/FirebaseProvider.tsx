@@ -390,6 +390,11 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         // not race it with request_init_data; a delayed fallback is only for a
         // server that acknowledges auth without sending the response.
         setSocketAuthRole('admin');
+        // The dedup was cleared at useEffect start, but a reconnect during the
+        // async getSession() above may have caused App.tsx's connect listener to
+        // re-set it.  Clear again synchronously right before emit — these two
+        // statements are atomic from JavaScript's perspective.
+        clearAdminConnectDedup();
         socket.emit('admin_connect', token);
         if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
         fallbackTimerRef.current = setTimeout(() => {
