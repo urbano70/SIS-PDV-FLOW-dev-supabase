@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { forceLocalSignOut, forceRefreshSession } from '../lib/auth';
+import { forceLocalSignOut, forceRefreshSession, getSession } from '../lib/auth';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -379,7 +379,14 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
             const session = await forceRefreshSession();
             token = session?.access_token ?? null;
           } catch {
-            token = null;
+            // forceRefreshSession() pode falhar com LockManager quando há múltiplas abas.
+            // Fallback: lê a sessão em cache (sem lock) antes de considerar expirado.
+            try {
+              const cached = await getSession();
+              token = cached?.access_token ?? null;
+            } catch {
+              token = null;
+            }
           }
         }
         if (!current() || isAutoAuthSuspended()) return;
