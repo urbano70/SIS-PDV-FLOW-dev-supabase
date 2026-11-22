@@ -49,6 +49,13 @@ export const setAutoAuthSuspended = (suspended: boolean): void => {
   autoAuthSuspended = suspended;
 };
 
+/** Clear the admin_connect dedup so the next emission always reaches the server.
+ * Call when establishing a fresh authentication context (tenant mount/change). */
+export const clearAdminConnectDedup = (): void => {
+  lastAdminConnectSocketId = null;
+  lastAdminConnectToken = null;
+};
+
 /** Resolve the auth role expected by a page without mutating the live socket role. */
 export const recomputeAutoAuthRole = (
   pathname = typeof window === 'undefined' ? '' : window.location.pathname,
