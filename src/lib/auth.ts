@@ -16,7 +16,7 @@ export async function signUpOwner(email: string, password: string, establishment
 }
 
 export async function signOutOwner() {
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: 'local' });
 }
 
 /** Clears the local Supabase session without a server round-trip.
