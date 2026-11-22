@@ -1261,6 +1261,9 @@ async function startServer() {
           socket.emit("auth_error", { message: "Autenticação administrativa indisponível" });
           return;
         }
+        // Marca que admin_connect está em andamento para que request_init_data
+        // ignore requisições do fallback timer enquanto o JWT está sendo verificado.
+        (socket as any).__adminConnectPending = true;
         const authResult = await db.auth.getUser(token);
         if (authResult?.error || !authResult?.data?.user?.id) {
           socket.emit("auth_error", { message: "Token administrativo inválido" });
@@ -1314,6 +1317,8 @@ async function startServer() {
           delete (socket as any).tenantId;
         }
         socket.emit("auth_error", { message: "Erro de autenticação" });
+      } finally {
+        delete (socket as any).__adminConnectPending;
       }
     });
 
@@ -1575,9 +1580,9 @@ async function startServer() {
       const actor = authActorSafe((socket as any).authContext);
       const preloadedWaiter = admin ? null : waiterForTenant(tid);
       if (!admin && !isApprovedWaiter(preloadedWaiter)) {
-        // Se admin_connect está em andamento (authContext.role='admin' mas ready=false),
+        // Se admin_connect está em andamento (verificando JWT ou carregando tenant),
         // retornar silenciosamente — init_data chegará quando admin_connect concluir.
-        if ((socket as any).authContext?.role === 'admin') {
+        if ((socket as any).authContext?.role === 'admin' || (socket as any).__adminConnectPending) {
           ack?.({ ok: false, status: 'pending' });
           return;
         }

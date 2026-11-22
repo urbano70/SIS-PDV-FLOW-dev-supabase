@@ -4031,6 +4031,7 @@ export default function Dashboard({
             setPickerNewName('');
           };
           const doOpenCaixa = (name: string, pwd: string) => {
+            if (!canMutate()) { toast.error('Aguarde a conexão sincronizar antes de abrir o caixa.'); return; }
             pendingPickerPasswordRef.current = pwd;
             socket.emit('toggle_cash_register', { isOpen: true, cashRegisterName: name, password: pwd });
             closePicker();
