@@ -9,7 +9,7 @@ export async function signInOwner(email: string, password: string) {
 export async function signUpOwner(email: string, password: string, establishmentName: string, plan?: string) {
   const { data, error } = await supabase.auth.signUp({
     email, password,
-    options: { data: { establishment_name: establishmentName, plan: plan || 'free' } }
+    options: { data: { establishment_name: establishmentName, plan: plan || 'premium' } }
   });
   if (error) throw error;
   return data;

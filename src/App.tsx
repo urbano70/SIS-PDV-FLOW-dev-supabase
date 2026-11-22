@@ -303,7 +303,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
               pizzariaConfig={pizzariaConfig}
               updatePizzeriaConfig={updatePizzeriaConfig}
               onLogout={() => navigate('/portal')}
-              plan={ownerUser?.user_metadata?.plan || 'free'}
+              plan={ownerUser?.user_metadata?.plan || 'premium'}
               ownerCreatedAt={ownerUser?.created_at}
               tenantId={ownerUser?.id || ''}
             />
