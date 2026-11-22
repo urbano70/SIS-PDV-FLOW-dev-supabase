@@ -772,6 +772,14 @@ async function startServer() {
         });
         st.tables.sort((a, b) => a.id - b.id);
         if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
+      } else if (db) {
+        // Supabase sem mesas para este tenant: semeia as 40 padrão automaticamente
+        const defaultRows = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }));
+        db.from('tables').upsert(defaultRows, { onConflict: 'tenant_id,id' }).then(() => {
+          console.log(`[supabase][${tenantId}] 40 mesas padrão semeadas automaticamente`);
+        }).catch((e: any) => console.warn(`[supabase][${tenantId}] Falha ao semear mesas:`, e));
+        // st.tables já tem 40 mesas do defaultTenantState; emite para clientes conectados
+        if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
       }
 
       if (testTableResetApplied) {
@@ -906,6 +914,9 @@ async function startServer() {
   let startupReady: Promise<void> = Promise.resolve();
   const loadTenantIfNeeded = (tenantId: string): Promise<void> => {
     const st = getState(tenantId);
+    // Se carregado mas sem mesas, o estado ficou obsoleto (tenant carregado antes das mesas
+    // serem semeadas no Supabase). Força recarga para buscar os dados atualizados.
+    if (st.loaded && st.tables.length === 0) st.loaded = false;
     if (st.loaded) return Promise.resolve();
     if (_loadingTenants.has(tenantId)) return _loadingTenants.get(tenantId)!;
     if (USE_POSTGRES && tenantId !== 'default') {
