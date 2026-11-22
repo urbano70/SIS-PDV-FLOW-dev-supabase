@@ -55,7 +55,7 @@ export default function LoginPage() {
         navigate('/portal');
 
       } else if (mode === 'signup') {
-        const signUpData = await signUpOwner(email, password, establishmentName, planParam || 'free');
+        const signUpData = await signUpOwner(email, password, establishmentName, planParam || 'premium');
         const userId = signUpData?.user?.id;
         if (!userId) throw new Error('Erro ao criar conta. Tente novamente.');
         const actResp = await fetch('/api/auth/request-activation', {

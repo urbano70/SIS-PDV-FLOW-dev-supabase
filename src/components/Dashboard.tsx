@@ -821,7 +821,7 @@ export default function Dashboard({
   pizzariaConfig,
   updatePizzeriaConfig,
   onLogout,
-  plan = 'free',
+  plan = 'premium',
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
@@ -1319,8 +1319,8 @@ export default function Dashboard({
     }
   };
 
-  // Derive plan config — falls back to free
-  const planKey = (plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG;
+  // Derive plan config — falls back to premium
+  const planKey = (plan in PLAN_CONFIG ? plan : 'premium') as keyof typeof PLAN_CONFIG;
   const planCfg = PLAN_CONFIG[planKey];
   // Admin pode sobrescrever o limite de garçons nas configurações (até 40)
   const effectiveMaxWaiters = pizzariaConfig.maxWaiters ?? planCfg.maxWaiters;
@@ -1345,7 +1345,7 @@ export default function Dashboard({
   // Enforce plan-based restrictions on pizzariaConfig
   useEffect(() => {
     if (!pizzariaConfig || !canMutate()) return;
-    const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'free') as keyof typeof PLAN_CONFIG];
+    const cfg = PLAN_CONFIG[(plan in PLAN_CONFIG ? plan : 'premium') as keyof typeof PLAN_CONFIG];
     // KDS is an explicit tenant setting, not a cache/default-plan side effect.
     // Keep the existing plan UI restrictions, but never rewrite this flag here.
     const needsUpdate =

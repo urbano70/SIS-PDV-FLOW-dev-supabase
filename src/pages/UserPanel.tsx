@@ -60,7 +60,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   };
 
   // ── Plano ─────────────────────────────────────────────────────────────────
-  const [currentPlan, setCurrentPlan] = useState<string>(meta.plan || 'free');
+  const [currentPlan, setCurrentPlan] = useState<string>(meta.plan || 'premium');
   const [savingPlan, setSavingPlan]   = useState(false);
 
   const handleSelectPlan = async (planId: string) => {
