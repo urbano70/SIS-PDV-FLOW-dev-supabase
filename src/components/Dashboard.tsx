@@ -9690,137 +9690,159 @@ export default function Dashboard({
         {/* Quantity Modal */}
         <AnimatePresence>
           {isQuantityModalOpen && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
-              <motion.div 
-                initial={{ scale: 0.9, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl border-2 border-[#141414] space-y-6"
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-[110] sm:p-4">
+              <motion.div
+                initial={{ y: 48, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 48, opacity: 0 }}
+                transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+                className="bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-sm shadow-2xl overflow-hidden flex flex-col max-h-[92vh] sm:max-h-[85vh]"
               >
-                <div className="text-center">
-                  <h3 className="text-2xl font-bold mb-1">{selectedQuantityItem?.name}</h3>
-                  <p className="text-sm opacity-50 uppercase tracking-widest">Selecione a quantidade</p>
+                {/* Header escuro */}
+                <div className="bg-[#141414] text-[#E4E3E0] px-6 pt-5 pb-4 shrink-0">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-white/40 mb-1">Adicionar ao pedido</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="text-xl font-black leading-tight flex-1">{selectedQuantityItem?.name}</h3>
+                    <span className="text-sm font-bold text-white/50 mt-0.5 shrink-0 tabular-nums">R$ {(selectedQuantityItem?.price ?? 0).toFixed(2)}/un</span>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-center space-x-8">
-                  <button 
-                    onClick={() => setItemQuantity(Math.max(1, itemQuantity - 1))}
-                    className="w-12 h-12 rounded-full border-2 border-[#141414] flex items-center justify-center text-2xl font-bold hover:bg-gray-50 transition-colors"
-                  >
-                    -
-                  </button>
-                  <span className="text-4xl font-bold w-12 text-center">{itemQuantity}</span>
-                  <button 
-                    onClick={() => setItemQuantity(itemQuantity + 1)}
-                    className="w-12 h-12 rounded-full border-2 border-[#141414] flex items-center justify-center text-2xl font-bold hover:bg-gray-50 transition-colors"
-                  >
-                    +
-                  </button>
-                </div>
+                {/* Área scrollável */}
+                <div className="overflow-y-auto flex-1 px-5 py-5 space-y-5">
 
-                {(() => {
-                  const selCat = menu.find((c: any) =>
-                    c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
-                    (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
-                  );
-                  const adicionalSubs = (selCat?.subcategories || []).filter((s: any) => s.isAdicional && s.items?.length > 0);
-                  return (
-                    <>
-                      {selCat?.mostrarOpcionalMilhoCebola && (
-                        <div className="space-y-2">
-                          <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Ingredientes</label>
-                          <div className="flex flex-col gap-2">
-                            {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => (
-                              <label key={opt} className="flex items-center gap-2.5 cursor-pointer">
-                                <input type="checkbox" className="w-4 h-4 accent-[#141414]" checked={lancheSemOpcoes.includes(opt)} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
-                                <span className="text-sm font-semibold">{opt}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {adicionalSubs.length > 0 && (
-                        <div className="space-y-3">
-                          <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Adicionais</label>
-                          {adicionalSubs.map((sub: any) => (
-                            <div key={sub.id} className="space-y-1.5">
-                              {adicionalSubs.length > 1 && <p className="text-[10px] font-bold opacity-50 uppercase px-1">{sub.name}</p>}
-                              {sub.items.map((aItem: any) => {
-                                const isChecked = selectedAdicionais.some(a => a.name === aItem.name);
+                  {/* Controle de quantidade */}
+                  <div className="flex items-center justify-between bg-[#F5F4F1] rounded-2xl p-3">
+                    <button
+                      onClick={() => setItemQuantity(Math.max(1, itemQuantity - 1))}
+                      className="w-12 h-12 rounded-xl bg-white shadow-sm border border-[#141414]/10 flex items-center justify-center text-2xl font-black active:scale-95 transition-transform select-none"
+                    >
+                      −
+                    </button>
+                    <span className="text-5xl font-black tabular-nums">{itemQuantity}</span>
+                    <button
+                      onClick={() => setItemQuantity(itemQuantity + 1)}
+                      className="w-12 h-12 rounded-xl bg-[#141414] text-white shadow-sm flex items-center justify-center text-2xl font-black active:scale-95 transition-transform select-none"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {(() => {
+                    const selCat = menu.find((c: any) =>
+                      c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
+                      (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
+                    );
+                    const adicionalSubs = (selCat?.subcategories || []).filter((s: any) => s.isAdicional && s.items?.length > 0);
+                    return (
+                      <>
+                        {selCat?.mostrarOpcionalMilhoCebola && (
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-[#141414]/40 mb-2.5">Ingredientes</p>
+                            <div className="space-y-1.5">
+                              {(['Sem milho', 'Sem ervilha', 'Sem cebola'] as const).map(opt => {
+                                const sel = lancheSemOpcoes.includes(opt);
                                 return (
-                                  <label key={aItem.id} className="flex items-center justify-between gap-2 cursor-pointer p-3 rounded-xl border border-[#141414]/10 hover:bg-orange-50 hover:border-orange-200 transition-colors">
-                                    <div className="flex items-center gap-2.5">
-                                      <input
-                                        type="checkbox"
-                                        className="w-4 h-4 accent-orange-500"
-                                        checked={isChecked}
-                                        onChange={e => setSelectedAdicionais(prev =>
-                                          e.target.checked
-                                            ? [...prev, { name: aItem.name, price: aItem.price }]
-                                            : prev.filter(a => a.name !== aItem.name)
-                                        )}
-                                      />
-                                      <span className="text-sm font-semibold">{aItem.name}</span>
+                                  <label key={opt} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 select-none ${sel ? 'bg-[#141414] border-[#141414] text-white' : 'bg-white border-[#141414]/8 hover:border-[#141414]/20'}`}>
+                                    <input type="checkbox" className="sr-only" checked={sel} onChange={e => setLancheSemOpcoes(prev => e.target.checked ? [...prev, opt] : prev.filter(x => x !== opt))} />
+                                    <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${sel ? 'bg-white' : 'border-2 border-[#141414]/20'}`}>
+                                      {sel && <span className="text-[9px] font-black text-[#141414]">✓</span>}
                                     </div>
-                                    <span className="text-sm font-bold text-orange-600">+R$ {aItem.price.toFixed(2)}</span>
+                                    <span className="text-sm font-semibold">{opt}</span>
                                   </label>
                                 );
                               })}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
+                          </div>
+                        )}
+                        {adicionalSubs.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-black uppercase tracking-widest text-[#141414]/40 mb-2.5">Adicionais</p>
+                            {adicionalSubs.map((sub: any) => (
+                              <div key={sub.id} className="space-y-1.5">
+                                {adicionalSubs.length > 1 && <p className="text-[9px] font-black opacity-40 uppercase tracking-wider px-1 mb-1">{sub.name}</p>}
+                                {sub.items.map((aItem: any) => {
+                                  const isChecked = selectedAdicionais.some(a => a.name === aItem.name);
+                                  return (
+                                    <label key={aItem.id} className={`flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-all border-2 select-none ${isChecked ? 'bg-orange-500 border-orange-500' : 'bg-white border-[#141414]/8 hover:border-orange-200 hover:bg-orange-50/40'}`}>
+                                      <div className="flex items-center gap-2.5">
+                                        <input
+                                          type="checkbox"
+                                          className="sr-only"
+                                          checked={isChecked}
+                                          onChange={e => setSelectedAdicionais(prev =>
+                                            e.target.checked
+                                              ? [...prev, { name: aItem.name, price: aItem.price }]
+                                              : prev.filter(a => a.name !== aItem.name)
+                                          )}
+                                        />
+                                        <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${isChecked ? 'bg-white' : 'border-2 border-[#141414]/20'}`}>
+                                          {isChecked && <span className="text-[9px] font-black text-orange-500">✓</span>}
+                                        </div>
+                                        <span className={`text-sm font-semibold ${isChecked ? 'text-white' : 'text-[#141414]'}`}>{aItem.name}</span>
+                                      </div>
+                                      <span className={`text-sm font-black shrink-0 tabular-nums ${isChecked ? 'text-white' : 'text-orange-500'}`}>+R$ {aItem.price.toFixed(2)}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
 
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Observações</label>
-                  <textarea
-                    value={itemObservations}
-                    onChange={(e) => setItemObservations(e.target.value)}
-                    placeholder="Ex: Sem cebola, gelo e limão..."
-                    className="w-full p-4 bg-gray-50 border border-[#141414]/10 rounded-2xl focus:outline-none focus:border-[#141414] transition-colors text-sm resize-none"
-                    rows={2}
-                  />
+                  {/* Observações */}
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-[#141414]/40 mb-2.5">Observações</p>
+                    <textarea
+                      value={itemObservations}
+                      onChange={(e) => setItemObservations(e.target.value)}
+                      placeholder="Ex: Sem cebola, gelo e limão..."
+                      className="w-full px-4 py-3 bg-[#F5F4F1] border-2 border-transparent rounded-2xl focus:outline-none focus:border-[#141414]/20 transition-colors text-sm resize-none"
+                      rows={2}
+                    />
+                  </div>
+
+                  {/* Vincular a Convidado */}
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-[#141414]/40 mb-2.5">Vincular a Convidado</p>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      <button onClick={() => setAdmGuestForItem('')} className={`px-3 py-1.5 rounded-lg text-xs font-black border-2 transition-all ${!admGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/15 text-[#141414] hover:border-[#141414]/30'}`}>Nenhum</button>
+                      {admGuestList.map(g => (
+                        <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-3 py-1.5 rounded-lg text-xs font-black border-2 transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100'}`}>{g}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={admModalNewGuest} onChange={e => setAdmModalNewGuest(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && admModalNewGuest.trim()) { const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); } }} placeholder="Novo convidado..." className="flex-1 text-xs px-3 py-2.5 border-2 border-indigo-100 rounded-xl focus:outline-none focus:border-indigo-400 bg-indigo-50 transition-colors" />
+                      <button onClick={() => { if (!admModalNewGuest.trim()) return; const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); }} className="bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-1.5 hover:bg-indigo-700 transition-colors"><UserPlus size={12} /> Add</button>
+                    </div>
+                  </div>
+
                 </div>
 
-                {/* Guest selector */}
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase font-bold opacity-40 block px-1">Vincular a Convidado</label>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={() => setAdmGuestForItem('')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${!admGuestForItem ? 'bg-[#141414] text-white border-[#141414]' : 'border-[#141414]/20 text-[#141414]'}`}>Nenhum</button>
-                    {admGuestList.map(g => (
-                      <button key={g} onClick={() => setAdmGuestForItem(g)} className={`px-3 py-1.5 rounded-lg text-xs font-bold border-2 transition-all ${admGuestForItem === g ? 'bg-indigo-600 text-white border-indigo-600' : 'border-indigo-200 text-indigo-700 bg-indigo-50'}`}>{g}</button>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <input value={admModalNewGuest} onChange={e => setAdmModalNewGuest(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && admModalNewGuest.trim()) { const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); } }} placeholder="Novo convidado..." className="flex-1 text-xs px-3 py-2 border border-indigo-200 rounded-lg focus:outline-none focus:border-indigo-500 bg-indigo-50" />
-                    <button onClick={() => { if (!admModalNewGuest.trim()) return; const n = addAdmGuestToList(admModalNewGuest); if (n) setAdmGuestForItem(n); setAdmModalNewGuest(''); }} className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1"><UserPlus size={12} /> Add</button>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-[#141414]/10">
-                  <div className="flex justify-between items-center mb-6">
-                    <span className="text-sm font-bold opacity-50 uppercase">Total do Item</span>
-                    <span className="text-2xl font-bold">
+                {/* Footer fixo */}
+                <div className="px-5 pb-5 pt-4 border-t border-[#141414]/8 shrink-0 bg-white">
+                  <div className="flex justify-between items-baseline mb-4">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#141414]/40">Total do Item</span>
+                    <span className="text-3xl font-black tabular-nums">
                       R$ {(((selectedQuantityItem?.price || 0) + selectedAdicionais.reduce((s, a) => s + a.price, 0)) * itemQuantity).toFixed(2)}
                     </span>
                   </div>
-                  <div className="flex space-x-3">
+                  <div className="flex gap-3">
                     <button
                       onClick={() => {
                         setIsQuantityModalOpen(false);
                         setSelectedAdicionais([]);
                         setIsAddItemModalOpen(true);
                       }}
-                      className="flex-1 py-4 rounded-2xl border border-[#141414] font-bold hover:bg-black/5 transition-colors"
+                      className="flex-1 py-3.5 rounded-2xl border-2 border-[#141414]/12 font-bold text-sm hover:bg-black/5 active:scale-95 transition-all"
                     >
                       Cancelar
                     </button>
                     <button
                       onClick={confirmQuantitySelection}
-                      className="flex-1 py-4 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold hover:bg-black/90 transition-colors"
+                      className="flex-1 py-3.5 rounded-2xl bg-[#141414] text-[#E4E3E0] font-bold text-sm hover:bg-black/90 active:scale-95 transition-all"
                     >
                       Adicionar
                     </button>
