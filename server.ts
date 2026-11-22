@@ -3657,10 +3657,7 @@ async function startServer() {
 
     // Cliente pede status atual do agente (ex: após reconexão do socket)
     socket.on("request_agent_status", () => {
-      if (!isApprovedWaiterSocket()) {
-        socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
-        return;
-      }
+      if (!isApprovedWaiterSocket()) return; // emitido antes do admin_connect na reconexão — ignorar silenciosamente
       // Verifica estado em memória; se offline, varre sockets ativos do tenant
       let online = !!(_st().printerAgentSocket?.connected);
       if (!online) {
