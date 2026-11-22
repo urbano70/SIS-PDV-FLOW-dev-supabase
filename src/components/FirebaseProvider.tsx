@@ -379,11 +379,29 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
             const session = await forceRefreshSession();
             token = session?.access_token ?? null;
           } catch {
-            // forceRefreshSession() pode falhar com LockManager quando há múltiplas abas.
-            // Fallback: lê a sessão em cache (sem lock) antes de considerar expirado.
+            token = null;
+          }
+          // Fallback quando refresh retornou null OU lançou exceção (LockManager/rede):
+          // getSession lê do localStorage sem precisar de lock exclusivo.
+          if (!token) {
             try {
               const cached = await getSession();
               token = cached?.access_token ?? null;
+            } catch {
+              token = null;
+            }
+          }
+          // Último recurso: lê o token diretamente do localStorage, sem SDK.
+          if (!token) {
+            try {
+              const key = Object.keys(localStorage).find(
+                k => k.startsWith('sb-') && k.endsWith('-auth-token')
+              );
+              if (key) {
+                const raw = localStorage.getItem(key);
+                const data = raw ? JSON.parse(raw) : null;
+                token = data?.access_token ?? null;
+              }
             } catch {
               token = null;
             }
