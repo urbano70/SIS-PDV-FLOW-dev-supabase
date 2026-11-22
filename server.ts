@@ -1575,6 +1575,12 @@ async function startServer() {
       const actor = authActorSafe((socket as any).authContext);
       const preloadedWaiter = admin ? null : waiterForTenant(tid);
       if (!admin && !isApprovedWaiter(preloadedWaiter)) {
+        // Se admin_connect está em andamento (authContext.role='admin' mas ready=false),
+        // retornar silenciosamente — init_data chegará quando admin_connect concluir.
+        if ((socket as any).authContext?.role === 'admin') {
+          ack?.({ ok: false, status: 'pending' });
+          return;
+        }
         socket.emit('auth_error', { message: 'Autentique um garçom aprovado antes de carregar o PDV.' });
         ack?.({ ok: false, status: 'rejected', message: 'Autentique um garçom aprovado antes de carregar o PDV.' });
         return;
