@@ -831,6 +831,21 @@ export default function Dashboard({
   const fetch = fetchWithAdminAuth;
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
+  // Fila de operações pendentes quando o socket está desconectado.
+  // Flush automático quando init_data chega (conexão restaurada).
+  const pendingOpsRef = useRef<Array<() => void>>([]);
+  useEffect(() => {
+    const flushPendingOps = () => {
+      if (!socket.connected) return;
+      const ops = pendingOpsRef.current.splice(0);
+      if (ops.length === 0) return;
+      ops.forEach(op => op());
+      toast.success(`${ops.length} ${ops.length === 1 ? 'item pendente sincronizado' : 'itens pendentes sincronizados'}.`);
+    };
+    socket.on('init_data', flushPendingOps);
+    return () => { socket.off('init_data', flushPendingOps); };
+  }, []);
+
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
   const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode, isCashRegisterOpen);
@@ -2883,7 +2898,6 @@ export default function Dashboard({
   };
 
   const handleAddItem = (tableId: number, item: any) => {
-    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(item)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -2974,22 +2988,25 @@ export default function Dashboard({
       guestName: item.guestName || admGuestForItem || undefined,
     };
 
+    const offline = !canMutate();
     if (activeOrder) {
       optimisticAddItemToOrder(activeOrder.id, newItem);
-      socket.emit('add_item_to_order', {
-        orderId: activeOrder.id,
-        tableId: activeOrder.tableId,
-        isComanda: !!activeOrder.isComanda,
-        item: newItem
-      });
-      // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal
-      const guestForThisItem = newItem.guestName;
-      if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
-        socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), guestForThisItem] });
-      }
+      const emitAdd = () => {
+        socket.emit('add_item_to_order', {
+          orderId: activeOrder.id,
+          tableId: activeOrder.tableId,
+          isComanda: !!activeOrder.isComanda,
+          item: newItem
+        });
+        const guestForThisItem = newItem.guestName;
+        if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
+          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), guestForThisItem] });
+        }
+      };
+      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
     } else {
       updateTableStatusLocal(tableId, isComandaSelected, 'occupied');
-      socket.emit('new_order', {
+      const emitNew = () => socket.emit('new_order', {
         tableId,
         isComanda: isComandaSelected,
         items: [newItem],
@@ -2997,16 +3014,17 @@ export default function Dashboard({
         waiterName: 'ADM',
         guests: admGuestForItem ? [admGuestForItem] : undefined,
       });
+      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
     }
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    toast.success('Item adicionado pelo ADM');
+    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
+    else toast.success('Item adicionado pelo ADM');
   };
 
   const confirmQuantitySelection = () => {
-    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar. O item ainda não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(selectedQuantityItem)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -3054,22 +3072,24 @@ export default function Dashboard({
       ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
     }
 
+    const offline = !canMutate();
     if (activeOrder) {
       optimisticAddItemToOrder(activeOrder.id, newItem);
-      socket.emit('add_item_to_order', {
-        orderId: activeOrder.id,
-        tableId: activeOrder.tableId,
-        isComanda: !!activeOrder.isComanda,
-        item: newItem
-      });
-      // Persiste convidado em order.guests para aparecer nas próximas aberturas do modal
-      if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
-        const updatedGuests = [...(activeOrder.guests || []), admGuestForItem];
-        socket.emit('set_order_guests', { orderId: activeOrder.id, guests: updatedGuests });
-      }
+      const emitAdd = () => {
+        socket.emit('add_item_to_order', {
+          orderId: activeOrder.id,
+          tableId: activeOrder.tableId,
+          isComanda: !!activeOrder.isComanda,
+          item: newItem
+        });
+        if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
+          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), admGuestForItem] });
+        }
+      };
+      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
     } else {
       updateTableStatusLocal(targetId, isComandaSelected, 'occupied');
-      socket.emit('new_order', {
+      const emitNew = () => socket.emit('new_order', {
         tableId: targetId,
         isComanda: isComandaSelected,
         items: [newItem],
@@ -3077,13 +3097,15 @@ export default function Dashboard({
         waiterName: 'ADM',
         guests: admGuestForItem ? [admGuestForItem] : undefined,
       });
+      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
     }
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     setSelectedAdicionais([]);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    toast.success('Item adicionado pelo ADM');
+    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
+    else toast.success('Item adicionado pelo ADM');
   };
 
   const confirmFlavorSelection = () => {
