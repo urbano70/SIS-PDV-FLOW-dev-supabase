@@ -101,7 +101,7 @@ type FiscalConfig = any;
 
 async function startServer() {
   const app = express();
-  const httpServer = createServer(app);
+  const httpServer = createServer({ maxHeaderSize: 65536 }, app);
   
   const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',')
