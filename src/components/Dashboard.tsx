@@ -4096,8 +4096,8 @@ export default function Dashboard({
                 {pickerMode === 'selected' && pickerSelectedReg && (
                   <div className="px-3 py-2.5 space-y-2">
                     <input type="password" placeholder="Senha..." value={pickerPassword} autoFocus onChange={e => setPickerPassword(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handlePickerOpen(); }} className="w-full text-[9px] border border-[#141414]/15 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-green-500" />
-                    <button onClick={handlePickerOpen} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg transition-colors">
-                      Abrir Caixa
+                    <button onClick={handlePickerOpen} disabled={!canMutate()} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-wait">
+                      {canMutate() ? 'Abrir Caixa' : 'Sincronizando...'}
                     </button>
                   </div>
                 )}
@@ -4110,8 +4110,8 @@ export default function Dashboard({
                     {pickerPassword && pickerConfirmPassword && pickerPassword !== pickerConfirmPassword && (
                       <p className="text-[8px] text-red-500">Senhas não coincidem</p>
                     )}
-                    <button onClick={handlePickerCreate} disabled={!pickerNewName.trim() || !pickerPassword || pickerPassword !== pickerConfirmPassword} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 transition-colors">
-                      Criar e Abrir
+                    <button onClick={handlePickerCreate} disabled={!pickerNewName.trim() || !pickerPassword || pickerPassword !== pickerConfirmPassword || !canMutate()} className="w-full py-1.5 bg-green-600 hover:bg-green-700 text-white text-[9px] font-bold rounded-lg disabled:opacity-40 disabled:cursor-wait transition-colors">
+                      {canMutate() ? 'Criar e Abrir' : 'Sincronizando...'}
                     </button>
                   </div>
                 )}
