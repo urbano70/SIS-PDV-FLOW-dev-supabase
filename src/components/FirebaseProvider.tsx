@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { forceLocalSignOut, forceRefreshSession, getSession } from '../lib/auth';
+import { forceLocalSignOut, forceRefreshSession, getSession, refreshViaProxy } from '../lib/auth';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -375,11 +375,20 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
 
         let token = isReconnect ? adminTokenRef.current : null;
         if (!token) {
+          // 0. Proxy refresh — contorna extensões que bloqueiam o domínio do Supabase.
           try {
-            const session = await forceRefreshSession();
-            token = session?.access_token ?? null;
+            const proxyResult = await refreshViaProxy();
+            token = proxyResult?.access_token ?? null;
           } catch {
             token = null;
+          }
+          if (!token) {
+            try {
+              const session = await forceRefreshSession();
+              token = session?.access_token ?? null;
+            } catch {
+              token = null;
+            }
           }
           // Fallback quando refresh retornou null OU lançou exceção (LockManager/rede):
           // getSession lê do localStorage sem precisar de lock exclusivo.
@@ -513,11 +522,20 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         return;
       }
       // Tenta obter token fresco — mesma cadeia de fallbacks do identifyConnection.
+      // 0. Proxy refresh — contorna extensões que bloqueiam o domínio do Supabase.
       try {
-        const fresh = await forceRefreshSession();
-        adminTokenRef.current = fresh?.access_token ?? null;
+        const proxyResult = await refreshViaProxy();
+        adminTokenRef.current = proxyResult?.access_token ?? null;
       } catch {
         adminTokenRef.current = null;
+      }
+      if (!adminTokenRef.current) {
+        try {
+          const fresh = await forceRefreshSession();
+          adminTokenRef.current = fresh?.access_token ?? null;
+        } catch {
+          adminTokenRef.current = null;
+        }
       }
       if (!adminTokenRef.current) {
         try {
