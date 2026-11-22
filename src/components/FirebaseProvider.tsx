@@ -512,13 +512,34 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         }
         return;
       }
-      // getSession() returns the CACHED (possibly expired) token, so force a
-      // real network refresh to get a new access token from Supabase.
+      // Tenta obter token fresco — mesma cadeia de fallbacks do identifyConnection.
       try {
         const fresh = await forceRefreshSession();
         adminTokenRef.current = fresh?.access_token ?? null;
       } catch {
         adminTokenRef.current = null;
+      }
+      if (!adminTokenRef.current) {
+        try {
+          const cached = await getSession();
+          adminTokenRef.current = cached?.access_token ?? null;
+        } catch {
+          adminTokenRef.current = null;
+        }
+      }
+      if (!adminTokenRef.current) {
+        try {
+          const key = Object.keys(localStorage).find(
+            k => k.startsWith('sb-') && k.endsWith('-auth-token')
+          );
+          if (key) {
+            const raw = localStorage.getItem(key);
+            const data = raw ? JSON.parse(raw) : null;
+            adminTokenRef.current = data?.access_token ?? null;
+          }
+        } catch {
+          adminTokenRef.current = null;
+        }
       }
       if (!current()) return;
       if (!adminTokenRef.current) {
