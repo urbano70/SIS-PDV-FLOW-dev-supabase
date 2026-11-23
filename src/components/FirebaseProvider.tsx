@@ -518,7 +518,17 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
           toast.error(`Sessão expirada. Faça login novamente. [${serverMsg}]`);
           setLoading(false);
           forceLocalSignOut().catch(() => {});
+          return;
         }
+        // Had a valid session before. The server didn't close the socket after
+        // auth_error, so handleReconnect never fires and authRetryCountRef never
+        // resets — the user stays stuck in read-only mode forever without this.
+        // Force a disconnect/reconnect cycle; handleReconnect resets the counter
+        // and starts a fresh identifyConnection with a new token refresh attempt.
+        authRetryCountRef.current = 0;
+        pendingInitRef.current = null;
+        socket.disconnect();
+        socket.connect();
         return;
       }
       // Tenta obter token fresco — mesma cadeia de fallbacks do identifyConnection.
