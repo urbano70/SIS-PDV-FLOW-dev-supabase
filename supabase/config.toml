@@ -1,0 +1,2 @@
+[functions.fiscal-xml-email]
+verify_jwt = true

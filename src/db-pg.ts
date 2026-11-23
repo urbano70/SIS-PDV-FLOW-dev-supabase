@@ -7,6 +7,8 @@
  * sequência) terminem no banco fora de ordem.
  */
 import { Pool } from 'pg';
+import { tenantScopedCatalogId } from './lib/menuIsolation.ts';
+import { persistPostgresMenuSnapshot } from './server/menu-persistence.ts';
 
 let pool: Pool;
 
@@ -81,6 +83,12 @@ const rowToStock = (r: any) => ({
 const tenant = (tenantId?: string) => tenantId || 'default';
 const writeTails = new Map<string, Promise<void>>();
 
+export const buildPizzaCrustRow = (tenantId: string, data: any, docId?: string) => {
+  const tid = tenant(tenantId);
+  const name = String(data?.name ?? docId ?? '');
+  return { id: tenantScopedCatalogId(tid, name), tenant_id: tid, name };
+};
+
 const cloneData = <T>(data: T): T => {
   if (data === undefined || data === null) return data;
   return JSON.parse(JSON.stringify(data));
@@ -127,10 +135,10 @@ const pgSaveNow = async (collection: string, data: any, docId?: string, tenantId
         break;
       }
       case 'menu': {
-        const id = `${tid}:${docId || data.name}`;
+        const id = tenantScopedCatalogId(tid, docId || data.name);
         await pool.query(
           `INSERT INTO menu (id,tenant_id,name,position,type,visible,items,subcategories) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, position=EXCLUDED.position, type=EXCLUDED.type,
+           ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name, position=EXCLUDED.position, type=EXCLUDED.type,
              visible=EXCLUDED.visible, items=EXCLUDED.items, subcategories=EXCLUDED.subcategories
            WHERE menu.tenant_id = EXCLUDED.tenant_id`,
           [id, tid, data.name, data.position || 0, data.type || null, data.visible !== false,
@@ -143,7 +151,7 @@ const pgSaveNow = async (collection: string, data: any, docId?: string, tenantId
         const id = `${tid}:${r.id}`;
         await pool.query(
           `INSERT INTO stock (id,tenant_id,menu_item_id,name,quantity,min_quantity,unit,history) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-           ON CONFLICT (id) DO UPDATE SET menu_item_id=EXCLUDED.menu_item_id, name=EXCLUDED.name,
+           ON CONFLICT (tenant_id,id) DO UPDATE SET menu_item_id=EXCLUDED.menu_item_id, name=EXCLUDED.name,
              quantity=EXCLUDED.quantity, min_quantity=EXCLUDED.min_quantity, unit=EXCLUDED.unit, history=EXCLUDED.history
            WHERE stock.tenant_id = EXCLUDED.tenant_id`,
           [id, tid, r.menu_item_id, r.name, r.quantity, r.min_quantity, r.unit, r.history]
@@ -151,20 +159,20 @@ const pgSaveNow = async (collection: string, data: any, docId?: string, tenantId
         break;
       }
       case 'config': {
-        const id = `${tid}:${docId}`;
+        const id = tenantScopedCatalogId(tid, docId || '');
         await pool.query(
           `INSERT INTO config (id,tenant_id,data) VALUES ($1,$2,$3)
-           ON CONFLICT (id) DO UPDATE SET data=EXCLUDED.data
+           ON CONFLICT (tenant_id,id) DO UPDATE SET data=EXCLUDED.data
            WHERE config.tenant_id = EXCLUDED.tenant_id`,
           [id, tid, JSON.stringify(data)]
         );
         break;
       }
       case 'pizzaFlavors': {
-        const id = `${tid}:${data.name}`;
+        const id = tenantScopedCatalogId(tid, data.name);
         await pool.query(
           `INSERT INTO pizza_flavors (id,tenant_id,name,category,price,available) VALUES ($1,$2,$3,$4,$5,$6)
-           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category,
+           ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name, category=EXCLUDED.category,
              price=EXCLUDED.price, available=EXCLUDED.available
            WHERE pizza_flavors.tenant_id = EXCLUDED.tenant_id`,
           [id, tid, data.name, data.category || null, data.price || null, data.available !== false]
@@ -172,12 +180,12 @@ const pgSaveNow = async (collection: string, data: any, docId?: string, tenantId
         break;
       }
       case 'pizzaCrusts': {
-        const id = `${tid}:${data.name || docId}`;
+        const row = buildPizzaCrustRow(tid, data, docId);
         await pool.query(
           `INSERT INTO pizza_crusts (id,tenant_id,name) VALUES ($1,$2,$3)
-           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name
+           ON CONFLICT (tenant_id,id) DO UPDATE SET name=EXCLUDED.name
            WHERE pizza_crusts.tenant_id = EXCLUDED.tenant_id`,
-          [id, tid, id]
+          [row.id, row.tenant_id, row.name]
         );
         break;
       }
@@ -210,6 +218,11 @@ export const pgSave = (collection: string, data: any, docId?: string, tenantId =
   tracked.catch(() => undefined);
   writeTails.set(key, tracked);
   return current;
+};
+
+export const pgSaveMenuSnapshot = async (menu: any[], tenantId = 'default'): Promise<void> => {
+  if (!pool) return;
+  await persistPostgresMenuSnapshot(pool, menu, tenantId);
 };
 
 // ── Load ─────────────────────────────────────────────────────────────────────
@@ -261,8 +274,8 @@ export const pgSeedMenu = async (menu: any[], tenantId = 'default') => {
       const cat = menu[i];
       await pool.query(
         `INSERT INTO menu (id,tenant_id,name,position,type,visible,items,subcategories) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (id) DO NOTHING`,
-        [`${tid}:${cat.name}`, tid, cat.name, i, cat.type || null, true, JSON.stringify(cat.items || []), JSON.stringify(cat.subcategories || [])]
+         ON CONFLICT (tenant_id,id) DO NOTHING`,
+        [tenantScopedCatalogId(tid, cat.name), tid, cat.name, i, cat.type || null, true, JSON.stringify(cat.items || []), JSON.stringify(cat.subcategories || [])]
       );
     }
   } catch (e: any) {
@@ -272,9 +285,9 @@ export const pgSeedMenu = async (menu: any[], tenantId = 'default') => {
 };
 
 // ── Bulk helpers ──────────────────────────────────────────────────────────────
-export const pgDeleteMenu = async () => {
+export const pgDeleteMenu = async (tenantId = 'default') => {
   if (!pool) return;
-  await pool.query("DELETE FROM menu WHERE id != ''");
+  await pool.query('DELETE FROM menu WHERE tenant_id=$1', [tenant(tenantId)]);
 };
 
 export const pgDeleteLike = async (table: string, column: string, pattern: string) => {

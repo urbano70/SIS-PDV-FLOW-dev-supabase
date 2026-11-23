@@ -276,7 +276,12 @@ export function extrairCampo(xml: string, tag: string): string {
  * dentro de <retEvento>; extrai o cStat interno para verificar se
  * o cancelamento foi de fato registrado (135/155).
  */
-export function extrairResultadoEvento(body: string): { cStat: string; xMotivo: string } {
+export function extrairResultadoEvento(body: string): {
+  cStat: string;
+  xMotivo: string;
+  nProt: string;
+  dhRegEvento: string;
+} {
   let cStat   = extrairCampo(body, 'cStat');
   let xMotivo = extrairCampo(body, 'xMotivo');
   if (cStat === '128') {
@@ -288,5 +293,10 @@ export function extrairResultadoEvento(body: string): { cStat: string; xMotivo: 
       if (s) { cStat = s; xMotivo = x || xMotivo; }
     }
   }
-  return { cStat, xMotivo };
+  return {
+    cStat,
+    xMotivo,
+    nProt: extrairCampo(body, 'nProt'),
+    dhRegEvento: extrairCampo(body, 'dhRegEvento'),
+  };
 }

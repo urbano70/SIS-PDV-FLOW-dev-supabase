@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOutOwner, updateUserMetadata, updateUserPassword } from '../lib/auth';
+import { canSelectAccountPlan } from '../lib/accountPlanSelection';
 import { toast } from 'sonner';
 import {
   LogOut, Building, Copy, Check, ExternalLink, LayoutDashboard,
@@ -64,7 +65,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   const [savingPlan, setSavingPlan]   = useState(false);
 
   const handleSelectPlan = async (planId: string) => {
-    if (planId === currentPlan || savingPlan) return;
+    if (!canSelectAccountPlan(planId) || planId === currentPlan || savingPlan) return;
     const prev = currentPlan;
     setCurrentPlan(planId);
     setSavingPlan(true);
@@ -100,6 +101,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
     const freshMeta = ownerUser?.user_metadata;
     if (!freshMeta) return;
     const newLogo = freshMeta.logo_url ?? '';
+    setCurrentPlan(freshMeta.plan || 'premium');
     setLogoUrl(newLogo);
     setFormData({
       establishment_name:       freshMeta.establishment_name       || '',
@@ -287,16 +289,28 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                 {/* Plano */}
                 <div>
                   <label className="text-xs uppercase font-bold text-[#141414]/40 block mb-3">Meu Plano</label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <p id="premium-only-plan-help" className="text-[11px] text-[#141414]/50 mb-3">
+                    Até segunda ordem, somente o Premium pode ser selecionado. Free e Essencial estão indisponíveis.
+                  </p>
+                  <div role="group" aria-label="Planos da conta" aria-describedby="premium-only-plan-help" className="grid grid-cols-3 gap-2">
                     {PLANS.map(({ id, label, desc, icon: Icon }) => {
                       const active = currentPlan === id;
+                      const selectable = canSelectAccountPlan(id);
+                      const selectionState = active
+                        ? (selectable ? 'Ativo' : 'Atual · indisponível')
+                        : (selectable ? desc : 'Indisponível');
+                      const accessibleState = selectable
+                        ? (active ? 'plano atual' : 'disponível para seleção')
+                        : (active ? 'plano atual, indisponível para nova seleção' : 'indisponível até segunda ordem');
                       return (
-                        <button key={id} onClick={() => handleSelectPlan(id)} disabled={savingPlan}
-                          className={`rounded-xl border p-3 flex flex-col items-center gap-1 transition-all disabled:opacity-60 ${active ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md' : 'bg-[#F5F5F3] text-[#141414]/50 border-[#141414]/10 hover:border-[#141414]/30'}`}>
+                        <button type="button" key={id} onClick={() => handleSelectPlan(id)} disabled={savingPlan || !selectable}
+                          aria-pressed={active} aria-disabled={!selectable} aria-describedby="premium-only-plan-help"
+                          aria-label={`${label}: ${accessibleState}`} title={!selectable ? 'Plano indisponível até segunda ordem' : undefined}
+                          className={`rounded-xl border p-3 flex flex-col items-center gap-1 transition-all ${selectable ? 'disabled:opacity-60' : 'cursor-not-allowed opacity-60'} ${active ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md' : selectable ? 'bg-[#F5F5F3] text-[#141414]/50 border-[#141414]/10 hover:border-[#141414]/30' : 'bg-[#F5F5F3] text-[#141414]/35 border-[#141414]/10'}`}>
                           <Icon size={16} className={active ? 'opacity-80' : 'opacity-40'} />
                           <p className="text-[11px] font-bold leading-none">Plano</p>
                           <p className={`text-sm font-bold leading-none ${active ? '' : 'text-[#141414]/50'}`}>{label}</p>
-                          <p className={`text-[10px] leading-none mt-0.5 ${active ? 'opacity-60' : 'opacity-40'}`}>{active ? 'Ativo' : desc}</p>
+                          <p className={`text-[10px] leading-none mt-0.5 ${active ? 'opacity-60' : 'opacity-40'}`}>{selectionState}</p>
                         </button>
                       );
                     })}

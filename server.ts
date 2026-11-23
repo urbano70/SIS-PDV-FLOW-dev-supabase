@@ -1,5 +1,4 @@
 ﻿import 'dotenv/config';
-import { zipSync, strToU8 } from "fflate";
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -13,7 +12,7 @@ import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
-import { initPg, pgSave, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
+import { initPg, pgSave, pgSaveMenuSnapshot, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 import { agendarBackupDiario } from "./src/lib/backup.ts";
 import { LATEST_PR } from "./src/version.ts";
 import {
@@ -47,6 +46,9 @@ import {
   publishPlaygroundProjection,
 } from "./src/server/playground.ts";
 import { registerKitchenSocketHandlers } from "./src/server/kitchen-core.ts";
+import { persistSupabaseMenuSnapshot } from "./src/server/menu-persistence.ts";
+import { resolveTenantCatalogRead, tenantScopedCatalogId } from "./src/lib/menuIsolation.ts";
+import { summarizeCashRegisterOrders } from "./src/lib/cashRegisterReport.ts";
 import {
   closeCashRegisterState,
   getOpenCashRegisterNames,
@@ -55,6 +57,7 @@ import {
   releaseCashRegisterClaims,
   restoreOpenCashRegisterOwners,
 } from "./src/server/cash-register-state.ts";
+import { registerMenuDragHandler } from "./src/server/menu-drag-handler.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -65,11 +68,22 @@ import {
   reservarNumero, sincronizarContador, autorizarNFe, inutilizarNumeracao,
 } from "./src/lib/fiscal/sefaz-direct.ts";
 import { reconciliarResultadoDesconhecido } from "./src/lib/fiscal/reconciliacao.ts";
+import { authorizationDateFromResult } from "./src/lib/fiscal/authorization-date.ts";
 import { emitirEpecNFe } from "./src/lib/fiscal/epec.ts";
 import { emitirNFeSvcRs, cancelarNFeSvcRs } from "./src/lib/fiscal/svcrs.ts";
 import { emitirNFCeOffline } from "./src/lib/fiscal/nfce-offline.ts";
 import type { IntencaoFiscal, EstabelecimentoFiscal, ItemNota, PagamentoNota, AmbienteFiscal } from "./src/lib/fiscal/types.ts";
 import { T_PAG, TP_AMB } from "./src/lib/fiscal/endpoints.ts";
+import {
+  buildFiscalXmlZip,
+  fiscalExportZipName,
+  selectMonthlyFiscalExport,
+  fiscalMonthWindow,
+} from "./src/lib/fiscal/xml-export.ts";
+import {
+  FiscalExportPaginationLimitError,
+  readTenantRows,
+} from "./src/lib/fiscal/pagination.ts";
 // Tipos legados mantidos apenas para compatibilidade de campos salvos no banco
 type FiscalConfig = any;
 
@@ -192,17 +206,21 @@ async function startServer() {
   // Agentes aguardando pareamento (conectaram sem tenantId)
   const pendingAgents = new Map<string, any>(); // socketId → socket
 
-  function defaultTenantState(): TenantState {
+  function defaultTenantState(tenantId = 'default'): TenantState {
+    // Only the legacy local/default instance gets bundled examples while it
+    // is booting. Authenticated tenants start empty until their own snapshot
+    // is read; this prevents a pre-load fallback from crossing accounts.
+    const allowBundledDefaults = tenantId === 'default';
     return {
       orders: [],
       tables: Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: "free", currentOrder: null, linkedTo: null })),
       comandas: Array.from({ length: 50 }, (_, i) => ({ id: i + 1, status: "free", currentOrder: null, linkedTo: null })),
       waiters: [],
-      menu: JSON.parse(JSON.stringify(MENU_CATEGORIES)),
+      menu: allowBundledDefaults ? JSON.parse(JSON.stringify(MENU_CATEGORIES)) : [],
       stock: [],
       stockLog: [],
-      pizzaFlavors: JSON.parse(JSON.stringify(PIZZA_FLAVORS)),
-      pizzaCrusts: JSON.parse(JSON.stringify(PIZZA_CRUSTS)),
+      pizzaFlavors: allowBundledDefaults ? JSON.parse(JSON.stringify(PIZZA_FLAVORS)) : [],
+      pizzaCrusts: allowBundledDefaults ? JSON.parse(JSON.stringify(PIZZA_CRUSTS)) : [],
       pizzaSizes: JSON.parse(JSON.stringify(DEFAULT_PIZZA_SIZES)),
       isCashRegisterOpen: false,
       shiftStartedAt: new Date().toISOString(),
@@ -219,7 +237,7 @@ async function startServer() {
   }
 
   function getState(tenantId: string): TenantState {
-    if (!tenants.has(tenantId)) tenants.set(tenantId, defaultTenantState());
+    if (!tenants.has(tenantId)) tenants.set(tenantId, defaultTenantState(tenantId));
     return tenants.get(tenantId)!;
   }
 
@@ -320,9 +338,9 @@ async function startServer() {
           }));
           break;
         }
-        case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: `${tid}:${docId || d.id}`, name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
+        case 'menu':     await assertSupabaseResult(db.from('menu').upsert({ id: tenantScopedCatalogId(tid, docId || d.id), name: d.name, position: d.position || 0, items: d.items || [], tenant_id: tid, type: d.type, visible: d.visible !== false, subcategories: d.subcategories || [] })); break;
         case 'stock':    await assertSupabaseResult(db.from('stock').upsert({ ...stockToRow(d), id: `${tid}:${d.menuItemId || d.id}`, tenant_id: tid })); break;
-        case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: `${tid}:${docId}`, data: d, tenant_id: tid })); break;
+        case 'config':   await assertSupabaseResult(db.from('config').upsert({ id: tenantScopedCatalogId(tid, docId || ''), data: d, tenant_id: tid })); break;
         case 'pizzaFlavors': await assertSupabaseResult(db.from('pizza_flavors').upsert({ id: `${tid}:${d.name}`, name: d.name, category: d.category || null, price: d.price || null, available: d.available !== false, tenant_id: tid })); break;
         case 'pizzaCrusts':  await assertSupabaseResult(db.from('pizza_crusts').upsert({ id: `${tid}:${d.name || docId}`, name: d.name || docId, tenant_id: tid })); break;
         default: throw new Error(`Colecao desconhecida: ${collection}`);
@@ -460,40 +478,14 @@ async function startServer() {
     if (!db) return;
     const now = new Date().toISOString();
     const shiftStartedAt = st.shiftStartedAt || now;
-    let reportData: any = {};
-    if (type === 'close') {
-      // Compute sales data from orders in the current shift
-      const shiftOrders = st.orders.filter((o: any) => {
-        if (!shiftStartedAt) return false;
-        return o.timestamp >= shiftStartedAt;
-      });
-      const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
-      const methodTotals: Record<string, number> = {};
-      const productTotals: Record<string, { qty: number; total: number }> = {};
-      const categoryTotals: Record<string, { qty: number; total: number }> = {};
-      let totalPaid = 0;
-      for (const order of finishedOrders) {
-        const payments = [...(order.paymentLog || []), ...(order.partialPayments || [])];
-        for (const p of payments) {
-          const m = p.method || 'Outros';
-          methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
-          totalPaid += p.amount || 0;
-        }
-        for (const item of (order.items || [])) {
-          if (item.removed) continue;
-          const qty = item.quantity || 1;
-          const total = (item.price || 0) * qty;
-          if (!productTotals[item.name]) productTotals[item.name] = { qty: 0, total: 0 };
-          productTotals[item.name].qty += qty;
-          productTotals[item.name].total += total;
-          const cat = item.type || 'outros';
-          if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
-          categoryTotals[cat].qty += qty;
-          categoryTotals[cat].total += total;
-        }
-      }
-      reportData = { methodTotals, productTotals, categoryTotals, totalPaid, orderCount: finishedOrders.length };
-    }
+    const categoryNames = Object.fromEntries((st.menu || []).map((category: any) => [category.type, category.name]));
+    const reportData = type === 'close'
+      ? summarizeCashRegisterOrders(st.orders as any, {
+          shiftStartedAt,
+          cashRegisterName,
+          categoryNames,
+        })
+      : {};
     try {
       await db.from('cash_register_reports').insert({
         tenant_id: tenantId,
@@ -555,8 +547,9 @@ async function startServer() {
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
-        await pgSeedMenu(st.menu, 'default');
-        console.log('[pg] Menu inicial semeado');
+        // Empty is an intentional tenant state. Only an explicit admin import
+        // may populate it; a restart/deploy must not reintroduce examples.
+        st.menu = [];
         io.to(room).emit('update_menu', st.menu);
       }
 
@@ -616,8 +609,10 @@ async function startServer() {
       }
 
       if (pgData.stock?.length) { st.stock = pgData.stock; io.to(room).emit('update_stock', st.stock); }
-      if (pgData.pizzaFlavors?.length) { st.pizzaFlavors = pgData.pizzaFlavors; io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
-      if (pgData.pizzaCrusts?.length) { st.pizzaCrusts = pgData.pizzaCrusts; io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
+      st.pizzaFlavors = pgData.pizzaFlavors || [];
+      st.pizzaCrusts = pgData.pizzaCrusts || [];
+      io.to(room).emit('update_pizza_flavors', st.pizzaFlavors);
+      io.to(room).emit('update_pizza_crusts', st.pizzaCrusts);
       if (pgData.configPizzaria) {
         st.pizzariaConfig = { ...st.pizzariaConfig, ...(pgData.configPizzaria as any) };
         if (st.pizzariaConfig.parquinhoEnabled) {
@@ -661,9 +656,6 @@ async function startServer() {
     await loadTenantData('default');
   };
 
-  // ID do tenant-modelo: novos tenants herdam cardápio, sabores, bordas e tamanhos de pizza deste tenant.
-  const _TMPL = 'c5c88a54-4bcc-477d-aa8e-d095423484d6';
-
   const loadTenantData = async (tenantId: string) => {
     if (!db) throw new Error(`Banco Supabase indisponivel para carregar tenant ${tenantId}`);
     const st = getState(tenantId);
@@ -679,14 +671,14 @@ async function startServer() {
         db.from('orders').select('*').eq('tenant_id', tenantId),
         db.from('tables').select('*').eq('tenant_id', tenantId).order('id'),
         db.from('comandas').select('*').eq('tenant_id', tenantId).order('id'),
-        db.from('config').select('data').eq('id', `${tenantId}:app`).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:app`).eq('tenant_id', tenantId).maybeSingle(),
         db.from('menu').select('*').eq('tenant_id', tenantId).order('position'),
         db.from('stock').select('*').eq('tenant_id', tenantId),
         db.from('pizza_flavors').select('*').eq('tenant_id', tenantId),
         db.from('pizza_crusts').select('*').eq('tenant_id', tenantId),
-        db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).maybeSingle(),
-        db.from('config').select('data').eq('id', `${tenantId}:stockLog`).maybeSingle(),
-        db.from('config').select('data').eq('id', `${tenantId}:printerConfig`).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).eq('tenant_id', tenantId).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:stockLog`).eq('tenant_id', tenantId).maybeSingle(),
+        db.from('config').select('data').eq('id', `${tenantId}:printerConfig`).eq('tenant_id', tenantId).maybeSingle(),
       ]);
       const queryError = [wRes, oRes, tRes, cRes, cfgRes, mRes, sRes, pfRes, pcRes, cfgPizRes, slRes, pcfgRes]
         .map((result: any) => result?.error)
@@ -715,38 +707,20 @@ async function startServer() {
         io.to(room).emit('update_waiters', publicWaiters(st.waiters));
       }
 
-      const typeMap: Record<string, string> = {};
-      MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
-
-      // Mapa de preços padrão por item id (garante que preços do constants.ts prevalecem sobre price:0 no DB)
-      const defaultPriceMap = new Map<string, number>();
-      MENU_CATEGORIES.forEach((cat: any) => {
-        (cat.subcategories || []).forEach((sub: any) => {
-          (sub.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
-        });
-        (cat.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
-      });
-      const fixItems = (items: any[]) => (items || []).map((item: any) => ({
-        ...item,
-        price: (!item.price || item.price === 0) && defaultPriceMap.has(item.id) ? defaultPriceMap.get(item.id) : item.price,
-      }));
-
-      if (mRes.data?.length) {
-        st.menu = mRes.data.map((row: any) => ({
+      const menuRead = resolveTenantCatalogRead<any>({ tenantId, rows: mRes.data, error: mRes.error });
+      if (menuRead.kind === 'loaded') {
+        st.menu = menuRead.rows.map((row: any) => ({
           ...row,
-          type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
+          type: row.type || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
           visible: row.visible !== false,
-          items: fixItems(row.items || []),
-          subcategories: (row.subcategories || []).map((sub: any) => ({ ...sub, items: fixItems(sub.items || []) })),
+          items: row.items || [],
+          subcategories: (row.subcategories || []).map((sub: any) => ({ ...sub, items: sub.items || [] })),
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
-        // Novo tenant sem cardápio: semeia o cardápio padrão mínimo.
-        // NÃO copia do tenant-modelo — cada estabelecimento tem seus próprios produtos.
-        await db.from('menu').upsert(
-          st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
-        );
-        console.log(`[supabase][${tenantId}] Menu inicial semeado (padrão)`);
+        // A lista vazia veio de uma leitura bem-sucedida deste tenant. Ela é
+        // autoritativa e não pode disparar seed, cópia ou escrita automática.
+        st.menu = [];
         io.to(room).emit('update_menu', st.menu);
       }
 
@@ -855,30 +829,6 @@ async function startServer() {
       if (pfRes.data) { st.pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
 
-      // Seed pizza_flavors, pizza_crusts e pizzaSizes do tenant-modelo para novos tenants
-      if (db && tenantId !== _TMPL && tenantId !== 'default') {
-        if (!st.pizzaFlavors.length) {
-          const { data: tplFlavors } = await db.from('pizza_flavors').select('*').eq('tenant_id', _TMPL);
-          if (tplFlavors?.length) {
-            const seedFlavors = tplFlavors.map((r: any) => ({ ...r, id: randomUUID(), tenant_id: tenantId }));
-            await db.from('pizza_flavors').upsert(seedFlavors);
-            st.pizzaFlavors = seedFlavors.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available }));
-            io.to(room).emit('update_pizza_flavors', st.pizzaFlavors);
-            console.log(`[supabase][${tenantId}] Sabores pizza semeados do tenant-modelo (${seedFlavors.length})`);
-          }
-        }
-        if (!st.pizzaCrusts.length) {
-          const { data: tplCrusts } = await db.from('pizza_crusts').select('*').eq('tenant_id', _TMPL);
-          if (tplCrusts?.length) {
-            const seedCrusts = tplCrusts.map((r: any) => ({ ...r, id: randomUUID(), tenant_id: tenantId }));
-            await db.from('pizza_crusts').upsert(seedCrusts);
-            st.pizzaCrusts = seedCrusts.map((r: any) => r.name);
-            io.to(room).emit('update_pizza_crusts', st.pizzaCrusts);
-            console.log(`[supabase][${tenantId}] Bordas pizza semeadas do tenant-modelo (${seedCrusts.length})`);
-          }
-        }
-      }
-
       if (cfgPizRes.data?.data) {
         st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) };
         if ((cfgPizRes.data.data as any).pizzaSizes?.length) {
@@ -894,31 +844,6 @@ async function startServer() {
           }
         }
         io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
-      } else if (db && tenantId !== _TMPL && tenantId !== 'default') {
-        // Novo tenant sem config de pizzaria: copia pizzaSizes, numTables e numComandas do tenant-modelo
-        const { data: tplCfgPiz } = await db.from('config').select('data').eq('id', `${_TMPL}:pizzaria`).maybeSingle();
-        if (tplCfgPiz?.data) {
-          const tplPiz = tplCfgPiz.data as any;
-          const seedPizData: Record<string, any> = {};
-          if (tplPiz.pizzaSizes?.length) {
-            st.pizzaSizes = tplPiz.pizzaSizes;
-            seedPizData.pizzaSizes = tplPiz.pizzaSizes;
-            io.to(room).emit('update_pizza_sizes', st.pizzaSizes);
-          }
-          if (tplPiz.numTables != null) {
-            st.pizzariaConfig = { ...st.pizzariaConfig, numTables: tplPiz.numTables };
-            seedPizData.numTables = tplPiz.numTables;
-          }
-          if (tplPiz.numComandas != null) {
-            st.pizzariaConfig = { ...st.pizzariaConfig, numComandas: tplPiz.numComandas };
-            seedPizData.numComandas = tplPiz.numComandas;
-          }
-          if (Object.keys(seedPizData).length > 0) {
-            await db.from('config').upsert({ id: `${tenantId}:pizzaria`, data: seedPizData });
-            io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
-            console.log(`[supabase][${tenantId}] Config pizzaria semeada do tenant-modelo:`, Object.keys(seedPizData).join(', '));
-          }
-        }
       }
 
       if ((slRes as any).data?.data?.stockLog?.length) {
@@ -932,7 +857,7 @@ async function startServer() {
 
       // Load fiscal config
       if (db) {
-        const { data: cfgFiscal } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).maybeSingle();
+        const { data: cfgFiscal } = await db.from('config').select('data').eq('id', `${tenantId}:fiscal`).eq('tenant_id', tenantId).maybeSingle();
         if (cfgFiscal?.data) { st.fiscalConfig = cfgFiscal.data as FiscalConfig; }
       }
 
@@ -1554,6 +1479,23 @@ async function startServer() {
         return Promise.resolve(handler(...args));
       };
     };
+
+    registerMenuDragHandler({
+      socket,
+      io,
+      getTenantId: _tid,
+      getState,
+      isAdminForTenant,
+      withTenantCommand,
+      persistMenu: async (menu, tenantId) => {
+        if (USE_POSTGRES) {
+          await pgSaveMenuSnapshot(menu, tenantId);
+          return;
+        }
+        await persistSupabaseMenuSnapshot(db, menu, tenantId);
+      },
+      isReservedItem: isPlaygroundReservedItem,
+    });
 
     const playgroundReservedMessage = 'Use o aplicativo Parquinho para lançar este item.';
     const menuItems = (menu: any[] = _st().menu): any[] => (Array.isArray(menu) ? menu : []).flatMap((category: any) => [
@@ -2835,11 +2777,21 @@ async function startServer() {
         }
         io.to(_room()).emit("update_stock_log", _st().stockLog);
       }
+      // PostgreSQL import writes must finish before either catalog collection is
+      // exposed in memory. This avoids a success-looking broadcast when the
+      // second collection rejects after the first one was durable.
+      if (USE_POSTGRES) {
+        if (impFlavors && Array.isArray(impFlavors)) {
+          for (const f of impFlavors) await pgSave('pizzaFlavors', f, f.name, _tid());
+        }
+        if (impCrusts && Array.isArray(impCrusts)) {
+          for (const c of impCrusts) await pgSave('pizzaCrusts', { name: c }, c, _tid());
+        }
+      }
       if (impFlavors && Array.isArray(impFlavors)) {
         _st().pizzaFlavors = impFlavors;
         io.to(_room()).emit("update_pizza_flavors", _st().pizzaFlavors);
-        if (USE_POSTGRES) { for (const f of _st().pizzaFlavors) await pgSave('_st().pizzaFlavors', f); }
-        else if (db) {
+        if (!USE_POSTGRES && db) {
           try {
             await db.from('pizza_flavors').delete().eq('tenant_id', _tid());
             for (const f of _st().pizzaFlavors) {
@@ -2851,8 +2803,7 @@ async function startServer() {
       if (impCrusts && Array.isArray(impCrusts)) {
         _st().pizzaCrusts = impCrusts;
         io.to(_room()).emit("update_pizza_crusts", _st().pizzaCrusts);
-        if (USE_POSTGRES) { for (const c of _st().pizzaCrusts) await pgSave('_st().pizzaCrusts', { name: c }, c); }
-        else if (db) {
+        if (!USE_POSTGRES && db) {
           try {
             await db.from('pizza_crusts').delete().eq('tenant_id', _tid());
             for (const c of _st().pizzaCrusts) {
@@ -2882,9 +2833,9 @@ async function startServer() {
           if (catalog.changed) _st().menu = catalog.menu;
           if (hasImportedConfig) await saveToSupabase('config', _st().pizzariaConfig, 'pizzaria', _tid());
           if (hasImportedMenu || catalog.changed) {
-            if (USE_POSTGRES) await pgDeleteMenu();
+            if (USE_POSTGRES) await pgDeleteMenu(_tid());
             else if (db) {
-              try { await db.from('_st().menu').delete().neq('id', ''); } catch {}
+              await db.from('menu').delete().eq('tenant_id', _tid());
             }
             await saveMenuToSupabaseAwait(_st(), _tid());
             io.to(_room()).emit("update_menu", _st().menu);
@@ -4435,6 +4386,7 @@ async function startServer() {
               chave_acesso: result.chaveAcesso,
               qr_code: result.qrCode,
               status: result.status,
+              autorizado_em: result.dhRecbto || new Date().toISOString(),
               protocolo: result.protocolo,
               cstat: result.cStat,
               xmotivo: result.xMotivo,
@@ -4490,6 +4442,7 @@ async function startServer() {
           chave_acesso: result.chaveAcesso,
           qr_code: result.qrCode,
           status: result.status,
+          autorizado_em: result.dhRecbto || new Date().toISOString(),
           protocolo: result.protocolo,
           cstat: result.cStat,
           xmotivo: result.xMotivo,
@@ -4736,6 +4689,7 @@ async function startServer() {
         await db.from('fiscal_notes').update({
           chave_acesso: result.chaveAcesso,
           status: result.status,
+          autorizado_em: result.dhRecbto || new Date().toISOString(),
           protocolo: result.protocolo,
           cstat: result.cStat,
           xmotivo: result.xMotivo,
@@ -4929,6 +4883,7 @@ async function startServer() {
         await db.from('fiscal_notes').update({
           chave_acesso: result.chaveAcesso,
           status:       result.status,
+          autorizado_em: result.dhRecbto || new Date().toISOString(),
           protocolo:    result.protocolo,
           cstat:        result.cStat,
           xmotivo:      result.xMotivo,
@@ -5122,6 +5077,7 @@ async function startServer() {
         await db.from('fiscal_notes').update({
           chave_acesso: result.chaveAcesso,
           status:       result.status,
+          autorizado_em: result.dhRecbto || new Date().toISOString(),
           protocolo:    result.protocolo,
           cstat:        result.cStat,
           xmotivo:      result.xMotivo,
@@ -5357,10 +5313,11 @@ async function startServer() {
     if (!cert) return res.status(400).json({ error: 'Certificado não carregado.' });
 
     // Buscar protocolo, ambiente, modelo e tpEmis da nota
-    let protocolo = '', ambiente: AmbienteFiscal = 'homologacao', modelo = '', tpEmis = '';
+    let protocolo = '', ambiente: AmbienteFiscal = 'homologacao', modelo = '', tpEmis = '', fiscalNoteId = chaveAcesso;
     if (db) {
       const { data } = await db.from('fiscal_notes')
-        .select('protocolo,ambiente,modelo,intencao_json').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
+        .select('id,protocolo,ambiente,modelo,intencao_json').eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId).maybeSingle();
+      fiscalNoteId = String(data?.id || chaveAcesso);
       protocolo = data?.protocolo ?? '';
       ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
       modelo = data?.modelo ?? '';
@@ -5369,7 +5326,7 @@ async function startServer() {
     if (!protocolo) return res.status(400).json({ error: 'Protocolo não encontrado. A nota pode não ter sido autorizada.' });
 
     try {
-      let result: { cStat: string; xMotivo: string };
+      let result: { cStat: string; xMotivo: string; nProt: string; dhRegEvento: string; dhEvento: string; xmlEvento: string };
       if (modelo === '55' && tpEmis === '7') {
         result = await cancelarNFeSvcRs(chaveAcesso, protocolo, motivo, ambiente, cert);
       } else if (modelo === '55') {
@@ -5377,8 +5334,32 @@ async function startServer() {
       } else {
         result = await cancelarNFCe(chaveAcesso, protocolo, motivo, ambiente, cert);
       }
-      if (db) await db.from('fiscal_notes').update({ status: 'CANCELADO', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
-      return res.json({ ok: true, ...result });
+      let eventPersisted = false;
+      let eventWarning: string | undefined;
+      if (db) {
+        await db.from('fiscal_notes').update({ status: 'CANCELADO', updated_at: new Date().toISOString() }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+        const eventWrite = await db.from('fiscal_note_events').upsert({
+          tenant_id: tenantId,
+          fiscal_note_id: fiscalNoteId,
+          chave_acesso: chaveAcesso,
+          tp_evento: '110111',
+          status: 'REGISTRADO',
+          protocolo: result.nProt || null,
+          dh_evento: result.dhRegEvento || result.dhEvento || new Date().toISOString(),
+          xml_evento: result.xmlEvento || null,
+        }, { onConflict: 'tenant_id,fiscal_note_id,tp_evento,protocolo' });
+        eventPersisted = !eventWrite.error;
+        if (eventWrite.error) eventWarning = 'Cancelamento autorizado, mas o evento não foi arquivado; aplique a migração fiscal de eventos e avise o contador.';
+      }
+      return res.json({
+        ok: true,
+        cStat: result.cStat,
+        xMotivo: result.xMotivo,
+        nProt: result.nProt,
+        dhRegEvento: result.dhRegEvento || result.dhEvento,
+        eventPersisted,
+        eventWarning,
+      });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -5523,44 +5504,90 @@ async function startServer() {
     if (!tenant || !ano || !mes) return res.status(400).json({ error: 'tenant, ano e mes são obrigatórios' });
     if (!db) return res.status(503).json({ error: 'Banco indisponível' });
 
-    const anoN = parseInt(ano);
-    const mesN = parseInt(mes); // 1-based
-    if (isNaN(anoN) || isNaN(mesN) || mesN < 1 || mesN > 12)
+    const anoN = Number(ano);
+    const mesN = Number(mes); // 1-based
+    if (!/^\d{4}$/.test(String(ano)) || !/^(?:0?[1-9]|1[0-2])$/.test(String(mes)))
       return res.status(400).json({ error: 'ano/mes inválidos' });
+    let window: ReturnType<typeof fiscalMonthWindow>;
+    try { window = fiscalMonthWindow(anoN, mesN); }
+    catch (error: any) { return res.status(400).json({ error: error.message }); }
 
-    const inicio = new Date(anoN, mesN - 1, 1).toISOString();
-    const fim    = new Date(anoN, mesN,     1).toISOString(); // exclusive
-
-    const { data, error } = await db.from('fiscal_notes')
-      .select('chave_acesso,xml_assinado,xml_proc_nfe,modelo,status,created_at')
-      .eq('tenant_id', tenant)
-      .in('status', ['AUTORIZADO', 'AUTORIZADO_COM_ALERTA', 'CANCELADO', 'EPEC_AUTORIZADO', 'CONTINGENCIA_PENDENTE_TRANSMISSAO'])
-      .gte('created_at', inicio)
-      .lt('created_at', fim)
-      .order('created_at', { ascending: true });
-
-    if (error) return res.status(500).json({ error: error.message });
-    if (!data || data.length === 0)
-      return res.status(404).json({ error: `Nenhum XML encontrado para ${String(mesN).padStart(2,'0')}/${anoN}` });
-
-    const files: Record<string, Uint8Array> = {};
-    for (const nota of data) {
-      const xml = nota.xml_proc_nfe || nota.xml_assinado;
-      if (!xml) continue;
-      const sufixo = nota.xml_proc_nfe ? 'procNFe' : 'NFe';
-      const filename = `${nota.chave_acesso}-${sufixo}.xml`;
-      files[filename] = strToU8(xml);
+    let notes: any[];
+    try {
+      notes = await readTenantRows({
+        resource: 'fiscal_notes',
+        fetchPage: async (from, to) => {
+          const { data, error } = await db.from('fiscal_notes')
+            .select('id,chave_acesso,xml_assinado,xml_proc_nfe,modelo,ambiente,status,autorizado_em,created_at')
+            .eq('tenant_id', tenant)
+            .order('created_at', { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        },
+        hasAdditionalRow: async (offset) => {
+          const { data, error } = await db.from('fiscal_notes')
+            .select('id')
+            .eq('tenant_id', tenant)
+            .order('created_at', { ascending: true })
+            .range(offset, offset);
+          if (error) throw error;
+          return Boolean(data?.length);
+        },
+      });
+    } catch (error) {
+      if (error instanceof FiscalExportPaginationLimitError)
+        return res.status(413).json({ error: error.message });
+      return res.status(500).json({ error: 'Não foi possível ler os documentos fiscais do tenant.' });
     }
 
-    if (Object.keys(files).length === 0)
-      return res.status(404).json({ error: 'Nenhum XML disponível para o período' });
+    let events: any[];
+    try {
+      events = await readTenantRows({
+        resource: 'fiscal_note_events',
+        fetchPage: async (from, to) => {
+          const { data, error } = await db.from('fiscal_note_events')
+            .select('id,fiscal_note_id,chave_acesso,tp_evento,status,protocolo,dh_evento,xml_evento,created_at')
+            .eq('tenant_id', tenant)
+            .or(`and(dh_evento.gte.${window.start.toISOString()},dh_evento.lt.${window.end.toISOString()}),and(dh_evento.is.null,created_at.gte.${window.start.toISOString()},created_at.lt.${window.end.toISOString()})`)
+            .order('dh_evento', { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        },
+        hasAdditionalRow: async (offset) => {
+          const { data, error } = await db.from('fiscal_note_events')
+            .select('id')
+            .eq('tenant_id', tenant)
+            .or(`and(dh_evento.gte.${window.start.toISOString()},dh_evento.lt.${window.end.toISOString()}),and(dh_evento.is.null,created_at.gte.${window.start.toISOString()},created_at.lt.${window.end.toISOString()})`)
+            .order('dh_evento', { ascending: true })
+            .range(offset, offset);
+          if (error) throw error;
+          return Boolean(data?.length);
+        },
+      });
+    } catch (error) {
+      if (error instanceof FiscalExportPaginationLimitError)
+        return res.status(413).json({ error: error.message });
+      return res.status(503).json({ error: 'Migração fiscal de eventos pendente; aplique 20261123_fiscal_xml_export.sql.' });
+    }
 
-    const zip = zipSync(files, { level: 6 });
-    const zipName = `xmls-${String(mesN).padStart(2,'0')}-${anoN}.zip`;
+    const selection = selectMonthlyFiscalExport(notes, events, anoN, mesN);
+    if (selection.notes.length === 0)
+      return res.status(404).json({ error: `Nenhum documento fiscal encontrado para ${String(mesN).padStart(2,'0')}/${anoN}` });
+
+    let exportZip: ReturnType<typeof buildFiscalXmlZip>;
+    try { exportZip = buildFiscalXmlZip(selection); }
+    catch (error: any) {
+      const message = error?.message || 'Não foi possível gerar o ZIP fiscal.';
+      return res.status(message.includes('limite seguro') ? 413 : 404).json({ error: message });
+    }
+
+    const zipName = fiscalExportZipName(anoN, mesN);
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
-    return res.send(Buffer.from(zip));
+    return res.send(Buffer.from(exportZip.bytes));
   });
 
   // GET /api/fiscal/consultar/:chaveAcesso
@@ -5575,11 +5602,13 @@ async function startServer() {
 
     let ambiente: AmbienteFiscal = 'homologacao';
     let modelo = '65';
+    let autorizadoEmExistente: unknown;
     if (db) {
       const { data } = await db.from('fiscal_notes')
-        .select('ambiente,modelo').eq('chave_acesso', chaveAcesso).maybeSingle();
+        .select('ambiente,modelo,autorizado_em').eq('chave_acesso', chaveAcesso).maybeSingle();
       ambiente = (data?.ambiente as AmbienteFiscal) ?? 'homologacao';
       modelo   = data?.modelo ?? '65';
+      autorizadoEmExistente = data?.autorizado_em;
     }
 
     try {
@@ -5596,13 +5625,17 @@ async function startServer() {
         };
         const novoStatus = statusMap[result.cStat];
         if (novoStatus) {
-          await db.from('fiscal_notes').update({
+          const updatePayload: Record<string, unknown> = {
             status: novoStatus,
             protocolo: result.protocolo || undefined,
             cstat: result.cStat,
             xmotivo: result.xMotivo,
             updated_at: new Date().toISOString(),
-          }).eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
+          };
+          const autorizadoEm = authorizationDateFromResult(result, autorizadoEmExistente);
+          if (autorizadoEm) updatePayload.autorizado_em = autorizadoEm;
+          await db.from('fiscal_notes').update(updatePayload)
+            .eq('chave_acesso', chaveAcesso).eq('tenant_id', tenantId);
         }
       }
       return res.json(result);

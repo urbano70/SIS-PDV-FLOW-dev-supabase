@@ -90,6 +90,13 @@ export interface AutorizacaoResult {
   qrCode: string;
 }
 
+export interface ConsultaFiscalResult {
+  cStat: string;
+  xMotivo: string;
+  protocolo: string;
+  dhRecbto: string;
+}
+
 export async function autorizarNFCe(
   intencao: IntencaoFiscal,
   cert: CertificadoCarregado,
@@ -200,7 +207,7 @@ export async function autorizarNFCe(
 
 export async function consultarNFCe(
   chaveAcesso: string, ambiente: AmbienteFiscal, cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string; protocolo: string }> {
+): Promise<ConsultaFiscalResult> {
   const url = getEndpoint('nfce', ambiente, 'consultaProtocolo');
   const tpAmb = TP_AMB[ambiente];
   const envelope =
@@ -215,6 +222,7 @@ export async function consultarNFCe(
     cStat: extrairCampo(body, 'cStat'),
     xMotivo: extrairCampo(body, 'xMotivo'),
     protocolo: extrairCampo(body, 'nProt'),
+    dhRecbto: extrairCampo(body, 'dhRecbto'),
   };
 }
 
@@ -223,7 +231,7 @@ export async function consultarNFCe(
 export async function cancelarNFCe(
   chaveAcesso: string, protocolo: string, motivo: string,
   ambiente: AmbienteFiscal, cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string }> {
+): Promise<{ cStat: string; xMotivo: string; nProt: string; dhRegEvento: string; dhEvento: string; xmlEvento: string }> {
   const url = getEndpoint('nfce', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date(Date.now() - 4 * 3600 * 1000).toISOString().split('.')[0] + '-04:00';
@@ -232,7 +240,7 @@ export async function cancelarNFCe(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const { cStat, xMotivo } = extrairResultadoEvento(body);
+  const { cStat, xMotivo, nProt, dhRegEvento } = extrairResultadoEvento(body);
 
   if (cStat === '501') {
     throw new Error('Fora do prazo — NFC-e só pode ser cancelada em até 30 minutos após a autorização.');
@@ -240,7 +248,7 @@ export async function cancelarNFCe(
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento rejeitado: ${cStat} — ${xMotivo}`);
   }
-  return { cStat, xMotivo };
+  return { cStat, xMotivo, nProt, dhRegEvento, dhEvento, xmlEvento: eventoAssinado };
 }
 
 // helper
@@ -344,7 +352,7 @@ export async function autorizarNFe(
 export async function cancelarNFe(
   chaveAcesso: string, protocolo: string, motivo: string,
   ambiente: AmbienteFiscal, cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string }> {
+): Promise<{ cStat: string; xMotivo: string; nProt: string; dhRegEvento: string; dhEvento: string; xmlEvento: string }> {
   const url = getEndpoint('nfe', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date(Date.now() - 4 * 3600 * 1000).toISOString().split('.')[0] + '-04:00';
@@ -353,7 +361,7 @@ export async function cancelarNFe(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const { cStat, xMotivo } = extrairResultadoEvento(body);
+  const { cStat, xMotivo, nProt, dhRegEvento } = extrairResultadoEvento(body);
 
   if (cStat === '501') {
     throw new Error('Fora do prazo — NF-e só pode ser cancelada em até 24 horas após a autorização.');
@@ -361,7 +369,7 @@ export async function cancelarNFe(
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e rejeitado: ${cStat} — ${xMotivo}`);
   }
-  return { cStat, xMotivo };
+  return { cStat, xMotivo, nProt, dhRegEvento, dhEvento, xmlEvento: eventoAssinado };
 }
 
 // ── Cancelar NFC-e por substituição (110112, NT 2018.004) ────────────────────
@@ -375,7 +383,7 @@ export async function cancelarNFCePorSubstituicao(
   chaveNFCeContingente: string,
   ambiente: AmbienteFiscal,
   cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string }> {
+): Promise<{ cStat: string; xMotivo: string; nProt: string; dhRegEvento: string; dhEvento: string; xmlEvento: string }> {
   const url = getEndpoint('nfce', ambiente, 'cancelamento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date(Date.now() - 4 * 3600 * 1000).toISOString().split('.')[0] + '-04:00';
@@ -385,7 +393,7 @@ export async function cancelarNFCePorSubstituicao(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const { cStat, xMotivo } = extrairResultadoEvento(body);
+  const { cStat, xMotivo, nProt, dhRegEvento } = extrairResultadoEvento(body);
 
   if (cStat === '501') {
     throw new Error('Fora do prazo — NFC-e só pode ser cancelada em até 30 minutos após a autorização.');
@@ -393,7 +401,7 @@ export async function cancelarNFCePorSubstituicao(
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento por substituição rejeitado: ${cStat} — ${xMotivo}`);
   }
-  return { cStat, xMotivo };
+  return { cStat, xMotivo, nProt, dhRegEvento, dhEvento, xmlEvento: eventoAssinado };
 }
 
 // ── Inutilizar numeração (lacunas não emitidas, até 10º dia do mês seguinte) ─
@@ -424,7 +432,7 @@ export async function inutilizarNumeracao(
 
 export async function consultarNFe(
   chaveAcesso: string, ambiente: AmbienteFiscal, cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string; protocolo: string }> {
+): Promise<ConsultaFiscalResult> {
   const url = getEndpoint('nfe', ambiente, 'consultaProtocolo');
   const tpAmb = TP_AMB[ambiente];
   const envelope =
@@ -439,6 +447,7 @@ export async function consultarNFe(
     cStat: extrairCampo(body, 'cStat'),
     xMotivo: extrairCampo(body, 'xMotivo'),
     protocolo: extrairCampo(body, 'nProt'),
+    dhRecbto: extrairCampo(body, 'dhRecbto'),
   };
 }
 
