@@ -31,8 +31,9 @@ export default function DanfeNFCe({ dados, largura = '80mm' }: Props) {
     <>
       <style>{`
         @media print {
-          body > *:not(#danfe-nfce-root) { display: none !important; }
-          #danfe-nfce-root { display: block !important; }
+          body * { visibility: hidden; }
+          #danfe-nfce-root, #danfe-nfce-root * { visibility: visible; }
+          #danfe-nfce-root { position: fixed; top: 0; left: 0; }
           @page { margin: 0; size: ${largura === '58mm' ? '58mm' : '80mm'} auto; }
           .danfe-actions { display: none !important; }
           #danfe-nfce-root .qrcode-wrap { display: flex !important; justify-content: center !important; }
