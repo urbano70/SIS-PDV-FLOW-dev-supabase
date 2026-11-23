@@ -165,7 +165,11 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     } catch {}
   }, [printerConfig, ownerUser?.id]);
 
-  // Authenticate admin socket via Supabase JWT — runs on login and on every socket reconnect
+  // Authenticate admin socket on initial mount only. Reconnects are owned
+  // entirely by FirebaseProvider's handleReconnect → identifyConnection chain,
+  // which runs the proxy refresh before emitting admin_connect. Registering a
+  // second 'connect' listener here races that chain with a potentially stale
+  // getSession() token, causing spurious auth_error events.
   useEffect(() => {
     const sendAdminConnect = async () => {
       if (isAutoAuthSuspended() || recomputeAutoAuthRole(window.location.pathname) !== 'admin') return;
@@ -179,8 +183,6 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       } catch {}
     };
     sendAdminConnect();
-    socket.on('connect', sendAdminConnect);
-    return () => { socket.off('connect', sendAdminConnect); };
   }, [ownerUser?.id]);
 
   useEffect(() => {
