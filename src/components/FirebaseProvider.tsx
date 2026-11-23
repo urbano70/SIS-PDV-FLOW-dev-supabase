@@ -505,6 +505,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       approvedRequestSocketRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      // Clear cached token so identifyConnection always runs the full proxy
+      // refresh chain. Reusing an old token risks sending an expired JWT when
+      // the socket reconnects after the 1-hour Supabase expiry window.
+      adminTokenRef.current = null;
       identifyConnection(true);
     };
 
