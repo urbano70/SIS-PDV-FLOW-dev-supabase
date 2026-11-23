@@ -241,7 +241,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const visibleCategories = menu.filter(cat => cat.visible !== false);
   const selectedCat = visibleCategories.find(c => c.name === activeCategory) || visibleCategories[0];
-  const filteredSubcategories = (selectedCat?.subcategories || []).filter(s => s.visible !== false);
+  const filteredSubcategories = (selectedCat?.subcategories || []).filter(s => s.visible !== false && !s.isAdicional);
 
   const [, forceInactivityUpdate] = useState(0);
   useEffect(() => {
