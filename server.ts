@@ -3285,7 +3285,7 @@ async function startServer() {
         }
 
         // Persist changes to Firestore
-        const tableCol = isComanda ? '_st().comandas' : '_st().tables';
+        const tableCol = isComanda ? 'comandas' : 'tables';
         await saveToSupabase(tableCol, sourceTable, sourceTable.id.toString(), _tid());
         await saveToSupabase(tableCol, targetTable, targetTable.id.toString(), _tid());
         
@@ -3440,7 +3440,7 @@ async function startServer() {
         console.log(`[transfer_items] reusing existing targetOrder id=${targetOrder.id}`);
       }
 
-      const tableCol = isComanda ? '_st().comandas' : '_st().tables';
+      const tableCol = isComanda ? 'comandas' : 'tables';
 
       // Mark each source item as removed, then deep-copy a clean version to target
       itemsToTransfer.forEach((item: any) => {
