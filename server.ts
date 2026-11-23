@@ -661,6 +661,9 @@ async function startServer() {
     await loadTenantData('default');
   };
 
+  // ID do tenant-modelo: novos tenants herdam cardápio, sabores, bordas e tamanhos de pizza deste tenant.
+  const _TMPL = 'c5c88a54-4bcc-477d-aa8e-d095423484d6';
+
   const loadTenantData = async (tenantId: string) => {
     if (!db) throw new Error(`Banco Supabase indisponivel para carregar tenant ${tenantId}`);
     const st = getState(tenantId);
@@ -715,19 +718,20 @@ async function startServer() {
       const typeMap: Record<string, string> = {};
       MENU_CATEGORIES.forEach((c: any) => { typeMap[c.name] = c.type; });
 
-      if (mRes.data?.length) {
-        // Mapa de preços padrão por item id (garante que preços do constants.ts prevalecem sobre price:0 no DB)
-        const defaultPriceMap = new Map<string, number>();
-        MENU_CATEGORIES.forEach((cat: any) => {
-          (cat.subcategories || []).forEach((sub: any) => {
-            (sub.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
-          });
-          (cat.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
+      // Mapa de preços padrão por item id (garante que preços do constants.ts prevalecem sobre price:0 no DB)
+      const defaultPriceMap = new Map<string, number>();
+      MENU_CATEGORIES.forEach((cat: any) => {
+        (cat.subcategories || []).forEach((sub: any) => {
+          (sub.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
         });
-        const fixItems = (items: any[]) => (items || []).map((item: any) => ({
-          ...item,
-          price: (!item.price || item.price === 0) && defaultPriceMap.has(item.id) ? defaultPriceMap.get(item.id) : item.price,
-        }));
+        (cat.items || []).forEach((item: any) => { if (item.id && item.price) defaultPriceMap.set(item.id, item.price); });
+      });
+      const fixItems = (items: any[]) => (items || []).map((item: any) => ({
+        ...item,
+        price: (!item.price || item.price === 0) && defaultPriceMap.has(item.id) ? defaultPriceMap.get(item.id) : item.price,
+      }));
+
+      if (mRes.data?.length) {
         st.menu = mRes.data.map((row: any) => ({
           ...row,
           type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
@@ -737,10 +741,35 @@ async function startServer() {
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
-        await db.from('menu').upsert(
-          st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
-        );
-        console.log(`[supabase][${tenantId}] Menu inicial semeado`);
+        const isNewTenant = tenantId !== _TMPL && tenantId !== 'default';
+        let seededFromTemplate = false;
+        if (isNewTenant) {
+          const { data: tplMenu } = await db.from('menu').select('*').eq('tenant_id', _TMPL).order('position');
+          if (tplMenu?.length) {
+            const seedRows = tplMenu.map((row: any, idx: number) => ({
+              ...row,
+              id: `${tenantId}:${row.name}`,
+              tenant_id: tenantId,
+              position: idx,
+            }));
+            await db.from('menu').upsert(seedRows);
+            st.menu = seedRows.map((row: any) => ({
+              ...row,
+              type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
+              visible: row.visible !== false,
+              items: fixItems(row.items || []),
+              subcategories: (row.subcategories || []).map((sub: any) => ({ ...sub, items: fixItems(sub.items || []) })),
+            }));
+            seededFromTemplate = true;
+            console.log(`[supabase][${tenantId}] Menu semeado a partir do tenant-modelo (${tplMenu.length} categorias)`);
+          }
+        }
+        if (!seededFromTemplate) {
+          await db.from('menu').upsert(
+            st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
+          );
+          console.log(`[supabase][${tenantId}] Menu inicial semeado (padrão)`);
+        }
         io.to(room).emit('update_menu', st.menu);
       }
 
@@ -848,6 +877,31 @@ async function startServer() {
 
       if (pfRes.data) { st.pizzaFlavors = pfRes.data.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available })); io.to(room).emit('update_pizza_flavors', st.pizzaFlavors); }
       if (pcRes.data) { st.pizzaCrusts = pcRes.data.map((r: any) => r.name); io.to(room).emit('update_pizza_crusts', st.pizzaCrusts); }
+
+      // Seed pizza_flavors, pizza_crusts e pizzaSizes do tenant-modelo para novos tenants
+      if (db && tenantId !== _TMPL && tenantId !== 'default') {
+        if (!st.pizzaFlavors.length) {
+          const { data: tplFlavors } = await db.from('pizza_flavors').select('*').eq('tenant_id', _TMPL);
+          if (tplFlavors?.length) {
+            const seedFlavors = tplFlavors.map((r: any) => ({ ...r, id: randomUUID(), tenant_id: tenantId }));
+            await db.from('pizza_flavors').upsert(seedFlavors);
+            st.pizzaFlavors = seedFlavors.map((r: any) => ({ id: r.id, name: r.name, category: r.category, price: r.price, available: r.available }));
+            io.to(room).emit('update_pizza_flavors', st.pizzaFlavors);
+            console.log(`[supabase][${tenantId}] Sabores pizza semeados do tenant-modelo (${seedFlavors.length})`);
+          }
+        }
+        if (!st.pizzaCrusts.length) {
+          const { data: tplCrusts } = await db.from('pizza_crusts').select('*').eq('tenant_id', _TMPL);
+          if (tplCrusts?.length) {
+            const seedCrusts = tplCrusts.map((r: any) => ({ ...r, id: randomUUID(), tenant_id: tenantId }));
+            await db.from('pizza_crusts').upsert(seedCrusts);
+            st.pizzaCrusts = seedCrusts.map((r: any) => r.name);
+            io.to(room).emit('update_pizza_crusts', st.pizzaCrusts);
+            console.log(`[supabase][${tenantId}] Bordas pizza semeadas do tenant-modelo (${seedCrusts.length})`);
+          }
+        }
+      }
+
       if (cfgPizRes.data?.data) {
         st.pizzariaConfig = { ...st.pizzariaConfig, ...(cfgPizRes.data.data as any) };
         if ((cfgPizRes.data.data as any).pizzaSizes?.length) {
@@ -863,6 +917,31 @@ async function startServer() {
           }
         }
         io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
+      } else if (db && tenantId !== _TMPL && tenantId !== 'default') {
+        // Novo tenant sem config de pizzaria: copia pizzaSizes, numTables e numComandas do tenant-modelo
+        const { data: tplCfgPiz } = await db.from('config').select('data').eq('id', `${_TMPL}:pizzaria`).maybeSingle();
+        if (tplCfgPiz?.data) {
+          const tplPiz = tplCfgPiz.data as any;
+          const seedPizData: Record<string, any> = {};
+          if (tplPiz.pizzaSizes?.length) {
+            st.pizzaSizes = tplPiz.pizzaSizes;
+            seedPizData.pizzaSizes = tplPiz.pizzaSizes;
+            io.to(room).emit('update_pizza_sizes', st.pizzaSizes);
+          }
+          if (tplPiz.numTables != null) {
+            st.pizzariaConfig = { ...st.pizzariaConfig, numTables: tplPiz.numTables };
+            seedPizData.numTables = tplPiz.numTables;
+          }
+          if (tplPiz.numComandas != null) {
+            st.pizzariaConfig = { ...st.pizzariaConfig, numComandas: tplPiz.numComandas };
+            seedPizData.numComandas = tplPiz.numComandas;
+          }
+          if (Object.keys(seedPizData).length > 0) {
+            await db.from('config').upsert({ id: `${tenantId}:pizzaria`, data: seedPizData });
+            io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
+            console.log(`[supabase][${tenantId}] Config pizzaria semeada do tenant-modelo:`, Object.keys(seedPizData).join(', '));
+          }
+        }
       }
 
       if ((slRes as any).data?.data?.stockLog?.length) {
