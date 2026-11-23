@@ -12,7 +12,7 @@ import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts";
-import { initPg, pgSave, pgSaveMenuSnapshot, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
+import { initPg, getPgPool, pgSave, pgSaveMenuSnapshot, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 import { agendarBackupDiario } from "./src/lib/backup.ts";
 import { LATEST_PR } from "./src/version.ts";
 import {
@@ -58,6 +58,7 @@ import {
   restoreOpenCashRegisterOwners,
 } from "./src/server/cash-register-state.ts";
 import { registerMenuDragHandler } from "./src/server/menu-drag-handler.ts";
+import { commitOrderState, makeAck, OrderCommandError } from "./src/server/order-command.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
 import {
   carregarCertificado, getCertificado, validarCNPJ,
@@ -474,6 +475,55 @@ async function startServer() {
     return current;
   };
 
+  const commitCriticalOrderState = async (input: Parameters<typeof commitOrderState>[1]) => {
+    const tenantId = input.tenantId;
+    await waitForTenantWrites(tenantId);
+    const keys = [
+      ...(input.order ? [`${tenantId}:orders:${String(input.order.id)}`] : []),
+      ...(input.tables || []).map(row => `${tenantId}:tables:${String(row.id)}`),
+      ...(input.comandas || []).map(row => `${tenantId}:comandas:${String(row.id)}`),
+    ];
+    markTenantWrite(tenantId);
+    const current = commitOrderState({
+      usePostgres: USE_POSTGRES,
+      db,
+      pgPool: USE_POSTGRES ? getPgPool() : undefined,
+    }, input);
+    const tracked = current.then(() => undefined).finally(() => {
+      // Load/reconnect must not accept a snapshot read across this commit.
+      markTenantWrite(tenantId);
+      for (const key of keys) {
+        if (_tenantWriteTails.get(key) === tracked) _tenantWriteTails.delete(key);
+      }
+    });
+    tracked.catch(() => undefined);
+    for (const key of keys) _tenantWriteTails.set(key, tracked);
+    return current;
+  };
+  const replaceStagedOrderState = (st: TenantState, staged: {
+    order?: any | null;
+    tables?: any[];
+    comandas?: any[];
+  }) => {
+    if (staged.order) {
+      const orderIndex = st.orders.findIndex((candidate: any) => String(candidate.id) === String(staged.order.id));
+      if (orderIndex === -1) st.orders.push(staged.order);
+      else st.orders[orderIndex] = staged.order;
+    }
+    for (const [collection, rows] of [
+      ['tables', staged.tables || []],
+      ['comandas', staged.comandas || []],
+    ] as const) {
+      const target = collection === 'tables' ? st.tables : st.comandas;
+      for (const row of rows as any[]) {
+        const { expectedCurrentOrder: _expectedCurrentOrder, ...durableEntity } = row;
+        const index = target.findIndex((candidate: any) => String(candidate.id) === String(durableEntity.id));
+        if (index === -1) target.push(durableEntity);
+        else target[index] = durableEntity;
+      }
+    }
+  };
+
   const saveCashRegisterReport = async (tenantId: string, type: 'open' | 'close', cashRegisterName: string | null, st: TenantState) => {
     if (!db) return;
     const now = new Date().toISOString();
@@ -863,24 +913,26 @@ async function startServer() {
 
       // Reconcilia mesas/comandas: libera as que estão ocupadas sem pedido ativo no banco
       const activeOrderIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
-      let tablesDirty = false;
-      st.tables = st.tables.map((t: any) => {
+      const repairedTables: any[] = [];
+      st.tables.forEach((t: any) => {
         if (t.status !== 'free' && t.currentOrder && !activeOrderIds.has(String(t.currentOrder))) {
-          tablesDirty = true;
-          saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), tenantId).catch(() => {});
-          return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+          repairedTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
         }
-        return t;
       });
-      st.comandas = st.comandas.map((c: any) => {
+      const repairedComandas: any[] = [];
+      st.comandas.forEach((c: any) => {
         if (c.status !== 'free' && c.currentOrder && !activeOrderIds.has(String(c.currentOrder))) {
-          tablesDirty = true;
-          saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), tenantId).catch(() => {});
-          return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+          repairedComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
         }
-        return c;
       });
-      if (tablesDirty) {
+      if (repairedTables.length > 0 || repairedComandas.length > 0) {
+        await commitCriticalOrderState({
+          tenantId,
+          order: null,
+          tables: repairedTables,
+          comandas: repairedComandas,
+        });
+        replaceStagedOrderState(st, { tables: repairedTables, comandas: repairedComandas });
         io.to(room).emit('update_tables', st.tables);
         io.to(room).emit('update_comandas', st.comandas);
         console.log(`[supabase][${tenantId}] Mesas/comandas inconsistentes liberadas`);
@@ -1444,28 +1496,83 @@ async function startServer() {
       if (isAdminForTenant(tenantId)) return true;
       return isApprovedWaiter(waiterForTenant(tenantId));
     };
+    const ackCommandEvents = new Set(['new_order', 'add_item_to_order', 'pay_items', 'confirm_baixa', 'force_release_table']);
+    const commandSessionIsCurrent = (tenantId: string): boolean => {
+      const expectedGeneration = Number((socket as any).__commandTenantGeneration);
+      return socket.connected !== false && String((socket as any).tenantId || '') === tenantId &&
+        (!expectedGeneration || Number((socket as any).tenantGeneration) === expectedGeneration) &&
+        isApprovedWaiterSocket(tenantId);
+    };
     const onTenantCommand = (event: string, handler: (...args: any[]) => any) => {
       socket.on(event, (...args: any[]) => {
+        const payload = args[0] && typeof args[0] === 'object' ? args[0] : {};
+        const callback = [...args].reverse().find((candidate: any) => typeof candidate === 'function') as ((result: any) => void) | undefined;
+        let callbackCalled = false;
         const tenantId = String((socket as any).authContext?.tenantId || (socket as any).tenantId || '').trim();
+        const requestedTenantId = String(payload?.tenantId || '').trim();
+        const needsAck = ackCommandEvents.has(event);
+        const ackOnce = (result: any = {}) => {
+          if (!callback || callbackCalled) return;
+          callbackCalled = true;
+          const ok = result?.ok === true;
+          callback({
+            ok,
+            tenantId,
+            ...(ok ? {} : { code: result?.code || 'COMMAND_REJECTED' }),
+            ...(result && typeof result === 'object' ? result : {}),
+          });
+        };
+        const reject = (code: string, message: string) => {
+          socket.emit('auth_error', { message });
+          ackOnce(makeAck(tenantId, { code, message }));
+          return false;
+        };
+        if (requestedTenantId && requestedTenantId !== tenantId) {
+          return Promise.resolve(reject('TENANT_MISMATCH', 'O tenant da sessão não corresponde ao comando.'));
+        }
         if (!tenantId || !isApprovedWaiterSocket(tenantId)) {
-          socket.emit('auth_error', { message: 'Autentique um garçom aprovado ou administrador.' });
-          return Promise.resolve(false);
+          return Promise.resolve(reject('AUTH_REQUIRED', 'Autentique um garçom aprovado ou administrador.'));
         }
         return withTenantCommand(tenantId, async () => {
-          if (!isApprovedWaiterSocket(tenantId)) {
-            socket.emit('auth_error', { message: 'Sessão alterada; autentique novamente neste tenant.' });
-            return false;
+          const commandGeneration = Number((socket as any).tenantGeneration);
+          if (!commandSessionIsCurrent(tenantId)) {
+            return reject('SESSION_CHANGED', 'Sessão alterada; autentique novamente neste tenant.');
           }
           const previousTenant = (socket as any).__commandTenantId;
+          const previousGeneration = (socket as any).__commandTenantGeneration;
           (socket as any).__commandTenantId = tenantId;
+          (socket as any).__commandTenantGeneration = commandGeneration;
           try {
-            return await handler(...args);
+            const handlerArgs = args.map((candidate: any) => candidate === callback ? ackOnce : candidate);
+            const result = await handler(...handlerArgs);
+            if (needsAck && result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'ok')) {
+              ackOnce(result);
+            }
+            return result;
+          } catch (error: any) {
+            const code = error instanceof OrderCommandError ? error.code : 'COMMAND_FAILED';
+            const message = error instanceof OrderCommandError
+              ? error.message
+              : 'Não foi possível concluir o comando com segurança.';
+            console.error(`[${event}] ${code} tenant=${tenantId}`);
+            socket.emit('error_message', message);
+            ackOnce(makeAck(tenantId, { code, message }));
+            return false;
           } finally {
             if (previousTenant === undefined) delete (socket as any).__commandTenantId;
             else (socket as any).__commandTenantId = previousTenant;
+            if (previousGeneration === undefined) delete (socket as any).__commandTenantGeneration;
+            else (socket as any).__commandTenantGeneration = previousGeneration;
           }
         });
       });
+    };
+    const ensureCurrentCommandSession = () => {
+      const tenantId = _tid();
+      if (!commandSessionIsCurrent(tenantId)) {
+        throw new OrderCommandError('SESSION_CHANGED', 'Sessão alterada; autentique novamente neste tenant.', 401);
+      }
+      return tenantId;
     };
 
     const requireAdmin = (handler: (...args: any[]) => void) => {
@@ -2203,33 +2310,30 @@ async function startServer() {
     }));
 
     onTenantCommand("new_order", async (orderData) => {
-      await loadTenantIfNeeded(_tid());
-      console.log("New order request received:", orderData.tableId, orderData.isComanda ? "Comanda" : "Table");
-
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => {
+        socket.emit('error_message', message);
+        return makeAck(tenantId, { code, message, ...extra });
+      };
       const incomingItems = Array.isArray(orderData?.items) ? orderData.items : [];
-      if (incomingItems.some((item: any) => isPlaygroundReservedItem(item, _tid()))) {
-        return rejectPlaygroundReserved();
+      if (incomingItems.some((item: any) => isPlaygroundReservedItem(item, tenantId))) {
+        return fail('RESERVED_ITEM', 'Use o aplicativo do Parquinho para lançar este item.');
+      }
+      if (!_st().isCashRegisterOpen) {
+        return fail('CASH_REGISTER_CLOSED', 'O caixa está fechado. Abra o caixa para realizar pedidos.');
       }
 
-      if (!_st().isCashRegisterOpen) {
-        console.warn("Attempted order while register is closed");
-        socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para realizar pedidos.");
-        return;
-      }
-      
       const waiterId = (socket as any).waiterId;
       const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
-      
       if (waiter && waiter.status === "inactive") {
-        socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
-        return;
+        return fail('WAITER_INACTIVE', 'Seu acesso está inativo. Entre em contato com o gerente.');
       }
 
       const isComanda = !!orderData.isComanda;
       const targetList = isComanda ? _st().comandas : _st().tables;
       let table = targetList.find(t => orderData.tableId && t.id && String(t.id) === String(orderData.tableId));
-      
-      // Handle linked _st().tables
       if (table && table.status === "linked" && table.linkedTo) {
         let currentTable = table;
         const visited = new Set([currentTable.id]);
@@ -2243,16 +2347,13 @@ async function startServer() {
       }
 
       const waiterName = orderData.waiterName || (waiter ? waiter.name : "Desconhecido");
-
-      // Tag items with waiter name and resolve type from server _st().menu
       const orderCreatedAt = Date.now();
-      const itemsWithWaiter = (orderData.items || []).map((item: any, idx: number) => {
-        // Pizzas always keep type 'pizzas'; for other items resolve from server _st().menu
+      const itemsWithWaiter = incomingItems.map((item: any, idx: number) => {
         let resolvedType = item.type;
         if (item.type !== 'pizzas') {
           const cat = item.menuItemId
-            ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-            : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+            ? _st().menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+            : _st().menu.find((c: any) => c.items?.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
           if (cat?.type) resolvedType = cat.type;
         }
         return {
@@ -2260,103 +2361,100 @@ async function startServer() {
           type: resolvedType,
           id: item.id || Math.random().toString(36).substr(2, 9),
           waiterName: item.waiterName || waiterName,
-          // Offset each item by its index so items in the same cart have unique timestamps
-          timestamp: new Date(orderCreatedAt + idx).toISOString()
+          timestamp: new Date(orderCreatedAt + idx).toISOString(),
         };
       });
 
       if (table && table.status === "aguardando_baixa") {
-        socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
-        return;
+        return fail('ORDER_AWAITING_BAIXA', 'Pedido aguardando baixa no caixa. Não é possível adicionar itens.');
       }
 
       if (table && (table.status === "occupied" || table.status === "bill_requested") && table.currentOrder) {
-        console.log("Adding items to existing order:", table.currentOrder);
         const existingOrder = _st().orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder) && o.status !== 'finalizada' && o.status !== 'aguardando_baixa');
         if (existingOrder) {
-          if (!existingOrder.items) existingOrder.items = [];
-          existingOrder.items.push(...itemsWithWaiter);
+          const existingIds = new Set((existingOrder.items || []).map((item: any) => String(item.id)));
+          const newItems = itemsWithWaiter.filter((item: any) => {
+            const id = String(item.id);
+            if (existingIds.has(id)) return false;
+            existingIds.add(id);
+            return true;
+          });
+          if (newItems.length === 0 && !orderData.observations) {
+            return makeAck(tenantId, { ok: true, orderId: String(existingOrder.id), status: existingOrder.status, alreadyApplied: true });
+          }
+          const stagedOrder = JSON.parse(JSON.stringify(existingOrder));
+          stagedOrder.items = [...(stagedOrder.items || []), ...newItems];
           if (orderData.observations) {
-            existingOrder.observations = existingOrder.observations 
-              ? `${existingOrder.observations} | ${orderData.observations}` 
+            stagedOrder.observations = stagedOrder.observations
+              ? `${stagedOrder.observations} | ${orderData.observations}`
               : orderData.observations;
           }
+          ensureCurrentCommandSession();
+          await commitCriticalOrderState({ tenantId, order: stagedOrder });
+          replaceStagedOrderState(_st(), { order: stagedOrder });
           io.to(_room()).emit("update_orders", _st().orders);
-          if (itemsWithWaiter.length > 0) {
-            const kPayload1 = { items: itemsWithWaiter, tableId: existingOrder.tableId, isComanda: existingOrder.isComanda };
+          if (newItems.length > 0) {
+            const kPayload1 = { items: newItems, tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
             io.to(_room()).emit("kitchen_new_order", kPayload1);
             emitPrintOrder(kPayload1);
+            applyStockReduction(_st(), tenantId, newItems);
           }
-          enqueueWrite('orders', existingOrder, existingOrder.id.toString(), _tid());
-          // Renovar sessão do cliente ao adicionar itens
-          { const s = getClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); if (s) s.lastActivity = Date.now(); else activateClientSession(_tid(), existingOrder.tableId, existingOrder.isComanda); }
-          applyStockReduction(_st(), _tid(), itemsWithWaiter);
-          console.log("Existing order updated and emitted");
-          return;
+          const session = getClientSession(tenantId, stagedOrder.tableId, stagedOrder.isComanda);
+          if (session) session.lastActivity = Date.now();
+          else activateClientSession(tenantId, stagedOrder.tableId, stagedOrder.isComanda);
+          return makeAck(tenantId, { ok: true, orderId: String(stagedOrder.id), status: stagedOrder.status });
         }
       }
 
-      const newOrder = { 
-        ...orderData, 
+      const orderFields = { ...orderData };
+      delete (orderFields as any).tenantId;
+      delete (orderFields as any).requestId;
+      const currentDate = new Date();
+      const dateStr = currentDate.getDate().toString().padStart(2, '0') +
+        (currentDate.getMonth() + 1).toString().padStart(2, '0') + currentDate.getFullYear().toString();
+      const nextCounter = dateStr === _st().lastOrderDate ? _st().dailyCounter + 1 : 1;
+      const newOrder = {
+        ...orderFields,
         items: itemsWithWaiter,
-        id: generateOrderId(_st(), _tid()), 
-        status: "pending", 
-        timestamp: new Date().toISOString(),
-        waiterName: waiterName,
-        isComanda: isComanda
+        id: `${dateStr}${nextCounter.toString().padStart(4, '0')}`,
+        status: "pending",
+        timestamp: currentDate.toISOString(),
+        waiterName,
+        isComanda,
       };
-      
-      console.log("Created new order object:", newOrder.id);
-      _st().orders.push(newOrder);
-      // Ativar sessão do cliente ao criar nova comanda
-      activateClientSession(_tid(), newOrder.tableId, newOrder.isComanda ?? false);
-
-      // Reduz estoque antes de emitir, para o cliente ver já o valor correto
-      applyStockReduction(_st(), _tid(), itemsWithWaiter);
-
-      // Emit orders update immediately; table update is emitted after status is set below
+      const stagedTables: any[] = [];
+      const stagedComandas: any[] = [];
+      if (table) {
+        const targetId = table.id;
+        const target = isComanda ? stagedComandas : stagedTables;
+        targetList.forEach((entity: any) => {
+          if (entity.id === targetId || entity.linkedTo === targetId) {
+            target.push({
+              ...entity,
+              status: entity.id === targetId ? "occupied" : "linked",
+              currentOrder: newOrder.id,
+              expectedCurrentOrder: entity.currentOrder ?? null,
+            });
+          }
+        });
+      }
+      ensureCurrentCommandSession();
+      await commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas });
+      _st().dailyCounter = nextCounter;
+      _st().lastOrderDate = dateStr;
+      replaceStagedOrderState(_st(), { order: newOrder, tables: stagedTables, comandas: stagedComandas });
+      saveToSupabase('config', cashRegisterConfigPatch(_st(), { dailyCounter: nextCounter, lastOrderDate: dateStr }), 'app', tenantId).catch(() => {});
+      activateClientSession(tenantId, newOrder.tableId, newOrder.isComanda ?? false);
       io.to(_room()).emit("update_orders", _st().orders);
+      io.to(_room()).emit("update_tables", _st().tables);
+      io.to(_room()).emit("update_comandas", _st().comandas);
       if ((newOrder.items || []).length > 0) {
         const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
         emitPrintOrder(kPayload2);
+        applyStockReduction(_st(), tenantId, newOrder.items);
       }
-      
-      console.log("Emitted initial updates for new order");
-      
-      saveToSupabase('orders', newOrder, newOrder.id, _tid());
-      saveToSupabase('config', cashRegisterConfigPatch(_st(), { dailyCounter: _st().dailyCounter, lastOrderDate: _st().lastOrderDate }), 'app', _tid());
-      
-      if (table) {
-        const orderId = newOrder.id;
-        const targetId = table.id;
-        const collName = isComanda ? 'comandas' : 'tables';
-        
-        console.log("Updating table status to occupied for:", targetId);
-        
-        if (isComanda) {
-          _st().comandas.forEach(c => {
-            if (c.id === targetId || c.linkedTo === targetId) {
-              c.status = c.id === targetId ? "occupied" : "linked";
-              c.currentOrder = orderId;
-              saveToSupabase(collName, c, c.id.toString(), _tid());
-            }
-          });
-        } else {
-          _st().tables.forEach(t => {
-            if (t.id === targetId || t.linkedTo === targetId) {
-              t.status = t.id === targetId ? "occupied" : "linked";
-              t.currentOrder = orderId;
-              saveToSupabase(collName, t, t.id.toString(), _tid());
-            }
-          });
-        }
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-        
-        console.log("Emitted final table updates for new order");
-      }
-
+      return makeAck(tenantId, { ok: true, orderId: String(newOrder.id), status: newOrder.status });
     });
 
     socket.on("update_product", requireAdmin(({ categoryName, productId, updatedData, subcategoryId }) => {
@@ -2857,80 +2955,77 @@ async function startServer() {
     }));
 
     onTenantCommand("add_item_to_order", async ({ orderId, tableId: fallbackTableId, isComanda: fallbackIsComanda, item }) => {
-      await loadTenantIfNeeded(_tid());
-      if (isPlaygroundReservedItem(item, _tid())) return rejectPlaygroundReserved();
-      if (!_st().isCashRegisterOpen) {
-        socket.emit("error_message", "O caixa estÃ¡ fechado. Abra o caixa para adicionar itens.");
-        return;
-      }
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => {
+        socket.emit('error_message', message);
+        return makeAck(tenantId, { code, message, orderId: orderId ? String(orderId) : undefined, ...extra });
+      };
+      if (isPlaygroundReservedItem(item, tenantId)) return fail('RESERVED_ITEM', 'Use o aplicativo do Parquinho para lançar este item.');
+      if (!_st().isCashRegisterOpen) return fail('CASH_REGISTER_CLOSED', 'O caixa está fechado. Abra o caixa para adicionar itens.');
 
       const waiterId = (socket as any).waiterId;
       const waiter = waiterId ? _st().waiters.find(w => w.id === waiterId) : null;
-
-      if (waiter && waiter.status === "inactive") {
-        socket.emit("error_message", "Seu acesso estÃ¡ inativo. Entre em contato com o gerente.");
-        return;
-      }
+      if (waiter && waiter.status === "inactive") return fail('WAITER_INACTIVE', 'Seu acesso está inativo. Entre em contato com o gerente.');
+      if (!item || typeof item !== 'object') return fail('ITEM_INVALID', 'Item inválido.');
 
       let order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
       let usedFallback = false;
-      // Fallback: if orderId is stale/missing, resolve via mesa's currentOrder
       if (!order && fallbackTableId) {
         const targetList = fallbackIsComanda ? _st().comandas : _st().tables;
         const mesa = targetList.find((t: any) => t.id && String(t.id) === String(fallbackTableId));
         if (mesa?.currentOrder) {
-          order = _st().orders.find((o: any) =>
-            String(o.id) === String(mesa.currentOrder) &&
-            o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
-          );
+          order = _st().orders.find((o: any) => String(o.id) === String(mesa.currentOrder));
           if (order) usedFallback = true;
         }
       }
-
-      // Fix D: pedido nao encontrado — sincroniza estado ao socket para corrigir view stale
       if (!order) {
         socket.emit('update_orders', _st().orders);
         socket.emit('update_tables', _st().tables);
         socket.emit('update_comandas', _st().comandas);
-        return;
+        return fail('ORDER_NOT_FOUND', 'Pedido não encontrado; o snapshot atualizado foi enviado.');
       }
+      if (order.status === "aguardando_baixa") return fail('ORDER_AWAITING_BAIXA', 'Pedido aguardando baixa no caixa. Não é possível adicionar itens.', { status: order.status });
+      if (order.status === "finalizada" || order.status === "paid") return fail('ORDER_FINALIZED', 'Pedido finalizado não aceita novos itens.', { status: order.status });
 
-      if (order.status === "aguardando_baixa") {
-        socket.emit("error_message", "Pedido aguardando baixa no caixa. NÃ£o Ã© possÃ­vel adicionar itens.");
-        return;
+      const requestedItemId = item.id === undefined || item.id === null ? '' : String(item.id);
+      if (requestedItemId && (order.items || []).some((candidate: any) => String(candidate.id) === requestedItemId)) {
+        return makeAck(tenantId, { ok: true, orderId: String(order.id), status: order.status, alreadyApplied: true });
       }
       const resolvedWaiterName = waiter?.name || (socket as any).waiterName || item.waiterName || 'Desconhecido';
-      // Resolve type from server _st().menu for non-pizza items
       let resolvedType = item.type;
       if (item.type !== 'pizzas') {
         const cat = item.menuItemId
-          ? _st().menu.find((c: any) => c.items.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
-          : _st().menu.find((c: any) => c.items.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
+          ? _st().menu.find((c: any) => c.items?.some((i: any) => i.id === item.menuItemId) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === item.menuItemId)))
+          : _st().menu.find((c: any) => c.items?.some((i: any) => i.name === item.name) || (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.name === item.name)));
         if (cat?.type) resolvedType = cat.type;
       }
-      const itemWithTimestamp = { ...item, type: resolvedType, waiterName: resolvedWaiterName, timestamp: new Date().toISOString() };
-      writeAudit(_tid(), 'item_added', resolvedWaiterName,
-        `"${item.name}" adicionado — Mesa ${order?.tableId ?? '?'}`,
-        { orderId, tableId: order?.tableId });
-      if (!order.items) order.items = [];
-      order.items.push(itemWithTimestamp);
-
-      // Emit immediately for fast UI
+      const itemWithTimestamp = {
+        ...item,
+        id: item.id || Math.random().toString(36).substr(2, 9),
+        type: resolvedType,
+        waiterName: resolvedWaiterName,
+        timestamp: new Date().toISOString(),
+      };
+      const stagedOrder = JSON.parse(JSON.stringify(order));
+      stagedOrder.items = [...(stagedOrder.items || []), itemWithTimestamp];
+      ensureCurrentCommandSession();
+      await commitCriticalOrderState({ tenantId, order: stagedOrder });
+      replaceStagedOrderState(_st(), { order: stagedOrder });
       io.to(_room()).emit("update_orders", _st().orders);
-      // Fix C: se fallback foi usado, sincroniza tables para corrigir currentOrder pointer no cliente
       if (usedFallback) {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }
-      const kPayload3 = { items: [itemWithTimestamp], tableId: order.tableId, isComanda: order.isComanda };
+      const kPayload3 = { items: [itemWithTimestamp], tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
       io.to(_room()).emit("kitchen_new_order", kPayload3);
       emitPrintOrder(kPayload3);
-
-      // Non-blocking: respond to socket immediately, persist in background
-      enqueueWrite('orders', order, String(order.id), _tid());
-
-      // Update _st().stock for the added item
-      applyStockReduction(_st(), _tid(), [itemWithTimestamp]);
+      applyStockReduction(_st(), tenantId, [itemWithTimestamp]);
+      writeAudit(tenantId, 'item_added', resolvedWaiterName,
+        `"${item.name}" adicionado — Mesa ${stagedOrder.tableId ?? '?'}`,
+        { orderId: stagedOrder.id, tableId: stagedOrder.tableId });
+      return makeAck(tenantId, { ok: true, orderId: String(stagedOrder.id), status: stagedOrder.status });
     });
 
     onTenantCommand("set_order_guests", async ({ orderId, guests }: { orderId: any, guests: string[] }) => {
@@ -3005,168 +3100,149 @@ async function startServer() {
       }
     });
 
-    onTenantCommand("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin, adminCashRegisterName }) => {
+    onTenantCommand("pay_items", async ({ orderId, selectedItems, partialAmount, paymentMethod, payerName, fromAdmin, adminCashRegisterName, requestId }) => {
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => {
+        socket.emit('error_message', message);
+        return makeAck(tenantId, { code, message, orderId: orderId ? String(orderId) : undefined, ...extra });
+      };
       const order = _st().orders.find(o => orderId && o.id && String(o.id) === String(orderId));
-      if (order) {
-        console.log(`Processing payment for order ${orderId}. Partial: ${partialAmount}`);
-        if (!order.paymentLog) order.paymentLog = [];
+      if (!order) {
+        socket.emit('update_orders', _st().orders);
+        socket.emit('update_tables', _st().tables);
+        socket.emit('update_comandas', _st().comandas);
+        return fail('ORDER_NOT_FOUND', 'Pedido não encontrado; o snapshot atualizado foi enviado.');
+      }
+      const requestKey = String(requestId || '').trim();
+      const previousPayment = requestKey && (order.paymentLog || []).find((payment: any) => String(payment?.requestId || '') === requestKey);
+      if (previousPayment) {
+        return makeAck(tenantId, { ok: true, orderId: String(order.id), status: order.status, alreadyApplied: true });
+      }
+      if (order.status === 'finalizada' || order.status === 'paid') {
+        return fail('ORDER_ALREADY_FINALIZED', 'Pedido já finalizado/pago; nenhum pagamento novo foi registrado.', { status: order.status });
+      }
 
-        const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? (socket as any).activeCashRegisterName ?? adminCashRegisterName ?? (fromAdmin ? "ADM" : null);
-        const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
-        const _payActor = cashRegisterAtPayment || waiterAtPayment || 'Desconhecido';
-
-        const itemIds = Object.keys(selectedItems || {});
-        const isPartialOnly = itemIds.length === 0;
-        const numericPartialAmount = partialAmount !== undefined ? Number(partialAmount) : 0;
-
-        if (isPartialOnly && numericPartialAmount > 0) {
-          const payment: any = {
-            amount: numericPartialAmount,
-            method: paymentMethod || "NÃ£o informado",
-            timestamp: new Date().toISOString(),
-            type: 'partial' as const
-          };
-          if (payerName && typeof payerName === 'string') payment.payer = payerName.trim();
-          if (cashRegisterAtPayment) payment.cashRegister = cashRegisterAtPayment;
-          if (waiterAtPayment) payment.closedByWaiter = waiterAtPayment;
-          order.paymentLog.push(payment);
-        } else if (itemIds.length > 0) {
-          const activeItemsForTotal = (order.items || []).filter(i => !i.removed);
-          const selectedItemsTotal = activeItemsForTotal
-            .filter(i => selectedItems[i.id] !== undefined)
-            .reduce((acc, i) => {
-              const qty = Number(selectedItems[i.id]);
-              const price = getEffectiveItemPrice(i);
-              const unitPrice = price / (i.quantity || 1);
-              return acc + (unitPrice * qty);
-            }, 0);
-
-          const actualAmountPaid = partialAmount !== undefined ? Number(partialAmount) : selectedItemsTotal;
-
-          const itemPayment: any = {
-            amount: actualAmountPaid,
-            method: paymentMethod || "NÃ£o informado",
-            timestamp: new Date().toISOString(),
-            type: 'items'
-          };
-          if (payerName && typeof payerName === 'string') itemPayment.payer = payerName.trim();
-          if (cashRegisterAtPayment) itemPayment.cashRegister = cashRegisterAtPayment;
-          if (waiterAtPayment) itemPayment.closedByWaiter = waiterAtPayment;
-          order.paymentLog.push(itemPayment);
-          
-          itemIds.forEach(itemId => {
-            const itemIndex = order.items.findIndex(i => String(i.id) === String(itemId));
-            if (itemIndex !== -1) {
-              const item = order.items[itemIndex];
-              const payQty = Number(selectedItems[itemId] || 0);
-              const currentQty = Number(item.quantity) || 1;
-
-              if (payQty > 0 && payQty < currentQty) {
-                const unitPrice = Number(item.price) / currentQty;
-                const paidItem = {
-                  ...item,
-                  id: randomUUID(),
-                  quantity: payQty,
-                  price: unitPrice * payQty,
-                  paid: true
-                };
-                item.quantity = currentQty - payQty;
-                item.price = unitPrice * (currentQty - payQty);
-                order.items.push(paidItem);
-              } else {
-                item.paid = true;
-              }
-            }
-          });
+      const selected = selectedItems && typeof selectedItems === 'object' ? selectedItems : {};
+      const itemIds = Object.keys(selected);
+      const isPartialOnly = itemIds.length === 0;
+      const numericPartialAmount = partialAmount !== undefined ? Number(partialAmount) : 0;
+      if (!Number.isFinite(numericPartialAmount) || numericPartialAmount < 0) {
+        return fail('PAYMENT_AMOUNT_INVALID', 'Valor de pagamento inválido.');
+      }
+      const stagedOrder = JSON.parse(JSON.stringify(order));
+      stagedOrder.paymentLog = Array.isArray(stagedOrder.paymentLog) ? stagedOrder.paymentLog : [];
+      stagedOrder.items = Array.isArray(stagedOrder.items) ? stagedOrder.items : [];
+      const activeItemsForTotal = stagedOrder.items.filter((item: any) => !item.removed);
+      let selectedItemsTotal = 0;
+      if (isPartialOnly) {
+        if (!(numericPartialAmount > 0)) return fail('PAYMENT_AMOUNT_INVALID', 'Informe um valor de pagamento maior que zero.');
+      } else {
+        for (const itemId of itemIds) {
+          const item = stagedOrder.items.find((candidate: any) => String(candidate.id) === String(itemId));
+          const payQty = Number(selected[itemId]);
+          const currentQty = Number(item?.quantity) || 0;
+          if (!item || item.removed || item.paid || !Number.isFinite(payQty) || payQty <= 0 || payQty > currentQty) {
+            return fail('PAYMENT_QUANTITY_INVALID', 'A quantidade selecionada já foi paga/removida ou não é válida.', { status: order.status });
+          }
+          const price = getEffectiveItemPrice(item);
+          selectedItemsTotal += (price / currentQty) * payQty;
         }
-
-        // Check total paid from paymentLog
-        const totalPaid = (order.paymentLog || []).reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-
-        // Calculate final total with item-level discounts AND order-level discount
-        const totalItemsPrice = (order.items || []).filter(i => !i.removed).reduce((acc, i) => acc + getEffectiveItemPrice(i), 0);
-
-        let finalTotal = totalItemsPrice;
-        if (order.discount) {
-          const dVal = Number(order.discount) || 0;
-          if (order.discountType === 'percentage') finalTotal *= (1 - dVal / 100);
-          else finalTotal = Math.max(0, finalTotal - dVal);
+        if (partialAmount !== undefined && !(numericPartialAmount > 0)) {
+          return fail('PAYMENT_AMOUNT_INVALID', 'Valor de pagamento deve ser maior que zero.');
         }
-        
-        // Use rounding to avoid floating point issues
-        const roundedTotalPaid = Math.round(totalPaid * 100) / 100;
-        const roundedFinalTotal = Math.round(finalTotal * 100) / 100;
-
-        console.log(`Order ${orderId}: ItemsTotal: ${totalItemsPrice.toFixed(2)}, FinalTotal: ${roundedFinalTotal.toFixed(2)}, PaidSoFar: ${roundedTotalPaid.toFixed(2)}`);
-
-        // Use a clearer epsilon comparison (allow for small rounding differences)
-        const IS_FULLY_PAID = roundedTotalPaid >= (roundedFinalTotal - 0.1);
-
-        if (IS_FULLY_PAID) {
-          if (fromAdmin) {
-            // Pagamento via ADM: libera mesa imediatamente sem passar por aguardando_baixa
-            console.log(`Order ${orderId} fully paid via admin. Freeing _st().tables directly.`);
-            order.status = "finalizada";
-
-            const entitiesToUpdate: any[] = [];
-            _st().tables.forEach((t: any) => {
-              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-                t.status = "free";
-                t.currentOrder = null;
-                t.linkedTo = null;
-                entitiesToUpdate.push({ entity: t, collection: 'tables' });
-              }
-            });
-            _st().comandas.forEach((c: any) => {
-              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-                c.status = "free";
-                c.currentOrder = null;
-                c.linkedTo = null;
-                entitiesToUpdate.push({ entity: c, collection: 'comandas' });
-              }
-            });
-
-            io.to(_room()).emit("update_orders", _st().orders);
-            io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-            await saveToSupabase('orders', order, String(order.id), _tid());
-            for (const item of entitiesToUpdate) {
-              await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
-            }
-            return;
+        const actualAmountPaid = partialAmount !== undefined ? numericPartialAmount : selectedItemsTotal;
+        if (!(actualAmountPaid > 0)) return fail('PAYMENT_AMOUNT_INVALID', 'Valor de pagamento deve ser maior que zero.');
+        for (const itemId of itemIds) {
+          const itemIndex = stagedOrder.items.findIndex((candidate: any) => String(candidate.id) === String(itemId));
+          const item = stagedOrder.items[itemIndex];
+          const payQty = Number(selected[itemId]);
+          const currentQty = Number(item.quantity) || 1;
+          if (payQty < currentQty) {
+            const unitPrice = Number(item.price) / currentQty;
+            const paidItem = { ...item, id: randomUUID(), quantity: payQty, price: unitPrice * payQty, paid: true };
+            item.quantity = currentQty - payQty;
+            item.price = unitPrice * (currentQty - payQty);
+            stagedOrder.items.push(paidItem);
           } else {
-            // Pagamento via GarÃ§om: aguarda baixa para liberar mesa
-            console.log(`Order ${orderId} fully paid. Setting aguardando_baixa.`);
-            order.status = "aguardando_baixa";
-
-            _st().tables.forEach(t => {
-              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-                t.status = "aguardando_baixa";
-                saveToSupabase('tables', t, String(t.id), _tid()).catch(() => {});
-              }
-            });
-            _st().comandas.forEach(c => {
-              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-                c.status = "aguardando_baixa";
-                saveToSupabase('comandas', c, String(c.id), _tid()).catch(() => {});
-              }
-            });
+            item.paid = true;
           }
         }
-
-        // Emit updates IMMEDIATELY for UI responsiveness
-        io.to(_room()).emit("update_orders", _st().orders);
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-
-        const _paidAmount = (order.paymentLog || []).slice(-1)[0]?.amount ?? 0;
-        const _paidMethod = (order.paymentLog || []).slice(-1)[0]?.method ?? '?';
-        writeAudit(_tid(), 'payment', _payActor,
-          `Pagamento R$ ${Number(_paidAmount).toFixed(2)} (${_paidMethod}) — Mesa ${order.tableId ?? '?'}`,
-          { orderId, amount: _paidAmount, method: _paidMethod });
-
-        await saveToSupabase('orders', order, String(order.id), _tid());
       }
+
+      const isAdminPayment = fromAdmin === true && isAdminForTenant(tenantId);
+      const cashRegisterAtPayment = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ??
+        (socket as any).activeCashRegisterName ?? (isAdminPayment ? adminCashRegisterName || "ADM" : null);
+      const waiterAtPayment = !cashRegisterAtPayment ? ((socket as any).waiterName ?? null) : null;
+      const payActor = cashRegisterAtPayment || waiterAtPayment || 'Desconhecido';
+      const actualAmountPaid = isPartialOnly ? numericPartialAmount : (partialAmount !== undefined ? numericPartialAmount : selectedItemsTotal);
+      const payment: any = {
+        amount: actualAmountPaid,
+        method: paymentMethod || "Não informado",
+        timestamp: new Date().toISOString(),
+        type: isPartialOnly ? 'partial' : 'items',
+      };
+      if (requestKey) payment.requestId = requestKey;
+      if (payerName && typeof payerName === 'string') payment.payer = payerName.trim();
+      if (cashRegisterAtPayment) payment.cashRegister = cashRegisterAtPayment;
+      if (waiterAtPayment) payment.closedByWaiter = waiterAtPayment;
+      stagedOrder.paymentLog.push(payment);
+
+      const totalPaid = stagedOrder.paymentLog.reduce((acc: number, entry: any) => acc + (Number(entry.amount) || 0), 0);
+      const totalItemsPrice = stagedOrder.items.filter((item: any) => !item.removed).reduce((acc: number, item: any) => acc + getEffectiveItemPrice(item), 0);
+      let finalTotal = totalItemsPrice;
+      if (stagedOrder.discount) {
+        const discountValue = Number(stagedOrder.discount) || 0;
+        finalTotal = stagedOrder.discountType === 'percentage'
+          ? finalTotal * (1 - discountValue / 100)
+          : Math.max(0, finalTotal - discountValue);
+      }
+      const roundedTotalPaid = Math.round(totalPaid * 100) / 100;
+      const roundedFinalTotal = Math.round(finalTotal * 100) / 100;
+      const fullyPaid = roundedTotalPaid >= (roundedFinalTotal - 0.1);
+      const stagedTables: any[] = [];
+      const stagedComandas: any[] = [];
+      const stageEntities = (entities: any[], target: any[], nextStatus: string, release: boolean) => {
+        entities.forEach((entity: any) => {
+          if (entity.currentOrder && String(entity.currentOrder) === String(order.id)) {
+            target.push({
+              ...entity,
+              status: release ? 'free' : nextStatus,
+              currentOrder: release ? null : entity.currentOrder,
+              linkedTo: release ? null : entity.linkedTo,
+              expectedCurrentOrder: entity.currentOrder,
+            });
+          }
+        });
+      };
+      if (fullyPaid) {
+        if (isAdminPayment) {
+          stagedOrder.status = 'finalizada';
+          stageEntities(_st().tables, stagedTables, 'free', true);
+          stageEntities(_st().comandas, stagedComandas, 'free', true);
+        } else {
+          stagedOrder.status = 'aguardando_baixa';
+          stageEntities(_st().tables, stagedTables, 'aguardando_baixa', false);
+          stageEntities(_st().comandas, stagedComandas, 'aguardando_baixa', false);
+        }
+      }
+
+      ensureCurrentCommandSession();
+      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      replaceStagedOrderState(_st(), { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      io.to(_room()).emit("update_orders", _st().orders);
+      io.to(_room()).emit("update_tables", _st().tables);
+      io.to(_room()).emit("update_comandas", _st().comandas);
+      const paidAmount = payment.amount;
+      writeAudit(tenantId, 'payment', payActor,
+        `Pagamento R$ ${Number(paidAmount).toFixed(2)} (${payment.method}) — Mesa ${stagedOrder.tableId ?? '?'}`,
+        { orderId: stagedOrder.id, amount: paidAmount, method: payment.method });
+      if (isAdminPayment && fullyPaid) {
+        stagedTables.forEach((table: any) => invalidateClientSession(tenantId, table.id, false));
+        stagedComandas.forEach((comanda: any) => invalidateClientSession(tenantId, comanda.id, true));
+      }
+      return makeAck(tenantId, { ok: true, orderId: String(stagedOrder.id), status: stagedOrder.status });
     });
 
     onTenantCommand("link_tables", requireAdmin(async ({ sourceTableId, targetTableId, isComanda }) => {
@@ -3469,43 +3545,52 @@ async function startServer() {
     }));
 
     onTenantCommand("confirm_baixa", async ({ orderId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order || order.status !== "aguardando_baixa") return;
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => {
+        socket.emit('error_message', message);
+        return makeAck(tenantId, { code, message, orderId: orderId ? String(orderId) : undefined, ...extra });
+      };
+      const order = _st().orders.find((candidate: any) => String(candidate.id) === String(orderId));
+      if (!order) {
+        socket.emit('update_orders', _st().orders);
+        socket.emit('update_tables', _st().tables);
+        socket.emit('update_comandas', _st().comandas);
+        return fail('ORDER_NOT_FOUND', 'Pedido não encontrado; o snapshot atualizado foi enviado.');
+      }
+      if (order.status !== "aguardando_baixa") {
+        if (order.status === 'finalizada' || order.status === 'paid') {
+          return makeAck(tenantId, { ok: true, orderId: String(order.id), status: order.status, alreadyApplied: true });
+        }
+        return fail('ORDER_NOT_AWAITING_BAIXA', 'Pedido não está aguardando baixa.', { status: order.status });
+      }
 
-      order.status = "finalizada";
+      const stagedOrder = JSON.parse(JSON.stringify(order));
+      stagedOrder.status = "finalizada";
       const cashRegisterAtClose = Object.entries(_st().openCashRegisters).find(([, sid]) => sid === socket.id)?.[0] ?? null;
-      if (cashRegisterAtClose) order.cashRegisterClosedBy = cashRegisterAtClose;
-
-      const entitiesToUpdate: any[] = [];
-      _st().tables.forEach((t: any) => {
-        if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-          t.status = "free";
-          t.currentOrder = null;
-          t.linkedTo = null;
-          entitiesToUpdate.push({ entity: t, collection: 'tables' });
+      if (cashRegisterAtClose) stagedOrder.cashRegisterClosedBy = cashRegisterAtClose;
+      const stagedTables: any[] = [];
+      const stagedComandas: any[] = [];
+      _st().tables.forEach((table: any) => {
+        if (table.currentOrder && String(table.currentOrder) === String(order.id)) {
+          stagedTables.push({ ...table, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: table.currentOrder });
         }
       });
-      _st().comandas.forEach((c: any) => {
-        if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-          c.status = "free";
-          c.currentOrder = null;
-          c.linkedTo = null;
-          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
+      _st().comandas.forEach((comanda: any) => {
+        if (comanda.currentOrder && String(comanda.currentOrder) === String(order.id)) {
+          stagedComandas.push({ ...comanda, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: comanda.currentOrder });
         }
       });
-
+      ensureCurrentCommandSession();
+      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      replaceStagedOrderState(_st(), { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       io.to(_room()).emit("update_orders", _st().orders);
       io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-
-      await saveToSupabase('orders', order, String(order.id), _tid());
-      for (const item of entitiesToUpdate) {
-        await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
-      }
-      // Invalidar sessão do cliente ao dar baixa
-      _st().tables.forEach((t: any) => { if (String(t.currentOrder) === String(orderId) || (order.tableId && t.id === order.tableId)) invalidateClientSession(_tid(), t.id, false); });
-      _st().comandas.forEach((c: any) => { if (String(c.currentOrder) === String(orderId) || (order.isComanda && c.id === order.tableId)) invalidateClientSession(_tid(), c.id, true); });
-      console.log(`Baixa confirmada para pedido ${orderId}`);
+      io.to(_room()).emit("update_comandas", _st().comandas);
+      stagedTables.forEach((table: any) => invalidateClientSession(tenantId, table.id, false));
+      stagedComandas.forEach((comanda: any) => invalidateClientSession(tenantId, comanda.id, true));
+      return makeAck(tenantId, { ok: true, orderId: String(stagedOrder.id), status: stagedOrder.status });
     });
 
     onTenantCommand("update_order_status", async ({ orderId, status }) => {
@@ -3517,38 +3602,70 @@ async function startServer() {
       }
     });
 
-    onTenantCommand("force_release_table", requireAdmin(async ({ orderId }) => {
-      const order = _st().orders.find((o: any) => String(o.id) === String(orderId));
-      if (!order || order.status === 'finalizada' || order.status === 'paid') return;
-
-      order.status = 'finalizada';
-      (order as any).forceReleased = true;
-
-      const entitiesToUpdate: any[] = [];
-      _st().tables.forEach((t: any) => {
-        if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
-          t.status = 'free'; t.currentOrder = null; t.linkedTo = null;
-          entitiesToUpdate.push({ entity: t, collection: 'tables' });
+    onTenantCommand("force_release_table", requireAdmin(async ({ orderId, tableId, isComanda }) => {
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const fail = (code: string, message: string, extra: Record<string, unknown> = {}) => {
+        socket.emit('error_message', message);
+        return makeAck(tenantId, { code, message, orderId: orderId ? String(orderId) : undefined, ...extra });
+      };
+      const normalizedOrderId = String(orderId || '').trim();
+      if (!normalizedOrderId) return fail('ORDER_ID_REQUIRED', 'Pedido obrigatório.');
+      const st = _st();
+      const order = st.orders.find((candidate: any) => String(candidate.id) === normalizedOrderId);
+      if (!order) {
+        // A missing order may only clear an explicitly supplied link that still
+        // points to the requested ID. Never infer a table from a stale ID.
+        const targetList = isComanda ? st.comandas : st.tables;
+        const target = tableId !== undefined && tableId !== null
+          ? targetList.find((candidate: any) => String(candidate.id) === String(tableId) && String(candidate.currentOrder || '') === normalizedOrderId)
+          : null;
+        if (!target) {
+          socket.emit('update_orders', st.orders);
+          socket.emit('update_tables', st.tables);
+          socket.emit('update_comandas', st.comandas);
+          return fail('ORDER_NOT_FOUND', 'Pedido não encontrado; nenhuma mesa foi inferida ou liberada.');
         }
-      });
-      _st().comandas.forEach((c: any) => {
-        if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
-          c.status = 'free'; c.currentOrder = null; c.linkedTo = null;
-          entitiesToUpdate.push({ entity: c, collection: 'comandas' });
-        }
-      });
-
-      io.to(_room()).emit('update_orders', _st().orders);
-      io.to(_room()).emit('update_tables', _st().tables);
-      io.to(_room()).emit('update_comandas', _st().comandas);
-
-      await saveToSupabase('orders', order, String(order.id), _tid());
-      for (const item of entitiesToUpdate) {
-        await saveToSupabase(item.collection, item.entity, String(item.entity.id), _tid());
+        const repaired = { ...target, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: target.currentOrder };
+        await commitCriticalOrderState({ tenantId, order: null, tables: isComanda ? [] : [repaired], comandas: isComanda ? [repaired] : [] });
+        replaceStagedOrderState(st, { tables: isComanda ? [] : [repaired], comandas: isComanda ? [repaired] : [] });
+        io.to(_room()).emit('update_tables', st.tables);
+        io.to(_room()).emit('update_comandas', st.comandas);
+        return makeAck(tenantId, { ok: true, orderId: normalizedOrderId, alreadyApplied: true });
       }
-      writeAudit(_tid(), 'force_release' as any, 'ADM',
-        `Mesa liberada à força — Pedido ${orderId}`, { orderId });
-      console.log(`[force_release_table] pedido ${orderId} finalizado e mesa liberada`);
+
+      const alreadyFinal = order.status === 'finalizada' || order.status === 'paid';
+      const stagedOrder = JSON.parse(JSON.stringify(order));
+      if (!alreadyFinal) {
+        stagedOrder.status = 'finalizada';
+        stagedOrder.forceReleased = true;
+      }
+      const stagedTables: any[] = [];
+      const stagedComandas: any[] = [];
+      st.tables.forEach((table: any) => {
+        if (table.currentOrder && String(table.currentOrder) === normalizedOrderId) {
+          stagedTables.push({ ...table, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: table.currentOrder });
+        }
+      });
+      st.comandas.forEach((comanda: any) => {
+        if (comanda.currentOrder && String(comanda.currentOrder) === normalizedOrderId) {
+          stagedComandas.push({ ...comanda, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: comanda.currentOrder });
+        }
+      });
+      if (alreadyFinal && stagedTables.length === 0 && stagedComandas.length === 0) {
+        return makeAck(tenantId, { ok: true, orderId: normalizedOrderId, status: order.status, alreadyApplied: true });
+      }
+      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      replaceStagedOrderState(st, { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      io.to(_room()).emit('update_orders', st.orders);
+      io.to(_room()).emit('update_tables', st.tables);
+      io.to(_room()).emit('update_comandas', st.comandas);
+      if (!alreadyFinal) {
+        writeAudit(tenantId, 'force_release' as any, 'ADM',
+          `Mesa liberada à força — Pedido ${normalizedOrderId}`, { orderId: normalizedOrderId });
+      }
+      return makeAck(tenantId, { ok: true, orderId: normalizedOrderId, status: stagedOrder.status, alreadyApplied: alreadyFinal });
     }));
 
     onTenantCommand("request_bill", async ({ tableId, isComanda }) => {
@@ -6026,41 +6143,58 @@ async function startServer() {
     const orderId: string = String(req.body?.orderId || '').trim();
     if (!tenantId || !orderId) return res.status(400).json({ error: 'tenantId e orderId obrigatórios' });
     if (!await requireAdminHttp(req, res, [tenantId])) return;
-    const st = getState(tenantId);
-    const order = st.orders.find((o: any) => String(o.id) === orderId);
-    if (!order) return res.status(404).json({ error: 'Pedido não encontrado' });
-    if (order.status === 'finalizada' || order.status === 'paid') return res.json({ ok: true, message: 'Pedido já finalizado' });
-    order.status = 'finalizada';
-    (order as any).forceReleased = true;
-    const entitiesToUpdate: any[] = [];
-    st.tables = st.tables.map((t: any) => {
-      if (t.currentOrder && String(t.currentOrder) === orderId) {
-        const freed = { ...t, status: 'free', currentOrder: null, linkedTo: null };
-        entitiesToUpdate.push({ entity: freed, collection: 'tables' });
-        return freed;
-      }
-      return t;
-    });
-    st.comandas = st.comandas.map((c: any) => {
-      if (c.currentOrder && String(c.currentOrder) === orderId) {
-        const freed = { ...c, status: 'free', currentOrder: null, linkedTo: null };
-        entitiesToUpdate.push({ entity: freed, collection: 'comandas' });
-        return freed;
-      }
-      return c;
-    });
-    io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
-    io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
-    io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
-    if (db) {
-      saveToSupabase('orders', order, orderId, tenantId).catch(() => {});
-      for (const item of entitiesToUpdate) {
-        saveToSupabase(item.collection, item.entity, String(item.entity.id), tenantId).catch(() => {});
-      }
+    try {
+      const result = await withTenantCommand(tenantId, async () => {
+        await loadTenantIfNeeded(tenantId);
+        const st = getState(tenantId);
+        const order = st.orders.find((candidate: any) => String(candidate.id) === orderId);
+        if (!order) {
+          const targetList = req.body?.isComanda ? st.comandas : st.tables;
+          const target = req.body?.tableId !== undefined && req.body?.tableId !== null
+            ? targetList.find((candidate: any) => String(candidate.id) === String(req.body.tableId) && String(candidate.currentOrder || '') === orderId)
+            : null;
+          if (!target) {
+            return { ok: false, code: 'ORDER_NOT_FOUND', message: 'Pedido não encontrado; nenhuma mesa foi inferida ou liberada.', tenantId, orderId };
+          }
+          const repaired = { ...target, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: target.currentOrder };
+          await commitCriticalOrderState({ tenantId, order: null, tables: req.body?.isComanda ? [] : [repaired], comandas: req.body?.isComanda ? [repaired] : [] });
+          replaceStagedOrderState(st, { tables: req.body?.isComanda ? [] : [repaired], comandas: req.body?.isComanda ? [repaired] : [] });
+          io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
+          io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+          return { ok: true, tenantId, orderId, alreadyApplied: true, freed: 1 };
+        }
+        const alreadyFinal = order.status === 'finalizada' || order.status === 'paid';
+        const stagedOrder = JSON.parse(JSON.stringify(order));
+        if (!alreadyFinal) {
+          stagedOrder.status = 'finalizada';
+          stagedOrder.forceReleased = true;
+        }
+        const stagedTables = st.tables
+          .filter((table: any) => table.currentOrder && String(table.currentOrder) === orderId)
+          .map((table: any) => ({ ...table, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: table.currentOrder }));
+        const stagedComandas = st.comandas
+          .filter((comanda: any) => comanda.currentOrder && String(comanda.currentOrder) === orderId)
+          .map((comanda: any) => ({ ...comanda, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: comanda.currentOrder }));
+        if (alreadyFinal && stagedTables.length === 0 && stagedComandas.length === 0) {
+          return { ok: true, tenantId, orderId, status: order.status, alreadyApplied: true, freed: 0 };
+        }
+        await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+        replaceStagedOrderState(st, { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+        io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
+        io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
+        io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+        if (!alreadyFinal) {
+          writeAudit(tenantId, 'force_release' as any, 'ADM',
+            `Mesa liberada à força (HTTP) — Pedido ${orderId}`, { orderId });
+        }
+        return { ok: true, tenantId, orderId, status: stagedOrder.status, alreadyApplied: alreadyFinal, freed: stagedTables.length + stagedComandas.length };
+      });
+      if (!result.ok) return res.status(result.code === 'ORDER_NOT_FOUND' ? 404 : 409).json(result);
+      return res.json(result);
+    } catch (error: any) {
+      const commandError = error instanceof OrderCommandError ? error : new OrderCommandError('ORDER_STATE_COMMIT_FAILED', 'Não foi possível liberar a mesa com segurança.', 503);
+      return res.status(commandError.status || 503).json({ ok: false, code: commandError.code, message: commandError.message, tenantId, orderId });
     }
-    writeAudit(tenantId, 'force_release' as any, 'ADM',
-      `Mesa liberada à força (HTTP) — Pedido ${orderId}`, { orderId });
-    res.json({ ok: true, freed: entitiesToUpdate.length });
   });
 
   // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
