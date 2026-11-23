@@ -741,35 +741,12 @@ async function startServer() {
         }));
         io.to(room).emit('update_menu', st.menu);
       } else {
-        const isNewTenant = tenantId !== _TMPL && tenantId !== 'default';
-        let seededFromTemplate = false;
-        if (isNewTenant) {
-          const { data: tplMenu } = await db.from('menu').select('*').eq('tenant_id', _TMPL).order('position');
-          if (tplMenu?.length) {
-            const seedRows = tplMenu.map((row: any, idx: number) => ({
-              ...row,
-              id: `${tenantId}:${row.name}`,
-              tenant_id: tenantId,
-              position: idx,
-            }));
-            await db.from('menu').upsert(seedRows);
-            st.menu = seedRows.map((row: any) => ({
-              ...row,
-              type: row.type || typeMap[row.name] || (row.name.toLowerCase().includes('pizza') ? 'pizzas' : row.name.toLowerCase().includes('bebida') ? 'bebidas' : 'lanches'),
-              visible: row.visible !== false,
-              items: fixItems(row.items || []),
-              subcategories: (row.subcategories || []).map((sub: any) => ({ ...sub, items: fixItems(sub.items || []) })),
-            }));
-            seededFromTemplate = true;
-            console.log(`[supabase][${tenantId}] Menu semeado a partir do tenant-modelo (${tplMenu.length} categorias)`);
-          }
-        }
-        if (!seededFromTemplate) {
-          await db.from('menu').upsert(
-            st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
-          );
-          console.log(`[supabase][${tenantId}] Menu inicial semeado (padrão)`);
-        }
+        // Novo tenant sem cardápio: semeia o cardápio padrão mínimo.
+        // NÃO copia do tenant-modelo — cada estabelecimento tem seus próprios produtos.
+        await db.from('menu').upsert(
+          st.menu.map((cat: any, idx: number) => ({ id: `${tenantId}:${cat.name}`, name: cat.name, position: idx, type: cat.type, items: cat.items || [], subcategories: cat.subcategories || [], tenant_id: tenantId }))
+        );
+        console.log(`[supabase][${tenantId}] Menu inicial semeado (padrão)`);
         io.to(room).emit('update_menu', st.menu);
       }
 
