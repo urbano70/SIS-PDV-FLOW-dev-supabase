@@ -1,0 +1,37 @@
+{
+  "shiftStartedAt": "2026-11-23T23:30:00.000Z",
+  "createdAt": "2026-11-24T02:15:00.000Z",
+  "cashRegisterName": "Caixa 01",
+  "orders": [
+    {
+      "timestamp": "2026-11-23T23:10:00.000Z",
+      "status": "finalizada",
+      "items": [{"name": "Pedido anterior", "type": "lanches", "price": 99, "quantity": 1}],
+      "paymentLog": [{"amount": 99, "method": "Dinheiro"}]
+    },
+    {
+      "timestamp": "2026-11-24T00:15:00.000Z",
+      "status": "finalizada",
+      "discount": 3,
+      "discountType": "value",
+      "items": [
+        {"name": "Pizza Grande com nome muito longo para quebrar na largura térmica", "type": "pizzas", "price": 30, "quantity": 1},
+        {"name": "Suco de Limão", "type": "bebidas", "price": 20, "quantity": 2, "discount": 10, "discountType": "percentage"}
+      ],
+      "paymentLog": [
+        {"amount": 20, "method": "Dinheiro", "enteredAmount": 19},
+        {"amount": 27, "method": "cartao_credito", "cardBrand": "Visa"}
+      ],
+      "partialPayments": [{"amount": 999, "method": "Dinheiro"}]
+    }
+  ],
+  "reportDataAdditions": {
+    "openingFund": 100,
+    "cashMovements": [
+      {"type": "Abertura", "amount": 100, "timestamp": "2026-11-23T23:30:00.000Z"},
+      {"type": "Suprimento", "amount": 50, "timestamp": "2026-11-24T00:30:00.000Z", "note": "Troco"},
+      {"type": "Sangria", "amount": 20, "timestamp": "2026-11-24T01:30:00.000Z"}
+    ],
+    "vouchers": [{"name": "Maria", "date": "2026-11-24T01:00:00.000Z", "total": 12}]
+  }
+}

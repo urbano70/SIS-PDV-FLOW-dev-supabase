@@ -18,12 +18,18 @@ import { LATEST_PR } from '../version';
 import { useFirebase } from './FirebaseProvider';
 import { TesteDeForgo } from './TesteDeForgo';
 import { getPizzaKitchenDetails } from '../lib/pizzaKitchenDetails';
+import { getDrinkProductionDetails } from '../lib/drinkPrintDetails';
 import { adminFetch, downloadAdminFile, fetchWithAdminAuth } from '../lib/admin-http';
 import PlaygroundAdminCard from './PlaygroundAdminCard';
 import PlaygroundOperatorAccessCard from './PlaygroundOperatorAccessCard';
 import PlaygroundReport from './PlaygroundReport';
 import KitchenItemStatusBadge from './KitchenItemStatusBadge';
 import { formatPlaygroundMoney, isPlaygroundItem as isManagedPlaygroundItem } from '../lib/playgroundClient';
+import {
+  buildCashRegisterReportEscPos,
+  renderCashRegisterReportHtml,
+  summarizeCashRegisterOrders,
+} from '../lib/cashRegisterReport';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -339,8 +345,20 @@ function buildEscPosKitchenTicket(
       wordWrap('Borda: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
-    if (item.observations) {
-      wordWrap('OBS: ' + item.observations.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+    const drinkDetails = item.type === 'bebidas' ? getDrinkProductionDetails(item) : null;
+    if (drinkDetails?.lines.length) {
+      // Keep every selected drink option bold, then explicitly turn it off
+      // before the ordinary observation and the next item.
+      push(0x1B, 0x45, 0x01);
+      drinkDetails.lines.forEach(detail => {
+        wordWrap(detail.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+      });
+      push(0x1B, 0x45, 0x00);
+    }
+
+    const observation = drinkDetails?.remainingObservation ?? item.observations;
+    if (observation) {
+      wordWrap('OBS: ' + observation.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
     if (item.adicionais?.length > 0) {
@@ -365,6 +383,12 @@ function buildEscPosKitchenTicket(
 
   return b;
 }
+
+const DashboardShortcutBadge = ({ shortcut }: { shortcut: string }) => (
+  <kbd className="inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-md border border-[#141414]/20 bg-white px-1 py-0.5 font-mono text-[10px] font-bold leading-none tracking-wide text-[#141414] shadow-sm group-disabled:opacity-60">
+    {shortcut}
+  </kbd>
+);
 
 // Separate component for Order Details to avoid Hook issues and improve readability
 const OrderDetails = ({
@@ -521,11 +545,11 @@ const OrderDetails = ({
                   }
                   setIsAddItemModalOpen(true);
                 }}
-                className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity flex items-center gap-1"
+                className="group flex items-center gap-1 rounded-md text-[#141414] transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1"
                 title="Adicionar Pedido (ADM) — F2"
               >
-                <PlusCircle size={20} />
-                <kbd className="text-[8px] font-mono bg-gray-100 px-1 rounded opacity-70 normal-case">F2</kbd>
+                <PlusCircle size={20} className="opacity-40 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                <DashboardShortcutBadge shortcut="F2" />
               </button>
             </div>
             {waiter && (
@@ -847,6 +871,59 @@ export default function Dashboard({
     return () => { socket.off('init_data', flushPendingOps); };
   }, []);
 
+  const [menuDragSource, setMenuDragSource] = useState<{
+    itemId: string;
+    categoryName: string;
+    subcategoryId: string | null;
+  } | null>(null);
+  const [menuDropTarget, setMenuDropTarget] = useState<string | null>(null);
+  const menuDropKey = (categoryName: string, subcategoryId?: string | null): string =>
+    `${categoryName}::${subcategoryId || '__root__'}`;
+  const handleMenuDragStart = (event: React.DragEvent, item: MenuItem, categoryName: string, subcategoryId?: string) => {
+    if (isManagedPlaygroundItem(item)) {
+      event.preventDefault();
+      return;
+    }
+    const source = { itemId: String(item.id), categoryName, subcategoryId: subcategoryId || null };
+    setMenuDragSource(source);
+    setMenuDropTarget(null);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', source.itemId);
+  };
+  const handleMenuDragEnd = () => {
+    setMenuDragSource(null);
+    setMenuDropTarget(null);
+  };
+  const handleMenuDrop = (event: React.DragEvent, categoryName: string, subcategoryId?: string) => {
+    event.preventDefault();
+    const itemId = menuDragSource?.itemId || event.dataTransfer.getData('text/plain');
+    const source = menuDragSource;
+    setMenuDropTarget(null);
+    if (!itemId || !source) return;
+    if (!canMutate()) {
+      setMenuDragSource(null);
+      toast.error('Sem conexão com o servidor; o catálogo não foi alterado.');
+      return;
+    }
+    const targetSubcategoryId = subcategoryId || null;
+    if (source.categoryName === categoryName && source.subcategoryId === targetSubcategoryId) {
+      setMenuDragSource(null);
+      return;
+    }
+    socket.timeout(10000).emit('move_menu_item', {
+      itemId,
+      targetCategoryName: categoryName,
+      targetSubcategoryId,
+    }, (timeoutError: any, ack: any) => {
+      if (timeoutError) {
+        toast.error('O servidor não confirmou o movimento; o catálogo não foi alterado nesta tela.');
+      } else if (ack?.ok) {
+        toast.success('Produto movido e catálogo sincronizado.');
+      }
+      // Em erro, o servidor também envia error_message e não há estado otimista.
+    });
+    setMenuDragSource(null);
+  };
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
   const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode, isCashRegisterOpen);
@@ -1274,6 +1351,9 @@ export default function Dashboard({
   const [xmlLoteAno, setXmlLoteAno] = useState(() => String(new Date().getFullYear()));
   const [xmlLoteMes, setXmlLoteMes] = useState(() => String(new Date().getMonth() + 1));
   const [xmlLoteLoading, setXmlLoteLoading] = useState(false);
+  const [xmlContadorEmail, setXmlContadorEmail] = useState('');
+  const [xmlEmailLoading, setXmlEmailLoading] = useState(false);
+  const [xmlEmailResult, setXmlEmailResult] = useState<{ recipient: string; missing: number } | null>(null);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -1413,8 +1493,6 @@ export default function Dashboard({
       setSeedSteps(prev => [...prev, 'Aplicando cardápio padrão do plano...']);
       const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
       socket.emit('bulk_import', { menu: seedMenu });
-      localStorage.removeItem('plan_menu_seeded');
-      localStorage.setItem('plan_menu_seeded', '1');
 
       setSeedSteps(prev => [...prev, 'Concluído!']);
       setIsSeedComplete(true);
@@ -1476,20 +1554,6 @@ export default function Dashboard({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, pizzariaConfig.numTables, tables.length]);
-
-  // Seed default menu once when menu is empty
-  useEffect(() => {
-    const seedKey = 'plan_menu_seeded';
-    if (localStorage.getItem(seedKey)) return;
-    if (menu.length > 0) {
-      localStorage.setItem(seedKey, '1');
-      return;
-    }
-    const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
-    socket.emit('bulk_import', { menu: seedMenu });
-    localStorage.setItem(seedKey, '1');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, menu.length, pizzariaConfig.enabled]);
 
   const handleTestPrinter = (printerName: string) => {
     if (!printerName || printerName === 'none') {
@@ -1914,10 +1978,16 @@ export default function Dashboard({
                 ).join('')
               : '')
             : (item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : '');
+          const drinkDetails = item.type === 'bebidas' ? getDrinkProductionDetails(item) : null;
+          const drinkDetailsHtml = drinkDetails?.lines.length
+            ? drinkDetails.lines.map(detail => `<div style="font-size:${_obsFs};font-weight:bold">${detail.toUpperCase()}</div>`).join('')
+            : '';
+          const observation = drinkDetails?.remainingObservation ?? item.observations;
           return `
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
           ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
-          ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+          ${drinkDetailsHtml}
+          ${observation ? `<div class="observation">OBS: ${observation.toUpperCase()}</div>` : ''}
           ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}</div>`).join('') : ''}
         `;
         }).join(`<div class="sep"></div>`);
@@ -2093,301 +2163,39 @@ export default function Dashboard({
     const printer = receiptPrinterName
       ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
       : null;
-
-    const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
-    const lineLen = is50mm ? 32 : 48;
-    const b: number[] = [];
-    const push = (...bytes: number[]) => b.push(...bytes);
-    const lf = () => push(0x0A);
-    const text = (s: string) => push(...escStr(s));
-    const ln  = () => { text('-'.repeat(lineLen)); lf(); };
-    const dln = () => { text('='.repeat(lineLen)); lf(); };
-    const center = () => push(0x1B, 0x61, 0x01);
-    const left   = () => push(0x1B, 0x61, 0x00);
-    const right  = () => push(0x1B, 0x61, 0x02);
-    const bold   = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
-    const dbl    = (on: boolean) => push(0x1D, 0x21, on ? 0x11 : 0x00);
-
-    const fmtMoney = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
-    const fmtDate  = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const colRow   = (left2: string, right2: string) => {
-      const sp = Math.max(1, lineLen - left2.length - right2.length);
-      text(left2 + ' '.repeat(sp) + right2); lf();
-    };
-    const col3Row  = (c1: string, c2: string, c3: string, w1: number) => {
-      const rem = lineLen - w1;
-      const w2 = Math.floor(rem / 2);
-      const w3 = rem - w2;
-      const p1 = c1.substring(0, w1).padEnd(w1);
-      const p2 = c2.substring(0, w2).padStart(w2);
-      const p3 = c3.substring(0, w3).padStart(w3);
-      text(p1 + p2 + p3); lf();
-    };
-
-    // Coleta dados do turno
-    const shiftOrders = orders.filter((o: any) => {
-      if (!shiftStartedAt) return true;
-      return new Date(o.timestamp) >= new Date(shiftStartedAt);
+    const paperWidth = printerConfig.paperWidth === '50mm' ? '50mm' : '80mm';
+    const registerName = activeCashRegisterName || pendingCloseRegisterName || null;
+    const categoryNames = Object.fromEntries((menu || []).map((category: any) => [category.type, category.name]));
+    const createdAt = new Date().toISOString();
+    const reportData = summarizeCashRegisterOrders(orders as any, {
+      shiftStartedAt: shiftStartedAt || null,
+      cashRegisterName: registerName,
+      categoryNames,
     });
-    const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
-
-    // Verifica se já existem pagamentos com cashRegister atribuído (feature nova)
-    const hasAttributedPayments = finishedOrders.some((o: any) =>
-      (o.paymentLog || []).some((p: any) => p.cashRegister)
-    );
-    // Filtra por caixa apenas quando há dados de atribuição e um caixa identificado
-    const useCaixaFilter = registerName !== '-' && hasAttributedPayments;
-
-    const caixaPayments = useCaixaFilter
-      ? finishedOrders.flatMap((o: any) =>
-          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.cashRegister === registerName)
-        )
-      : finishedOrders.flatMap((o: any) => (o.paymentLog || o.partialPayments || []));
-
-    // Pagamentos de garçons sem caixa atribuído (exibidos como informação separada)
-    const waiterPayments = useCaixaFilter
-      ? finishedOrders.flatMap((o: any) =>
-          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.closedByWaiter && !p.cashRegister)
-        )
-      : [];
-
-    // Pedidos com pelo menos um pagamento deste caixa (para itens/categorias)
-    const caixaOrders = useCaixaFilter
-      ? finishedOrders.filter((o: any) =>
-          (o.paymentLog || []).some((p: any) => p.cashRegister === registerName)
-        )
-      : finishedOrders;
-
-    // Totais por método de pagamento (deste caixa)
-    const methodTotals: Record<string, number> = {};
-    caixaPayments.forEach((p: any) => {
-      const m = (p.method || 'Outros').trim();
-      methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
-    });
-
-    // Totais de garçons (informativo)
-    const waiterMethodTotals: Record<string, number> = {};
-    waiterPayments.forEach((p: any) => {
-      const m = (p.method || 'Outros').trim();
-      waiterMethodTotals[m] = (waiterMethodTotals[m] || 0) + (p.amount || 0);
-    });
-
-    // Totais por produto (pedidos deste caixa)
-    const productTotals: Record<string, { qty: number; total: number }> = {};
-    caixaOrders.forEach((o: any) => {
-      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
-        const k = i.name || 'Item';
-        if (!productTotals[k]) productTotals[k] = { qty: 0, total: 0 };
-        const q = i.quantity || 1;
-        productTotals[k].qty   += q;
-        productTotals[k].total += i.price || 0;
-      });
-    });
-
-    // Totais por categoria (pedidos deste caixa)
-    const categoryTotals: Record<string, { qty: number; total: number }> = {};
-    caixaOrders.forEach((o: any) => {
-      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
-        const cat = (i.type || 'outros').toUpperCase();
-        if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
-        categoryTotals[cat].qty   += i.quantity || 1;
-        categoryTotals[cat].total += i.price || 0;
-      });
-    });
-
-    const totalBruto = Object.values(productTotals).reduce((s, v) => s + v.total, 0);
-    const totalDesc  = caixaOrders.reduce((s: number, o: any) => {
-      const disc = o.discount ? (o.discountType === 'percentage' ? totalBruto * o.discount / 100 : o.discount) : 0;
-      return s + disc;
-    }, 0);
-    const totalLiq   = totalBruto - totalDesc;
-    const totalPaid  = Object.values(methodTotals).reduce((s, v) => s + v, 0);
-    const totalWaiterPaid = Object.values(waiterMethodTotals).reduce((s, v) => s + v, 0);
-
-    const now = new Date();
-    const registerName = activeCashRegisterName || pendingCloseRegisterName || '-';
-
-    // ── Helpers de layout ───────────────────────────────────────────────
-    // Título de seção: "===== TITULO =====" centralizado
-    const secTitle = (t: string) => {
-      const inner = ` ${t} `;
-      const sides = Math.floor((lineLen - inner.length) / 2);
-      const eqR = '='.repeat(Math.max(0, lineLen - sides - inner.length));
-      text('='.repeat(Math.max(0, sides)) + inner + eqR); lf();
+    const reportInput = {
+      type: 'close' as const,
+      cashRegisterName: registerName,
+      shiftStartedAt: shiftStartedAt || null,
+      createdAt,
+      reportData,
     };
-    // 2 colunas: label esquerda, valor direita
-    const col2 = (label: string, value: string) => {
-      const sp = Math.max(1, lineLen - label.length - value.length);
-      text(label + ' '.repeat(sp) + value); lf();
-    };
-    // 3 colunas: nome | qtde | total (colunas 2 e 3 alinhadas à direita)
-    const w1 = is50mm ? 14 : 24;
-    const w2 = is50mm ? 6  : 8;
-    const w3 = lineLen - w1 - w2;
-    const col3 = (c1: string, c2: string, c3: string) => {
-      text(c1.substring(0, w1).padEnd(w1) + c2.substring(0, w2).padStart(w2) + c3.padStart(w3)); lf();
-    };
-    // Linha de pagamento: nome à esquerda, valor à direita (12 chars)
-    const payRow = (label: string, value: string) => {
-      const vLen = Math.min(12, lineLen - 2);
-      text(label.substring(0, lineLen - vLen - 1).padEnd(lineLen - vLen) + value.padStart(vLen)); lf();
-    };
-
-    // ── Montar o documento ESC/POS ──────────────────────────────────────
-    push(0x1B, 0x40); // init
-    push(0x1B, 0x74, 0x02); // CP437
-
-    // Cabeçalho
-    center();
-    dbl(true); bold(true); text('RELATORIO DE CAIXA'); lf(); dbl(false); bold(false);
-    lf();
-    left();
-    text(`Cx: ${registerName}`); lf();
-    col2('Abertura:', fmtDate(new Date(shiftStartedAt)));
-    col2('Fechamento:', fmtDate(now));
-    col2('Fundo de Caixa:', fmtMoney(0));
-    dln();
-
-    // Formas de pagamento
-    secTitle('PAGAMENTOS');
-    bold(true); payRow('Meio de Pagamento', 'Total'); bold(false);
-    ln();
-    const payEntries = Object.entries(methodTotals).sort((a, b) => b[1] - a[1]);
-    if (payEntries.length === 0) {
-      text('Nenhum pagamento registrado.'); lf();
-    } else {
-      payEntries.forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
-    }
-    ln();
-    bold(true); payRow('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ',')); bold(false);
-    lf();
-
-    // Pagamentos de garçons (informativo, apenas no modo multi-caixa)
-    if (waiterPayments.length > 0) {
-      secTitle('PAGAMENTOS GARCONS');
-      bold(true); payRow('Metodo', 'Total'); bold(false);
-      ln();
-      Object.entries(waiterMethodTotals).sort((a, b) => b[1] - a[1]).forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
-      ln();
-      bold(true); payRow('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ',')); bold(false);
-      lf();
-    }
-
-    // Itens vendidos
-    secTitle('ITENS VENDIDOS');
-    bold(true); col3('Produto', 'Qtde', 'Total'); bold(false);
-    ln();
-    if (Object.keys(productTotals).length === 0) {
-      text('Nenhum item vendido.'); lf();
-    } else {
-      Object.entries(productTotals).sort((a, b) => b[1].total - a[1].total).forEach(([name, v]) => {
-        const qtyStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        col3(name, qtyStr, v.total.toFixed(2).replace('.', ','));
-      });
-    }
-    ln();
-    bold(true);
-    col2('TOTAL VENDIDO BRUTO:', fmtMoney(totalBruto));
-    if (totalDesc > 0) col2('Descontos:', `-${fmtMoney(totalDesc)}`);
-    col2('TOTAL VENDIDO LIQUIDO:', fmtMoney(totalLiq));
-    bold(false);
-    lf();
-
-    // Categorias
-    if (Object.keys(categoryTotals).length > 0) {
-      secTitle('CATEGORIAS');
-      bold(true); col3('Categoria', 'Qtde', 'Total'); bold(false);
-      ln();
-      Object.entries(categoryTotals).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
-        const qStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        col3(cat, qStr, v.total.toFixed(2).replace('.', ','));
-      });
-      ln();
-      bold(true); col2('TOTAL CLASSES:', fmtMoney(totalLiq)); bold(false);
-      lf();
-    }
-
-    // Rodapé
-    dln();
-    bold(true); col2('TOTAL VALES:', fmtMoney(0)); bold(false);
-    lf();
-    text(`Usuario: ${registerName}`); lf();
-    if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); left(); lf(); }
-    push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
-
+    const ticket = buildCashRegisterReportEscPos(reportInput, paperWidth);
     if (printer) {
-      if (printer.ip) {
-        emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
-      } else {
-        emitPrint({ localName: printer.name, data: b });
-      }
+      const data = Array.from(ticket);
+      if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
+      else emitPrint({ localName: printer.name, data });
       toast.success('Relatório de caixa enviado para impressão');
-    } else {
-      // Fallback: janela de impressão do navegador
-      const fmtDateFb = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const sep = '='.repeat(42);
-      const dash = '-'.repeat(42);
-      const rows: string[] = [];
-      const add = (s = '') => rows.push(s);
-      const fb2 = (l: string, r: string) => add(l.padEnd(42 - r.length) + r);
-      const fb3 = (c1: string, c2: string, c3: string) => add(c1.padEnd(24) + c2.padStart(8) + c3.padStart(10));
-      const fbPay = (l: string, r: string) => add(l.padEnd(30) + r.padStart(12));
-      add('         RELATORIO DE CAIXA');
-      add('');
-      add(`Cx: ${registerName}`);
-      fb2('Abertura:', fmtDateFb(new Date(shiftStartedAt)));
-      fb2('Fechamento:', fmtDateFb(now));
-      fb2('Fundo de Caixa:', 'R$ 0,00');
-      add(sep);
-      add('===== PAGAMENTOS =====');
-      fbPay('Meio de Pagamento', 'Total');
-      add(dash);
-      payEntries.forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
-      add(dash);
-      fbPay('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ','));
-      add('');
-      if (waiterPayments.length > 0) {
-        add('===== PAGAMENTOS GARCONS =====');
-        fbPay('Metodo', 'Total');
-        add(dash);
-        Object.entries(waiterMethodTotals).sort((a,b)=>b[1]-a[1]).forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
-        add(dash);
-        fbPay('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ','));
-        add('');
-      }
-      add('===== ITENS VENDIDOS =====');
-      fb3('Produto', 'Qtde', 'Total');
-      add(dash);
-      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n, v]) => {
-        const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        fb3(n, q, v.total.toFixed(2).replace('.', ','));
-      });
-      add(dash);
-      fb2('TOTAL VENDIDO BRUTO:', `R$ ${totalBruto.toFixed(2)}`);
-      if (totalDesc > 0) fb2('Descontos:', `-R$ ${totalDesc.toFixed(2)}`);
-      fb2('TOTAL VENDIDO LIQUIDO:', `R$ ${totalLiq.toFixed(2)}`);
-      add('');
-      if (Object.keys(categoryTotals).length > 0) {
-        add('===== CATEGORIAS =====');
-        fb3('Categoria', 'Qtde', 'Total');
-        add(dash);
-        Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat, v]) => {
-          const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-          fb3(cat, q, v.total.toFixed(2).replace('.', ','));
-        });
-        add(dash);
-        fb2('TOTAL CLASSES:', `R$ ${totalLiq.toFixed(2)}`);
-        add('');
-      }
-      add(sep);
-      fb2('TOTAL VALES:', 'R$ 0,00');
-      add(`Usuario: ${registerName}`);
-      const pw = window.open('', '_blank');
-      if (pw) {
-        pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
-        pw.document.close();
-      }
+      return;
     }
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('Não foi possível abrir a janela de impressão. Permita pop-ups para o relatório.');
+      return;
+    }
+    const html = renderCashRegisterReportHtml(reportInput, paperWidth)
+      .replace('</body>', '<script>window.onload=()=>{window.print();window.close()}<\/script></body>');
+    popup.document.write(html);
+    popup.document.close();
   };
 
   const emitPrint = (payload: { ip?: string; port?: number; localName?: string; data: number[] }) => {
@@ -4007,7 +3815,7 @@ export default function Dashboard({
                     }
                   }}
                   disabled={!detailHasItems}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
+                  className={`group flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1 ${
                     detailHasItems
                       ? 'bg-blue-50 hover:bg-blue-100 text-blue-700'
                       : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
@@ -4015,7 +3823,7 @@ export default function Dashboard({
                 >
                   <Printer size={11} />
                   Resumo
-                  <kbd className="ml-0.5 text-[8px] font-mono opacity-60 normal-case">F4</kbd>
+                  <DashboardShortcutBadge shortcut="F4" />
                 </button>
                 <button
                   onClick={() => detailHasItems && setIsTransferModalOpen(true)}
@@ -4046,7 +3854,7 @@ export default function Dashboard({
                       detailHasItems && detailPendingAmount >= 0.01 && setIsPaymentModalOpen(true);
                     }}
                     disabled={detailCurrentItem?.status !== 'linked' && (!detailHasItems || detailPendingAmount < 0.01)}
-                    className={`px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm transition-colors flex items-center gap-1 ${
+                    className={`group px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm transition-colors flex items-center gap-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1 ${
                       detailCurrentItem?.status === 'linked' || (detailHasItems && detailPendingAmount >= 0.01)
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -4054,7 +3862,7 @@ export default function Dashboard({
                   >
                     <Wallet size={11} />
                     <span>Pagar</span>
-                    <kbd className="ml-0.5 text-[8px] font-mono opacity-70 normal-case">F8</kbd>
+                    <DashboardShortcutBadge shortcut="F8" />
                   </button>
                 )}
                 {detailAllItemsRemoved && (
@@ -5034,7 +4842,14 @@ export default function Dashboard({
                 {menu.map(category => {
                   const totalItems = category.items.length + (category.subcategories || []).reduce((sum, s) => sum + s.items.length, 0);
                   const renderItemRow = (item: MenuItem, catName: string, subId?: string) => (
-                    <div key={item.id} className={`px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors ${(item as any).visible === false ? 'opacity-40' : ''}`}>
+                    <div
+                      key={item.id}
+                      draggable={!isManagedPlaygroundItem(item)}
+                      onDragStart={(event) => handleMenuDragStart(event, item, catName, subId)}
+                      onDragEnd={handleMenuDragEnd}
+                      title={isManagedPlaygroundItem(item) ? 'Produto reservado do Modo Parquinho' : 'Arraste para outra categoria ou subcategoria'}
+                      className={`px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors ${!isManagedPlaygroundItem(item) ? 'cursor-grab active:cursor-grabbing' : ''} ${(item as any).visible === false ? 'opacity-40' : ''}`}
+                    >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-base">{item.name}</p>
@@ -5092,7 +4907,17 @@ export default function Dashboard({
                   return (
                     <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                       {/* Category header */}
-                      <div className="bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
+                      <div
+                        onDragOver={(event) => {
+                          if (!menuDragSource) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setMenuDropTarget(menuDropKey(category.name));
+                        }}
+                        onDragLeave={() => setMenuDropTarget(null)}
+                        onDrop={(event) => handleMenuDrop(event, category.name)}
+                        className={`bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3 transition-all ${menuDropTarget === menuDropKey(category.name) ? 'ring-4 ring-inset ring-amber-300 bg-[#252525]' : ''}`}
+                      >
                         <div className="flex items-center gap-4">
                           {editingCategory?.oldName === category.name ? (
                             <div className="flex flex-col gap-2">
@@ -5182,7 +5007,17 @@ export default function Dashboard({
                       {(category.subcategories || []).map(sub => (
                         <div key={sub.id} className="border-b border-[#141414]/5 last:border-b-0">
                           {/* Subcategory header */}
-                          <div className="px-8 py-3 bg-[#141414]/[0.06] border-b border-[#141414]/10 flex items-center justify-between flex-wrap gap-2">
+                          <div
+                            onDragOver={(event) => {
+                              if (!menuDragSource) return;
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = 'move';
+                              setMenuDropTarget(menuDropKey(category.name, sub.id));
+                            }}
+                            onDragLeave={() => setMenuDropTarget(null)}
+                            onDrop={(event) => handleMenuDrop(event, category.name, sub.id)}
+                            className={`px-8 py-3 bg-[#141414]/[0.06] border-b border-[#141414]/10 flex items-center justify-between flex-wrap gap-2 transition-all ${menuDropTarget === menuDropKey(category.name, sub.id) ? 'ring-4 ring-inset ring-amber-300 bg-amber-50' : ''}`}
+                          >
                             <div className="flex items-center gap-3">
                               {editingSubcategory?.subcategoryId === sub.id ? (
                                 <div className="flex items-center gap-2">
@@ -6408,99 +6243,31 @@ export default function Dashboard({
                                 const printReport = () => {
                                   const pc: any = (() => { try { return JSON.parse(localStorage.getItem('printerConfig') || '{}'); } catch { return {}; } })();
                                   const printer = (pc.registeredPrinters || []).find((p: any) => p.name === pc.receipts);
-                                  const is50 = pc.paperWidth === '50mm';
-                                  const LL = is50 ? 32 : 48;
-                                  const ESC = 0x1b; const GS = 0x1d;
-                                  const by: number[] = [];
-                                  const pu = (...a: number[]) => a.forEach(x => by.push(x));
-                                  const lf = () => pu(0x0a);
-                                  const eS = (s: string) => { const r: number[] = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); r.push(c < 128 ? c : (c===231?135:c===199?199:c===227?227:c===195?195:c===245?245:c===213?213:c===233?130:c===201?201:c===225?160:c===193?193:c===237?161:c===205?205:c===243?162:c===211?211:c===250?163:c===218?218:c===252?129:c===220?154:c===226?131:c===234?136:c===244?147:63)); } return r; };
-                                  const tx = (s: string) => { pu(...eS(s)); lf(); };
-                                  const ln = () => tx('-'.repeat(LL));
-                                  const dln = () => tx('='.repeat(LL));
-                                  const aln = (a: 0|1|2) => pu(ESC, 0x61, a);
-                                  const bold = (on: boolean) => pu(ESC, 0x45, on ? 1 : 0);
-                                  const dbl = (on: boolean) => pu(GS, 0x21, on ? 0x11 : 0x00);
-                                  const fmtM = (v: number) => `R$ ${(v||0).toFixed(2).replace('.', ',')}`;
-                                  const fmtDT2 = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
-                                  const col2 = (l: string, r: string) => { tx(l + ' '.repeat(Math.max(1, LL-l.length-r.length)) + r); };
-                                  const secT = (t: string) => { const inner=` ${t} `; const s=Math.floor((LL-inner.length)/2); tx('='.repeat(Math.max(0,s))+inner+'='.repeat(Math.max(0,LL-s-inner.length))); };
-                                  const w1r = is50 ? 14 : 24; const w2r = is50 ? 6 : 8; const w3r = LL-w1r-w2r;
-                                  const col3 = (c1: string, c2: string, c3: string) => tx(c1.substring(0,w1r).padEnd(w1r)+c2.substring(0,w2r).padStart(w2r)+c3.padStart(w3r));
-                                  const payR = (l: string, r: string) => { const vL=Math.min(12,LL-2); tx(l.substring(0,LL-vL-1).padEnd(LL-vL)+r.padStart(vL)); };
-
-                                  pu(ESC, 0x40); pu(ESC, 0x74, 2);
-                                  // Cabeçalho
-                                  aln(1); dbl(true); bold(true); tx('RELATORIO DE CAIXA'); dbl(false); bold(false);
-                                  lf(); aln(0);
-                                  tx(`Cx: ${report.cash_register_name || '-'}`);
-                                  col2('Abertura:', fmtDT2(report.shift_started_at));
-                                  col2('Fechamento:', fmtDT2(report.created_at));
-                                  col2('Fundo de Caixa:', fmtM(0));
-                                  dln();
-                                  // Pagamentos
-                                  secT('PAGAMENTOS');
-                                  bold(true); payR('Meio de Pagamento', 'Total'); bold(false);
-                                  ln();
-                                  const payE = Object.entries(methodTotals).sort((a,b)=>b[1]-a[1]);
-                                  if (payE.length === 0) { tx('Nenhum pagamento.'); } else { payE.forEach(([m,v])=>payR(m,(v as number).toFixed(2).replace('.',','))); }
-                                  ln(); bold(true); payR('TOTAL RECEBIDO:', (rd.totalPaid||0).toFixed(2).replace('.',',')); bold(false); lf();
-                                  // Itens
-                                  if (isClose && Object.keys(productTotals).length > 0) {
-                                    secT('ITENS VENDIDOS');
-                                    bold(true); col3('Produto','Qtde','Total'); bold(false); ln();
-                                    Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{
-                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
-                                      col3(n,q,v.total.toFixed(2).replace('.',','));
-                                    });
-                                    ln();
-                                    bold(true); col2('TOTAL VENDIDO BRUTO:', fmtM(rd.totalPaid||0)); bold(false); lf();
-                                  }
-                                  // Categorias
-                                  if (isClose && Object.keys(categoryTotals).length > 0) {
-                                    secT('CATEGORIAS');
-                                    bold(true); col3('Categoria','Qtde','Total'); bold(false); ln();
-                                    Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{
-                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
-                                      col3(cat,q,v.total.toFixed(2).replace('.',','));
-                                    });
-                                    ln(); bold(true); col2('TOTAL CLASSES:', fmtM(rd.totalPaid||0)); bold(false); lf();
-                                  }
-                                  // Rodapé
-                                  dln(); bold(true); col2('TOTAL VALES:', fmtM(0)); bold(false);
-                                  lf(); tx(`Usuario: ${report.cash_register_name || '-'}`);
-                                  pu(0x0a,0x0a,0x0a,GS,0x56,0x41,0x10);
-
+                                  const paperWidth = pc.paperWidth === '50mm' ? '50mm' : '80mm';
+                                  const reportInput = {
+                                    type: isClose ? 'close' as const : 'open' as const,
+                                    cashRegisterName: report.cash_register_name || null,
+                                    shiftStartedAt: report.shift_started_at || null,
+                                    createdAt: report.created_at || null,
+                                    reportData: rd,
+                                  };
+                                  const ticket = buildCashRegisterReportEscPos(reportInput, paperWidth);
                                   if (printer) {
-                                    if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port||9100, data: by });
-                                    else emitPrint({ localName: printer.name, data: by });
-                                  } else {
-                                    const sep='='.repeat(42); const dash='-'.repeat(42);
-                                    const rows: string[]=[]; const add=(s='')=>rows.push(s);
-                                    const fb2=(l:string,r:string)=>add(l.padEnd(42-r.length)+r);
-                                    const fb3=(c1:string,c2:string,c3:string)=>add(c1.padEnd(24)+c2.padStart(8)+c3.padStart(10));
-                                    const fbP=(l:string,r:string)=>add(l.padEnd(30)+r.padStart(12));
-                                    add('         RELATORIO DE CAIXA'); add('');
-                                    add(`Cx: ${report.cash_register_name||'-'}`);
-                                    fb2('Abertura:', fmtDT2(report.shift_started_at));
-                                    fb2('Fechamento:', fmtDT2(report.created_at));
-                                    fb2('Fundo de Caixa:', 'R$ 0,00'); add(sep);
-                                    add('===== PAGAMENTOS ====='); fbP('Meio de Pagamento','Total'); add(dash);
-                                    payE.forEach(([m,v])=>fbP(m,(v as number).toFixed(2).replace('.',',')));
-                                    add(dash); fbP('TOTAL RECEBIDO:',(rd.totalPaid||0).toFixed(2).replace('.',',')); add('');
-                                    if (isClose && Object.keys(productTotals).length>0) {
-                                      add('===== ITENS VENDIDOS ====='); fb3('Produto','Qtde','Total'); add(dash);
-                                      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(n,q,v.total.toFixed(2).replace('.',','));});
-                                      add(dash); fb2('TOTAL VENDIDO BRUTO:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
-                                    }
-                                    if (isClose && Object.keys(categoryTotals).length>0) {
-                                      add('===== CATEGORIAS ====='); fb3('Categoria','Qtde','Total'); add(dash);
-                                      Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(cat,q,v.total.toFixed(2).replace('.',','));});
-                                      add(dash); fb2('TOTAL CLASSES:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
-                                    }
-                                    add(sep); fb2('TOTAL VALES:','R$ 0,00'); add(`Usuario: ${report.cash_register_name||'-'}`);
-                                    const pw=window.open('','_blank'); if(pw){pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);pw.document.close();}
+                                    const data = Array.from(ticket);
+                                    if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
+                                    else emitPrint({ localName: printer.name, data });
+                                    toast.success('Relatório de caixa enviado para impressão');
+                                    return;
                                   }
+                                  const popup = window.open('', '_blank');
+                                  if (!popup) {
+                                    toast.error('Não foi possível abrir a janela de impressão. Permita pop-ups para o relatório.');
+                                    return;
+                                  }
+                                  const html = renderCashRegisterReportHtml(reportInput, paperWidth)
+                                    .replace('</body>', '<script>window.onload=()=>{window.print();window.close()}<\/script></body>');
+                                  popup.document.write(html);
+                                  popup.document.close();
                                 };
 
                                 return (
@@ -8121,6 +7888,54 @@ export default function Dashboard({
                       <Download size={14} />
                       {xmlLoteLoading ? 'Gerando...' : 'Baixar ZIP'}
                     </button>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-[#141414]/10">
+                    <label className="text-xs font-semibold uppercase text-[#141414]/40 block mb-1">Enviar ao contador</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="email"
+                        value={xmlContadorEmail}
+                        onChange={e => { setXmlContadorEmail(e.target.value); setXmlEmailResult(null); }}
+                        placeholder="contador@empresa.com.br"
+                        maxLength={254}
+                        className="flex-1 border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414]/30"
+                        aria-label="E-mail do contador"
+                      />
+                      <button
+                        type="button"
+                        disabled={xmlEmailLoading || !xmlContadorEmail.trim()}
+                        onClick={async () => {
+                          const recipient = xmlContadorEmail.trim().toLowerCase();
+                          if (!/^([^\s@<>(),;:\\"']+)@([^\s@<>(),;:\"']+)\.[^\s@<>(),;:\"']+$/.test(recipient)) {
+                            toast.error('Informe um e-mail de contador válido.');
+                            return;
+                          }
+                          setXmlEmailLoading(true);
+                          setXmlEmailResult(null);
+                          try {
+                            const { data, error } = await supabase.functions.invoke('fiscal-xml-email', {
+                              body: { year: Number(xmlLoteAno), month: Number(xmlLoteMes), recipient },
+                            });
+                            if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Envio não configurado.');
+                            setXmlEmailResult({ recipient: data.recipient, missing: Number(data.missing || 0) });
+                            toast.success('ZIP enviado ao contador.', { description: data.missing ? 'O manifesto informa registros sem XML.' : undefined });
+                          } catch (e: any) {
+                            toast.error(e.message || 'Não foi possível enviar o ZIP.');
+                          } finally {
+                            setXmlEmailLoading(false);
+                          }
+                        }}
+                        className="px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-sm font-bold uppercase transition-colors disabled:opacity-40 whitespace-nowrap"
+                      >{xmlEmailLoading ? 'Enviando...' : 'Enviar ZIP'}</button>
+                    </div>
+                    <p className="text-[11px] text-[#141414]/45 mt-2 leading-relaxed">
+                      O envio só acontece ao clicar. O servidor valida sua sessão, deriva a conta autenticada e gera o ZIP a partir dos XMLs desse estabelecimento; nenhum anexo enviado pelo navegador é aceito.
+                    </p>
+                    {xmlEmailResult && (
+                      <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mt-2">
+                        Enviado para {xmlEmailResult.recipient}{xmlEmailResult.missing ? ` · ${xmlEmailResult.missing} registro(s) sem XML no manifesto` : ''}.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

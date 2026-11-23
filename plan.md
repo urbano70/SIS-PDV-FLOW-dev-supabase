@@ -43,3 +43,21 @@ O usuário enviou pasted_content_2.txt durante a implementação, em 16/11/2026,
 Fonte oficial no servidor: validar papéis/tenant/item, persistir antes de confirmar/broadcast, serializar entrega/preparo com a fila de comandos. Garçom aprovado confirma entrega, com responsável e timestamp, uma única vez. Ready não é delivered; eventos tardios não retrocedem entregue nem etapas concluídas. Com KDS off, não exigir preparo; quando on, usar somente os itens/transições das filas existentes (pizzas e lanches, forno apenas pizzas). Parquinho/bebidas e demais itens sem fila não ficam obrigados a essas etapas. Não alterar preço, pagamentos, mesa ou cobranças por efeito da entrega.
 
 Helper src/lib/kitchenStatus.ts compartilha elegibilidade, etapas/rótulos e validações; KitchenItemStatusBadge apresenta Na fila, Em preparo, No forno, Pronto — retirar e Entregue/responsável/horário por item. UI espera ACK e nunca apresenta sucesso desconectada. Antes de publicar, avisar que a limpeza de teste está habilitada e o deploy poderá apagar os lançamentos da conta allowlisted; nenhum reset adicional.
+
+## Melhorias solicitadas em 23/11/2026
+
+Trabalhar sobre a main atual do repositório, preservando mudanças posteriores ao Parquinho e o trabalho anterior ainda não integrado. Reutilizar a arquitetura, Supabase, Socket.IO, impressão e identidade visual existentes. Não criar outra aplicação nem alterar hospedagem.
+
+Investigar a mistura de produtos seguindo identificação de estabelecimento, carga inicial, seeds/defaults, persistência e cache. A conta modelo urbano70@gmail.com não deve sincronizar continuamente seu catálogo para outras contas. Uma cópia inicial explícita é diferente de misturar catálogos em cada deploy. Preservar itens cadastrados e não excluir dados reais na investigação.
+
+Aumentar a legibilidade dos indicadores de atalhos no Dashboard sem trocar as teclas ou ações. No painel da conta, manter somente Premium selecionável até nova instrução, sem criar cobrança/assinatura ou migrar dados de usuários por conta própria.
+
+Permitir arrastar produtos entre categorias/subcategorias com persistência por estabelecimento e propagação imediata ao ADM/garçons. Não modificar pedidos históricos, preços, estoque, identidade do item ou o produto reservado do Parquinho fora das regras existentes. Rejeitar alterações sem conexão e preservar dados se a gravação falhar.
+
+Exportação mensal fiscal fundamentada em SEFAZ-MT/Portal NF-e: incluir XMLs e eventos aplicáveis, sem fabricar protocolos ou confundir XML com DANFE. Reutilizar autenticação e filtro mensal; permitir download e inserção do e-mail do contador para envio explicitamente acionado pelo usuário. Usar mecanismo de envio suportado via Supabase, informar dependência de provedor/configuração e não usar e-mail de autenticação para anexos fiscais. Não enviar e-mails reais nem emitir/cancelar notas nos testes.
+
+Reproduzir grupos/campos do PDF RELATORIOCAIXA.pdf em relatório térmico Bematech 80 mm. Usar dados do relatório atual e sinalizar campos indisponíveis, sem inventar valores ou mudar a conciliação. Via de bebidas: copos/gelo/limão em lista, cada informação em uma linha e em negrito; Junto com pedido imediatamente abaixo, também em negrito. Preservar produto/quantidade, pizzas e recibos de cliente.
+
+### Organização do trabalho
+
+Cada melhoria será desenvolvida em uma worktree independente da mesma main, com patch e testes próprios. Uma integração reunirá os patches em src/components/src/pages, helpers src/lib e handlers existentes, mantendo autenticação, persistência e tipagem. Recursos fiscais adicionais ficarão em supabase/functions/migrations se necessários e com instruções explícitas de implantação. Não fazer merge que acione deploy antes de apresentar pendências Supabase/fiscais e avisar sobre a limpeza de teste existente.

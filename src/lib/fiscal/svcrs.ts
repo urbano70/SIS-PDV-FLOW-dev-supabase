@@ -132,7 +132,7 @@ export async function emitirNFeSvcRs(
 export async function cancelarNFeSvcRs(
   chaveAcesso: string, protocolo: string, motivo: string,
   ambiente: AmbienteFiscal, cert: CertificadoCarregado,
-): Promise<{ cStat: string; xMotivo: string }> {
+): Promise<{ cStat: string; xMotivo: string; nProt: string; dhRegEvento: string; dhEvento: string; xmlEvento: string }> {
   const url = getSvcRsEndpoint(ambiente, 'recepcaoEvento');
   const tpAmb = TP_AMB[ambiente];
   const dhEvento = new Date(Date.now() - 4 * 3600 * 1000).toISOString().split('.')[0] + '-04:00';
@@ -141,7 +141,7 @@ export async function cancelarNFeSvcRs(
   const envelope = montarEnvelopeEvento(eventoAssinado);
 
   const { body } = await soapCall(url, envelope, cert, 15_000);
-  const { cStat, xMotivo } = extrairResultadoEvento(body);
+  const { cStat, xMotivo, nProt, dhRegEvento } = extrairResultadoEvento(body);
 
   if (cStat === '501') {
     throw new Error('Fora do prazo — NF-e só pode ser cancelada em até 24 horas após a autorização.');
@@ -149,7 +149,7 @@ export async function cancelarNFeSvcRs(
   if (cStat !== '135' && cStat !== '155') {
     throw new Error(`Cancelamento NF-e SVC-RS rejeitado: ${cStat} — ${xMotivo}`);
   }
-  return { cStat, xMotivo };
+  return { cStat, xMotivo, nProt, dhRegEvento, dhEvento, xmlEvento: eventoAssinado };
 }
 
 function pad(v: string | number, len: number): string {
