@@ -1418,7 +1418,7 @@ async function startServer() {
       if (JSON.stringify(releasedCashRegisters) !== JSON.stringify(stDis.openCashRegisters)) {
         stDis.openCashRegisters = releasedCashRegisters;
         saveToSupabase('config', cashRegisterConfigPatch(stDis), 'app', tenantId).catch(() => {});
-        io.to(tenantId).emit('update_open_cash_register_names', getOpenCashRegisterNames(releasedCashRegisters));
+        io.to('tenant:' + tenantId).emit('update_open_cash_register_names', getOpenCashRegisterNames(releasedCashRegisters));
       }
       if (USE_POSTGRES) saveLocalBackup(getState('default'));
     });
