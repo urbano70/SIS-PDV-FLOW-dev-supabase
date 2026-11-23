@@ -521,10 +521,11 @@ const OrderDetails = ({
                   }
                   setIsAddItemModalOpen(true);
                 }}
-                className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity"
-                title="Adicionar Pedido (ADM)"
+                className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity flex items-center gap-1"
+                title="Adicionar Pedido (ADM) — F2"
               >
                 <PlusCircle size={20} />
+                <kbd className="text-[8px] font-mono bg-gray-100 px-1 rounded opacity-70 normal-case">F2</kbd>
               </button>
             </div>
             {waiter && (
@@ -3910,18 +3911,18 @@ export default function Dashboard({
               <div className="flex items-center space-x-2 shrink-0">
                 <button
                   onClick={() => setTopBarGuestModeActive(v => !v)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
                     topBarGuestModeActive ? 'bg-indigo-600 text-white' : 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
                   }`}
                   title="Modo Convidados"
                 >
-                  <Users size={11} />
+                  <Users size={12} />
                   {topBarGuestModeActive ? 'Convidados ✓' : 'Convidados'}
                 </button>
                 <button
                   onClick={() => detailHasItems && setIsLinkModalOpen(true)}
                   disabled={!detailHasItems}
-                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                  className={`px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
                     detailHasItems
                       ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
                       : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
@@ -4006,19 +4007,20 @@ export default function Dashboard({
                     }
                   }}
                   disabled={!detailHasItems}
-                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
                     detailHasItems
                       ? 'bg-blue-50 hover:bg-blue-100 text-blue-700'
                       : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
                   }`}
                 >
-                  <Printer size={10} className="inline mr-1" />
+                  <Printer size={11} />
                   Resumo
+                  <kbd className="ml-0.5 text-[8px] font-mono opacity-60 normal-case">F4</kbd>
                 </button>
                 <button
                   onClick={() => detailHasItems && setIsTransferModalOpen(true)}
                   disabled={!detailHasItems}
-                  className={`px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase transition-colors ${
+                  className={`px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
                     detailHasItems
                       ? 'bg-gray-100 hover:bg-gray-200 text-[#141414]'
                       : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
@@ -4029,9 +4031,9 @@ export default function Dashboard({
                 {detailActiveOrder?.status === 'aguardando_baixa' ? (
                   <button
                     onClick={() => setIsBaixaModalOpen(true)}
-                    className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center space-x-1 animate-pulse"
+                    className="px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center space-x-1 animate-pulse"
                   >
-                    <CheckCircle size={10} />
+                    <CheckCircle size={11} />
                     <span>Dar Baixa</span>
                   </button>
                 ) : (
@@ -4044,14 +4046,15 @@ export default function Dashboard({
                       detailHasItems && detailPendingAmount >= 0.01 && setIsPaymentModalOpen(true);
                     }}
                     disabled={detailCurrentItem?.status !== 'linked' && (!detailHasItems || detailPendingAmount < 0.01)}
-                    className={`px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm transition-colors flex items-center space-x-1 ${
+                    className={`px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm transition-colors flex items-center gap-1 ${
                       detailCurrentItem?.status === 'linked' || (detailHasItems && detailPendingAmount >= 0.01)
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    <Wallet size={10} />
+                    <Wallet size={11} />
                     <span>Pagar</span>
+                    <kbd className="ml-0.5 text-[8px] font-mono opacity-70 normal-case">F8</kbd>
                   </button>
                 )}
                 {detailAllItemsRemoved && (
@@ -4063,7 +4066,7 @@ export default function Dashboard({
                         toast.success('Mesa liberada!');
                       }, 300);
                     }}
-                    className="px-3 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
+                    className="px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
                   >
                     <span>Liberar Mesa</span>
                   </button>
@@ -4075,7 +4078,7 @@ export default function Dashboard({
                       socket.emit('force_release_table', { orderId: String(detailActiveOrder.id) });
                       toast.success('Mesa liberada à força!');
                     }}
-                    className="px-2 py-1 rounded-lg font-sans not-italic font-bold text-[9px] uppercase shadow-sm bg-orange-600 hover:bg-orange-700 text-white flex items-center space-x-1"
+                    className="px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-orange-600 hover:bg-orange-700 text-white flex items-center space-x-1"
                     title="Libera a mesa descartando o pedido sem pagamento (uso emergencial)"
                   >
                     <span>Forçar Liberação</span>
