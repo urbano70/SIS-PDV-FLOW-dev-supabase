@@ -8773,19 +8773,15 @@ export default function Dashboard({
         )}
       </AnimatePresence>
 
-      {(() => {
-        const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-        const activeOrder = orders.find(o => targetId && o.tableId && String(o.tableId) === String(targetId) && !!o.isComanda === !!isComandaSelected && o.status !== 'finalizada');
-        return activeOrder && (
-          <PaymentModal
-            isOpen={isPaymentModalOpen}
-            onClose={() => setIsPaymentModalOpen(false)}
-            order={activeOrder}
-            onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName) => handlePaymentComplete(activeOrder.id, selectedItems, partialAmount, paymentMethod, payerName)}
-            onApplyDiscount={handleApplyDiscount}
-          />
-        );
-      })()}
+      {detailActiveOrder && (
+        <PaymentModal
+          isOpen={isPaymentModalOpen}
+          onClose={() => setIsPaymentModalOpen(false)}
+          order={detailActiveOrder}
+          onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName) => handlePaymentComplete(detailActiveOrder.id, selectedItems, partialAmount, paymentMethod, payerName)}
+          onApplyDiscount={handleApplyDiscount}
+        />
+      )}
 
       {/* Link Tables Modal */}
       <AnimatePresence>
