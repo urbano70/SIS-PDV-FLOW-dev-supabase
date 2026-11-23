@@ -154,7 +154,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       localStorage.setItem('printerConfig', JSON.stringify(updated));
       return updated;
     });
-  }, [pizzariaConfig?.establishmentName, pizzariaConfig?.logoUrl]);
+  }, [pizzariaConfig?.establishmentName, pizzariaConfig?.logoUrl, printerConfig.establishmentName, printerConfig.logoUrl]);
 
   // Persiste printerConfig no localStorage sempre que mudar (garante que alterações feitas no
   // Dashboard não se percam ao recarregar ou atualizar o sistema)
