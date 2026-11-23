@@ -79,8 +79,11 @@ import {
   fiscalExportZipName,
   selectMonthlyFiscalExport,
   fiscalMonthWindow,
-  FISCAL_EXPORT_MAX_RECORDS,
 } from "./src/lib/fiscal/xml-export.ts";
+import {
+  FiscalExportPaginationLimitError,
+  readTenantRows,
+} from "./src/lib/fiscal/pagination.ts";
 // Tipos legados mantidos apenas para compatibilidade de campos salvos no banco
 type FiscalConfig = any;
 
@@ -5509,30 +5512,64 @@ async function startServer() {
     try { window = fiscalMonthWindow(anoN, mesN); }
     catch (error: any) { return res.status(400).json({ error: error.message }); }
 
-    const pageSize = 500;
-    const notes: any[] = [];
-    for (let offset = 0; offset < FISCAL_EXPORT_MAX_RECORDS; offset += pageSize) {
-      const { data, error } = await db.from('fiscal_notes')
-        .select('id,chave_acesso,xml_assinado,xml_proc_nfe,modelo,ambiente,status,autorizado_em,dh_recbto,created_at')
-        .eq('tenant_id', tenant)
-        .order('created_at', { ascending: true })
-        .range(offset, Math.min(offset + pageSize - 1, FISCAL_EXPORT_MAX_RECORDS - 1));
-      if (error) return res.status(500).json({ error: 'Não foi possível ler os documentos fiscais do tenant.' });
-      notes.push(...(data || []));
-      if (!data || data.length < pageSize) break;
+    let notes: any[];
+    try {
+      notes = await readTenantRows({
+        resource: 'fiscal_notes',
+        fetchPage: async (from, to) => {
+          const { data, error } = await db.from('fiscal_notes')
+            .select('id,chave_acesso,xml_assinado,xml_proc_nfe,modelo,ambiente,status,autorizado_em,created_at')
+            .eq('tenant_id', tenant)
+            .order('created_at', { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        },
+        hasAdditionalRow: async (offset) => {
+          const { data, error } = await db.from('fiscal_notes')
+            .select('id')
+            .eq('tenant_id', tenant)
+            .order('created_at', { ascending: true })
+            .range(offset, offset);
+          if (error) throw error;
+          return Boolean(data?.length);
+        },
+      });
+    } catch (error) {
+      if (error instanceof FiscalExportPaginationLimitError)
+        return res.status(413).json({ error: error.message });
+      return res.status(500).json({ error: 'Não foi possível ler os documentos fiscais do tenant.' });
     }
 
-    const events: any[] = [];
-    for (let offset = 0; offset < FISCAL_EXPORT_MAX_RECORDS; offset += pageSize) {
-      const { data, error } = await db.from('fiscal_note_events')
-        .select('id,fiscal_note_id,chave_acesso,tp_evento,status,protocolo,dh_evento,xml_evento,created_at')
-        .eq('tenant_id', tenant)
-        .or(`and(dh_evento.gte.${window.start.toISOString()},dh_evento.lt.${window.end.toISOString()}),and(dh_evento.is.null,created_at.gte.${window.start.toISOString()},created_at.lt.${window.end.toISOString()})`)
-        .order('dh_evento', { ascending: true })
-        .range(offset, Math.min(offset + pageSize - 1, FISCAL_EXPORT_MAX_RECORDS - 1));
-      if (error) return res.status(503).json({ error: 'Migração fiscal de eventos pendente; aplique 20261123_fiscal_xml_export.sql.' });
-      events.push(...(data || []));
-      if (!data || data.length < pageSize) break;
+    let events: any[];
+    try {
+      events = await readTenantRows({
+        resource: 'fiscal_note_events',
+        fetchPage: async (from, to) => {
+          const { data, error } = await db.from('fiscal_note_events')
+            .select('id,fiscal_note_id,chave_acesso,tp_evento,status,protocolo,dh_evento,xml_evento,created_at')
+            .eq('tenant_id', tenant)
+            .or(`and(dh_evento.gte.${window.start.toISOString()},dh_evento.lt.${window.end.toISOString()}),and(dh_evento.is.null,created_at.gte.${window.start.toISOString()},created_at.lt.${window.end.toISOString()})`)
+            .order('dh_evento', { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data || [];
+        },
+        hasAdditionalRow: async (offset) => {
+          const { data, error } = await db.from('fiscal_note_events')
+            .select('id')
+            .eq('tenant_id', tenant)
+            .or(`and(dh_evento.gte.${window.start.toISOString()},dh_evento.lt.${window.end.toISOString()}),and(dh_evento.is.null,created_at.gte.${window.start.toISOString()},created_at.lt.${window.end.toISOString()})`)
+            .order('dh_evento', { ascending: true })
+            .range(offset, offset);
+          if (error) throw error;
+          return Boolean(data?.length);
+        },
+      });
+    } catch (error) {
+      if (error instanceof FiscalExportPaginationLimitError)
+        return res.status(413).json({ error: error.message });
+      return res.status(503).json({ error: 'Migração fiscal de eventos pendente; aplique 20261123_fiscal_xml_export.sql.' });
     }
 
     const selection = selectMonthlyFiscalExport(notes, events, anoN, mesN);

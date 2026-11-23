@@ -1,6 +1,6 @@
 # FechaConta PDV — implantação das melhorias de 23/11/2026
 
-O código está preparado em uma branch de revisão. Ainda não é a versão publicada no Easypanel. Não integrar na main antes de confirmar os scripts do Supabase e as dependências abaixo. O usuário confirmou que utiliza somente lançamentos de teste.
+O código está preparado no PR #503 para o merge solicitado. O usuário confirmou em 23/11 que executou os dois scripts do Supabase sem erros e aceitou a limpeza dos pedidos e do histórico de teste neste deploy. Às 17:26, decidiu configurar o envio de e-mail depois, autorizando publicar as melhorias e o download do ZIP com envio pendente. Essas confirmações não precisam ser repetidas. A publicação do PDV no Easypanel deve ser confirmada após o merge.
 
 ## O que foi corrigido
 
@@ -25,17 +25,17 @@ O Supabase executa a função fiscal-xml-email; o envio de anexos usa Resend con
 ## Antes de publicar
 
 1. Faça backup/exportação do projeto Supabase. Evite novos lançamentos ou alterações de cadastro durante a aplicação dos scripts e a atualização. Não use scripts que atribuam dados desconhecidos à conta modelo.
-2. No SQL Editor do projeto correto, execute primeiro [a migração do catálogo](../supabase/migrations/20261123_menu_catalog_tenant_keys.sql). Ela preserva linhas e aborta se houver tenant ausente, pares duplicados, chave customizada, índice único global extra ou dependência de chave estrangeira. Se falhar, pare e envie a mensagem do erro; não remova bloqueios por conta própria.
-3. Execute depois [a migração fiscal](../supabase/migrations/20261123_fiscal_xml_export.sql), que adiciona a data oficial e a tabela de eventos com RLS restrita ao serviço. Não é necessário emitir ou cancelar uma nota para executá-la.
-4. Confirme a conclusão dos dois scripts antes do merge. Sem eles, a nova movimentação de produtos e os recursos fiscais dependentes podem falhar.
-5. Para ativar o envio, publique supabase/functions/fiscal-xml-email/index.ts no Supabase e configure RESEND_API_KEY e RESEND_FROM nos secrets da função, nunca no frontend. O remetente precisa estar autorizado em domínio verificado no Resend. Não publique com verificação JWT desligada; a função também usa auth: user. As variáveis padrão de runtime são provisionadas pelo Supabase/CLI.[3] [4]
+2. [Migração do catálogo](../supabase/migrations/20261123_menu_catalog_tenant_keys.sql): execução sem erros confirmada pelo usuário. Não executar novamente nesta implantação.
+3. [Migração fiscal](../supabase/migrations/20261123_fiscal_xml_export.sql): execução sem erros confirmada pelo usuário. A inspeção dos nomes e tipos de colunas confirmou a data oficial e a tabela de eventos no projeto ativo plataforma_fechaconta, sem ler documentos fiscais. Não executar novamente.
+4. Os scripts, a limpeza e a publicação com envio pendente foram autorizados. Não solicitar nova aprovação desses pontos.
+5. A função fiscal-xml-email foi publicada no Supabase em 23/11 às 17:26: versão 1, status ACTIVE e verify_jwt=true. Preflight público respondeu 204 e POST sem autenticação foi rejeitado com 401; não foram consultadas notas. Para ativar o envio depois, configure RESEND_API_KEY e RESEND_FROM nos secrets da função, nunca no frontend. O remetente precisa estar autorizado em domínio verificado no Resend. Manter verificação JWT ativa e auth: user.[3] [4]
 6. Apenas após confirmar dependências e avisar sobre os riscos, o merge na main aciona o deploy automático do Easypanel. Manter a configuração previamente confirmada: uma réplica e Zero Downtime desativado. Confirmar a nova versão no servidor e no cliente; PR criado não significa versão publicada.
 
-Sem a configuração do provedor/função, o envio ao contador não estará operacional. O download do ZIP não depende do Resend, mas depende do banco fiscal preparado. Nenhum e-mail real foi enviado nesta implementação.
+O envio ao contador permanece pendente por decisão do usuário, que configurará o serviço depois. O download do ZIP não depende do Resend e o banco fiscal já foi preparado. Nenhuma ativação de acesso ao Resend ocorreu nesta tarefa; nenhuma mensagem real foi enviada. O código foi ajustado à ausência da coluna dh_recbto no banco real e recusa exportações que ultrapassem o limite de leitura de 10.000 registros, sem gerar ou enviar um pacote silenciosamente incompleto.
 
 ## Cuidados com fluxos existentes
 
-A compilação passou. A comparação final encontrou 31 diagnósticos TypeScript preexistentes contra 32 na main de referência, sem novos. Lint continua não limpo; não há garantia de ausência de todo bug legado. O teste antigo da descrição de pizza já falhava na main por divergência de prefixo e não foi alterado. Os testes isolados de bebidas/recibo, caixa, KDS, Parquinho, persistência, sincronização e os casos novos passaram; não houve operação em banco real ou impressora física.
+A compilação passou. A comparação final encontrou 31 diagnósticos TypeScript preexistentes contra 32 na main de referência, sem novos. Lint continua não limpo; não há garantia de ausência de todo bug legado. O teste antigo da descrição de pizza já falhava na main por divergência de prefixo e não foi alterado. Os testes isolados de bebidas/recibo, caixa, KDS, Parquinho, persistência, sincronização e os casos novos passaram. No Supabase real houve somente leitura do esquema; os testes não leram notas, não alteraram registros e não usaram impressora física.
 
 O trabalho anterior de autorização automática do Parquinho permanece separado e não foi aplicado silenciosamente nesta atualização.
 

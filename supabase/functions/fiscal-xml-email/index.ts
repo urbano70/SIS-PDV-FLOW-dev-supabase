@@ -1,10 +1,9 @@
 import { withSupabase } from 'npm:@supabase/server@1'
 import { strToU8, zipSync } from 'npm:fflate@0.8.2'
+import { FiscalExportPaginationLimitError, readTenantRows } from '../../../src/lib/fiscal/pagination.ts'
 
 const MAX_ZIP_BYTES = 28 * 1024 * 1024
 const FISCAL_UTC_OFFSET_HOURS = 4 // Mato Grosso: UTC−4
-const PAGE_SIZE = 500
-const MAX_RECORDS = 10_000
 const EXPORT_STATUSES = new Set([
   'AUTORIZADO',
   'AUTORIZADO_COM_ALERTA',
@@ -68,19 +67,29 @@ function eventDate(row: Record<string, unknown>): string | null {
 }
 
 async function readAll(supabase: any, table: string, columns: string, tenantId: string, orderColumn: string): Promise<any[]> {
-  const rows: any[] = []
-  for (let offset = 0; offset < MAX_RECORDS; offset += PAGE_SIZE) {
-    const result = await supabase
-      .from(table)
-      .select(columns)
-      .eq('tenant_id', tenantId)
-      .order(orderColumn, { ascending: true })
-      .range(offset, Math.min(offset + PAGE_SIZE - 1, MAX_RECORDS - 1))
-    if (result.error) throw new Error(`Falha ao consultar ${table}.`)
-    rows.push(...(result.data || []))
-    if (!result.data || result.data.length < PAGE_SIZE) break
-  }
-  return rows
+  return readTenantRows({
+    resource: table,
+    fetchPage: async (from, to) => {
+      const result = await supabase
+        .from(table)
+        .select(columns)
+        .eq('tenant_id', tenantId)
+        .order(orderColumn, { ascending: true })
+        .range(from, to)
+      if (result.error) throw new Error(`Falha ao consultar ${table}.`)
+      return result.data || []
+    },
+    hasAdditionalRow: async (offset) => {
+      const result = await supabase
+        .from(table)
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .order(orderColumn, { ascending: true })
+        .range(offset, offset)
+      if (result.error) throw new Error(`Falha ao consultar ${table}.`)
+      return Boolean(result.data?.length)
+    },
+  })
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -122,9 +131,10 @@ const handler = async (request: Request, ctx: any): Promise<Response> => {
   let notes: any[]
   let events: any[]
   try {
-    notes = await readAll(ctx.supabaseAdmin, 'fiscal_notes', 'id,chave_acesso,xml_assinado,xml_proc_nfe,modelo,ambiente,status,autorizado_em,dh_recbto,created_at', tenantId, 'created_at')
+    notes = await readAll(ctx.supabaseAdmin, 'fiscal_notes', 'id,chave_acesso,xml_assinado,xml_proc_nfe,modelo,ambiente,status,autorizado_em,created_at', tenantId, 'created_at')
     events = await readAll(ctx.supabaseAdmin, 'fiscal_note_events', 'id,fiscal_note_id,chave_acesso,tp_evento,status,protocolo,dh_evento,xml_evento,created_at', tenantId, 'dh_evento')
   } catch (error: any) {
+    if (error instanceof FiscalExportPaginationLimitError) return json({ error: error.message }, 413)
     return json({ error: 'A migração fiscal de eventos ainda não foi aplicada; nenhum e-mail foi enviado.' }, 503)
   }
 
