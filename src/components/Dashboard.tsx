@@ -3856,7 +3856,7 @@ export default function Dashboard({
             />
             <button
               onClick={() => {
-                if (isCashRegisterOpen) {
+                if (activeCashRegisterName) {
                   toast.warning('O caixa está aberto. Feche o caixa antes de sair.');
                   return;
                 }
