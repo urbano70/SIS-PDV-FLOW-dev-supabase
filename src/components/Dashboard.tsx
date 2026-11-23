@@ -1278,6 +1278,98 @@ export default function Dashboard({
   const [nfceXJust, setNfceXJust] = useState('');
   const [activeCaixas, setActiveCaixas] = useState<string[]>([]);
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // F2 → adicionar item | F4 → imprimir comprovante | F8 → pagamento | Esc → fechar modal
+  const kbDashRef = React.useRef({
+    detailTargetId: null as number | null,
+    isCashRegisterOpen: false,
+    isAddItemModalOpen: false,
+    isPaymentModalOpen: false,
+    isBaixaModalOpen: false,
+    isFlavorModalOpen: false,
+    isQuantityModalOpen: false,
+    isSizeModalOpen: false,
+    isCrustModalOpen: false,
+    isHistoryModalOpen: false,
+    isLinkModalOpen: false,
+    isTransferModalOpen: false,
+    isSidebarOpen: false,
+    scanModalOpen: false,
+    nfeModalOpen: false,
+    nfceModal: null as any,
+    detailHasItems: false,
+    detailPendingAmount: 0,
+    detailActiveOrderId: null as number | string | null,
+  });
+  React.useEffect(() => {
+    kbDashRef.current = {
+      detailTargetId: detailTargetId as number | null,
+      isCashRegisterOpen,
+      isAddItemModalOpen,
+      isPaymentModalOpen,
+      isBaixaModalOpen,
+      isFlavorModalOpen,
+      isQuantityModalOpen,
+      isSizeModalOpen,
+      isCrustModalOpen,
+      isHistoryModalOpen,
+      isLinkModalOpen,
+      isTransferModalOpen,
+      isSidebarOpen,
+      scanModalOpen,
+      nfeModalOpen,
+      nfceModal,
+      detailHasItems,
+      detailPendingAmount,
+      detailActiveOrderId: detailActiveOrder?.id ?? null,
+    };
+  });
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const s = kbDashRef.current;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (s.nfceModal) { setNfceModal(null); return; }
+        if (s.nfeModalOpen) { setNfeModalOpen(false); return; }
+        if (s.scanModalOpen) { setScanModalOpen(false); return; }
+        if (s.isBaixaModalOpen) { setIsBaixaModalOpen(false); return; }
+        if (s.isFlavorModalOpen) { setIsFlavorModalOpen(false); return; }
+        if (s.isSizeModalOpen) { setIsSizeModalOpen(false); return; }
+        if (s.isCrustModalOpen) { setIsCrustModalOpen(false); return; }
+        if (s.isQuantityModalOpen) { setIsQuantityModalOpen(false); return; }
+        if (s.isPaymentModalOpen) { setIsPaymentModalOpen(false); return; }
+        if (s.isHistoryModalOpen) { setIsHistoryModalOpen(false); return; }
+        if (s.isLinkModalOpen) { setIsLinkModalOpen(false); return; }
+        if (s.isTransferModalOpen) { setIsTransferModalOpen(false); return; }
+        if (s.isAddItemModalOpen) { setIsAddItemModalOpen(false); return; }
+        if (s.isSidebarOpen) { setIsSidebarOpen(false); return; }
+        return;
+      }
+      if (inInput) return;
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (s.detailTargetId && s.isCashRegisterOpen && !s.isAddItemModalOpen) setIsAddItemModalOpen(true);
+        return;
+      }
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (s.detailActiveOrderId != null && s.detailPendingAmount >= 0.01) {
+          printReceiptToPrinter(s.detailActiveOrderId, s.detailPendingAmount);
+        }
+        return;
+      }
+      if (e.key === 'F8') {
+        e.preventDefault();
+        if (s.detailTargetId && s.detailHasItems && s.detailPendingAmount >= 0.01 && !s.isPaymentModalOpen) setIsPaymentModalOpen(true);
+        return;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   const handleFixTables = async () => {
     try {
       const res = await fetch('/api/fix-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
