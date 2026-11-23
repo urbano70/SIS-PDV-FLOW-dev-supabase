@@ -241,7 +241,11 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
 
   const visibleCategories = menu.filter(cat => cat.visible !== false);
   const selectedCat = visibleCategories.find(c => c.name === activeCategory) || visibleCategories[0];
-  const filteredSubcategories = (selectedCat?.subcategories || []).filter(s => s.visible !== false);
+  // Subcategorias marcadas como "adicional" não aparecem na listagem nem nas pílulas:
+  // seus itens só são oferecidos na seção "Adicionais" ao lançar um item.
+  // Também reconhece pelo nome ("Adicional"/"Adicionais") caso a flag não tenha sido marcada no cadastro.
+  const isAdicionalSub = (s: any) => !!s?.isAdicional || /^\s*adicion(al|ais)\s*$/i.test(s?.name || '');
+  const filteredSubcategories = (selectedCat?.subcategories || []).filter(s => s.visible !== false && !isAdicionalSub(s));
 
   const [, forceInactivityUpdate] = useState(0);
   useEffect(() => {
@@ -1856,9 +1860,9 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                     c.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name) ||
                     (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === selectedQuantityItem?.id || i.name === selectedQuantityItem?.name))
                   );
-                  const adSubs = (selCat?.subcategories || []).filter((s: any) => s.isAdicional && (s.items?.length ?? 0) > 0);
+                  const adSubs = (selCat?.subcategories || []).filter((s: any) => isAdicionalSub(s) && s.visible !== false && (s.items?.length ?? 0) > 0);
                   if (adSubs.length === 0) return null;
-                  const allAdItems = adSubs.flatMap((s: any) => s.items || []);
+                  const allAdItems = adSubs.flatMap((s: any) => (s.items || []).filter((i: any) => i.visible !== false));
                   return (
                     <div className="space-y-2">
                       <button
@@ -2087,7 +2091,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             (c.subcategories || []).some((s: any) => s.items?.some((i: any) => i.id === cartItem.menuItemId || i.name === cartItem.name))
           );
           const adSubs = (cat?.subcategories || []).filter((s: any) => s.isAdicional && (s.items?.length ?? 0) > 0);
-          const allAdItems = adSubs.flatMap((s: any) => s.items || []);
+          const allAdItems = adSubs.flatMap((s: any) => (s.items || []).filter((i: any) => i.visible !== false));
           return (
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
