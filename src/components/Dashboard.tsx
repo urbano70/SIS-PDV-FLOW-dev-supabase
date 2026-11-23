@@ -20,6 +20,13 @@ import { TesteDeForgo } from './TesteDeForgo';
 import { getPizzaKitchenDetails } from '../lib/pizzaKitchenDetails';
 import { getDrinkProductionDetails } from '../lib/drinkPrintDetails';
 import { adminFetch, downloadAdminFile, fetchWithAdminAuth } from '../lib/admin-http';
+import {
+  createOrderRequestId,
+  orderCommandMessage,
+  sendOrderCommand,
+  type OrderCommandAck,
+  type OrderCommandScope,
+} from '../lib/order-command';
 import PlaygroundAdminCard from './PlaygroundAdminCard';
 import PlaygroundOperatorAccessCard from './PlaygroundOperatorAccessCard';
 import PlaygroundReport from './PlaygroundReport';
@@ -850,26 +857,47 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, data: { shiftStartedAt } } = useFirebase();
+  const firebaseContext = useFirebase();
+  const { canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, data: { shiftStartedAt } } = firebaseContext;
+  const refreshSnapshot = (firebaseContext as typeof firebaseContext & { refreshSnapshot?: () => void | Promise<void> }).refreshSnapshot;
   // Mantém requests públicos/externalizados no fetch nativo e autentica apenas
   // a allowlist privada via fetchWithAdminAuth.
   const fetch = fetchWithAdminAuth;
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
-  // Fila de operações pendentes quando o socket está desconectado.
-  // Flush automático quando init_data chega (conexão restaurada).
-  const pendingOpsRef = useRef<Array<() => void>>([]);
-  useEffect(() => {
-    const flushPendingOps = () => {
-      if (!socket.connected) return;
-      const ops = pendingOpsRef.current.splice(0);
-      if (ops.length === 0) return;
-      ops.forEach(op => op());
-      toast.success(`${ops.length} ${ops.length === 1 ? 'item pendente sincronizado' : 'itens pendentes sincronizados'}.`);
-    };
-    socket.on('init_data', flushPendingOps);
-    return () => { socket.off('init_data', flushPendingOps); };
-  }, []);
+  // Cada comando captura tenant, socket e lifecycle antes do emit. A ref impede
+  // que um callback de uma renderização anterior opere após troca de conta.
+  const commandScopeRef = useRef<{ tenantId: string; lifecycle: number }>({ tenantId, lifecycle: 0 });
+  if (commandScopeRef.current.tenantId !== tenantId) {
+    commandScopeRef.current = { tenantId, lifecycle: commandScopeRef.current.lifecycle + 1 };
+  }
+  const getCommandScope = (): OrderCommandScope => ({
+    tenantId: commandScopeRef.current.tenantId,
+    socketId: socket.id || null,
+    lifecycle: commandScopeRef.current.lifecycle,
+  });
+  const commandTenantId = tenantId;
+  const runOrderCommand = ({
+    event,
+    payload,
+    requestId,
+    orderId,
+  }: {
+    event: string;
+    payload?: Record<string, unknown>;
+    requestId?: string;
+    orderId?: string | number;
+  }) => sendOrderCommand({
+    socket,
+    event,
+    tenantId: commandTenantId,
+    requestId: requestId || createOrderRequestId(event),
+    payload,
+    orderId,
+    canMutate,
+    getScope: getCommandScope,
+    refreshSnapshot,
+  });
 
   const [menuDragSource, setMenuDragSource] = useState<{
     itemId: string;
@@ -1019,6 +1047,9 @@ export default function Dashboard({
   const [isComandaSelected, setIsComandaSelected] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isBaixaModalOpen, setIsBaixaModalOpen] = useState(false);
+  const [isBaixaPending, setIsBaixaPending] = useState(false);
+  const [isForceReleasePending, setIsForceReleasePending] = useState(false);
+  const forceReleasePendingRef = useRef(false);
   const [printOnBaixa, setPrintOnBaixa] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
@@ -2203,17 +2234,11 @@ export default function Dashboard({
     socket.emit('print_escpos', { ...payload, ...(target && target !== 'local' ? { targetCaixaId: target } : {}) });
   };
 
-  const printReceiptToPrinter = (orderId: number | string, amount: number) => {
-    const targetPrinterName = printerConfig.receipts;
-    if (targetPrinterName) {
-      const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
-      if (printer) {
-        toast.info(`Imprimindo comprovante em ${targetPrinterName}`, {
-          description: `Total: R$ ${amount.toFixed(2)}`,
-          icon: <FileText size={16} />
-        });
-      }
-    }
+  // F4 remains a keyboard-compatible status action. It does not create a new
+  // receipt or claim that a printer accepted bytes; the existing confirmed
+  // baixa flow owns the actual receipt layout/transport.
+  const printReceiptToPrinter = (_orderId: number | string, _amount: number) => {
+    toast.info('O comprovante será impresso pelo fluxo de baixa confirmada; nenhum recibo foi criado agora.');
   };
 
   const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros' => {
@@ -2454,32 +2479,45 @@ export default function Dashboard({
     }
   };
 
-  const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
-    if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return; }
+  const handlePaymentComplete = async (
+    orderId: number | string,
+    selectedItems: Record<string, number>,
+    partialAmount?: number,
+    paymentMethod?: string,
+    payerName?: string,
+    requestId?: string,
+  ): Promise<boolean> => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar antes de registrar o pagamento.'); return false; }
+    if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return false; }
     const mapped = mapPaymentMethod(paymentMethod);
-    setLastPaymentMethod(mapped);
-    socket.emit('pay_items', {
-      orderId,
-      selectedItems,
-      partialAmount,
-      paymentMethod,
-      payerName,
-      fromAdmin: true,
-      adminCashRegisterName: activeCashRegisterName ?? undefined
-    });
-
-    // Handle receipt printing
-    const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
-    if (order) {
-      const totalToPrint = partialAmount || Object.entries(selectedItems).reduce((acc, [itemId, qty]) => {
-        const item = (order.items || []).find(i => i.id === itemId);
-        return acc + (item ? item.price * qty : 0);
-      }, 0);
-      
-      printReceiptToPrinter(orderId, totalToPrint);
+    let ack: OrderCommandAck;
+    try {
+      ack = await runOrderCommand({
+        event: 'pay_items',
+        orderId,
+        requestId,
+        payload: {
+          orderId,
+          selectedItems,
+          partialAmount,
+          paymentMethod,
+          payerName,
+          fromAdmin: true,
+          adminCashRegisterName: activeCashRegisterName ?? undefined,
+        },
+      });
+    } catch (error) {
+      toast.error(orderCommandMessage(error, true));
+      return false;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack, true));
+      return false;
     }
 
-    // NFC-e automática / pós-pagamento
+    setLastPaymentMethod(mapped);
+
+    // Fiscal effects are deliberately downstream of the durable payment ACK.
     const emissaoNfce = fiscalConfig?.emissaoNfce;
     if (emissaoNfce && emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
       const orderRef = orders.find((o: any) => orderId && o.id && String(o.id) === String(orderId));
@@ -2500,12 +2538,15 @@ export default function Dashboard({
       if (emissaoNfce === 'apos_confirmacao') {
         setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
       } else if (emissaoNfce === 'automatico_cartao_pix') {
-        if (isEletronico) emitirNfceAuto(orderId, mapped);
+        if (isEletronico) await emitirNfceAuto(orderId, mapped);
         else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
       } else if (emissaoNfce === 'automatico_sempre') {
-        emitirNfceAuto(orderId, mapped);
+        await emitirNfceAuto(orderId, mapped);
       }
     }
+
+    toast.success(ack.alreadyApplied ? 'Pagamento já confirmado anteriormente.' : 'Pagamento confirmado pelo servidor.');
+    return true;
   };
 
   const handleApplyDiscount = (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => {
@@ -2798,7 +2839,8 @@ export default function Dashboard({
     return 1;
   };
 
-  const handleAddItem = (tableId: number, item: any) => {
+  const handleAddItem = async (tableId: number, item: any) => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; o item não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(item)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -2889,43 +2931,64 @@ export default function Dashboard({
       guestName: item.guestName || admGuestForItem || undefined,
     };
 
-    const offline = !canMutate();
+    const requestId = createOrderRequestId('item');
+    let ack: OrderCommandAck;
+    try {
+      ack = activeOrder
+        ? await runOrderCommand({
+            event: 'add_item_to_order',
+            orderId: activeOrder.id,
+            requestId,
+            payload: {
+              orderId: activeOrder.id,
+              tableId: activeOrder.tableId,
+              isComanda: !!activeOrder.isComanda,
+              item: newItem,
+            },
+          })
+        : await runOrderCommand({
+            event: 'new_order',
+            requestId,
+            payload: {
+              tableId,
+              isComanda: isComandaSelected,
+              items: [newItem],
+              waiterId: 'ADM',
+              waiterName: 'ADM',
+              guests: admGuestForItem ? [admGuestForItem] : undefined,
+            },
+          });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+      return;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack));
+      return;
+    }
+
     if (activeOrder) {
-      optimisticAddItemToOrder(activeOrder.id, newItem);
-      const emitAdd = () => {
-        socket.emit('add_item_to_order', {
+      const guestForThisItem = newItem.guestName;
+      if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
+        socket.emit('set_order_guests', {
+          tenantId,
+          requestId: createOrderRequestId('guest'),
           orderId: activeOrder.id,
-          tableId: activeOrder.tableId,
-          isComanda: !!activeOrder.isComanda,
-          item: newItem
+          guests: [...(activeOrder.guests || []), guestForThisItem],
         });
-        const guestForThisItem = newItem.guestName;
-        if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
-          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), guestForThisItem] });
-        }
-      };
-      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
-    } else {
-      updateTableStatusLocal(tableId, isComandaSelected, 'occupied');
-      const emitNew = () => socket.emit('new_order', {
-        tableId,
-        isComanda: isComandaSelected,
-        items: [newItem],
-        waiterId: 'ADM',
-        waiterName: 'ADM',
-        guests: admGuestForItem ? [admGuestForItem] : undefined,
-      });
-      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
+      }
     }
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
-    else toast.success('Item adicionado pelo ADM');
+    toast.success(ack.orderId !== undefined && !activeOrder
+      ? `Item adicionado pelo ADM (pedido ${ack.orderId})`
+      : 'Item adicionado pelo ADM');
   };
 
-  const confirmQuantitySelection = () => {
+  const confirmQuantitySelection = async () => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; o item não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(selectedQuantityItem)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -2973,40 +3036,60 @@ export default function Dashboard({
       ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
     }
 
-    const offline = !canMutate();
+    const requestId = createOrderRequestId('item');
+    let ack: OrderCommandAck;
+    try {
+      ack = activeOrder
+        ? await runOrderCommand({
+            event: 'add_item_to_order',
+            orderId: activeOrder.id,
+            requestId,
+            payload: {
+              orderId: activeOrder.id,
+              tableId: activeOrder.tableId,
+              isComanda: !!activeOrder.isComanda,
+              item: newItem,
+            },
+          })
+        : await runOrderCommand({
+            event: 'new_order',
+            requestId,
+            payload: {
+              tableId: targetId,
+              isComanda: isComandaSelected,
+              items: [newItem],
+              waiterId: 'ADM',
+              waiterName: 'ADM',
+              guests: admGuestForItem ? [admGuestForItem] : undefined,
+            },
+          });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+      return;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack));
+      return;
+    }
+
     if (activeOrder) {
-      optimisticAddItemToOrder(activeOrder.id, newItem);
-      const emitAdd = () => {
-        socket.emit('add_item_to_order', {
+      if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
+        socket.emit('set_order_guests', {
+          tenantId,
+          requestId: createOrderRequestId('guest'),
           orderId: activeOrder.id,
-          tableId: activeOrder.tableId,
-          isComanda: !!activeOrder.isComanda,
-          item: newItem
+          guests: [...(activeOrder.guests || []), admGuestForItem],
         });
-        if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
-          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), admGuestForItem] });
-        }
-      };
-      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
-    } else {
-      updateTableStatusLocal(targetId, isComandaSelected, 'occupied');
-      const emitNew = () => socket.emit('new_order', {
-        tableId: targetId,
-        isComanda: isComandaSelected,
-        items: [newItem],
-        waiterId: 'ADM',
-        waiterName: 'ADM',
-        guests: admGuestForItem ? [admGuestForItem] : undefined,
-      });
-      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
+      }
     }
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     setSelectedAdicionais([]);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
-    else toast.success('Item adicionado pelo ADM');
+    toast.success(ack.orderId !== undefined && !activeOrder
+      ? `Item adicionado pelo ADM (pedido ${ack.orderId})`
+      : 'Item adicionado pelo ADM');
   };
 
   const confirmFlavorSelection = () => {
@@ -3017,7 +3100,7 @@ export default function Dashboard({
     setSelectionStep('build');
   };
 
-  const confirmPizzaSelection = () => {
+  const confirmPizzaSelection = async () => {
     if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
     if (!selectedPizzaSize && !selectedPizzaItem?.name) { toast.error('Selecione o tamanho'); return; }
     const flavorCountMap = new Map<string, number>();
@@ -3068,7 +3151,11 @@ export default function Dashboard({
     };
 
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-    handleAddItem(targetId!, itemWithDetails);
+    try {
+      await handleAddItem(targetId!, itemWithDetails);
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+    }
   };
 
   const safeWaiters = Array.isArray(waiters) ? waiters : [];
@@ -3868,12 +3955,34 @@ export default function Dashboard({
                 {detailAllItemsRemoved && (
                   <button
                     onClick={() => {
-                      socket.emit('update_order_status', { orderId: detailActiveOrder.id, status: 'aguardando_baixa' });
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a mesa não foi liberada.'); return; }
+                      if (isBaixaPending) return;
+                      setIsBaixaPending(true);
+                      const requestId = createOrderRequestId('baixa');
+                      socket.emit('update_order_status', {
+                        tenantId,
+                        requestId: createOrderRequestId('status'),
+                        orderId: detailActiveOrder.id,
+                        status: 'aguardando_baixa',
+                      });
                       setTimeout(() => {
-                        socket.emit('confirm_baixa', { orderId: detailActiveOrder.id });
-                        toast.success('Mesa liberada!');
+                        void runOrderCommand({
+                          event: 'confirm_baixa',
+                          orderId: detailActiveOrder.id,
+                          requestId,
+                          payload: { orderId: detailActiveOrder.id },
+                        }).then(ack => {
+                          if (!ack.ok) {
+                            toast.error(orderCommandMessage(ack));
+                            return;
+                          }
+                          toast.success(ack.alreadyApplied ? 'A mesa já estava liberada.' : 'Mesa liberada pelo servidor.');
+                        }).catch(error => {
+                          toast.error(orderCommandMessage(error));
+                        }).finally(() => setIsBaixaPending(false));
                       }, 300);
                     }}
+                    disabled={isBaixaPending}
                     className="px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
                   >
                     <span>Liberar Mesa</span>
@@ -3882,10 +3991,29 @@ export default function Dashboard({
                 {detailActiveOrder && detailCurrentItem?.status !== 'free' && detailActiveOrder.status !== 'finalizada' && detailActiveOrder.status !== 'paid' && (
                   <button
                     onClick={() => {
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a mesa não foi liberada.'); return; }
+                      if (forceReleasePendingRef.current) return;
                       if (!window.confirm('Forçar liberação descarta o pedido sem registrar pagamento. Continuar?')) return;
-                      socket.emit('force_release_table', { orderId: String(detailActiveOrder.id) });
-                      toast.success('Mesa liberada à força!');
+                      forceReleasePendingRef.current = true;
+                      setIsForceReleasePending(true);
+                      void runOrderCommand({
+                        event: 'force_release_table',
+                        orderId: String(detailActiveOrder.id),
+                        payload: { orderId: String(detailActiveOrder.id) },
+                      }).then(ack => {
+                        if (!ack.ok) {
+                          toast.error(orderCommandMessage(ack));
+                          return;
+                        }
+                        toast.success(ack.alreadyApplied ? 'A mesa já estava liberada.' : 'Mesa liberada à força pelo servidor.');
+                      }).catch(error => {
+                        toast.error(orderCommandMessage(error));
+                      }).finally(() => {
+                        forceReleasePendingRef.current = false;
+                        setIsForceReleasePending(false);
+                      });
                     }}
+                    disabled={isForceReleasePending}
                     className="px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-orange-600 hover:bg-orange-700 text-white flex items-center space-x-1"
                     title="Libera a mesa descartando o pedido sem pagamento (uso emergencial)"
                   >
@@ -8593,7 +8721,7 @@ export default function Dashboard({
           isOpen={isPaymentModalOpen}
           onClose={() => setIsPaymentModalOpen(false)}
           order={detailActiveOrder}
-          onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName) => handlePaymentComplete(detailActiveOrder.id, selectedItems, partialAmount, paymentMethod, payerName)}
+          onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName, requestId) => handlePaymentComplete(detailActiveOrder.id, selectedItems, partialAmount, paymentMethod, payerName, requestId)}
           onApplyDiscount={handleApplyDiscount}
         />
       )}
@@ -10881,9 +11009,28 @@ export default function Dashboard({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
-                      socket.emit('confirm_baixa', { orderId: activeOrder.id });
-                      toast.success('Baixa confirmada! Mesa liberada.');
+                    onClick={async () => {
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a baixa não foi enviada.'); return; }
+                      if (isBaixaPending) return;
+                      setIsBaixaPending(true);
+                      let ack: OrderCommandAck;
+                      try {
+                        ack = await runOrderCommand({
+                          event: 'confirm_baixa',
+                          orderId: activeOrder.id,
+                          payload: { orderId: activeOrder.id },
+                        });
+                      } catch (error) {
+                        setIsBaixaPending(false);
+                        toast.error(orderCommandMessage(error));
+                        return;
+                      }
+                      if (!ack.ok) {
+                        setIsBaixaPending(false);
+                        toast.error(orderCommandMessage(ack));
+                        return;
+                      }
+                      toast.success(ack.alreadyApplied ? 'Baixa já estava confirmada.' : 'Baixa confirmada! Mesa liberada.');
                       setIsBaixaModalOpen(false);
                       if (printOnBaixa) {
                         const tableType = activeOrder.isComanda ? 'Comanda' : 'Mesa';
@@ -11002,8 +11149,10 @@ export default function Dashboard({
                           setTimeout(() => printOnePage(), _c * 600);
                         }
                       }
+                      setIsBaixaPending(false);
                     }}
-                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors"
+                    disabled={isBaixaPending}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-wait"
                   >
                     <CheckCircle size={16} />
                     Confirmar Baixa

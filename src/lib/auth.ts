@@ -97,6 +97,13 @@ export async function refreshViaProxy(): Promise<{ access_token: string } | null
     const data = await res.json();
     if (!data?.access_token) return null;
 
+    // A logout/login or another tab may have changed the session while the
+    // proxy was refreshing. Never put the previous account back into storage.
+    const currentRaw = localStorage.getItem(key);
+    const current = currentRaw ? JSON.parse(currentRaw) : null;
+    if (!current || current.refresh_token !== refresh_token ||
+        current.user?.id !== stored?.user?.id) return null;
+
     // Persiste os novos tokens no localStorage para os fallbacks do SDK
     if (stored) {
       stored.access_token = data.access_token;
