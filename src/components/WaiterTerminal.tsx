@@ -459,6 +459,86 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     doPrint(data, 'Comprovante');
   };
 
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  // F2 → adicionar item | F4 → imprimir comprovante | F8 → pagamento | Esc → fechar modal
+  const kbStateRef = useRef({
+    selectedId, tableData, currentOrder, isCashRegisterOpen, btConnected, btPrinting,
+    isAddingItems, isObservationModalOpen, isPaymentModalOpen, isFlavorModalOpen: false,
+    isQuantityModalOpen: false, isCartPopupOpen, isCartExpanded, btModalOpen: false,
+  });
+  useEffect(() => {
+    kbStateRef.current = {
+      selectedId, tableData, currentOrder, isCashRegisterOpen, btConnected, btPrinting,
+      isAddingItems, isObservationModalOpen, isPaymentModalOpen, isFlavorModalOpen: kbStateRef.current.isFlavorModalOpen,
+      isQuantityModalOpen: kbStateRef.current.isQuantityModalOpen, isCartPopupOpen, isCartExpanded, btModalOpen: kbStateRef.current.btModalOpen,
+    };
+  });
+  const kbSetRef = useRef({
+    setIsAddingItems, setIsPaymentModalOpen, setIsObservationModalOpen,
+    setIsFlavorModalOpen: (_: boolean) => {}, setIsQuantityModalOpen: (_: boolean) => {},
+    setIsCartPopupOpen, setIsCartExpanded, setBtModalOpen: (_: boolean) => {},
+  });
+  useEffect(() => {
+    kbSetRef.current = {
+      setIsAddingItems, setIsPaymentModalOpen, setIsObservationModalOpen,
+      setIsFlavorModalOpen: (v: boolean) => setIsFlavorModalOpen(v),
+      setIsQuantityModalOpen: (v: boolean) => setIsQuantityModalOpen(v),
+      setIsCartPopupOpen, setIsCartExpanded,
+      setBtModalOpen: (v: boolean) => setBtModalOpen(v),
+    };
+  });
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      const s = kbStateRef.current;
+      const fn = kbSetRef.current;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (s.btModalOpen) { fn.setBtModalOpen(false); return; }
+        if (s.isObservationModalOpen) { fn.setIsObservationModalOpen(false); return; }
+        if (s.isFlavorModalOpen) { fn.setIsFlavorModalOpen(false); return; }
+        if (s.isQuantityModalOpen) { fn.setIsQuantityModalOpen(false); return; }
+        if (s.isPaymentModalOpen) { fn.setIsPaymentModalOpen(false); return; }
+        if (s.isCartPopupOpen) { fn.setIsCartPopupOpen(false); return; }
+        if (s.isCartExpanded) { fn.setIsCartExpanded(false); return; }
+        if (s.isAddingItems) { fn.setIsAddingItems(false); return; }
+        return;
+      }
+      if (inInput) return;
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (s.selectedId && s.isCashRegisterOpen && !s.isAddingItems) fn.setIsAddingItems(true);
+        return;
+      }
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (s.currentOrder && s.btConnected && !s.btPrinting) printReceipt(s.currentOrder);
+        return;
+      }
+      if (e.key === 'F8') {
+        e.preventDefault();
+        if (s.selectedId && s.currentOrder && !s.isPaymentModalOpen) fn.setIsPaymentModalOpen(true);
+        return;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+  // Track flavor/quantity/bt modal open state via refs (they're declared later)
+  const setIsFlavorModalOpenTracked = useCallback((v: boolean) => {
+    kbStateRef.current.isFlavorModalOpen = v;
+    setIsFlavorModalOpen(v);
+  }, []);
+  const setIsQuantityModalOpenTracked = useCallback((v: boolean) => {
+    kbStateRef.current.isQuantityModalOpen = v;
+    setIsQuantityModalOpen(v);
+  }, []);
+  const setBtModalOpenTracked = useCallback((v: boolean) => {
+    kbStateRef.current.btModalOpen = v;
+    setBtModalOpen(v);
+  }, []);
+
   // Guest mode state
   const [guestModeActive, setGuestModeActive] = useState(false);
   const [guestList, setGuestList] = useState<string[]>([]);
@@ -523,7 +603,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setFlavorObservations('');
       setIsFlavorObsOpen(false);
       setSelectionStep(hasBorder ? 'crust' : 'flavors');
-      setIsFlavorModalOpen(true);
+      setIsFlavorModalOpenTracked(true);
       return;
     }
 
@@ -537,7 +617,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       setDrinkWithOrder(false);
       setDrinkServings([]);
       setLancheSemOpcoes([]);
-      setIsQuantityModalOpen(true);
+      setIsQuantityModalOpenTracked(true);
       return;
     }
 
@@ -585,7 +665,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
       return [...prevCart, newItem];
     });
 
-    setIsFlavorModalOpen(false);
+    setIsFlavorModalOpenTracked(false);
   };
 
   const confirmQuantitySelection = () => {
@@ -621,7 +701,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
     };
 
     addToCart(itemToAdd);
-    setIsQuantityModalOpen(false);
+    setIsQuantityModalOpenTracked(false);
     setSelectedQuantityItem(null);
     setSelectedAdicionais([]);
     setAdicionaisExpanded(false);
@@ -869,7 +949,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           )}
           {isBTAvailable() && (
             <button
-              onClick={() => setBtModalOpen(true)}
+              onClick={() => setBtModalOpenTracked(true)}
               title="Impressora Bluetooth"
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-colors ${btConnected ? 'bg-blue-500 text-white' : 'bg-white/10 text-[#E4E3E0]/70 hover:bg-white/20'}`}
             >
@@ -1519,7 +1599,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   </p>
                 </div>
                 <button 
-                  onClick={() => setIsFlavorModalOpen(false)}
+                  onClick={() => setIsFlavorModalOpenTracked(false)}
                   className="p-2 hover:bg-black/5 rounded-full transition-colors"
                 >
                   <X size={24} />
@@ -1955,7 +2035,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <div className="flex space-x-3">
                     <button
                       onClick={() => {
-                        setIsQuantityModalOpen(false);
+                        setIsQuantityModalOpenTracked(false);
                         setSelectedQuantityItem(null);
                         setSelectedAdicionais([]);
                         setAdicionaisExpanded(false);
@@ -2224,7 +2304,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[500] flex items-end justify-center bg-black/50 backdrop-blur-sm p-4"
-            onClick={() => setBtModalOpen(false)}
+            onClick={() => setBtModalOpenTracked(false)}
           >
             <motion.div
               initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 60, opacity: 0 }}
@@ -2237,7 +2317,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   <Bluetooth size={18} className="text-blue-500" />
                   <h2 className="font-bold text-base">Impressora Bluetooth</h2>
                 </div>
-                <button onClick={() => setBtModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full"><X size={16} /></button>
+                <button onClick={() => setBtModalOpenTracked(false)} className="p-1.5 hover:bg-gray-100 rounded-full"><X size={16} /></button>
               </div>
 
               {!isBTAvailable() ? (
@@ -2306,8 +2386,8 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
                   {/* Manual print buttons */}
                   {btConnected && currentOrder && (
                     <div className="flex gap-2">
-                      <button onClick={() => { printOrder(currentOrder); setBtModalOpen(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Pedido</button>
-                      <button onClick={() => { printReceipt(currentOrder); setBtModalOpen(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Comprovante</button>
+                      <button onClick={() => { printOrder(currentOrder); setBtModalOpenTracked(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Pedido</button>
+                      <button onClick={() => { printReceipt(currentOrder); setBtModalOpenTracked(false); }} disabled={btPrinting} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-2xl font-bold text-xs uppercase disabled:opacity-50">Comprovante</button>
                     </div>
                   )}
 
