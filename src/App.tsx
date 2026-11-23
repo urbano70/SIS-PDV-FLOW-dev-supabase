@@ -165,26 +165,6 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     } catch {}
   }, [printerConfig, ownerUser?.id]);
 
-  // Authenticate admin socket on initial mount only. Reconnects are owned
-  // entirely by FirebaseProvider's handleReconnect → identifyConnection chain,
-  // which runs the proxy refresh before emitting admin_connect. Registering a
-  // second 'connect' listener here races that chain with a potentially stale
-  // getSession() token, causing spurious auth_error events.
-  useEffect(() => {
-    const sendAdminConnect = async () => {
-      if (isAutoAuthSuspended() || recomputeAutoAuthRole(window.location.pathname) !== 'admin') return;
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        if (token && !isAutoAuthSuspended() && recomputeAutoAuthRole(window.location.pathname) === 'admin') {
-          setSocketAuthRole('admin');
-          socket.emit('admin_connect', token);
-        }
-      } catch {}
-    };
-    sendAdminConnect();
-  }, [ownerUser?.id]);
-
   useEffect(() => {
     // Escutar eventos do socket para dados específicos e notificações
     const onInit = (data: any) => {
