@@ -3796,7 +3796,7 @@ export default function Dashboard({
                     if (activeTables || activeComandas) {
                       toast.error("Não é possível fechar o caixa com mesas ou comandas ocupadas.");
                     } else {
-                      setPendingCloseRegisterName(activeCashRegisterName ?? undefined);
+                      setPendingCloseRegisterName(activeCashRegisterName ?? openCashRegisterNames[0] ?? undefined);
                       setCashRegisterReportModal(true);
                     }
                   }
@@ -4101,11 +4101,19 @@ export default function Dashboard({
                       </button>
                     ))}
                     {(pizzariaConfig.cashRegisters ?? []).filter((reg: any) => openCashRegisterNames.includes(reg.name)).map((reg: any) => (
-                      <div key={`open-${reg.id}`} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414]/30 flex items-center gap-2 cursor-not-allowed">
-                        <Wallet size={10} className="shrink-0" />
-                        <span className="flex-1 truncate">{reg.name}</span>
-                        <span className="text-[8px] text-amber-500 font-bold uppercase">Em uso</span>
-                      </div>
+                      needsCaixa ? (
+                        <button key={`open-${reg.id}`} onClick={() => { setPickerSelectedReg(reg); setPickerPassword(''); setPickerMode('selected'); }} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414] hover:bg-amber-50 flex items-center gap-2 transition-colors">
+                          <Wallet size={10} className="text-amber-500 shrink-0" />
+                          <span className="flex-1 truncate">{reg.name}</span>
+                          <span className="text-[8px] text-amber-600 font-bold uppercase">Assumir</span>
+                        </button>
+                      ) : (
+                        <div key={`open-${reg.id}`} className="w-full text-left px-3 py-2 text-[10px] font-semibold text-[#141414]/30 flex items-center gap-2 cursor-not-allowed">
+                          <Wallet size={10} className="shrink-0" />
+                          <span className="flex-1 truncate">{reg.name}</span>
+                          <span className="text-[8px] text-amber-500 font-bold uppercase">Em uso</span>
+                        </div>
+                      )
                     ))}
                     <div className="px-3 py-2.5 border-t border-[#141414]/5">
                       <button onClick={() => { setPickerMode('new'); setPickerNewName(''); setPickerPassword(''); setPickerConfirmPassword(''); }} className="w-full text-left text-[9px] font-bold text-green-600 hover:text-green-700 flex items-center gap-1 transition-colors">
