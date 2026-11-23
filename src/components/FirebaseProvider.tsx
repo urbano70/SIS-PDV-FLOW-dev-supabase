@@ -747,7 +747,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   };
 
   const toggleCashRegister = (open: boolean, cashRegisterName?: string) => {
-    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar antes de alterar o caixa.'); return; }
+    if (open && !canMutate()) {
+      toast.error('Aguarde a conexão sincronizar antes de abrir o caixa.');
+      return;
+    }
     socket.emit('toggle_cash_register', cashRegisterName !== undefined ? { isOpen: open, cashRegisterName } : open);
     setIsCashRegisterOpen(open);
     if (!open) {
