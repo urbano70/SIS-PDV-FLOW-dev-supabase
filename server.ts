@@ -2330,7 +2330,7 @@ async function startServer() {
 
       if (table && (table.status === "occupied" || table.status === "bill_requested") && table.currentOrder) {
         console.log("Adding items to existing order:", table.currentOrder);
-        const existingOrder = _st().orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder));
+        const existingOrder = _st().orders.find(o => table.currentOrder && o.id && String(o.id) === String(table.currentOrder) && o.status !== 'finalizada' && o.status !== 'aguardando_baixa');
         if (existingOrder) {
           if (!existingOrder.items) existingOrder.items = [];
           existingOrder.items.push(...itemsWithWaiter);
