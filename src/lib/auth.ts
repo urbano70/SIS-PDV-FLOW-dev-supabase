@@ -1,18 +1,46 @@
 import { supabase } from './supabase';
 
 export async function signInOwner(email: string, password: string) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  return data;
+  const res = await fetch('/api/auth/signin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  const payload = await res.json();
+  if (!res.ok || !payload.access_token) {
+    throw new Error(payload.error || 'Email ou senha incorretos.');
+  }
+  // Persist session in localStorage so getSession() picks it up on mount
+  try {
+    const sbKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'))
+      || 'sb-iagflqaopurjnnzkunph-auth-token';
+    localStorage.setItem(sbKey, JSON.stringify({
+      access_token: payload.access_token,
+      token_type: payload.token_type || 'bearer',
+      expires_in: payload.expires_in || 3600,
+      expires_at: Math.floor(Date.now() / 1000) + (payload.expires_in || 3600),
+      refresh_token: payload.refresh_token,
+      user: payload.user,
+    }));
+  } catch {}
+  // Notify the SDK so onAuthStateChange fires (no network call for a fresh token)
+  try { await supabase.auth.setSession({ access_token: payload.access_token, refresh_token: payload.refresh_token }); } catch {}
+  return { user: payload.user, session: payload };
 }
 
 export async function signUpOwner(email: string, password: string, establishmentName: string, plan?: string) {
-  const { data, error } = await supabase.auth.signUp({
-    email, password,
-    options: { data: { establishment_name: establishmentName, plan: plan || 'premium' } }
+  const res = await fetch('/api/auth/signup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, establishment_name: establishmentName, plan: plan || 'premium' }),
   });
-  if (error) throw error;
-  return data;
+  const payload = await res.json();
+  if (!res.ok) {
+    throw new Error(payload.error || 'Erro ao criar conta.');
+  }
+  // Raw Supabase signup response has user fields at top level; wrap to match SDK interface
+  const user = payload.id ? payload : (payload.user || null);
+  return { user, session: payload.session || null };
 }
 
 export async function signOutOwner() {
