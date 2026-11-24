@@ -2513,7 +2513,6 @@ async function startServer() {
         });
       }
       ensureCurrentCommandSession();
-      await commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas });
       _st().dailyCounter = nextCounter;
       _st().lastOrderDate = dateStr;
       replaceStagedOrderState(_st(), { order: newOrder, tables: stagedTables, comandas: stagedComandas });
@@ -2522,6 +2521,8 @@ async function startServer() {
       io.to(_room()).emit("update_orders", _st().orders);
       io.to(_room()).emit("update_tables", _st().tables);
       io.to(_room()).emit("update_comandas", _st().comandas);
+      commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas })
+        .catch(err => console.error('[new_order] commit failed:', err));
       if ((newOrder.items || []).length > 0) {
         const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
