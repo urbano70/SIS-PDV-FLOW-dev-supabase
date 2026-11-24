@@ -1,5 +1,7 @@
 # Modo Parquinho — plano confirmado
 
+**Regra vigente desde 23/11/2026 às 20:39:** nenhuma melhoria/correção deve limpar dados em deploys. Manter `PDV_TEST_RESET_ON_DEPLOY=false`; as aprovações históricas de limpeza não são permissões futuras. O ajuste ao final deste plano substitui qualquer orientação anterior incompatível.
+
 Implementar na aplicação existente, preservando React/Vite, Express/Socket.IO, autenticação Supabase dos administradores, fluxo de mesas/pagamentos e visual serifado neutro do FechaConta. Hospedagem permanece no Easypanel, uma réplica e sem Zero Downtime. Não inicializar outro projeto nem acessar banco real nos testes.
 
 ## Decisões do usuário
@@ -18,7 +20,7 @@ Uma nova tabela parquinho_entries mantém identificação do tenant, pedido, ite
 
 Operador vê todas as mesas, mas ocupação é calculada somente sobre Parquinho ativo do pedido corrente, ignorando pedidos históricos/finalizados/removidos/cancelados; pagamento parcial ou aguardando_baixa não liberam antes da baixa definitiva. ADM e garçons recebem conta completa e nome da criança; operador recebe somente sua projeção. Produto não deve criar tickets de cozinha nem alterar cálculo/impressão dos demais produtos.
 
-A limpeza existente de teste continua uma rotina separada, allowlisted, por novo build, sem limpeza ao desativar Parquinho nem novos gatilhos. Se o histórico específico precisar ser limpo para respeitar a política autorizada, usar exclusivamente a mesma rotina e o mesmo marcador/flag; nunca ampliar para outras contas. Antes de uso real, PDV_TEST_RESET_ON_DEPLOY=false.
+Política histórica, substituída em 23/11/2026 às 20:39: a limpeza era allowlisted por novo build. A regra vigente é preservar dados em todas as atualizações, inclusive na conta de teste original, e manter PDV_TEST_RESET_ON_DEPLOY=false. Não reutilizar autorizações de limpeza de entregas anteriores.
 
 ## Estrutura de projeto e responsabilidades
 
@@ -42,7 +44,7 @@ O usuário enviou pasted_content_2.txt durante a implementação, em 16/11/2026,
 
 Fonte oficial no servidor: validar papéis/tenant/item, persistir antes de confirmar/broadcast, serializar entrega/preparo com a fila de comandos. Garçom aprovado confirma entrega, com responsável e timestamp, uma única vez. Ready não é delivered; eventos tardios não retrocedem entregue nem etapas concluídas. Com KDS off, não exigir preparo; quando on, usar somente os itens/transições das filas existentes (pizzas e lanches, forno apenas pizzas). Parquinho/bebidas e demais itens sem fila não ficam obrigados a essas etapas. Não alterar preço, pagamentos, mesa ou cobranças por efeito da entrega.
 
-Helper src/lib/kitchenStatus.ts compartilha elegibilidade, etapas/rótulos e validações; KitchenItemStatusBadge apresenta Na fila, Em preparo, No forno, Pronto — retirar e Entregue/responsável/horário por item. UI espera ACK e nunca apresenta sucesso desconectada. Antes de publicar, avisar que a limpeza de teste está habilitada e o deploy poderá apagar os lançamentos da conta allowlisted; nenhum reset adicional.
+Helper src/lib/kitchenStatus.ts compartilha elegibilidade, etapas/rótulos e validações; KitchenItemStatusBadge apresenta Na fila, Em preparo, No forno, Pronto — retirar e Entregue/responsável/horário por item. UI espera ACK e nunca apresenta sucesso desconectada. A orientação antiga de avisar sobre limpeza foi substituída: publicações futuras preservam todos os lançamentos; nenhum reset automático.
 
 ## Melhorias solicitadas em 23/11/2026
 
@@ -60,7 +62,7 @@ Reproduzir grupos/campos do PDF RELATORIOCAIXA.pdf em relatório térmico Bemate
 
 ### Organização do trabalho
 
-Cada melhoria será desenvolvida em uma worktree independente da mesma main, com patch e testes próprios. Uma integração reunirá os patches em src/components/src/pages, helpers src/lib e handlers existentes, mantendo autenticação, persistência e tipagem. Recursos fiscais adicionais ficarão em supabase/functions/migrations se necessários e com instruções explícitas de implantação. Não fazer merge que acione deploy antes de apresentar pendências Supabase/fiscais e avisar sobre a limpeza de teste existente.
+Cada melhoria será desenvolvida em uma worktree independente da mesma main, com patch e testes próprios. Uma integração reunirá os patches em src/components/src/pages, helpers src/lib e handlers existentes, mantendo autenticação, persistência e tipagem. Recursos fiscais adicionais ficarão em supabase/functions/migrations se necessários e com instruções explícitas de implantação. Não fazer merge que acione deploy antes de apresentar pendências Supabase/fiscais; pela regra vigente, limpeza em deploy não é permitida.
 
 ## Correção de 23/11/2026 — pedido bloqueado na conta nova
 
@@ -68,4 +70,12 @@ O vídeo mostra itens que não entram, pagamento que exibe mensagem local de imp
 
 FirebaseProvider deve invalidar autorização/prontidão em erros e reautenticar com barreiras de tenant e conexão. Dashboard/PaymentModal devem bloquear comandos não prontos, abandonar fila silenciosa de closures de itens e aguardar resultado confirmado, mantendo o modal em falha e bloqueando duplo envio. Um helper de comando administra timeout, tenant/conexão e resultado; nunca reenviar pagamento automaticamente após timeout. Servidor deve responder rejeições e sucesso de adição/pagamento/baixa/liberação com ACK após persistência, sem anunciar estado composto confirmado antes de gravar; preservar comportamento de pagamento ADM versus garçom e não criar transações fictícias ou liberar mesa por erro. Preservar idempotência de itens e não modificar impressão fiscal/recibo além da ordem de confirmação. Testes isolados em scripts/server-tests; sem subir servidor com banco de produção.
 
-Estrutura permanece a existente: src/components para provider, Dashboard e modal; src/lib para helper de comandos; server.ts e helpers server para contrato/persistência; scripts/server-tests para fixtures. Nenhuma migração, mudança de hospedagem, limpeza adicional ou configuração de e-mail faz parte deste patch. A publicação continuará por PR/merge autorizado e Easypanel automático, com decisão explícita sobre eventual limpeza de teste desta nova entrega.
+Estrutura permanece a existente: src/components para provider, Dashboard e modal; src/lib para helper de comandos; server.ts e helpers server para contrato/persistência; scripts/server-tests para fixtures. Nenhuma migração, mudança de hospedagem, limpeza adicional ou configuração de e-mail faz parte deste patch. A correção foi entregue no PR #504; a aprovação de limpeza daquela entrega é histórica e foi revogada para atualizações futuras.
+
+## Regra vigente — preservação dos dados em deploys (23/11/2026, 20:39)
+
+Remover de server.ts a rotina destrutiva de reset por build, seus imports, a chamada na carga e a transformação de pedidos/mesas/sessões em memória. Remover o helper obsoleto. Carregar todos os pedidos persistidos, inclusive históricos e pedidos de Teste de Fogo; limpeza manual explicitamente acionada permanece separada. Manter pagamento/baixa e recuperação idempotente de vínculos inconsistentes do PR #504 sem excluir histórico.
+
+Definir PDV_TEST_RESET_ON_DEPLOY=false como padrão na imagem Docker e no exemplo de ambiente; a proteção principal é a ausência do caminho de reset, mesmo diante de variável antiga true ou marcador/build diferente. Preservar marcadores existentes sem lê-los, sobrescrevê-los ou apagá-los. Não alterar banco, aplicar migration, executar seed/reset real ou abrir uma nova frente de hospedagem. Atualizar os guias distinguindo autorizações históricas da decisão vigente.
+
+Entrega pela branch baseada na main atual, PR e merge; Easypanel executa o deploy automático. Não fazer deploy/restart manual ou monitoramento. Não afirmar alteração da variável do serviço Easypanel sem acesso e evidência; registrar a diferença entre o padrão da imagem e a configuração externa.

@@ -2,6 +2,8 @@
 
 ## Status
 
+**Atualização de política em 23/11/2026 às 20:39:** a limpeza automática em deploys foi revogada e removida do código. Autorizações antigas não se aplicam às próximas publicações. Este guia mantém os registros da implantação original; para novas entregas, preservar todos os dados e não repetir migrações já confirmadas.
+
 O código foi implementado e validado localmente no repositório existente. A execução da migração no seu Supabase ainda precisa ser confirmada. O PR permanece separado da `main`: este guia não significa que as melhorias já estejam rodando no Easypanel.
 
 ## O que foi implementado
@@ -22,19 +24,19 @@ O card Operador de Parquinho, na aba Garçom, fornece QR Code para o estabelecim
 6. Se o agente de impressão aparecer aguardando pareamento, use o pareamento já disponível no Dashboard. Um agente anônimo não pode se vincular a uma conta apenas por informar seu identificador; não forneça credenciais ADM ao operador.
 7. Valide na sua sessão com dados de teste: dois operadores na mesma mesa, duas crianças diferentes, F5/reconexão, conta completa no ADM/garçom, pagamento/baixa e relatório por turno. Com KDS ativo, teste dois itens em etapas diferentes e entrega simultânea; com KDS desativado, confira que não se exige preparo. A validação autenticada no seu ambiente continua pendente.
 
-## Limpeza de teste existente — atenção antes de publicar
+## Preservação de dados — regra vigente
 
-A limpeza já implementada permanece restrita à conta de teste autorizada e a novas publicações. **Se estiver habilitada, o novo deploy poderá apagar os lançamentos e o histórico das mesas dessa conta, incluindo os registros de Parquinho correspondentes.** Não foi criada outra limpeza automática para este módulo.
+A rotina antiga de limpeza por build e seu caminho na carga foram removidos. Novos deploys devem preservar pedidos e histórico de todas as contas, inclusive a conta de teste original e os registros de Parquinho. Um valor true antigo da variável não reativa a rotina removida.
 
-Desativar o Parquinho, F5, login ou reconexão não devem apagar registros. A baixa normal conserva o histórico necessário ao relatório. Uma nova publicação com limpeza de teste é a exceção autorizada anteriormente.
+Desativar o Parquinho, F5, login, reconexão, reinício ou publicação não devem apagar registros. A baixa normal conserva o histórico necessário ao relatório. A exceção autorizada anteriormente foi revogada em 23/11 às 20:39.
 
-Antes de atender clientes reais, configure no ambiente do serviço PDV no Easypanel:
+Manter no ambiente do serviço PDV no Easypanel, desde agora:
 
 ```env
 PDV_TEST_RESET_ON_DEPLOY=false
 ```
 
-Aplique a configuração antes de aceitar contas reais. Esta implementação não desativa a limpeza por conta própria.
+O padrão da imagem Docker é false; a ausência da rotina protege a nova versão mesmo sem alteração no painel. A variável externa do Easypanel não foi conferida/alterada nesta entrega. Manter false também protege contra retorno a versões antigas. Não há SQL de limpeza ou migração nova para executar.
 
 ## Testes e limites
 
