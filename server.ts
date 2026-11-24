@@ -3092,11 +3092,29 @@ async function startServer() {
       };
       const stagedOrder = JSON.parse(JSON.stringify(order));
       stagedOrder.items = [...(stagedOrder.items || []), itemWithTimestamp];
+
+      // Repair mesa pointer when fallback found an order the mesa doesn't reference
+      const stagedTables: any[] = [];
+      const stagedComandas: any[] = [];
+      if (usedFallback && fallbackTableId) {
+        const fbTargetList = fallbackIsComanda ? _st().comandas : _st().tables;
+        const fbMesa = fbTargetList.find((t: any) => t.id && String(t.id) === String(fallbackTableId));
+        if (fbMesa && (!fbMesa.currentOrder || String(fbMesa.currentOrder) !== String(stagedOrder.id))) {
+          const repairedMesa = {
+            ...fbMesa,
+            currentOrder: stagedOrder.id,
+            status: fbMesa.status === 'free' ? 'occupied' : fbMesa.status,
+          };
+          if (fallbackIsComanda) stagedComandas.push(repairedMesa);
+          else stagedTables.push(repairedMesa);
+        }
+      }
+
       ensureCurrentCommandSession();
-      await commitCriticalOrderState({ tenantId, order: stagedOrder });
-      replaceStagedOrderState(_st(), { order: stagedOrder });
+      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
+      replaceStagedOrderState(_st(), { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       io.to(_room()).emit("update_orders", _st().orders);
-      if (usedFallback) {
+      if (usedFallback || stagedTables.length > 0 || stagedComandas.length > 0) {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }

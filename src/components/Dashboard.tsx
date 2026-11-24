@@ -446,9 +446,6 @@ const OrderDetails = ({
 
   const activeOrder = React.useMemo(() => {
     if (!targetId) return null;
-    // Mesa livre + sem currentOrder = definitivamente sem pedido ativo
-    // (não usar apenas status para evitar race condition ao adicionar itens)
-    if (!isComandaSelected && currentItem?.status === 'free' && !currentItem?.currentOrder) return null;
 
     // First try to find by currentOrder ID if the table/comanda points to one
     if (currentItem?.currentOrder) {
@@ -458,15 +455,16 @@ const OrderDetails = ({
       if (orderById) return orderById;
     }
 
-    // Fallback: find the most recent non-finalized order for this table/comanda
-    const activeOrders = orders.filter((o: any) => 
-      o.status !== 'finalizada' && 
-      o.tableId && String(o.tableId) === String(targetId) && 
+    // Fallback: scan orders by tableId — handles stale currentOrder pointer or mesa
+    // showing 'free' when server state hasn't synced yet
+    const activeOrders = orders.filter((o: any) =>
+      o.status !== 'finalizada' &&
+      o.status !== 'aguardando_baixa' &&
+      o.tableId && String(o.tableId) === String(targetId) &&
       !!o.isComanda === !!isComandaSelected
     );
 
     if (activeOrders.length > 0) {
-      // Sort by timestamp descending to get the most recent one
       return activeOrders.sort((a: any, b: any) => {
         const dateA = new Date(a.timestamp || 0).getTime();
         const dateB = new Date(b.timestamp || 0).getTime();
