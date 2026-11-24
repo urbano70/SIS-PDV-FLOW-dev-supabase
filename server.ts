@@ -3125,13 +3125,14 @@ async function startServer() {
       }
 
       ensureCurrentCommandSession();
-      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       replaceStagedOrderState(_st(), { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       io.to(_room()).emit("update_orders", _st().orders);
-      if (usedFallback || stagedTables.length > 0 || stagedComandas.length > 0) {
+      if (stagedTables.length > 0 || stagedComandas.length > 0) {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }
+      commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas })
+        .catch(err => console.error('[add_item] commit failed:', err));
       const kPayload3 = { items: [itemWithTimestamp], tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
       io.to(_room()).emit("kitchen_new_order", kPayload3);
       emitPrintOrder(kPayload3);
@@ -3524,16 +3525,18 @@ async function startServer() {
           sourceTable.status = "free";
           sourceTable.linkedTo = null;
 
-          // Persist changes
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString(), _tid());
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString(), _tid());
-          if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid());
-          if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id, _tid());
+          // Emit immediately, then persist in background
+          io.to(_room()).emit("update_tables", _st().tables);
+          io.to(_room()).emit("update_comandas", _st().comandas);
+          io.to(_room()).emit("update_orders", _st().orders);
+          const _tableCol = isComanda ? 'comandas' : 'tables';
+          Promise.all([
+            saveToSupabase(_tableCol, sourceTable, sourceTable.id.toString(), _tid()),
+            saveToSupabase(_tableCol, targetTable, targetTable.id.toString(), _tid()),
+            sourceOrder ? saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid()) : Promise.resolve(),
+            targetOrder ? saveToSupabase('orders', targetOrder, targetOrder.id, _tid()) : Promise.resolve(),
+          ]).catch(err => console.error('[transfer_table] persist failed:', err));
         }
-
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-        io.to(_room()).emit("update_orders", _st().orders);
       }
     });
 
