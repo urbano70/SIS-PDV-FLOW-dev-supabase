@@ -1057,37 +1057,37 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                     {(['Crédito', 'Débito', 'PIX', 'Dinheiro'] as PaymentMethod[]).map(method => {
                       const Icon = method === 'Crédito' || method === 'Débito' ? CreditCard : method === 'PIX' ? QrCode : Banknote;
                       const state = payments[method];
-                      
+                      const cfg = {
+                        'Crédito': { border: state.enabled ? 'border-blue-500' : 'border-blue-200', bg: state.enabled ? 'bg-blue-50' : 'bg-blue-50/40', iconBg: state.enabled ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-400', label: state.enabled ? 'text-blue-700' : 'text-blue-400', hover: 'hover:border-blue-400 hover:bg-blue-50/70' },
+                        'Débito':  { border: state.enabled ? 'border-violet-500' : 'border-violet-200', bg: state.enabled ? 'bg-violet-50' : 'bg-violet-50/40', iconBg: state.enabled ? 'bg-violet-500 text-white' : 'bg-violet-100 text-violet-400', label: state.enabled ? 'text-violet-700' : 'text-violet-400', hover: 'hover:border-violet-400 hover:bg-violet-50/70' },
+                        'PIX':     { border: state.enabled ? 'border-teal-500' : 'border-teal-200', bg: state.enabled ? 'bg-teal-50' : 'bg-teal-50/40', iconBg: state.enabled ? 'bg-teal-500 text-white' : 'bg-teal-100 text-teal-400', label: state.enabled ? 'text-teal-700' : 'text-teal-400', hover: 'hover:border-teal-400 hover:bg-teal-50/70' },
+                        'Dinheiro':{ border: state.enabled ? 'border-green-600' : 'border-green-200', bg: state.enabled ? 'bg-green-50' : 'bg-green-50/40', iconBg: state.enabled ? 'bg-green-600 text-white' : 'bg-green-100 text-green-400', label: state.enabled ? 'text-green-700' : 'text-green-400', hover: 'hover:border-green-400 hover:bg-green-50/70' },
+                      }[method];
+
                       return (
                         <div
                           key={method}
                           ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
-                          className={`p-4 rounded-2xl border-2 transition-all select-none flex flex-col ${
-                            state.enabled ? 'border-[#141414] bg-white shadow-sm' : 'border-[#141414]/5 bg-white/50 opacity-60'
-                          }`}
+                          className={`p-4 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
                         >
                           <div className="flex flex-col h-full space-y-2.5">
                             <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`flex items-center space-x-3 text-left hover:opacity-70 transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[72px]'}`}
+                              className={`flex items-center space-x-3 text-left transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[72px] hover:opacity-80'}`}
                             >
-                              <div
-                                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${
-                                  state.enabled ? 'bg-[#141414] text-white' : 'bg-white border border-[#141414]/10 text-[#141414]/30 group-hover:border-[#141414]/30'
-                                }`}
-                              >
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${cfg.iconBg}`}>
                                 {state.enabled ? <Check size={20} /> : <Icon size={20} />}
                               </div>
-                              <span className={`font-bold text-base truncate ${state.enabled ? 'text-[#141414]' : 'text-[#141414]/40 group-hover:text-[#141414]/60'}`}>{method}</span>
+                              <span className={`font-bold text-base truncate ${cfg.label}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
-                              <div className="space-y-2.5 pt-2 border-t border-[#141414]/5" onClick={e => e.stopPropagation()}>
+                              <div className="space-y-2.5 pt-2 border-t border-black/5" onClick={e => e.stopPropagation()}>
                                 <div className="space-y-1">
-                                  <span className="text-[10px] uppercase font-bold opacity-40">Valor</span>
-                                  <div className="flex items-center bg-white border border-[#141414]/20 rounded-lg px-2.5 py-1.5 focus-within:border-[#141414] transition-colors">
-                                    <span className="text-xs mr-1.5 opacity-50 font-bold">R$</span>
+                                  <span className={`text-[10px] uppercase font-bold opacity-60 ${cfg.label}`}>Valor</span>
+                                  <div className={`flex items-center bg-white/80 border rounded-lg px-2.5 py-1.5 transition-colors ${cfg.border} focus-within:opacity-100`}>
+                                    <span className={`text-xs mr-1.5 font-bold opacity-60 ${cfg.label}`}>R$</span>
                                     <input
                                       type="number"
                                       step="0.01"
