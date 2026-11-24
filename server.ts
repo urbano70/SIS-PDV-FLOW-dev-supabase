@@ -3813,6 +3813,61 @@ async function startServer() {
       return makeAck(tenantId, { ok: true, orderId: normalizedOrderId, status: stagedOrder.status, alreadyApplied: alreadyFinal });
     }));
 
+    // Limpa TODOS os pedidos ativos e libera TODAS as mesas/comandas.
+    // Usado antes de aplicar uma atualização do app para garantir estado limpo.
+    onTenantCommand("force_release_all_tables", requireAdmin(async () => {
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const st = _st();
+      let freed = 0;
+      const freeTables: any[] = [];
+      const freeComandas: any[] = [];
+      // Cancel ALL active orders regardless of mesa status
+      const ordersToCancel: any[] = [];
+      for (const o of st.orders) {
+        if (o.status !== 'finalizada' && o.status !== 'paid') {
+          ordersToCancel.push({ ...o, status: 'finalizada', forceReleased: true });
+        }
+      }
+      for (const t of st.tables) {
+        if (t.status !== 'free') {
+          freed++;
+          freeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
+        }
+      }
+      for (const c of st.comandas) {
+        if (c.status !== 'free') {
+          freed++;
+          freeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+        }
+      }
+      // Persist all cancelled orders
+      for (const stagedOrder of ordersToCancel) {
+        if (db) saveToSupabase('orders', stagedOrder, String(stagedOrder.id), tenantId).catch(() => {});
+        const idx = st.orders.findIndex((o: any) => String(o.id) === String(stagedOrder.id));
+        if (idx !== -1) st.orders[idx] = stagedOrder;
+      }
+      // Persist all freed tables
+      for (const t of freeTables) {
+        if (db) saveToSupabase('tables', t, t.id.toString(), tenantId).catch(() => {});
+        const idx = st.tables.findIndex((x: any) => x.id === t.id);
+        if (idx !== -1) st.tables[idx] = t;
+      }
+      // Persist all freed comandas
+      for (const c of freeComandas) {
+        if (db) saveToSupabase('comandas', c, c.id.toString(), tenantId).catch(() => {});
+        const idx = st.comandas.findIndex((x: any) => x.id === c.id);
+        if (idx !== -1) st.comandas[idx] = c;
+      }
+      io.to(_room()).emit('update_orders', st.orders);
+      io.to(_room()).emit('update_tables', st.tables);
+      io.to(_room()).emit('update_comandas', st.comandas);
+      writeAudit(tenantId, 'force_release' as any, 'ADM',
+        `Limpeza pré-atualização: ${ordersToCancel.length} pedido(s) cancelado(s), ${freed} mesa(s)/comanda(s) liberada(s)`, {});
+      return makeAck(tenantId, { ok: true, freed, cancelled: ordersToCancel.length });
+    }));
+
     onTenantCommand("request_bill", async ({ tableId, isComanda }) => {
       const targetList = isComanda ? _st().comandas : _st().tables;
       const table = targetList.find(t => t.id === tableId);
