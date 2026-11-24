@@ -6560,45 +6560,42 @@ async function startServer() {
     }
   });
 
-  // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
+  // Cancela TODOS os pedidos ativos e libera TODAS as mesas/comandas (correção manual).
+  // Cobre o caso em que mesa.status='free' mas há pedidos ativos apontando para ela.
   app.post("/api/fix-tables", async (req, res) => {
     const tenantId: string = String(req.body?.tenantId || '').trim();
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!await requireAdminHttp(req, res, [tenantId])) return;
     const st = getState(tenantId);
     let fixed = 0;
-    // Force-release ALL occupied/linked/aguardando tables and comandas.
-    // For each active order found, mark it finalizada + forceReleased so it
-    // is excluded from cash register reports.
-    const ordersToRelease = new Map<string, any>();
+    const cancelledOrders: any[] = [];
     const freeTables: any[] = [];
     const freeComandas: any[] = [];
+    // 1. Cancel ALL active orders regardless of mesa status
+    for (const o of st.orders) {
+      if (o.status !== 'finalizada' && o.status !== 'paid') {
+        cancelledOrders.push({ ...o, status: 'finalizada', forceReleased: true });
+      }
+    }
+    // 2. Free ALL non-free mesas/comandas
     for (const t of st.tables) {
       if (t.status !== 'free') {
         fixed++;
         freeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
-        if (t.currentOrder) {
-          const activeOrder = st.orders.find((o: any) => String(o.id) === String(t.currentOrder) && o.status !== 'finalizada' && o.status !== 'paid');
-          if (activeOrder && !ordersToRelease.has(String(activeOrder.id))) {
-            ordersToRelease.set(String(activeOrder.id), { ...activeOrder, status: 'finalizada', forceReleased: true });
-          }
-        }
       }
     }
     for (const c of st.comandas) {
       if (c.status !== 'free') {
         fixed++;
         freeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
-        if (c.currentOrder) {
-          const activeOrder = st.orders.find((o: any) => String(o.id) === String(c.currentOrder) && o.status !== 'finalizada' && o.status !== 'paid');
-          if (activeOrder && !ordersToRelease.has(String(activeOrder.id))) {
-            ordersToRelease.set(String(activeOrder.id), { ...activeOrder, status: 'finalizada', forceReleased: true });
-          }
-        }
       }
     }
-    if (fixed > 0) {
-      // Persist all freed tables/comandas and their orders
+    if (cancelledOrders.length > 0 || fixed > 0) {
+      for (const o of cancelledOrders) {
+        if (db) saveToSupabase('orders', o, String(o.id), tenantId).catch(() => {});
+        const idx = st.orders.findIndex((x: any) => String(x.id) === String(o.id));
+        if (idx !== -1) st.orders[idx] = o;
+      }
       for (const t of freeTables) {
         if (db) saveToSupabase('tables', t, t.id.toString(), tenantId).catch(() => {});
         const idx = st.tables.findIndex((x: any) => x.id === t.id);
@@ -6609,18 +6606,13 @@ async function startServer() {
         const idx = st.comandas.findIndex((x: any) => x.id === c.id);
         if (idx !== -1) st.comandas[idx] = c;
       }
-      for (const [, stagedOrder] of ordersToRelease) {
-        if (db) saveToSupabase('orders', stagedOrder, String(stagedOrder.id), tenantId).catch(() => {});
-        const idx = st.orders.findIndex((o: any) => String(o.id) === String(stagedOrder.id));
-        if (idx !== -1) st.orders[idx] = stagedOrder;
-      }
       io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
       io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
       io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
       writeAudit(tenantId, 'force_release' as any, 'ADM',
-        `Corrigir Mesas: ${fixed} mesa(s)/comanda(s) liberadas à força`, {});
+        `Corrigir Mesas: ${cancelledOrders.length} pedido(s) cancelado(s), ${fixed} mesa(s)/comanda(s) liberada(s)`, {});
     }
-    res.json({ ok: true, fixed });
+    res.json({ ok: true, fixed, cancelled: cancelledOrders.length });
   });
 
   app.post("/api/admin/create-waiter", express.json(), async (req, res) => {

@@ -1488,7 +1488,7 @@ export default function Dashboard({
       const res = await fetch('/api/fix-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
-      toast.success(`Mesas corrigidas: ${data.fixed} liberada(s)`);
+      toast.success(`Mesas corrigidas: ${data.cancelled ?? 0} pedido(s) cancelado(s), ${data.fixed} mesa(s) liberada(s)`);
     } catch (error: any) {
       toast.error(`Erro ao corrigir mesas: ${error.message}`);
     }
