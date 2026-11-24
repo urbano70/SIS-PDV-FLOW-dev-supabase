@@ -1,5 +1,7 @@
 # Modo Parquinho — critérios de aceite
 
+**Regra vigente desde 23/11/2026 às 20:39:** melhorias/correções e deploys devem preservar dados de todas as contas, inclusive a conta original de teste. `PDV_TEST_RESET_ON_DEPLOY` permanece desabilitado. As aprovações de limpeza abaixo são somente registros históricos, não permissões futuras.
+
 Os itens concluídos correspondem à implementação e às evidências isoladas, não à publicação ou à validação na conta real. A migração, o merge/deploy e a confirmação autenticada do usuário permanecem pendentes.
 
 ## Configuração e produto
@@ -42,7 +44,7 @@ Os itens concluídos correspondem à implementação e às evidências isoladas,
 ## Pendências de implantação
 
 - [ ] Confirmar execução da migração aditiva no Supabase.
-- [ ] Avisar sobre a limpeza existente de teste antes do merge que aciona o deploy; confirmar configuração do Easypanel conforme o guia.
+- [x] Política antiga de limpeza antes do merge substituída pela decisão de preservação em 23/11 às 20:39; não solicitar nem reativar limpeza em futuras melhorias.
 - [ ] Confirmar publicação pelo identificador de build de servidor/frontend, sem confundir com PR criado.
 - [ ] Validar na sessão real dois operadores, KDS, reconexão, impressão e fluxo de pagamento/baixa.
 
@@ -82,3 +84,12 @@ Migração: 16 cenários SQL em banco descartável. Handlers, controles de permi
 - [x] Preparar PR da correção; antes do merge que aciona deploy automático, confirmar o impacto da limpeza de teste para esta nova entrega. Não executar ou monitorar Easypanel; e-mail fiscal continua adiado.
 
 Evidências desta seção: 20 cenários dos handlers reais por extração AST passaram, incluindo pedido finalizado com mesa ocupada, dois tenants/IDs iguais, pagamento ADM/garçom/parcial, retry e falha de persistência. Helpers cliente/provider/barreira, regressões afetadas e SQL em PGlite descartável passaram. Build integrado passou; baseline 31 e atual 31 diagnósticos TypeScript, zero novos, lint ainda com falhas legadas. Revisão independente não encontrou novo bloqueio de código. RPC SQL instalada pelo conector Supabase em 23/11 às 19:27, após aprovação explícita do usuário às 19:26; assinatura, corpo e permissões service_role-only conferidos por metadados, sem invocar a função sobre pedidos. PR #504 preparado e merge autorizado; usuário aceitou a limpeza existente desta entrega às 19:15. Validação autenticada/hardware e confirmação do deploy automático permanecem pendentes; não haverá monitoramento do Easypanel.
+
+## Preservação em atualizações — 23/11/2026 às 20:39
+
+- [x] A partir de agora, atualizações de melhorias/correções não removem pedidos, itens, pagamentos, histórico das mesas ou registros de Parquinho, inclusive da conta de teste original. Deploy, restart, login/F5 e reconexão não acionam reset nem escondem pedidos de Teste de Fogo.
+- [x] `PDV_TEST_RESET_ON_DEPLOY` permanece desabilitado: variável ausente, false, true antiga ou valores alternativos e mudança de build/marcador não podem reativar a rotina removida. Padrão da imagem/exemplo false; preservar marcadores antigos sem alterar banco real.
+- [x] Manter ações manuais legítimas, pagamento/baixa, histórico, isolamento de tenants e recuperação do PR #504. Validar com fixtures e comparar TypeScript com a main atual; não executar escrita/limpeza em produção.
+- [ ] Fazer PR e merge, sem deploy/restart manual nem monitorar Easypanel. Não alegar que a variável externa do serviço foi alterada sem evidência; configuração de e-mail segue adiada.
+
+Evidências: rotina/helper/caminho em memória removidos; 378 cargas reais extraídas por AST com fixtures, 3 tenants/IDs iguais, 7 valores da variável, 3 marcadores, 2 builds e 3 cargas por processo passaram. Falha de leitura preserva visualização e readiness fechado; recuperação de vínculo finalizado mantém histórico/pagamentos. As 14 suítes afetadas passaram, incluindo 20 cenários de fechamento do PR #504; build passou. TypeScript: baseline fresca 31, atual 31, zero novos, exit 2 legado. Sem acesso/escrita no banco real ou painel Easypanel; a variável externa não foi conferida/alterada. Regra registrada no contexto da habilidade reutilizável e guias de implantação.

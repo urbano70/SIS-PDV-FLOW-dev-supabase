@@ -1,5 +1,7 @@
 # FechaConta PDV — implantação das melhorias de 23/11/2026
 
+**Regra vigente desde 23/11/2026 às 20:39:** o usuário revogou a limpeza automática para atualizações futuras. A rotina foi removida; todos os pedidos e históricos devem ser preservados, inclusive da conta original de teste. Manter `PDV_TEST_RESET_ON_DEPLOY=false`. As aprovações abaixo documentam apenas a entrega anterior do PR #503, já mergeado; não autorizam nova limpeza nem repetição de SQLs confirmados.
+
 O código está preparado no PR #503 para o merge solicitado. O usuário confirmou em 23/11 que executou os dois scripts do Supabase sem erros e aceitou a limpeza dos pedidos e do histórico de teste neste deploy. Às 17:26, decidiu configurar o envio de e-mail depois, autorizando publicar as melhorias e o download do ZIP com envio pendente. Essas confirmações não precisam ser repetidas. A publicação do PDV no Easypanel deve ser confirmada após o merge.
 
 ## O que foi corrigido
@@ -39,11 +41,13 @@ A compilação passou. A comparação final encontrou 31 diagnósticos TypeScrip
 
 O trabalho anterior de autorização automática do Parquinho permanece separado e não foi aplicado silenciosamente nesta atualização.
 
-A limpeza de teste existente pode apagar os pedidos e o histórico da conta expressamente configurada na rotina ao publicar um novo build. Ela não foi ampliada para produtos, outras contas, F5, login ou reconexão. Antes de atender clientes reais, configurar no Easypanel:
+A limpeza por build foi removida pela decisão de 23/11 às 20:39. Na nova versão, deploy, reinício, F5, login e reconexão preservam pedidos e histórico, mesmo se ainda existir uma variável externa true. Marcadores antigos são mantidos sem leitura/escrita pela carga. O padrão da imagem Docker é false; manter também no Easypanel:
 
 ```env
 PDV_TEST_RESET_ON_DEPLOY=false
 ```
+
+Esta alteração de código não comprova que o ambiente externo do serviço tenha sido editado. Conservar false também evita reativação ao retornar a um bundle antigo. Nenhum dado excluído anteriormente é recuperado automaticamente por este patch.
 
 Não usar documentos reais para testar envio ao contador sem autorização explícita. Após a publicação autorizada, conferir com lançamentos fictícios: duas contas, produto movido no ADM/garçom, F5/reconexão, pagamento/baixa, relatório e vias físicas.
 

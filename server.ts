@@ -15,13 +15,6 @@ import { MENU_CATEGORIES, PIZZA_FLAVORS, PIZZA_CRUSTS } from "./src/constants.ts
 import { initPg, getPgPool, pgSave, pgSaveMenuSnapshot, pgLoad, pgSeedMenu, pgDeleteMenu, pgDeleteLike, pgDeleteOrdersByWaiterLike } from "./src/db-pg.ts";
 import { agendarBackupDiario } from "./src/lib/backup.ts";
 import { LATEST_PR } from "./src/version.ts";
-import {
-  TEST_RESET_TENANT_ID,
-  TEST_RESET_MARKER_FIELD,
-  TEST_RESET_DISABLE_ENV,
-  shouldRunTestTableReset,
-  resetTestTableState,
-} from "./src/server/test-table-reset.ts";
 import { leaveTenantRooms, switchSocketTenant } from "./src/server/socket-tenant.ts";
 import {
   authActorSafe,
@@ -373,53 +366,6 @@ async function startServer() {
     return current;
   };
 
-  // TEST-ONLY, approved 2026-11-16: the reset is deliberately limited to the
-  // exact tenant in test-table-reset.ts and is disabled by setting
-  // PDV_TEST_RESET_ON_DEPLOY=false before a production rollout. It is not a
-  // generic reset and never touches comandas/menu/users/stock/fiscal/reports.
-  const runApprovedTestTableReset = async (tenantId: string, appConfig: any): Promise<boolean> => {
-    if (!db || tenantId !== TEST_RESET_TENANT_ID) return false;
-    const buildId = String(__BUILD_ID__);
-    const enabled = String(process.env[TEST_RESET_DISABLE_ENV] ?? 'true').toLowerCase() !== 'false';
-    if (!enabled) return false;
-    // The app config is overwritten by normal cash-register/counter updates.
-    // A dedicated record keeps a same-build restart from cleaning new orders.
-    const markerDocId = `${tenantId}:test_table_reset`;
-    const markerResult = await assertSupabaseResult(
-      db.from('config').select('data').eq('tenant_id', tenantId).eq('id', markerDocId).maybeSingle()
-    );
-    if (!shouldRunTestTableReset({
-      tenantId,
-      buildId,
-      marker: markerResult.data?.data?.[TEST_RESET_MARKER_FIELD],
-      enabled,
-    })) return false;
-
-    try {
-      // Supabase REST calls are awaited in order. If any step fails, the
-      // marker is not written; the next tenant load safely retries this
-      // idempotent cleanup before exposing init_data or accepting actions.
-      await assertSupabaseResult(
-        db.from('orders').delete().eq('tenant_id', tenantId).or('is_comanda.eq.false,is_comanda.is.null')
-      );
-      await assertSupabaseResult(
-        db.from('tables').update({ status: 'free', current_order: null, linked_to: null }).eq('tenant_id', tenantId)
-      );
-      await assertSupabaseResult(
-        db.from('config').upsert({
-          id: markerDocId,
-          tenant_id: tenantId,
-          data: { [TEST_RESET_MARKER_FIELD]: buildId, resetAt: new Date().toISOString() },
-        })
-      );
-      console.log(`[test-reset] tenant=${tenantId} table orders cleared for build ${buildId}`);
-      return true;
-    } catch (error: any) {
-      console.error(`[test-reset] tenant=${tenantId} failed closed:`, error?.message || error);
-      throw error;
-    }
-  };
-
   // ── Write queue: debounced async writes, sem bloquear o event loop ────────
   // Agrupa writes rápidos do mesmo registro (ex: vários itens na mesma order)
   // num único upsert. O socket responde imediatamente; o write vai em background.
@@ -741,16 +687,9 @@ async function startServer() {
         return loadTenantData(tenantId);
       }
 
-      // O reset autorizado acontece ainda dentro do readiness do tenant, antes
-      // de init_data. A carga usa as mesmas respostas já obtidas, mas elimina
-      // qualquer pedido de mesa e força as tables a livres sem tocar comandas.
-      const testTableResetApplied = await runApprovedTestTableReset(tenantId, cfgRes.data?.data);
-      const loadedOrderRows = testTableResetApplied && oRes.data
-        ? oRes.data.filter((row: any) => row.is_comanda === true)
-        : oRes.data;
-      const loadedTableRows = testTableResetApplied && tRes.data
-        ? tRes.data.map((row: any) => ({ ...row, status: 'free', current_order: null, linked_to: null }))
-        : tRes.data;
+      // Política de 23/11/2026: deploy/restart nunca limpa dados de teste.
+      // Não consultar flag/build/marcador para reset: o caminho foi removido,
+      // inclusive para a conta original e ambientes com configuração antiga.
 
       if (wRes.data) {
         st.waiters = wRes.data;
@@ -774,12 +713,9 @@ async function startServer() {
         io.to(room).emit('update_menu', st.menu);
       }
 
-      if (loadedOrderRows) {
-        st.orders = loadedOrderRows.filter((r: any) => {
-          // Remove pedidos do Teste de Fogo
-          const waiterName = r.waiter_name || '';
-          return !waiterName.startsWith('Garcom_Fogo_');
-        }).map((r: any) => {
+      if (oRes.data) {
+        // Inclui históricos e Teste de Fogo; limpeza exige ação manual própria.
+        st.orders = oRes.data.map((r: any) => {
           const o = rowToOrder(r);
           if (o.items && st.menu.length > 0) {
             o.items = o.items.map((item: any) => {
@@ -792,16 +728,16 @@ async function startServer() {
           }
           return o;
         });
-        if (!testTableResetApplied) io.to(room).emit('update_orders', st.orders);
+        io.to(room).emit('update_orders', st.orders);
       }
 
-      if (loadedTableRows?.length) {
-        loadedTableRows.map(rowToTable).forEach((dbTable: any) => {
+      if (tRes.data?.length) {
+        tRes.data.map(rowToTable).forEach((dbTable: any) => {
           const idx = st.tables.findIndex(t => t.id === dbTable.id);
           if (idx !== -1) st.tables[idx] = { ...st.tables[idx], ...dbTable }; else st.tables.push(dbTable);
         });
         st.tables.sort((a, b) => a.id - b.id);
-        if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
+        io.to(room).emit('update_tables', st.tables);
       } else if (db) {
         // Supabase sem mesas para este tenant: semeia as 40 padrão automaticamente
         const defaultRows = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, status: 'free', current_order: null, linked_to: null, tenant_id: tenantId }));
@@ -812,21 +748,7 @@ async function startServer() {
         db.from('tables').upsert(defaultRows, { onConflict: 'tenant_id,id' }).then(() => {
           console.log(`[supabase][${tenantId}] 40 mesas padrão semeadas automaticamente`);
         }).catch((e: any) => console.warn(`[supabase][${tenantId}] Falha ao semear mesas:`, e));
-        if (!testTableResetApplied) io.to(room).emit('update_tables', st.tables);
-      }
-
-      if (testTableResetApplied) {
-        const resetState = resetTestTableState({ orders: st.orders, tables: st.tables });
-        st.orders = resetState.orders;
-        st.tables = resetState.tables;
-        // Invalidate only table sessions in this tenant; comanda sessions are
-        // deliberately retained because comanda orders were not reset.
-        for (const key of clientSessions.keys()) {
-          if (key.startsWith(`${tenantId}:t:`)) clientSessions.delete(key);
-        }
-        io.to(room).emit('update_orders', st.orders);
         io.to(room).emit('update_tables', st.tables);
-        console.log(`[test-reset] in-memory table state reset for tenant ${tenantId}`);
       }
 
       if (cRes.data?.length) {
