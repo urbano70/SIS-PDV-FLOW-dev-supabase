@@ -3,6 +3,7 @@ import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole 
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
 import { forceLocalSignOut, forceRefreshSession, getSession, refreshViaProxy } from '../lib/auth';
+import { sendOrderCommand, orderCommandMessage } from '../lib/order-command';
 import {
   getTenantStorageKey,
   getSnapshotBuildId,
@@ -28,7 +29,7 @@ interface FirebaseContextType {
   activeCashRegisterName: string | null;
   openCashRegisterNames: string[];
   updateTableStatusLocal: (id: number, isComanda: boolean, status: string) => void;
-  updatePizzeriaConfig: (config: PizzeriaConfig) => void;
+  updatePizzeriaConfig: (config: PizzeriaConfig) => Promise<boolean>;
   optimisticAddItemToOrder: (orderId: string | number, item: any) => void;
   clockOffset: number;
   data: {
@@ -664,10 +665,25 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const signIn = async () => { toast.info('Autenticação não disponível neste modo.'); };
   const logout = async () => { toast.info('Sessão encerrada.'); };
 
-  const updatePizzeriaConfig = (config: PizzeriaConfig) => {
-    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar antes de salvar.'); return; }
-    setPizzeriaConfig(config);
-    socket.emit('update_pizzaria_config', config);
+  const updatePizzeriaConfig = async (config: PizzeriaConfig): Promise<boolean> => {
+    try {
+      const ack = await sendOrderCommand({
+        socket, event: 'update_pizzaria_config', tenantId: normalizedTenantId || '',
+        payload: { ...config }, canMutate,
+        getScope: () => ({
+          tenantId: effectTenantRef.current || '', socketId: socket.id || null,
+          lifecycle: lifecycleRef.current,
+        }),
+        refreshSnapshot,
+      });
+      if (!ack.ok) { toast.error(orderCommandMessage(ack)); return false; }
+      // The server broadcasts only its persisted configuration. Never reapply
+      // the caller's stale branding over a concurrent profile update.
+      return true;
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+      return false;
+    }
   };
 
   const toggleCashRegister = (open: boolean, cashRegisterName?: string) => {

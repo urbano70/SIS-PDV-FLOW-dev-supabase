@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
+import { refreshViaProxy } from './auth';
 
-export const PRIVATE_ADMIN_API = /^\/api\/(?:fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|force-release-table(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
+export const PRIVATE_ADMIN_API = /^\/api\/(?:establishment\/profile(?:\/|$)|fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|force-release-table(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
 
 function getRequestUrl(input: RequestInfo | URL): URL | null {
   if (typeof window === 'undefined') return null;
@@ -34,6 +35,16 @@ export async function getAdminAccessToken(): Promise<string | null> {
   if (error) return null;
   const token = data.session?.access_token ?? null;
   if (!token) return null;
+  const legacyLogo = data.session?.user?.user_metadata?.logo_url;
+  const secondaryLogo = data.session?.user?.user_metadata?.logo;
+  // Recovery uses a refresh-token grant in the BODY, not an oversized Bearer.
+  // Parsing or measuring a token here is never server-side authorization.
+  if (token.length > 48_000 || (typeof legacyLogo === 'string' && /^data:/i.test(legacyLogo)) ||
+      (typeof secondaryLogo === 'string' && /^data:image\//i.test(secondaryLogo))) {
+    const recovered = await refreshViaProxy();
+    return recovered?.access_token && recovered.access_token.length <= 48_000
+      ? recovered.access_token : null;
+  }
   // Check if the token is expired (exp claim in JWT payload)
   try {
     const payload = JSON.parse(atob(token.split('.')[1]));

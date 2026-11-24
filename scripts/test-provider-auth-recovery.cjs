@@ -12,6 +12,10 @@ const transpile = file => esbuild.transformSync(fs.readFileSync(path.join(root, 
 }).code;
 const syncModule = { exports: {} };
 vm.runInNewContext(transpile('src/lib/firebaseSync.ts'), { module: syncModule, exports: syncModule.exports });
+const commandModule = { exports: {} };
+vm.runInNewContext(transpile('src/lib/order-command.ts'), {
+  module: commandModule, exports: commandModule.exports, setTimeout, clearTimeout,
+});
 const providerCode = transpile('src/components/FirebaseProvider.tsx');
 const flush = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
 const deferred = () => {
@@ -74,6 +78,7 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
       };
       if (name === '../lib/auth') return auth;
       if (name === '../lib/firebaseSync') return syncModule.exports;
+      if (name === '../lib/order-command') return commandModule.exports;
       if (name === 'sonner') return { toast: {
         error: text => notices.push(text), info: text => notices.push(text), success: text => notices.push(text),
       } };

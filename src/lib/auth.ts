@@ -79,7 +79,30 @@ export async function forceRefreshSession() {
  * Atualiza o localStorage diretamente para que os fallbacks subsequentes
  * encontrem o novo access_token sem depender do SDK.
  */
-export async function refreshViaProxy(): Promise<{ access_token: string } | null> {
+let proxyRefreshInFlight: {
+  key: string; token: string; userId: string; promise: Promise<{ access_token: string } | null>;
+} | null = null;
+
+export function refreshViaProxy(): Promise<{ access_token: string } | null> {
+  try {
+    const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    if (!key) return Promise.resolve(null);
+    const session = JSON.parse(localStorage.getItem(key) || 'null');
+    const token = session?.refresh_token;
+    const userId = session?.user?.id;
+    if (!token || !userId) return Promise.resolve(null);
+    if (proxyRefreshInFlight?.key === key && proxyRefreshInFlight.token === token &&
+        proxyRefreshInFlight.userId === userId) return proxyRefreshInFlight.promise;
+    const operation = { key, token, userId, promise: performProxyRefresh() };
+    operation.promise = operation.promise.finally(() => {
+      if (proxyRefreshInFlight === operation) proxyRefreshInFlight = null;
+    });
+    proxyRefreshInFlight = operation;
+    return operation.promise;
+  } catch { return Promise.resolve(null); }
+}
+
+async function performProxyRefresh(): Promise<{ access_token: string } | null> {
   try {
     const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
     if (!key) return null;
@@ -93,10 +116,10 @@ export async function refreshViaProxy(): Promise<{ access_token: string } | null
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token }),
     });
-    if (!res.ok) return null;
     const data = await res.json();
-    if (!data?.access_token) return null;
 
+    // A user supplied by the authenticated grant must belong to this session.
+    if (data.user && data.user.id !== stored?.user?.id) return null;
     // A logout/login or another tab may have changed the session while the
     // proxy was refreshing. Never put the previous account back into storage.
     const currentRaw = localStorage.getItem(key);
@@ -104,12 +127,32 @@ export async function refreshViaProxy(): Promise<{ access_token: string } | null
     if (!current || current.refresh_token !== refresh_token ||
         current.user?.id !== stored?.user?.id) return null;
 
+    if (!res.ok) {
+      // A successful upstream grant may rotate the refresh token before a
+      // transient Storage/Auth error. Keep only that recovery capability, not
+      // a legacy JWT, and never restore another account or report success.
+      if (data?.recovery_pending === true && data.user_id === stored.user?.id &&
+          typeof data.refresh_token === 'string' && data.refresh_token) {
+        localStorage.setItem(key, JSON.stringify({ ...current, refresh_token: data.refresh_token }));
+      }
+      return null;
+    }
+    if (!data?.access_token) return null;
     // Persiste os novos tokens no localStorage para os fallbacks do SDK
     if (stored) {
       stored.access_token = data.access_token;
+      if (data.user) stored.user = data.user;
       if (data.refresh_token) stored.refresh_token = data.refresh_token;
-      if (data.expires_in) stored.expires_at = Math.floor(Date.now() / 1000) + data.expires_in;
+      if (data.expires_in) {
+        stored.expires_in = data.expires_in;
+        stored.expires_at = Math.floor(Date.now() / 1000) + data.expires_in;
+      }
       localStorage.setItem(key, JSON.stringify(stored));
+    }
+    if (data.user && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('establishment-profile-updated', {
+        detail: { tenantId: data.user.id, profile: data.user.user_metadata, user: data.user },
+      }));
     }
     return { access_token: data.access_token };
   } catch {
@@ -136,6 +179,10 @@ export async function updateUserPassword(newPassword: string) {
 }
 
 export async function updateUserMetadata(data: Record<string, any>) {
+  if ('logo_url' in data && (typeof data.logo_url !== 'string' ||
+      /^data:/i.test(data.logo_url) || data.logo_url.length > 2048)) {
+    throw new Error('Use o formulário do estabelecimento para enviar a logo com segurança.');
+  }
   const { error } = await supabase.auth.updateUser({ data });
   if (error) throw error;
 }

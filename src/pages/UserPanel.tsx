@@ -2,6 +2,12 @@ import { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOutOwner, updateUserMetadata, updateUserPassword } from '../lib/auth';
 import { canSelectAccountPlan } from '../lib/accountPlanSelection';
+import {
+  EstablishmentProfile,
+  ProfileFields,
+  getEstablishmentProfile,
+  saveEstablishmentProfile,
+} from '../lib/establishment-profile';
 import { toast } from 'sonner';
 import {
   LogOut, Building, Copy, Check, ExternalLink, LayoutDashboard,
@@ -10,6 +16,163 @@ import {
 } from 'lucide-react';
 
 interface UserPanelProps { ownerUser: any; }
+
+type ProfileFormData = ProfileFields & { logo: string };
+
+const MAX_LOGO_RAW_BYTES = 600_000;
+const MAX_LOGO_ENCODED_BYTES = 600_000;
+const MAX_LOGO_DIMENSION = 2048;
+const MAX_LOGO_PIXELS = 4_000_000;
+
+const hasOwn = (value: unknown, key: string): boolean =>
+  !!value && Object.prototype.hasOwnProperty.call(value, key);
+
+function stringValue(value: unknown): string {
+  return value == null ? '' : String(value);
+}
+
+function fieldsFromMetadata(meta: unknown): ProfileFields {
+  const source = meta && typeof meta === 'object' ? meta as Record<string, unknown> : {};
+  return {
+    establishment_name: stringValue(source.establishment_name),
+    establishment_type: stringValue(source.establishment_type),
+    establishment_type_other: stringValue(source.establishment_type_other),
+    cnpj: stringValue(source.cnpj),
+    responsible_name: stringValue(source.responsible_name),
+    address: stringValue(source.address),
+    phone_whatsapp: stringValue(source.phone_whatsapp),
+    responsible_whatsapp: stringValue(source.responsible_whatsapp),
+    establishment_email: stringValue(source.establishment_email),
+  };
+}
+
+function profileFromMetadata(meta: unknown): EstablishmentProfile {
+  const source = meta && typeof meta === 'object' ? meta as Record<string, unknown> : {};
+  return {
+    ...fieldsFromMetadata(source),
+    logo_url: stringValue(source.logo_url),
+  };
+}
+
+function profileFromResponse(
+  profile: unknown,
+  userMetadata: unknown,
+  fallback: EstablishmentProfile,
+): EstablishmentProfile {
+  const source = profile && typeof profile === 'object' ? profile as Record<string, unknown> : {};
+  const metadata = userMetadata && typeof userMetadata === 'object'
+    ? userMetadata as Record<string, unknown>
+    : {};
+  const read = (key: keyof EstablishmentProfile): string => {
+    if (hasOwn(source, key)) return stringValue(source[key]);
+    if (hasOwn(metadata, key)) return stringValue(metadata[key]);
+    return fallback[key];
+  };
+  return {
+    establishment_name: read('establishment_name'),
+    establishment_type: read('establishment_type'),
+    establishment_type_other: read('establishment_type_other'),
+    cnpj: read('cnpj'),
+    responsible_name: read('responsible_name'),
+    address: read('address'),
+    phone_whatsapp: read('phone_whatsapp'),
+    responsible_whatsapp: read('responsible_whatsapp'),
+    establishment_email: read('establishment_email'),
+    logo_url: read('logo_url'),
+  };
+}
+
+function formFromProfile(profile: EstablishmentProfile): ProfileFormData {
+  return { ...profile, logo: profile.logo_url };
+}
+
+function readAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo da logo.'));
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Arquivo de logo inválido.'));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(source: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Não foi possível decodificar a imagem da logo.'));
+    image.src = source;
+  });
+}
+
+function encodedBytes(dataUrl: string): number {
+  const comma = dataUrl.indexOf(',');
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  return Math.ceil((base64.length * 3) / 4);
+}
+
+/** Reads the file only for a local preview, always converting the upload to PNG. */
+async function rasterizeLogo(file: File): Promise<string> {
+  if (file.size > MAX_LOGO_RAW_BYTES) {
+    throw new Error('Imagem muito grande. Use até 600 KB.');
+  }
+  const mime = (file.type || '').toLowerCase();
+  const extension = file.name.toLowerCase().split('.').pop() || '';
+  const isSvg = mime === 'image/svg+xml' || extension === 'svg';
+  const isRaster = mime === 'image/png' || mime === 'image/jpeg' ||
+    extension === 'png' || extension === 'jpg' || extension === 'jpeg';
+  if (!isSvg && !isRaster) {
+    throw new Error('Formato inválido. Escolha uma imagem PNG, JPG ou SVG.');
+  }
+
+  // SVG is loaded from a Blob URL in an <img>; scripts are not executed and
+  // the resulting pixels are the only thing that reaches the canvas/upload.
+  const objectUrl = isSvg ? URL.createObjectURL(file) : '';
+  const sourceUrl = objectUrl || await readAsDataUrl(file);
+  try {
+    const image = await loadImage(sourceUrl);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+    if (!sourceWidth || !sourceHeight || !Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight)) {
+      throw new Error('A imagem da logo não tem dimensões válidas.');
+    }
+
+    const initialScale = Math.min(
+      1,
+      MAX_LOGO_DIMENSION / sourceWidth,
+      MAX_LOGO_DIMENSION / sourceHeight,
+      Math.sqrt(MAX_LOGO_PIXELS / (sourceWidth * sourceHeight)),
+    );
+    let width = Math.max(1, Math.floor(sourceWidth * initialScale));
+    let height = Math.max(1, Math.floor(sourceHeight * initialScale));
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Seu navegador não permite preparar a imagem da logo.');
+      context.clearRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/png');
+      if (encodedBytes(dataUrl) <= MAX_LOGO_ENCODED_BYTES) return dataUrl;
+      const scale = Math.max(0.2, Math.sqrt(MAX_LOGO_ENCODED_BYTES / encodedBytes(dataUrl)) * 0.88);
+      width = Math.max(1, Math.floor(width * scale));
+      height = Math.max(1, Math.floor(height * scale));
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message) throw error;
+    throw new Error('Não foi possível preparar a imagem da logo.');
+  } finally {
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
+  throw new Error('Imagem muito complexa. Escolha uma logo menor ou com menos detalhes.');
+}
 
 const BUSINESS_TYPES = ['Bar', 'Restaurante', 'Pizzaria', 'Lanchonete', 'Outros'];
 const PLANS = [
@@ -24,41 +187,24 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   const [copiedLink, setCopiedLink] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentTenantRef = useRef<string>(ownerUser?.id || '');
+  const profileRequestVersionRef = useRef(0);
+  const mountedRef = useRef(true);
+  const editOpenRef = useRef(false);
+  const savingRef = useRef(false);
+  const logoSelectionVersionRef = useRef(0);
+  const tenantGenerationRef = useRef(0);
+  const lastEffectTenantRef = useRef(ownerUser?.id || '');
 
   const meta = ownerUser?.user_metadata || {};
   const tenantId = ownerUser?.id || '';
+  if (currentTenantRef.current !== tenantId) {
+    currentTenantRef.current = tenantId;
+    tenantGenerationRef.current += 1;
+    logoSelectionVersionRef.current += 1;
+  }
   const ownerEmail = ownerUser?.email || '';
   const waiterLink = `${window.location.origin}/waiter?tenant=${tenantId}`;
-
-  // ── Logo — persiste no user_metadata (sobrevive a login em outros devices) ─
-  const [logoUrl, setLogoUrl] = useState<string>(() => {
-    const metaLogo = ownerUser?.user_metadata?.logo_url;
-    if (metaLogo) return metaLogo;
-    try { const pc = localStorage.getItem('printerConfig'); return pc ? (JSON.parse(pc).logoUrl || '') : ''; }
-    catch { return ''; }
-  });
-
-  function saveLogo(url: string) {
-    try {
-      const pc = localStorage.getItem('printerConfig');
-      const config = pc ? JSON.parse(pc) : {};
-      localStorage.setItem('printerConfig', JSON.stringify({ ...config, logoUrl: url }));
-    } catch {}
-  }
-
-  const handleLogoChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 600_000) { toast.error('Imagem muito grande. Use menos de 600 KB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      setLogoUrl(base64);
-      saveLogo(base64);
-      setFormData(p => ({ ...p, logo: base64 }));
-    };
-    reader.readAsDataURL(file);
-  };
 
   // ── Plano ─────────────────────────────────────────────────────────────────
   const [currentPlan, setCurrentPlan] = useState<string>(meta.plan || 'premium');
@@ -81,69 +227,189 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   // ── Formulário de dados da empresa ────────────────────────────────────────
   const [editOpen, setEditOpen] = useState(false);
   const [saving, setSaving]     = useState(false);
+  const initialProfile = profileFromMetadata(meta);
+  const [confirmedProfile, setConfirmedProfile] = useState<EstablishmentProfile>(initialProfile);
+  const confirmedProfileRef = useRef<EstablishmentProfile>(initialProfile);
+  const [logoUrl, setLogoUrl] = useState<string>(initialProfile.logo_url);
+  const [formData, setFormData] = useState<ProfileFormData>(() => formFromProfile(initialProfile));
+  const [draftLogoDataUrl, setDraftLogoDataUrl] = useState<string | undefined>(undefined);
+  const [draftLogoRemoved, setDraftLogoRemoved] = useState(false);
+  const [logoProcessing, setLogoProcessing] = useState(false);
 
-  const [formData, setFormData] = useState({
-    establishment_name:     meta.establishment_name     || '',
-    establishment_type:     meta.establishment_type     || '',
-    establishment_type_other: meta.establishment_type_other || '',
-    cnpj:                   meta.cnpj                   || '',
-    responsible_name:       meta.responsible_name       || '',
-    address:                meta.address                || '',
-    phone_whatsapp:         meta.phone_whatsapp         || '',
-    responsible_whatsapp:   meta.responsible_whatsapp   || '',
-    establishment_email:    meta.establishment_email    || '',
-    logo:                   logoUrl,
-  });
+  const commitConfirmedProfile = (profile: EstablishmentProfile, userMetadata?: unknown) => {
+    confirmedProfileRef.current = profile;
+    setConfirmedProfile(profile);
+    setLogoUrl(profile.logo_url);
+    if (userMetadata && typeof userMetadata === 'object') {
+      const plan = (userMetadata as Record<string, unknown>).plan;
+      if (typeof plan === 'string' && plan) setCurrentPlan(plan);
+    }
+  };
 
-  // Sync UI whenever ownerUser is refreshed (e.g. after background getUser() call in App.tsx)
+  const applyConfirmedProfileToDraft = (profile: EstablishmentProfile) => {
+    setFormData(formFromProfile(profile));
+    setDraftLogoDataUrl(undefined);
+    setDraftLogoRemoved(false);
+  };
+
   useEffect(() => {
-    if (editOpen) return;
-    const freshMeta = ownerUser?.user_metadata;
-    if (!freshMeta) return;
-    const newLogo = freshMeta.logo_url ?? '';
-    setCurrentPlan(freshMeta.plan || 'premium');
-    setLogoUrl(newLogo);
-    setFormData({
-      establishment_name:       freshMeta.establishment_name       || '',
-      establishment_type:       freshMeta.establishment_type       || '',
-      establishment_type_other: freshMeta.establishment_type_other || '',
-      cnpj:                     freshMeta.cnpj                     || '',
-      responsible_name:         freshMeta.responsible_name         || '',
-      address:                  freshMeta.address                  || '',
-      phone_whatsapp:           freshMeta.phone_whatsapp           || '',
-      responsible_whatsapp:     freshMeta.responsible_whatsapp     || '',
-      establishment_email:      freshMeta.establishment_email      || '',
-      logo:                     newLogo,
+    editOpenRef.current = editOpen;
+  }, [editOpen]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      profileRequestVersionRef.current += 1;
+      tenantGenerationRef.current += 1;
+    };
+  }, []);
+
+  // Auth metadata seeds the screen, then the profile API supplies the confirmed
+  // value. Late GETs are ignored after a tenant switch or unmount.
+  useEffect(() => {
+    const requestTenantId = tenantId;
+    const previousTenantId = lastEffectTenantRef.current;
+    lastEffectTenantRef.current = requestTenantId;
+    const requestVersion = profileRequestVersionRef.current + 1;
+    profileRequestVersionRef.current = requestVersion;
+    currentTenantRef.current = requestTenantId;
+    const seededProfile = previousTenantId === requestTenantId
+      ? profileFromResponse({}, ownerUser?.user_metadata, confirmedProfileRef.current)
+      : profileFromMetadata(ownerUser?.user_metadata);
+    commitConfirmedProfile(seededProfile, ownerUser?.user_metadata);
+    if (previousTenantId !== requestTenantId) {
+      editOpenRef.current = false;
+      savingRef.current = false;
+      setSaving(false);
+      setLogoProcessing(false);
+      setEditOpen(false);
+    }
+    if (!editOpenRef.current) applyConfirmedProfileToDraft(seededProfile);
+    let active = true;
+
+    void getEstablishmentProfile().then(result => {
+      if (!active || !mountedRef.current || currentTenantRef.current !== requestTenantId ||
+          profileRequestVersionRef.current !== requestVersion || result.user?.id !== requestTenantId) return;
+      const confirmed = profileFromResponse(
+        result.profile,
+        result.user?.user_metadata,
+        seededProfile,
+      );
+      commitConfirmedProfile(confirmed, result.user?.user_metadata);
+      if (!editOpenRef.current) applyConfirmedProfileToDraft(confirmed);
+    }).catch(error => {
+      if (!active || !mountedRef.current || currentTenantRef.current !== requestTenantId ||
+          profileRequestVersionRef.current !== requestVersion) return;
+      toast.error(error instanceof Error && error.message
+        ? error.message
+        : 'Não foi possível carregar o perfil do estabelecimento.');
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownerUser]);
+
+    return () => { active = false; };
+  }, [tenantId, ownerUser?.user_metadata]);
+
+  const handleLogoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset immediately so selecting the same file again still fires change.
+    e.target.value = '';
+    if (!file || savingRef.current) return;
+    const selectionVersion = logoSelectionVersionRef.current + 1;
+    logoSelectionVersionRef.current = selectionVersion;
+    setLogoProcessing(true);
+    try {
+      const preview = await rasterizeLogo(file);
+      if (!mountedRef.current || selectionVersion !== logoSelectionVersionRef.current ||
+          currentTenantRef.current !== tenantId) return;
+      setFormData(previous => ({ ...previous, logo: preview }));
+      setDraftLogoDataUrl(preview);
+      setDraftLogoRemoved(false);
+    } catch (error) {
+      if (!mountedRef.current || selectionVersion !== logoSelectionVersionRef.current ||
+          currentTenantRef.current !== tenantId) return;
+      if (error instanceof Error && error.message) toast.error(error.message);
+      else toast.error('Não foi possível preparar a imagem da logo.');
+    } finally {
+      if (mountedRef.current && selectionVersion === logoSelectionVersionRef.current) setLogoProcessing(false);
+    }
+  };
 
   const f = (key: keyof typeof formData, val: string) =>
     setFormData(p => ({ ...p, [key]: val }));
 
+  const handleCancelEdit = () => {
+    if (savingRef.current) return;
+    logoSelectionVersionRef.current += 1;
+    setLogoProcessing(false);
+    applyConfirmedProfileToDraft(confirmedProfileRef.current);
+    setEditOpen(false);
+  };
+
+  const handleRemoveLogo = () => {
+    if (savingRef.current) return;
+    logoSelectionVersionRef.current += 1;
+    setLogoProcessing(false);
+    setFormData(previous => ({ ...previous, logo: '' }));
+    setDraftLogoDataUrl(undefined);
+    setDraftLogoRemoved(true);
+  };
+
   const handleSaveCompany = async () => {
     if (!formData.establishment_name.trim()) { toast.error('Nome do estabelecimento obrigatório.'); return; }
+    if (savingRef.current || logoProcessing) return;
+    const requestTenantId = tenantId;
+    const generation = tenantGenerationRef.current;
+    const fields: ProfileFields = {
+      establishment_name: formData.establishment_name.trim(),
+      establishment_type: formData.establishment_type,
+      establishment_type_other: formData.establishment_type === 'Outros' ? formData.establishment_type_other.trim() : '',
+      cnpj: formData.cnpj.trim(),
+      responsible_name: formData.responsible_name.trim(),
+      address: formData.address.trim(),
+      phone_whatsapp: formData.phone_whatsapp.trim(),
+      responsible_whatsapp: formData.responsible_whatsapp.trim(),
+      establishment_email: formData.establishment_email.trim(),
+    };
+    const logoDataUrl = draftLogoDataUrl;
+    const removeLogo = draftLogoRemoved && !logoDataUrl;
+    savingRef.current = true;
     setSaving(true);
     try {
-      await updateUserMetadata({
-        establishment_name:       formData.establishment_name.trim(),
-        establishment_type:       formData.establishment_type,
-        establishment_type_other: formData.establishment_type === 'Outros' ? formData.establishment_type_other.trim() : '',
-        cnpj:                     formData.cnpj.trim(),
-        responsible_name:         formData.responsible_name.trim(),
-        address:                  formData.address.trim(),
-        phone_whatsapp:           formData.phone_whatsapp.trim(),
-        responsible_whatsapp:     formData.responsible_whatsapp.trim(),
-        establishment_email:      formData.establishment_email.trim(),
-        logo_url:                 formData.logo,
+      const result = await saveEstablishmentProfile({
+        fields,
+        ...(logoDataUrl !== undefined ? { logoDataUrl } : {}),
+        ...(removeLogo ? { removeLogo: true } : {}),
       });
-      setLogoUrl(formData.logo);
-      saveLogo(formData.logo);
+      if (!mountedRef.current || currentTenantRef.current !== requestTenantId ||
+          tenantGenerationRef.current !== generation || result.user?.id !== requestTenantId) return;
+      const confirmed = profileFromResponse(
+        result.profile,
+        result.user?.user_metadata,
+        {
+          ...confirmedProfileRef.current,
+          ...fields,
+          logo_url: removeLogo ? '' : confirmedProfileRef.current.logo_url,
+        },
+      );
+      commitConfirmedProfile(confirmed, result.user?.user_metadata);
+      applyConfirmedProfileToDraft(confirmed);
       toast.success('Dados salvos com sucesso!');
       setEditOpen(false);
-    } catch {
-      toast.error('Erro ao salvar. Tente novamente.');
-    } finally { setSaving(false); }
+      window.dispatchEvent(new CustomEvent('establishment-profile-updated', {
+        detail: { tenantId: requestTenantId, profile: confirmed, user: result.user },
+      }));
+    } catch (error) {
+      if (mountedRef.current && currentTenantRef.current === requestTenantId &&
+          tenantGenerationRef.current === generation) {
+        toast.error(error instanceof Error && error.message ? error.message : 'Erro ao salvar. Tente novamente.');
+      }
+    } finally {
+      if (mountedRef.current && currentTenantRef.current === requestTenantId &&
+          tenantGenerationRef.current === generation) {
+        savingRef.current = false;
+        setSaving(false);
+      }
+    }
   };
 
   // ── Aba do card de módulos ────────────────────────────────────────────────
@@ -412,7 +678,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
       {/* ── Modal: Editar Dados da Empresa ──────────────────────────────────── */}
       {editOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-          onClick={e => e.target === e.currentTarget && setEditOpen(false)}>
+          onClick={e => e.target === e.currentTarget && handleCancelEdit()}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
 
             {/* Modal header */}
@@ -421,7 +687,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                 <h3 className="font-serif italic text-2xl font-bold">Dados do Estabelecimento</h3>
                 <p className="text-xs text-[#141414]/50 mt-0.5">Preencha as informações do seu estabelecimento</p>
               </div>
-              <button onClick={() => setEditOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+              <button onClick={handleCancelEdit} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -435,7 +701,7 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                   {formData.logo ? (
                     <div className="relative shrink-0">
                       <img src={formData.logo} alt="Logo" className="w-24 h-24 object-contain rounded-xl border border-[#141414]/10 bg-[#F5F5F3] p-1" />
-                      <button onClick={() => { setFormData(p => ({ ...p, logo: '' })); }}
+                      <button type="button" onClick={handleRemoveLogo} disabled={saving || logoProcessing}
                         className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600">
                         <X size={10} />
                       </button>
@@ -446,11 +712,11 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                     </div>
                   )}
                   <div className="flex-1">
-                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
-                    <button onClick={() => fileInputRef.current?.click()}
+                    <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,.png,.jpg,.jpeg,.svg" className="hidden" onChange={handleLogoChange} disabled={saving || logoProcessing} />
+                    <button type="button" onClick={() => fileInputRef.current?.click()} disabled={saving || logoProcessing}
                       className="w-full px-4 py-3 rounded-xl border border-[#141414]/20 text-sm font-semibold text-[#141414] hover:bg-[#141414]/5 transition-colors flex items-center gap-2">
                       <ImagePlus size={16} className="opacity-50" />
-                      {formData.logo ? 'Trocar imagem' : 'Enviar logo'}
+                      {logoProcessing ? 'Preparando imagem...' : formData.logo ? 'Trocar imagem' : 'Enviar logo'}
                     </button>
                     <p className="text-[11px] text-[#141414]/40 mt-1.5">PNG, JPG ou SVG · máx. 600 KB</p>
                   </div>
@@ -598,13 +864,13 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
 
             {/* Modal footer */}
             <div className="flex gap-3 p-6 border-t border-[#141414]/10 sticky bottom-0 bg-white">
-              <button onClick={() => setEditOpen(false)}
+              <button onClick={handleCancelEdit}
                 className="flex-1 py-3 border border-[#141414]/20 rounded-xl text-sm font-bold text-[#141414]/60 hover:bg-gray-50 transition-colors">
                 Cancelar
               </button>
-              <button onClick={handleSaveCompany} disabled={saving}
+              <button onClick={handleSaveCompany} disabled={saving || logoProcessing}
                 className="flex-1 py-3 bg-[#141414] text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
-                {saving ? 'Salvando...' : 'Salvar dados'}
+                {saving ? 'Salvando...' : logoProcessing ? 'Preparando logo...' : 'Salvar dados'}
               </button>
             </div>
 

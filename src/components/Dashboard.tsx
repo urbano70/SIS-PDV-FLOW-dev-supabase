@@ -1173,8 +1173,10 @@ export default function Dashboard({
   const [localNumTables, setLocalNumTables] = useState<number>(pizzariaConfig.numTables ?? 10);
   const [localNumComandas, setLocalNumComandas] = useState<number>(pizzariaConfig.numComandas ?? 50);
   const [localMaxWaiters, setLocalMaxWaiters] = useState<number>(pizzariaConfig.maxWaiters ?? 10);
-  const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
+  const savingSalonRef = useRef(false);
+  const [savingPrinters, setSavingPrinters] = useState(false);
+  const savingPrintersRef = useRef(false);
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
   const needsCaixa = isCashRegisterOpen && !activeCashRegisterName;
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
@@ -1232,27 +1234,29 @@ export default function Dashboard({
     setLocalCashRegisters(pizzariaConfig.cashRegisters ?? []);
   }, [pizzariaConfig.cashRegisters]);
 
-  useEffect(() => {
-    setLocalLogoUrl(printerConfig.logoUrl || '');
-  }, [printerConfig.logoUrl]);
-
   const salonDirty =
     localNumTables !== (pizzariaConfig.numTables ?? 10) ||
     localNumComandas !== (pizzariaConfig.numComandas ?? 50) ||
-    localMaxWaiters !== (pizzariaConfig.maxWaiters ?? 10) ||
-    localLogoUrl !== (printerConfig.logoUrl || '');
+    localMaxWaiters !== (pizzariaConfig.maxWaiters ?? 10);
 
   const saveSalonConfig = async () => {
+    if (savingSalonRef.current) return;
+    savingSalonRef.current = true;
     setSavingConfig(true);
-    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas), maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)), logoUrl: localLogoUrl });
-    (setPrinterConfig as any)((prev: any) => {
-      const updated = { ...prev, logoUrl: localLogoUrl };
-      localStorage.setItem('printerConfig', JSON.stringify(updated));
-      return updated;
-    });
-    await new Promise(r => setTimeout(r, 600));
-    setSavingConfig(false);
-    toast.success('Configurações do salão salvas!');
+    const scope = getCommandScope();
+    try {
+      const saved = await firebaseContext.updatePizzeriaConfig({ ...pizzariaConfig,
+        numTables: localNumTables, numComandas: Math.min(50, localNumComandas),
+        maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)),
+      });
+      const current = getCommandScope();
+      if (saved && current.tenantId === scope.tenantId && current.lifecycle === scope.lifecycle) {
+        toast.success('Configurações do salão salvas!');
+      }
+    } finally {
+      savingSalonRef.current = false;
+      setSavingConfig(false);
+    }
   };
 
   // Pizzaria mode: local state for config editing
@@ -1877,25 +1881,26 @@ export default function Dashboard({
     }
   }, [isAddItemModalOpen]);
 
-  const handleSavePrinters = () => {
-    (setPrinterConfig as any)((latest: any) => {
-      try {
-        localStorage.setItem('printerConfig', JSON.stringify(latest));
-        // Persiste no Supabase para não perder ao trocar de navegador ou dispositivo
-        socket.emit('save_printer_config', latest);
-        // Sincroniza nome e logo com o servidor para exibição na página da mesa
-        socket.emit('update_pizzaria_config', {
-          establishmentName: latest.establishmentName || '',
-          logoUrl: latest.logoUrl || '',
-        });
-        toast.success('Configurações salvas!', {
-          description: 'Impressoras e cupom salvos no servidor.'
-        });
-      } catch {
-        toast.error('Erro ao salvar configurações.');
+  const handleSavePrinters = async () => {
+    if (savingPrintersRef.current) return;
+    savingPrintersRef.current = true;
+    setSavingPrinters(true);
+    const snapshot = printerConfig;
+    try {
+      const ack = await runOrderCommand({ event: 'save_printer_config', payload: { ...snapshot } });
+      if (!ack.ok) { toast.error(orderCommandMessage(ack)); return; }
+      if (ack.config && typeof ack.config === 'object') {
+        (setPrinterConfig as any)((current: any) => current === snapshot ? ack.config : current);
       }
-      return latest;
-    });
+      toast.success('Configurações salvas!', {
+        description: 'Impressoras e cupom confirmados no servidor.',
+      });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+    } finally {
+      savingPrintersRef.current = false;
+      setSavingPrinters(false);
+    }
   };
 
   const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
@@ -6573,13 +6578,14 @@ export default function Dashboard({
                     </div>
                   )}
                   <div className="col-span-2">
-                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">URL da Logo</label>
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">Logo do Estabelecimento</label>
                     <input
-                      type="url" value={localLogoUrl}
-                      onChange={(e) => setLocalLogoUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                      type="text" value={printerConfig.logoUrl || ''} readOnly
+                      placeholder="Nenhuma logo cadastrada"
+                      className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] outline-none"
                     />
+                    <a href="/portal" className="text-[10px] font-bold underline block mt-2">Editar logo e dados do estabelecimento</a>
+                    <p className="text-[9px] opacity-50 mt-1">A mesma logo é usada no formulário, no painel e na impressão.</p>
                   </div>
                 </div>
               </div>
@@ -7192,9 +7198,9 @@ export default function Dashboard({
                     )}
                   </div>
 
-                  <button onClick={handleSavePrinters}
-                    className="w-full bg-[#141414] text-[#E4E3E0] py-2.5 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm uppercase tracking-wide">
-                    Salvar configurações
+                  <button onClick={handleSavePrinters} disabled={savingPrinters || !canMutate()}
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-2.5 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm uppercase tracking-wide disabled:opacity-40">
+                    {savingPrinters ? 'Salvando...' : 'Salvar configurações'}
                   </button>
                 </div>
 
@@ -7209,12 +7215,13 @@ export default function Dashboard({
                   {/* Identificação */}
                   <div>
                     <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Nome do Estabelecimento</label>
-                    <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                    <input type="text" value={printerConfig.establishmentName} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
+                    <a href="/portal" className="text-xs font-bold underline block mt-1">Editar identificação no cadastro do estabelecimento</a>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">CNPJ / CPF</label>
-                      <input type="text" value={printerConfig.cnpj || ''} onChange={(e) => setPrinterConfig({...printerConfig, cnpj: e.target.value})} placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.cnpj || ''} readOnly placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Título do Cupom</label>
@@ -7224,11 +7231,11 @@ export default function Dashboard({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Endereço</label>
-                      <input type="text" value={printerConfig.address} onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.address} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Telefone</label>
-                      <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.phone} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">

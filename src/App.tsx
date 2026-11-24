@@ -36,6 +36,7 @@ import AttendancePage from './pages/AttendancePage';
 import { ChamarGarcomPage } from './pages/ChamarGarcomPage';
 import { ClientePage } from './pages/ClientePage';
 import DashboardLockScreen from './components/DashboardLockScreen';
+import { brandingFromMetadata, getEstablishmentProfile } from './lib/establishment-profile';
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -73,48 +74,38 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
   const [printerConfig, setPrinterConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('printerConfig');
-      return saved ? { ...defaultPrinterConfig, ...JSON.parse(saved) } : defaultPrinterConfig;
+      const cached = saved ? JSON.parse(saved) : {};
+      const sameTenant = localStorage.getItem('printerConfigTenantId') === ownerUser?.id;
+      return {
+        ...defaultPrinterConfig, ...cached,
+        ...(!sameTenant ? { establishmentName: defaultPrinterConfig.establishmentName,
+          address: '', phone: '', email: '', cnpj: '', logoUrl: '' } : {}),
+        ...brandingFromMetadata(ownerUser?.user_metadata),
+      };
     } catch {
-      return defaultPrinterConfig;
+      return { ...defaultPrinterConfig, ...brandingFromMetadata(ownerUser?.user_metadata) };
     }
   });
 
-  // Sync establishment data from Supabase user_metadata → printerConfig
-  // Aplica sempre que o user_metadata mudar (campos de onboarding têm prioridade sobre o padrão)
+  // The confirmed establishment profile owns branding, including explicit
+  // empty values. Printer/device preferences remain independent.
   useEffect(() => {
     const meta = ownerUser?.user_metadata;
-    if (!meta) return;
-    const { establishment_name, address, phone_whatsapp, establishment_email } = meta;
-    if (!establishment_name && !address && !phone_whatsapp && !establishment_email) return;
+    if (!meta || !ownerUser?.id) return;
     setPrinterConfig((prev: any) => {
-      const patch: Record<string, string> = {};
-      if (establishment_name && prev.establishmentName === 'Pizzaria & Restaurante') patch.establishmentName = establishment_name;
-      if (address && !prev.address) patch.address = address;
-      if (phone_whatsapp && !prev.phone) patch.phone = phone_whatsapp;
-      if (establishment_email && !prev.email) patch.email = establishment_email;
-      if (Object.keys(patch).length === 0) return prev;
-      const updated = { ...prev, ...patch };
-      localStorage.setItem('printerConfig', JSON.stringify(updated));
-      return updated;
-    });
-  }, [ownerUser?.user_metadata?.establishment_name, ownerUser?.user_metadata?.address, ownerUser?.user_metadata?.phone_whatsapp, ownerUser?.user_metadata?.establishment_email]);
-
-  // Quando o tenant (ownerUser.id) muda, reseta campos tenant-específicos do printerConfig
-  // Evita que nome/logo de um tenant apareça no dashboard de outro tenant (contaminação de localStorage)
-  useEffect(() => {
-    if (!ownerUser?.id) return;
-    const savedTenantId = localStorage.getItem('printerConfigTenantId');
-    if (savedTenantId === ownerUser.id) return;
-    const metaName = ownerUser.user_metadata?.establishment_name;
-    setPrinterConfig((prev: any) => {
-      const updated = { ...prev, establishmentName: metaName || defaultPrinterConfig.establishmentName, logoUrl: '' };
+      const sameTenant = localStorage.getItem('printerConfigTenantId') === ownerUser.id;
+      const updated = { ...prev,
+        ...(!sameTenant ? { establishmentName: defaultPrinterConfig.establishmentName,
+          address: '', phone: '', email: '', cnpj: '', logoUrl: '' } : {}),
+        ...brandingFromMetadata(meta),
+      };
       try {
         localStorage.setItem('printerConfig', JSON.stringify(updated));
         localStorage.setItem('printerConfigTenantId', ownerUser.id);
       } catch {}
       return updated;
     });
-  }, [ownerUser?.id]);
+  }, [ownerUser?.id, ownerUser?.user_metadata]);
 
   useEffect(() => {
     if (waiters.length === 0) return;
@@ -149,12 +140,14 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       const patch: Record<string, string> = {};
       if (pizzariaConfig.establishmentName && pizzariaConfig.establishmentName !== prev.establishmentName) patch.establishmentName = pizzariaConfig.establishmentName;
       if (pizzariaConfig.logoUrl !== undefined && pizzariaConfig.logoUrl !== prev.logoUrl) patch.logoUrl = pizzariaConfig.logoUrl;
+      Object.assign(patch, brandingFromMetadata(ownerUser?.user_metadata));
       if (Object.keys(patch).length === 0) return prev;
+      if (Object.entries(patch).every(([key, value]) => prev[key] === value)) return prev;
       const updated = { ...prev, ...patch };
       localStorage.setItem('printerConfig', JSON.stringify(updated));
       return updated;
     });
-  }, [pizzariaConfig?.establishmentName, pizzariaConfig?.logoUrl, printerConfig.establishmentName, printerConfig.logoUrl]);
+  }, [pizzariaConfig?.establishmentName, pizzariaConfig?.logoUrl, ownerUser?.user_metadata]);
 
   // Persiste printerConfig no localStorage sempre que mudar (garante que alterações feitas no
   // Dashboard não se percam ao recarregar ou atualizar o sistema)
@@ -175,7 +168,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       // Restaura printerConfig do servidor (Supabase) se existir, fundindo com o localStorage
       if (data.printerConfig && Object.keys(data.printerConfig).length > 0) {
         setPrinterConfig((prev: any) => {
-          const merged = { ...prev, ...data.printerConfig };
+          const merged = { ...prev, ...data.printerConfig, ...brandingFromMetadata(ownerUser?.user_metadata) };
           try { localStorage.setItem('printerConfig', JSON.stringify(merged)); } catch {}
           return merged;
         });
@@ -183,6 +176,13 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
     };
     socket.on('init_data', onInit);
 
+    const onPrinters = (payload: any) => {
+      if (!ownerUser?.id || payload?.tenantId !== ownerUser.id || !payload.config) return;
+      setPrinterConfig((current: any) => ({ ...current, ...payload.config,
+        ...brandingFromMetadata(ownerUser.user_metadata),
+      }));
+    };
+    socket.on('update_printer_config', onPrinters);
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
@@ -219,6 +219,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
 
     return () => {
       socket.off('init_data', onInit);
+      socket.off('update_printer_config', onPrinters);
       socket.off('waiter_approved', onWaiterApproved);
       socket.off('admin_notification', onNotification);
       socket.off('error_message', onError);
@@ -226,7 +227,7 @@ function AppContent({ ownerUser }: { ownerUser: any }) {
       socket.off('update_pizza_crusts', setPizzaCrusts);
       socket.off('update_pizza_sizes', setPizzaSizes);
     };
-  }, [ownerUser?.id]);
+  }, [ownerUser?.id, ownerUser?.user_metadata]);
 
   if (loading) {
     return (
@@ -432,21 +433,37 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
     showWaiter: true, showTimestamp: true, showLogo: true,
     itemFontSize: '12px', boldItems: false, paperWidth: '80mm',
   };
-  const [printerConfig] = useState(() => {
+  const [printerConfig, setPrinterConfig] = useState(() => {
     try {
       const saved = localStorage.getItem('printerConfig');
-      return saved ? { ...defaultPrinterConfig, ...JSON.parse(saved) } : defaultPrinterConfig;
+      const cached = saved ? JSON.parse(saved) : {};
+      const scoped = localStorage.getItem('printerConfigTenantId') === tenantId;
+      return { ...defaultPrinterConfig, ...cached,
+        ...(!scoped ? { establishmentName: defaultPrinterConfig.establishmentName,
+          address: '', phone: '', email: '', cnpj: '', logoUrl: '' } : {}),
+      };
     } catch { return defaultPrinterConfig; }
   });
 
   useEffect(() => {
     const onInit = (d: any) => {
-      if (tenantId && d.tenantId !== tenantId) return;
+      if (!d?.ready || !tenantId || d.tenantId !== tenantId) return;
       if (d.pizzaFlavors) setPizzaFlavors(d.pizzaFlavors);
       if (d.pizzaCrusts) setPizzaCrusts(d.pizzaCrusts);
       if (d.pizzaSizes) setPizzaSizes(d.pizzaSizes);
+      if (d.printerConfig) setPrinterConfig((current: any) => ({ ...current, ...d.printerConfig }));
+    };
+    const onProfile = (payload: any) => {
+      if (!tenantId || payload?.tenantId !== tenantId || !payload.profile) return;
+      setPrinterConfig((current: any) => ({ ...current, ...brandingFromMetadata(payload.profile) }));
+    };
+    const onPrinters = (payload: any) => {
+      if (!tenantId || payload?.tenantId !== tenantId || !payload.config) return;
+      setPrinterConfig((current: any) => ({ ...current, ...payload.config }));
     };
     socket.on('init_data', onInit);
+    socket.on('update_establishment_profile', onProfile);
+    socket.on('update_printer_config', onPrinters);
     socket.on('update_pizza_flavors', setPizzaFlavors);
     socket.on('update_pizza_crusts', setPizzaCrusts);
     socket.on('update_pizza_sizes', setPizzaSizes);
@@ -457,6 +474,8 @@ function WaiterRouteInner({ tenantId }: { tenantId?: string }) {
     socket.on('waiter_approved', onWaiterApproved);
     return () => {
       socket.off('init_data', onInit);
+      socket.off('update_establishment_profile', onProfile);
+      socket.off('update_printer_config', onPrinters);
       socket.off('update_pizza_flavors', setPizzaFlavors);
       socket.off('update_pizza_crusts', setPizzaCrusts);
       socket.off('update_pizza_sizes', setPizzaSizes);
@@ -519,22 +538,54 @@ export default function App() {
   });
 
   useEffect(() => {
-    // Load cached session first (fast), then refresh metadata from server
-    getSession().then(async session => {
+    let disposed = false;
+    let revision = 0;
+    // Cached session is only the fast starting point. A stale load must not
+    // resurrect an account after logout or a more recent auth event.
+    getSession().then(session => {
+      if (disposed || revision !== 0) return;
       setOwnerUser(session?.user ?? null);
       setAuthLoading(false);
-      if (session?.user) {
-        // getUser() fetches fresh user_metadata from Supabase, correcting stale cached JWT
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) setOwnerUser(user);
-      }
     });
-    // Subscribe to auth changes (also fires on updateUser → USER_UPDATED)
     const { data: { subscription } } = onAuthStateChange(user => {
+      if (disposed) return;
+      revision++;
       setOwnerUser(user);
+      setAuthLoading(false);
     });
-    return () => { subscription.unsubscribe(); };
+    const applyProfile = (payload: any) => {
+      if (!payload?.tenantId || !payload.profile) return;
+      setOwnerUser((current: any) => {
+        if (!current || current.id !== payload.tenantId) return current;
+        if (payload.user && payload.user.id !== current.id) return current;
+        return payload.user || { ...current,
+          user_metadata: { ...current.user_metadata, ...payload.profile },
+        };
+      });
+    };
+    const onProfile = (event: Event) => applyProfile((event as CustomEvent).detail);
+    window.addEventListener('establishment-profile-updated', onProfile);
+    socket.on('update_establishment_profile', applyProfile);
+    return () => {
+      disposed = true;
+      subscription.unsubscribe();
+      window.removeEventListener('establishment-profile-updated', onProfile);
+      socket.off('update_establishment_profile', applyProfile);
+    };
   }, []);
+
+  useEffect(() => {
+    const tenantId = ownerUser?.id;
+    if (!tenantId) return;
+    let disposed = false;
+    // This private endpoint recovers legacy logos through a real refresh grant
+    // before an oversized Bearer is sent. It also avoids stale JWT metadata.
+    getEstablishmentProfile().then(result => {
+      if (disposed || result.user?.id !== tenantId) return;
+      setOwnerUser((current: any) => current?.id === tenantId ? result.user : current);
+    }).catch(() => { /* preserve visible state; the editor reports save errors */ });
+    return () => { disposed = true; };
+  }, [ownerUser?.id]);
 
   if (authLoading) {
     return (

@@ -50,6 +50,13 @@ import {
   releaseCashRegisterClaims,
   restoreOpenCashRegisterOwners,
 } from "./src/server/cash-register-state.ts";
+import {
+  brandingFromUser,
+  createEstablishmentProfileService,
+  EstablishmentProfileError,
+  hasLegacyLogoMetadata,
+  publicLogoReference,
+} from "./src/server/establishment-profile.ts";
 import { registerMenuDragHandler } from "./src/server/menu-drag-handler.ts";
 import { commitOrderState, makeAck, OrderCommandError } from "./src/server/order-command.ts";
 // DotCompany removida — integração direta SEFAZ-MT via src/lib/fiscal/
@@ -159,6 +166,17 @@ async function startServer() {
     }
   }
 
+  // O perfil e o Storage de logos usam exclusivamente o cliente service-role
+  // criado acima. Nenhum segredo é enviado ao browser; no modo PostgreSQL/local
+  // o serviço permanece indisponível e as rotas privadas falham fechadas.
+  const establishmentProfile = db
+    ? createEstablishmentProfileService({
+        authAdmin: (db.auth as any).admin,
+        storage: db.storage as any,
+        supabaseUrl: process.env.SUPABASE_URL,
+      })
+    : null;
+
   app.use(express.json({ limit: '15mb' }));
 
   // ── Per-tenant state ──────────────────────────────────────────────────────
@@ -180,6 +198,7 @@ async function startServer() {
     pizzariaConfig: any;
     fiscalConfig: FiscalConfig | null;
     printerConfig: any;
+    establishmentBranding?: Record<string, string>;
     printerAgentSocket: any;
     printSocket: any;
     openCashRegisters: Record<string, string>;
@@ -234,6 +253,69 @@ async function startServer() {
     if (!tenants.has(tenantId)) tenants.set(tenantId, defaultTenantState(tenantId));
     return tenants.get(tenantId)!;
   }
+
+  // Auth é a fonte canônica do branding. Configurações persistidas continuam
+  // carregando recursos não relacionados, mas não podem substituir um campo
+  // explicitamente presente em user_metadata nem introduzir logo enviada pelo
+  // cliente. A ausência de logo_url mantém um espelho legado já existente;
+  // logo_url vazio é uma limpeza explícita e vence esse espelho.
+  const applyUserBrandingToState = (tenantId: string, user: any): boolean => {
+    const st = getState(tenantId);
+    let branding: ReturnType<typeof brandingFromUser>;
+    try {
+      branding = brandingFromUser(user, process.env.SUPABASE_URL);
+    } catch (error: any) {
+      // Não migra, cria bucket ou altera Auth durante a carga. Campos de texto
+      // continuam seguros para identificação; uma logo legada inválida fica
+      // fora da projeção até o próximo grant de recuperação.
+      const metadata = user?.user_metadata && typeof user.user_metadata === 'object' ? user.user_metadata : {};
+      branding = {};
+      if (Object.prototype.hasOwnProperty.call(metadata, 'establishment_name')) branding.establishmentName = typeof metadata.establishment_name === 'string' ? metadata.establishment_name : '';
+      if (Object.prototype.hasOwnProperty.call(metadata, 'cnpj')) branding.cnpj = typeof metadata.cnpj === 'string' ? metadata.cnpj : '';
+      if (Object.prototype.hasOwnProperty.call(metadata, 'address')) branding.address = typeof metadata.address === 'string' ? metadata.address : '';
+      if (Object.prototype.hasOwnProperty.call(metadata, 'phone_whatsapp')) branding.phone = typeof metadata.phone_whatsapp === 'string' ? metadata.phone_whatsapp : '';
+      if (Object.prototype.hasOwnProperty.call(metadata, 'establishment_email')) branding.email = typeof metadata.establishment_email === 'string' ? metadata.establishment_email : '';
+      if (Object.prototype.hasOwnProperty.call(metadata, 'logo_url')) branding.logoUrl = '';
+      console.warn(`[branding][${tenantId}] logo Auth não projetada até migração autorizada:`, error?.message || error);
+    }
+    st.establishmentBranding = { ...branding };
+    const nextPizzaria = { ...(st.pizzariaConfig || {}) };
+    const nextPrinter = { ...(st.printerConfig || {}) };
+    const setIfPresent = (target: Record<string, any>, key: string, value: unknown) => {
+      if (value !== undefined && target[key] !== value) target[key] = value;
+    };
+    setIfPresent(nextPizzaria, 'establishmentName', branding.establishmentName);
+    setIfPresent(nextPizzaria, 'cnpj', branding.cnpj);
+    setIfPresent(nextPizzaria, 'address', branding.address);
+    setIfPresent(nextPizzaria, 'phone', branding.phone);
+    setIfPresent(nextPizzaria, 'email', branding.email);
+    setIfPresent(nextPizzaria, 'logoUrl', branding.logoUrl);
+    setIfPresent(nextPrinter, 'establishmentName', branding.establishmentName);
+    setIfPresent(nextPrinter, 'cnpj', branding.cnpj);
+    setIfPresent(nextPrinter, 'address', branding.address);
+    setIfPresent(nextPrinter, 'phone', branding.phone);
+    setIfPresent(nextPrinter, 'email', branding.email);
+    setIfPresent(nextPrinter, 'logoUrl', branding.logoUrl);
+    if (Object.prototype.hasOwnProperty.call(nextPizzaria, 'logoUrl')) nextPizzaria.logoUrl = publicLogoReference(nextPizzaria.logoUrl, tenantId, process.env.SUPABASE_URL);
+    if (Object.prototype.hasOwnProperty.call(nextPrinter, 'logoUrl')) nextPrinter.logoUrl = publicLogoReference(nextPrinter.logoUrl, tenantId, process.env.SUPABASE_URL);
+    const pizzariaChanged = JSON.stringify(nextPizzaria) !== JSON.stringify(st.pizzariaConfig || {});
+    const printerChanged = JSON.stringify(nextPrinter) !== JSON.stringify(st.printerConfig || {});
+    if (pizzariaChanged) st.pizzariaConfig = nextPizzaria;
+    if (printerChanged) st.printerConfig = nextPrinter;
+    return pizzariaChanged || printerChanged;
+  };
+
+  const loadAuthUserBranding = async (tenantId: string): Promise<any | null> => {
+    if (!establishmentProfile || tenantId === 'default') return null;
+    try {
+      const user = await establishmentProfile.getUser(tenantId);
+      applyUserBrandingToState(tenantId, user);
+      return user;
+    } catch (error: any) {
+      console.warn(`[branding][${tenantId}] não foi possível consultar Auth durante carga:`, error?.message || error);
+      return null;
+    }
+  };
 
   // callWaiterCooldown and clientSessions keyed by `${tenantId}:...`
   const callWaiterCooldown = new Map<string, number>();
@@ -815,7 +897,6 @@ async function startServer() {
             saveMenuToSupabase(st, tenantId);
           }
         }
-        io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
       }
 
       if ((slRes as any).data?.data?.stockLog?.length) {
@@ -826,6 +907,15 @@ async function startServer() {
       if ((pcfgRes as any).data?.data && Object.keys((pcfgRes as any).data.data).length > 0) {
         st.printerConfig = (pcfgRes as any).data.data;
       }
+
+      // Branding vem do usuário Auth service-role após a carga do snapshot.
+      // Esta leitura não cria bucket, não faz upload e não migra metadata legada;
+      // recuperação de logo só ocorre em grant de signin/refresh ou na API de
+      // perfil autenticada.
+      const authBrandingUser = await loadAuthUserBranding(tenantId);
+      if (Object.prototype.hasOwnProperty.call(st.pizzariaConfig, 'logoUrl')) st.pizzariaConfig.logoUrl = publicLogoReference(st.pizzariaConfig.logoUrl, tenantId, process.env.SUPABASE_URL);
+      if (Object.prototype.hasOwnProperty.call(st.printerConfig || {}, 'logoUrl')) st.printerConfig.logoUrl = publicLogoReference(st.printerConfig.logoUrl, tenantId, process.env.SUPABASE_URL);
+      if (authBrandingUser || cfgPizRes.data?.data) io.to(room).emit('update_pizzaria_config', st.pizzariaConfig);
 
       // Load fiscal config
       if (db) {
@@ -1249,6 +1339,14 @@ async function startServer() {
         (socket as any).authContext = { role: 'admin', tenantId, ready: false };
         const tenantGeneration = switchSocketTenant(socket, tenantId);
         await loadTenantIfNeeded(tenantId);
+        if (establishmentProfile) {
+          try {
+            const currentAuthUser = await establishmentProfile.getUser(tenantId);
+            applyUserBrandingToState(tenantId, currentAuthUser);
+          } catch (brandingError: any) {
+            console.warn(`[branding][${tenantId}] falha ao reaplicar perfil Auth:`, brandingError?.message || brandingError);
+          }
+        }
         if (!socket.connected || (socket as any).tenantId !== tenantId ||
             (socket as any).tenantGeneration !== tenantGeneration ||
             !authActorSafe((socket as any).authContext) ||
@@ -1670,10 +1768,48 @@ async function startServer() {
       }
     });
 
-    socket.on("save_printer_config", requireAdmin((config: any) => {
-      if (!config || typeof config !== 'object' || Array.isArray(config)) return;
-      _st().printerConfig = config;
-      saveToSupabase('config', config, 'printerConfig', _tid()).catch(console.error);
+    socket.on("save_printer_config", requireAdmin(async (config: any, rawAck?: any) => {
+      const ack = typeof rawAck === 'function' ? rawAck : undefined;
+      const tenantId = _tid();
+      const state = _st();
+      if (!config || typeof config !== 'object' || Array.isArray(config)) {
+        ack?.({ ok: false, tenantId, message: 'Configuração de impressão inválida.' });
+        return { ok: false, tenantId, message: 'Configuração de impressão inválida.' };
+      }
+      const claimedTenant = config.tenantId;
+      if (claimedTenant !== undefined && String(claimedTenant) !== tenantId) {
+        ack?.({ ok: false, tenantId, message: 'Tenant da configuração não corresponde à sessão.' });
+        return { ok: false, tenantId, message: 'Tenant da configuração não corresponde à sessão.' };
+      }
+      const { tenantId: _ignoredTenant, requestId: _ignoredRequest, ...payload } = config;
+      delete (payload as any).logo_url;
+      const previous = clonePersistenceData(state.printerConfig || {});
+      const nextConfig = { ...payload };
+      // A logo só é escrita pela API de perfil. Quando o metadata ainda não
+      // possui logo_url, preserve o espelho legado já carregado; nunca aceite
+      // logoUrl novo/stale no payload desta configuração.
+      const hasCanonicalLogo = Object.prototype.hasOwnProperty.call(state.pizzariaConfig || {}, 'logoUrl') ||
+        Object.prototype.hasOwnProperty.call(previous, 'logoUrl');
+      if (hasCanonicalLogo) {
+        nextConfig.logoUrl = Object.prototype.hasOwnProperty.call(state.pizzariaConfig || {}, 'logoUrl')
+          ? state.pizzariaConfig.logoUrl : previous.logoUrl;
+      } else {
+        delete nextConfig.logoUrl;
+      }
+      Object.assign(nextConfig, state.establishmentBranding || {});
+      try {
+        await saveToSupabase('config', nextConfig, 'printerConfig', tenantId);
+        state.printerConfig = { ...nextConfig, ...state.establishmentBranding };
+        io.to(_room()).emit('update_printer_config', { tenantId, config: state.printerConfig });
+        const response = { ok: true, tenantId, config: state.printerConfig };
+        ack?.(response);
+        return response;
+      } catch (error: any) {
+        state.printerConfig = { ...previous, ...state.establishmentBranding };
+        const response = { ok: false, tenantId, message: error?.message || 'Não foi possível salvar a configuração de impressão.' };
+        ack?.(response);
+        return response;
+      }
     }));
 
     socket.on("update_pizzaria_config", requireAdmin(async (config: any, rawAck?: any) => {
@@ -1684,15 +1820,27 @@ async function startServer() {
       const previousMenu = clonePersistenceData(state.menu || []);
       const fail = (message: string) => {
         socket.emit('error_message', message);
-        ack?.({ ok: false, message });
-        return { ok: false, message };
+        ack?.({ ok: false, tenantId, message });
+        return { ok: false, tenantId, message };
       };
 
       if (!config || typeof config !== 'object' || Array.isArray(config)) {
         return fail('Configuração inválida.');
       }
 
-      const mergedConfig = { ...previousConfig, ...config };
+      const claimedTenant = config.tenantId;
+      if (claimedTenant !== undefined && String(claimedTenant) !== tenantId) {
+        return fail('Tenant da configuração não corresponde à sessão.');
+      }
+      const { tenantId: _ignoredTenant, requestId: _ignoredRequest, ...configPayload } = config;
+      delete (configPayload as any).logo_url;
+      const mergedConfig = { ...previousConfig, ...configPayload };
+      // A logo só é alterada no endpoint de perfil. Se já existe um valor
+      // canônico/legado carregado, mantém-no; caso contrário, remove qualquer
+      // logo enviada pelo cliente antes de persistir o espelho.
+      if (Object.prototype.hasOwnProperty.call(previousConfig, 'logoUrl')) mergedConfig.logoUrl = previousConfig.logoUrl;
+      else delete mergedConfig.logoUrl;
+      Object.assign(mergedConfig, state.establishmentBranding || {});
       const normalizedConfig = normalizePlaygroundConfig(tenantId, mergedConfig);
       const nextConfig = {
         ...mergedConfig,
@@ -1711,17 +1859,17 @@ async function startServer() {
           state.menu = catalog.menu;
           await saveMenuToSupabaseAwait(state, tenantId);
         }
-        state.pizzariaConfig = nextConfig;
+        state.pizzariaConfig = { ...nextConfig, ...state.establishmentBranding };
         if (catalog.changed) io.to(_room()).emit('update_menu', state.menu);
         io.to(_room()).emit("update_pizzaria_config", state.pizzariaConfig);
-        const response = { ok: true, message: 'Configuração salva.', config: state.pizzariaConfig, pizzariaConfig: state.pizzariaConfig };
+        const response = { ok: true, tenantId, message: 'Configuração salva.', config: state.pizzariaConfig, pizzariaConfig: state.pizzariaConfig };
         ack?.(response);
         return response;
       } catch (error: any) {
         // Do not expose a new config or a partially reconciled menu after a
         // failed SDK/DB write. Best-effort persistence rollback keeps the
         // authoritative snapshot aligned when the first write succeeded.
-        state.pizzariaConfig = previousConfig;
+        state.pizzariaConfig = { ...previousConfig, ...state.establishmentBranding };
         state.menu = previousMenu;
         try { await saveToSupabase('config', previousConfig, 'pizzaria', tenantId); } catch { /* preserve original failure */ }
         return fail(error?.message || 'Não foi possível salvar a configuração.');
@@ -3927,36 +4075,188 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  const profileFailure = (res: any, error: any) => {
+    const status = error instanceof EstablishmentProfileError ? error.status : 503;
+    const code = error instanceof EstablishmentProfileError ? error.code : 'ESTABLISHMENT_PROFILE_FAILED';
+    const message = error instanceof EstablishmentProfileError
+      ? error.message
+      : 'Não foi possível consultar ou persistir o perfil do estabelecimento.';
+    return res.status(status).json({ ok: false, code, error: message });
+  };
+
+  const publicEstablishmentProfile = (profile: any) => ({
+    establishment_name: profile?.establishment_name || '',
+    address: profile?.address || '',
+    phone_whatsapp: profile?.phone_whatsapp || '',
+    establishment_email: profile?.establishment_email || '',
+    cnpj: profile?.cnpj || '',
+    logo_url: profile?.logo_url || '',
+  });
+
+  const publishEstablishmentProfile = (tenantId: string, user: any, profile: any) => {
+    const brandingChanged = applyUserBrandingToState(tenantId, user);
+    io.to(`tenant:${tenantId}`).emit('update_establishment_profile', {
+      tenantId,
+      profile: publicEstablishmentProfile(profile),
+    });
+    if (brandingChanged) io.to(`tenant:${tenantId}`).emit('update_pizzaria_config', getState(tenantId).pizzariaConfig);
+  };
+
+  const parseProfileBody = (body: any) => {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new EstablishmentProfileError('Corpo do perfil inválido.');
+    }
+    const allowed = new Set(['fields', 'logoDataUrl', 'removeLogo']);
+    const unknown = Object.keys(body).find((key) => !allowed.has(key));
+    if (unknown) throw new EstablishmentProfileError(`Campo de requisição não permitido: ${unknown}.`, 'PROFILE_FIELD_NOT_ALLOWED');
+    return {
+      fields: body.fields,
+      ...(Object.prototype.hasOwnProperty.call(body, 'logoDataUrl') ? { logoDataUrl: body.logoDataUrl } : {}),
+      ...(Object.prototype.hasOwnProperty.call(body, 'removeLogo') ? { removeLogo: body.removeLogo } : {}),
+    };
+  };
+
+  app.get('/api/establishment/profile', async (req, res) => {
+    const authorization = await requireAdminHttp(req, res, [], false);
+    if (!authorization) return;
+    if (!establishmentProfile) return res.status(503).json({ ok: false, code: 'AUTH_UNAVAILABLE', error: 'Perfil administrativo indisponível.' });
+    try {
+      const result = await establishmentProfile.getProfile(authorization.userId);
+      // A read must not broadcast another update: owner metadata changes cause
+      // the editor to refetch, which would otherwise form an infinite loop.
+      applyUserBrandingToState(authorization.userId, result.user);
+      return res.json({ ok: true, user: result.user, profile: result.profile });
+    } catch (error: any) {
+      return profileFailure(res, error);
+    }
+  });
+
+  app.post('/api/establishment/profile', express.json({ limit: '1mb' }), async (req, res) => {
+    const authorization = await requireAdminHttp(req, res, [], false);
+    if (!authorization) return;
+    if (!establishmentProfile) return res.status(503).json({ ok: false, code: 'AUTH_UNAVAILABLE', error: 'Perfil administrativo indisponível.' });
+    try {
+      const result = await establishmentProfile.update(authorization.userId, parseProfileBody(req.body));
+      // O espelho só muda depois de updateUserById + nova leitura confirmarem
+      // metadata; o cliente só recebe a imagem curta retornada pelo Storage.
+      publishEstablishmentProfile(authorization.userId, result.user, result.profile);
+      return res.json({ ok: true, user: result.user, profile: result.profile });
+    } catch (error: any) {
+      return profileFailure(res, error);
+    }
+  });
+
+  const authProxyBase = (process.env.SUPABASE_URL || 'https://iagflqaopurjnnzkunph.supabase.co').replace(/\/$/, '');
+  const authProxyAnonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2ZscWFvcHVyam5uemt1bnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDk1MjcsImV4cCI6MjA5NTU4NTUyN30.A6OxNQ3gRUMzr-KLicnm83mG3SrT7U4J8CP6EjMZRmo';
+  const redactAuthError = (value: unknown): string => String(value || 'Falha no Auth')
+    .replace(/(?:access_token|refresh_token)\s*[:=]\s*[^\s,}]+/gi, '$1=[redacted]')
+    .replace(/\beyJ[A-Za-z0-9._-]+/g, '[token redigido]');
+
+  const issueAuthGrant = async (
+    grantType: 'password' | 'refresh_token',
+    body: Record<string, string>,
+    attempts = 1,
+  ): Promise<any> => {
+    let lastError: any;
+    for (let attempt = 0; attempt < Math.max(1, attempts); attempt++) {
+      try {
+        const upstream = await fetch(`${authProxyBase}/auth/v1/token?grant_type=${grantType}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': authProxyAnonKey },
+          body: JSON.stringify(body),
+        });
+        const payload = await upstream.json() as any;
+        if (upstream.ok && typeof payload?.access_token === 'string' && payload.access_token && payload?.user?.id) {
+          return payload;
+        }
+        const authMessage = redactAuthError(payload?.error_description || payload?.msg || payload?.error || 'Concessão Auth inválida');
+        const status = Number(upstream.status) || 502;
+        // Credenciais inválidas não são transitórias; não repita senha/refresh
+        // rejeitado. Erros 5xx podem ser repetidos para não perder a sessão após
+        // a primeira rotação de refresh-token.
+        if (status < 500 || attempt === attempts - 1) {
+          throw new EstablishmentProfileError(authMessage, 'AUTH_GRANT_FAILED', status === 401 ? 401 : 502);
+        }
+        lastError = new Error(authMessage);
+      } catch (error: any) {
+        if (error instanceof EstablishmentProfileError) throw error;
+        lastError = error;
+        if (attempt === attempts - 1) {
+          throw new EstablishmentProfileError('Não foi possível concluir a concessão Auth.', 'AUTH_GRANT_FAILED', 502);
+        }
+      }
+    }
+    throw new EstablishmentProfileError(redactAuthError(lastError), 'AUTH_GRANT_FAILED', 502);
+  };
+
+  const migrateGrantBeforeResponse = async (payload: any): Promise<any> => {
+    const grantHadLegacyLogo = hasLegacyLogoMetadata(payload.user || { id: '', user_metadata: {} }, process.env.SUPABASE_URL);
+    const oversizedGrant = typeof payload.access_token === 'string' && payload.access_token.length > 48_000;
+    if (!establishmentProfile) {
+      if (grantHadLegacyLogo || oversizedGrant) throw new EstablishmentProfileError('Recuperação de logo indisponível neste servidor.', 'AUTH_UNAVAILABLE', 503);
+      return payload;
+    }
+    let migration: any;
+    let lastError: any;
+    // Um retry é seguro: o objeto é endereçado por SHA-256 e updateUserById
+    // sempre mescla metadata fresca; uma falha após upload não perde a imagem.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        migration = await establishmentProfile.migrateLegacyLogo(payload.user);
+        lastError = null;
+        break;
+      } catch (error: any) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
+    if (!migration?.migrated && !grantHadLegacyLogo && !oversizedGrant) return payload;
+    const rotatedRefreshToken = typeof payload.refresh_token === 'string' ? payload.refresh_token : '';
+    if (!rotatedRefreshToken) {
+      throw new EstablishmentProfileError('O Auth não concedeu refresh-token para emitir a sessão limpa.', 'AUTH_REFRESH_TOKEN_MISSING', 503);
+    }
+    // A primeira concessão pode ter emitido JWT com metadata Base64. Nunca o
+    // devolva: a resposta só sai depois da segunda concessão confirmada.
+    const clean = await issueAuthGrant('refresh_token', { refresh_token: rotatedRefreshToken }, 3);
+    if (clean.user?.id !== payload.user?.id || clean.access_token.length > 48_000 ||
+        hasLegacyLogoMetadata(clean.user, process.env.SUPABASE_URL)) {
+      const error: any = new EstablishmentProfileError('O Auth ainda não confirmou uma sessão limpa para esta conta.', 'AUTH_CLEAN_GRANT_NOT_CONFIRMED', 503);
+      error.recoveryRefreshToken = clean.user?.id === payload.user?.id ? clean.refresh_token : rotatedRefreshToken;
+      throw error;
+    }
+    return clean;
+  };
+
   // Proxy de renovação de token: o browser chama este endpoint (mesmo domínio)
   // e o servidor faz a chamada ao Supabase auth — contorna extensões que bloqueiam
   // requisições diretas ao domínio do Supabase.
   app.post("/api/auth/refresh", express.json({ limit: '4kb' }), async (req, res) => {
+    let granted: any = null;
     try {
       const { refresh_token } = req.body ?? {};
       if (!refresh_token || typeof refresh_token !== 'string' || refresh_token.length < 20) {
         res.status(400).json({ error: 'refresh_token inválido' });
         return;
       }
-      const supabaseBase = (process.env.SUPABASE_URL || 'https://iagflqaopurjnnzkunph.supabase.co').replace(/\/$/, '');
-      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2ZscWFvcHVyam5uemt1bnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDk1MjcsImV4cCI6MjA5NTU4NTUyN30.A6OxNQ3gRUMzr-KLicnm83mG3SrT7U4J8CP6EjMZRmo';
-      const upstream = await fetch(`${supabaseBase}/auth/v1/token?grant_type=refresh_token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
-        body: JSON.stringify({ refresh_token }),
-      });
-      const payload = await upstream.json() as any;
-      if (!upstream.ok || !payload.access_token) {
-        res.status(401).json({ error: payload.error_description || payload.msg || 'Refresh falhou' });
-        return;
-      }
+      const payload = await issueAuthGrant('refresh_token', { refresh_token });
+      granted = payload;
+      const cleanPayload = await migrateGrantBeforeResponse(payload);
       res.json({
-        access_token: payload.access_token,
-        refresh_token: payload.refresh_token ?? refresh_token,
-        expires_in: payload.expires_in ?? 3600,
-        token_type: payload.token_type ?? 'bearer',
+        access_token: cleanPayload.access_token,
+        refresh_token: cleanPayload.refresh_token ?? refresh_token,
+        expires_in: cleanPayload.expires_in ?? 3600,
+        token_type: cleanPayload.token_type ?? 'bearer',
+        user: cleanPayload.user,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Erro interno ao renovar sessão' });
+      const status = err instanceof EstablishmentProfileError ? err.status : 503;
+      res.status(status).json({
+        error: redactAuthError(err instanceof EstablishmentProfileError ? err.message : 'Erro interno ao renovar sessão'),
+        ...(granted?.user?.id && typeof granted.refresh_token === 'string' ? {
+          recovery_pending: true, user_id: granted.user.id,
+          refresh_token: err?.recoveryRefreshToken || granted.refresh_token,
+        } : {}),
+      });
     }
   });
 
@@ -3998,27 +4298,18 @@ async function startServer() {
         res.status(400).json({ error: 'email e password são obrigatórios' });
         return;
       }
-      const supabaseBase = (process.env.SUPABASE_URL || 'https://iagflqaopurjnnzkunph.supabase.co').replace(/\/$/, '');
-      const anonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2ZscWFvcHVyam5uemt1bnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDk1MjcsImV4cCI6MjA5NTU4NTUyN30.A6OxNQ3gRUMzr-KLicnm83mG3SrT7U4J8CP6EjMZRmo';
-      const upstream = await fetch(`${supabaseBase}/auth/v1/token?grant_type=password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
-        body: JSON.stringify({ email, password }),
-      });
-      const payload = await upstream.json() as any;
-      if (!upstream.ok || !payload.access_token) {
-        res.status(upstream.status || 401).json({ error: payload.error_description || payload.msg || payload.error || 'Login falhou' });
-        return;
-      }
+      const payload = await issueAuthGrant('password', { email, password });
+      const cleanPayload = await migrateGrantBeforeResponse(payload);
       res.json({
-        access_token: payload.access_token,
-        refresh_token: payload.refresh_token,
-        expires_in: payload.expires_in ?? 3600,
-        token_type: payload.token_type ?? 'bearer',
-        user: payload.user,
+        access_token: cleanPayload.access_token,
+        refresh_token: cleanPayload.refresh_token,
+        expires_in: cleanPayload.expires_in ?? 3600,
+        token_type: cleanPayload.token_type ?? 'bearer',
+        user: cleanPayload.user,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Erro interno ao autenticar' });
+      const status = err instanceof EstablishmentProfileError ? err.status : 503;
+      res.status(status).json({ error: redactAuthError(err instanceof EstablishmentProfileError ? err.message : 'Erro interno ao autenticar') });
     }
   });
 
@@ -4059,16 +4350,17 @@ async function startServer() {
   // ── Info pública do tenant (nome + logo) ──────────────────────
   app.get("/api/tenant-info/:tenantId", async (req, res) => {
     const { tenantId } = req.params;
+    const authBrandingUser = await loadAuthUserBranding(tenantId);
     const st = tenants.get(tenantId);
     // Tenta estado em memória primeiro; fallback: Supabase
     let cfg: any = st?.pizzariaConfig;
     if (!cfg && db) {
-      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).single();
+      const { data } = await db.from('config').select('data').eq('id', `${tenantId}:pizzaria`).eq('tenant_id', tenantId).single();
       cfg = data?.data;
     }
     res.json({
       name: cfg?.establishmentName || '',
-      logoUrl: cfg?.logoUrl || '',
+      logoUrl: establishmentProfile && !authBrandingUser ? '' : publicLogoReference(cfg?.logoUrl, tenantId, process.env.SUPABASE_URL),
     });
   });
 
