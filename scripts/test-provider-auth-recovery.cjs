@@ -23,7 +23,7 @@ const deferred = () => {
   const promise = new Promise(r => { resolve = r; });
   return { promise, resolve };
 };
-function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
+function harness(proxy = async () => ({ access_token: 'fresh-token' }), options = {}) {
   const hooks = [];
   let cursor = 0;
   const scheduled = [];
@@ -33,6 +33,15 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
   const listeners = new Map();
   const timers = new Set();
   const storage = new Map();
+  const browserStorage = {
+    getItem: key => storage.get(key) ?? null,
+    setItem(key, value) {
+      storage.set(key, String(value));
+      Object.defineProperty(browserStorage, key, { configurable: true, enumerable: true, value: String(value), writable: true });
+    },
+    removeItem(key) { storage.delete(key); delete browserStorage[key]; },
+  };
+  if (options.storedSession) browserStorage.setItem('sb-test-auth-token', JSON.stringify(options.storedSession));
   const socket = {
     connected: true, id: 'connection-a',
     on(event, handler) { if (!listeners.has(event)) listeners.set(event, new Set()); listeners.get(event).add(handler); },
@@ -64,8 +73,9 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
   const module = { exports: {} };
   const auth = {
     refreshViaProxy: proxy,
-    forceRefreshSession: async () => ({ access_token: 'sdk-token' }),
-    getSession: async () => ({ access_token: 'cached-token' }),
+    getProxyRefreshError: options.getProxyRefreshError || (() => null),
+    forceRefreshSession: options.forceRefreshSession || (async () => ({ access_token: 'sdk-token' })),
+    getSession: options.getSession || (async () => ({ access_token: 'cached-token' })),
     forceLocalSignOut: async () => { notices.push('sign-out'); },
   };
   vm.runInNewContext(providerCode, {
@@ -85,12 +95,9 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
       throw new Error(`Unexpected production import: ${name}`);
     },
     navigator: { onLine: true },
-    window: { localStorage: {
-      getItem: key => storage.get(key) ?? null,
-      setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key),
-    } },
-    localStorage: {},
-    setTimeout(fn) { const timer = { fn }; timers.add(timer); return timer; },
+    window: { localStorage: browserStorage },
+    localStorage: browserStorage,
+    setTimeout(fn, delay = 0) { const timer = { fn, delay }; timers.add(timer); return timer; },
     clearTimeout(timer) { timers.delete(timer); },
     console,
   });
@@ -108,7 +115,13 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
     });
   }
   function close() { for (const hook of hooks) hook?.cleanup?.(); }
-  return { socket, sent, notices, stateWrites, timers, render, init, close };
+  async function runTimer(timer) {
+    assert.ok(timers.has(timer), 'timer must still be active');
+    timers.delete(timer);
+    timer.fn();
+    await flush();
+  }
+  return { socket, sent, notices, stateWrites, timers, render, init, close, runTimer };
 }
 (async () => {
   const h = harness();
@@ -150,6 +163,66 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
   h.close();
   assert.ok([...h.timers].length === 0);
 
+  const initialAuth = deferred();
+  let initialAuthCalls = 0;
+  const firstEmission = harness(() => {
+    initialAuthCalls += 1;
+    return initialAuthCalls === 1
+      ? initialAuth.promise
+      : Promise.resolve({ access_token: 'recovered-initial-token' });
+  });
+  const firstEmissionContext = firstEmission.render();
+  await flush();
+  firstEmission.socket.fire('auth_error', { tenantId: 'tenant-a', message: 'Initial grant rejected' });
+  await flush();
+  assert.equal(firstEmission.sent.filter(e => e.event === 'admin_connect').length, 1, 'auth_error during the first token promise must restart the handshake');
+  assert.equal(firstEmission.sent.filter(e => e.event === 'admin_connect')[0].args[0], 'recovered-initial-token');
+  initialAuth.resolve({ access_token: 'stale-initial-token' });
+  await flush();
+  firstEmission.init();
+  assert.equal(firstEmissionContext.canMutate(), true, 'the restarted first handshake must accept its fresh init');
+  firstEmission.close();
+
+  const oversizedToken = 'J'.repeat(48_001);
+  let sdkRefreshCalls = 0;
+  let cachedSessionCalls = 0;
+  const oversizedFallback = harness(async () => null, {
+    forceRefreshSession: async () => {
+      sdkRefreshCalls += 1;
+      return { access_token: oversizedToken };
+    },
+    getSession: async () => {
+      cachedSessionCalls += 1;
+      return { access_token: oversizedToken };
+    },
+  });
+  const oversizedContext = oversizedFallback.render();
+  await flush();
+  const oversizedState = oversizedFallback.render();
+  assert.equal(sdkRefreshCalls, 1);
+  assert.equal(cachedSessionCalls, 0, 'an oversized SDK token must block cache/localStorage fallbacks');
+  assert.equal(oversizedFallback.sent.filter(e => e.event === 'admin_connect').length, 0, 'oversized fallback tokens must never be emitted as JWT');
+  assert.equal(oversizedContext.canMutate(), false);
+  assert.match(oversizedState.syncError, /JWT grande|logo inline|proxy/i);
+  oversizedFallback.close();
+
+  const timedOut = harness();
+  const timedOutContext = timedOut.render();
+  await flush();
+  const handshakeTimeout = [...timedOut.timers].find(timer => timer.delay === 18_000);
+  assert.ok(handshakeTimeout, 'handshake must have a finite timeout');
+  await timedOut.runTimer(handshakeTimeout);
+  const timedOutState = timedOut.render();
+  assert.match(timedOutState.syncError, /Tempo limite/);
+  assert.equal(timedOutContext.canMutate(), false);
+  const beforeRetry = timedOut.sent.filter(e => e.event === 'admin_connect').length;
+  timedOutState.refreshSnapshot();
+  await flush();
+  assert.equal(timedOut.sent.filter(e => e.event === 'admin_connect').length, beforeRetry + 1, 'retry after timeout must reauthenticate');
+  timedOut.init();
+  assert.equal(timedOutContext.canMutate(), true);
+  timedOut.close();
+
   const oldAuth = deferred();
   let calls = 0;
   const reconnect = harness(() => ++calls === 1 ? oldAuth.promise : Promise.resolve({ access_token: 'new-connection-token' }));
@@ -188,6 +261,7 @@ function harness(proxy = async () => ({ access_token: 'fresh-token' })) {
   const waiter = harness();
   const w = waiter.render('tenant-a', true);
   await flush();
+  waiter.socket.fire('waiter_approved', { tenantId: 'tenant-a', status: 'approved', waiter: { id: 'waiter-a', status: 'approved' } });
   waiter.init('tenant-a', { currentWaiter: { id: 'waiter-a', status: 'approved' } });
   assert.equal(w.canMutate(), true);
   waiter.socket.fire('auth_error', { tenantId: 'tenant-a', message: 'Waiter must log in' });

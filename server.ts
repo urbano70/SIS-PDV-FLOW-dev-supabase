@@ -4189,7 +4189,7 @@ async function startServer() {
     throw new EstablishmentProfileError(redactAuthError(lastError), 'AUTH_GRANT_FAILED', 502);
   };
 
-  const migrateGrantBeforeResponse = async (payload: any): Promise<any> => {
+  const migrateGrantBeforeResponse = async (payload: any, forceCleanGrant = false): Promise<any> => {
     const grantHadLegacyLogo = hasLegacyLogoMetadata(payload.user || { id: '', user_metadata: {} }, process.env.SUPABASE_URL);
     const oversizedGrant = typeof payload.access_token === 'string' && payload.access_token.length > 48_000;
     if (!establishmentProfile) {
@@ -4210,7 +4210,7 @@ async function startServer() {
       }
     }
     if (lastError) throw lastError;
-    if (!migration?.migrated && !grantHadLegacyLogo && !oversizedGrant) return payload;
+    if (!migration?.migrated && !grantHadLegacyLogo && !oversizedGrant && !forceCleanGrant) return payload;
     const rotatedRefreshToken = typeof payload.refresh_token === 'string' ? payload.refresh_token : '';
     if (!rotatedRefreshToken) {
       throw new EstablishmentProfileError('O Auth não concedeu refresh-token para emitir a sessão limpa.', 'AUTH_REFRESH_TOKEN_MISSING', 503);
@@ -4230,27 +4230,46 @@ async function startServer() {
   // Proxy de renovação de token: o browser chama este endpoint (mesmo domínio)
   // e o servidor faz a chamada ao Supabase auth — contorna extensões que bloqueiam
   // requisições diretas ao domínio do Supabase.
-  app.post("/api/auth/refresh", express.json({ limit: '4kb' }), async (req, res) => {
+  app.post("/api/auth/refresh", express.json({ limit: '8kb' }), async (req, res) => {
     let granted: any = null;
     try {
       const { refresh_token } = req.body ?? {};
-      if (!refresh_token || typeof refresh_token !== 'string' || refresh_token.length < 20) {
+      // GoTrue emits opaque refresh tokens (including 12-character tokens).
+      // Length is not authentication: the upstream grant validates the token.
+      if (typeof refresh_token !== 'string' || !refresh_token.trim() || refresh_token.length > 2048) {
         res.status(400).json({ error: 'refresh_token inválido' });
         return;
       }
       const payload = await issueAuthGrant('refresh_token', { refresh_token });
       granted = payload;
-      const cleanPayload = await migrateGrantBeforeResponse(payload);
+      let removedProfile: any = null;
+      if (Object.prototype.hasOwnProperty.call(req.body, 'removeLogo') ||
+          Object.prototype.hasOwnProperty.call(req.body, 'fields')) {
+        if (req.body.removeLogo !== true ||
+            Object.keys(req.body).some(key => !['refresh_token', 'fields', 'removeLogo'].includes(key))) {
+          throw new EstablishmentProfileError('Recuperação permite somente remoção explícita da logo e campos cadastrais.', 'PROFILE_FIELD_NOT_ALLOWED');
+        }
+        if (!establishmentProfile) throw new EstablishmentProfileError('Perfil administrativo indisponível.', 'AUTH_UNAVAILABLE', 503);
+        // Only the real upstream grant owns this tenant. Explicit removal does
+        // not depend on Storage, a decoded JWT or a client-supplied account ID.
+        removedProfile = await establishmentProfile.update(String(payload.user.id), {
+          fields: req.body.fields, removeLogo: true,
+        });
+      }
+      const cleanPayload = await migrateGrantBeforeResponse(payload, !!removedProfile);
+      if (removedProfile) publishEstablishmentProfile(String(payload.user.id), removedProfile.user, removedProfile.profile);
       res.json({
         access_token: cleanPayload.access_token,
         refresh_token: cleanPayload.refresh_token ?? refresh_token,
         expires_in: cleanPayload.expires_in ?? 3600,
         token_type: cleanPayload.token_type ?? 'bearer',
         user: cleanPayload.user,
+        ...(removedProfile ? { ok: true, profile: removedProfile.profile } : {}),
       });
     } catch (err: any) {
       const status = err instanceof EstablishmentProfileError ? err.status : 503;
       res.status(status).json({
+        code: err instanceof EstablishmentProfileError ? err.code : 'AUTH_REFRESH_FAILED',
         error: redactAuthError(err instanceof EstablishmentProfileError ? err.message : 'Erro interno ao renovar sessão'),
         ...(granted?.user?.id && typeof granted.refresh_token === 'string' ? {
           recovery_pending: true, user_id: granted.user.id,

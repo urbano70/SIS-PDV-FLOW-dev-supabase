@@ -1,4 +1,5 @@
 import { adminFetch } from './admin-http';
+import { removeEstablishmentLogoViaProxy } from './auth';
 
 export interface ProfileFields {
   establishment_name: string;
@@ -118,10 +119,12 @@ export async function saveEstablishmentProfile(
   if (input.removeLogo && input.logoDataUrl !== undefined) {
     throw new Error('Upload e remoção da logo não podem ser enviados juntos.');
   }
+  if (input.removeLogo === true) {
+    return removeEstablishmentLogoViaProxy(input.fields);
+  }
 
   const body: Record<string, unknown> = { fields: input.fields };
   if (input.logoDataUrl !== undefined) body.logoDataUrl = input.logoDataUrl;
-  if (input.removeLogo === true) body.removeLogo = true;
 
   const response = await adminFetch(PROFILE_ENDPOINT, {
     method: 'POST',

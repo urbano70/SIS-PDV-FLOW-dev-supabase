@@ -37,6 +37,9 @@ esbuild.transformSync(panelSource, { loader: 'tsx', format: 'esm', target: 'es20
 const helperFixtureSource = helperSource.replace(
   "import { adminFetch } from './admin-http';",
   "const adminFetch = (...args) => globalThis.__establishmentProfileAdminFetch(...args);",
+).replace(
+  "import { removeEstablishmentLogoViaProxy } from './auth';",
+  "const removeEstablishmentLogoViaProxy = (...args) => globalThis.__removeLogoViaProxy(...args);",
 );
 const transformedHelper = esbuild.transformSync(helperFixtureSource, {
   loader: 'ts',
@@ -89,13 +92,20 @@ const responseFor = (name, status = 200) => new Response(JSON.stringify({
   assert.equal(calls[0].init.method, 'POST');
 
   calls.length = 0;
-  await api.saveEstablishmentProfile({ fields, removeLogo: true });
-  assert.deepEqual(JSON.parse(calls[0].init.body), { fields, removeLogo: true });
+  let removedFields;
+  globalThis.__removeLogoViaProxy = async value => {
+    removedFields = value;
+    return { ok: true, user: { id: 'tenant-a' }, profile: { ...profile, logo_url: '' } };
+  };
+  const removed = await api.saveEstablishmentProfile({ fields, removeLogo: true });
+  assert.deepEqual(removedFields, fields);
+  assert.equal(removed.profile.logo_url, '');
+  assert.equal(calls.length, 0, 'remoção usa grant em body, sem Bearer legado ou migração de upload');
   await assert.rejects(
     () => api.saveEstablishmentProfile({ fields, logoDataUrl: 'data:image/png;base64,AA==', removeLogo: true }),
     /não podem ser enviados juntos/,
   );
-  assert.equal(calls.length, 1, 'upload e remocao conflitantes nao podem chegar ao endpoint');
+  assert.equal(calls.length, 0, 'upload e remocao conflitantes nao podem chegar ao endpoint');
 
   globalThis.__establishmentProfileAdminFetch = async () => new Response(
     JSON.stringify({ error: 'Sessão expirada', code: 'AUTH_REQUIRED' }),

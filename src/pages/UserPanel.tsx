@@ -701,9 +701,9 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                   {formData.logo ? (
                     <div className="relative shrink-0">
                       <img src={formData.logo} alt="Logo" className="w-24 h-24 object-contain rounded-xl border border-[#141414]/10 bg-[#F5F5F3] p-1" />
-                      <button type="button" onClick={handleRemoveLogo} disabled={saving || logoProcessing}
-                        className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600">
-                        <X size={10} />
+                      <button type="button" onClick={handleRemoveLogo} disabled={saving} aria-label="Remover logo"
+                        className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 disabled:opacity-50">
+                        <X size={16} />
                       </button>
                     </div>
                   ) : (
@@ -719,6 +719,15 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                       {logoProcessing ? 'Preparando imagem...' : formData.logo ? 'Trocar imagem' : 'Enviar logo'}
                     </button>
                     <p className="text-[11px] text-[#141414]/40 mt-1.5">PNG, JPG ou SVG · máx. 600 KB</p>
+                    {formData.logo && (
+                      <button type="button" onClick={handleRemoveLogo} disabled={saving}
+                        className="mt-2 text-sm font-semibold text-red-600 hover:underline disabled:opacity-50">
+                        Remover logo
+                      </button>
+                    )}
+                    {draftLogoRemoved && (
+                      <p role="status" className="mt-2 text-xs text-[#141414]/60">A logo será removida ao salvar os dados.</p>
+                    )}
                   </div>
                 </div>
               </div>

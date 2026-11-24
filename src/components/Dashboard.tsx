@@ -858,8 +858,7 @@ export default function Dashboard({
   tenantId = '',
 }: DashboardProps) {
   const firebaseContext = useFirebase();
-  const { canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, data: { shiftStartedAt } } = firebaseContext;
-  const refreshSnapshot = (firebaseContext as typeof firebaseContext & { refreshSnapshot?: () => void | Promise<void> }).refreshSnapshot;
+  const { canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, syncError, refreshSnapshot, data: { shiftStartedAt } } = firebaseContext;
   // Mantém requests públicos/externalizados no fetch nativo e autentica apenas
   // a allowlist privada via fetchWithAdminAuth.
   const fetch = fetchWithAdminAuth;
@@ -4027,6 +4026,19 @@ export default function Dashboard({
                 )}
               </div>
             )}
+            {syncError && !isCashRegisterOpen && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-800">
+                <AlertTriangle size={12} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate" title={syncError}>{syncError}</span>
+                <button
+                  type="button"
+                  onClick={() => refreshSnapshot()}
+                  className="shrink-0 rounded-md bg-amber-600 px-2 py-1 font-bold uppercase text-white hover:bg-amber-700"
+                >
+                  Tentar sincronizar novamente
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -4124,6 +4136,14 @@ export default function Dashboard({
                     {pickerMode === 'list' ? 'Selecionar Caixa' : pickerMode === 'new' ? 'Novo Caixa' : (pickerSelectedReg?.name ?? 'Abrir Caixa')}
                   </span>
                 </div>
+                {syncError && (
+                  <div className="mx-3 mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[9px] text-amber-800">
+                    <p className="leading-tight">{syncError}</p>
+                    <button type="button" onClick={() => refreshSnapshot()} className="mt-1 font-bold uppercase text-amber-700 hover:text-amber-900">
+                      Tentar sincronizar novamente
+                    </button>
+                  </div>
+                )}
 
                 {pickerMode === 'list' && (
                   <>

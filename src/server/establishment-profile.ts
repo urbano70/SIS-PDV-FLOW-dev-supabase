@@ -465,8 +465,9 @@ export function createEstablishmentProfileService(deps: EstablishmentProfileDepe
       const input = validateMutation(rawInput);
       const current = await getCurrentUser(deps, userId);
       // Uma alteração textual não pode ocultar uma logo legada inválida nem
-      // retornar erro depois de persistir metade do perfil.
-      profileFromUser(current, deps.supabaseUrl);
+      // retornar erro depois de persistir metade do perfil. Remoção explícita
+      // pode retirar o legado mesmo se Storage/decodificação estiverem falhando.
+      if (input.removeLogo !== true) profileFromUser(current, deps.supabaseUrl);
       const metadata = cloneMetadata(current.user_metadata);
       const nextMetadata = { ...metadata };
       for (const key of Object.keys(input.fields) as EstablishmentProfileField[]) {
@@ -477,6 +478,7 @@ export function createEstablishmentProfileService(deps: EstablishmentProfileDepe
         nextMetadata.logo_url = await uploadValidatedLogo(deps, userId, validated);
       } else if (input.removeLogo === true) {
         nextMetadata.logo_url = '';
+        if (isInlineLogo(metadata.logo)) nextMetadata.logo = '';
       }
       const updated = await deps.authAdmin.updateUserById(userId, { user_metadata: nextMetadata });
       if (updated?.error) throw new EstablishmentProfileError(`Não foi possível persistir o perfil: ${errorText(updated.error)}`, 'AUTH_METADATA_UPDATE_FAILED', 503);
