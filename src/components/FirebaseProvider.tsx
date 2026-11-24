@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 import socket, { clearAdminConnectDedup, isAutoAuthSuspended, setSocketAuthRole } from '../lib/socket';
 import { Table, Order, Waiter, StockItem, MenuCategory, PizzeriaConfig } from '../types';
 import { toast } from 'sonner';
-import { forceLocalSignOut, forceRefreshSession, getSession, refreshViaProxy } from '../lib/auth';
+import { forceRefreshSession, getProxyRefreshError, getSession, refreshViaProxy } from '../lib/auth';
 import { sendOrderCommand, orderCommandMessage } from '../lib/order-command';
 import {
   getTenantStorageKey,
@@ -24,6 +24,7 @@ interface FirebaseContextType {
   toggleCashRegister: (open: boolean, cashRegisterName?: string) => void;
   canMutate: () => boolean;
   ready: boolean;
+  syncError: string | null;
   refreshSnapshot: () => void;
   currentWaiter: Waiter | null;
   activeCashRegisterName: string | null;
@@ -91,6 +92,35 @@ function persistActiveCashRegisterName(tenantId: string | undefined, name: strin
   } catch {}
 }
 
+const MAX_SOCKET_AUTH_TOKEN_LENGTH = 48_000;
+
+function readStoredAuthSession(): any | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const key = Object.keys(localStorage).find(
+      k => k.startsWith('sb-') && k.endsWith('-auth-token')
+    );
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasInlineLogoMetadata(session: any): boolean {
+  const metadata = session?.user?.user_metadata || session?.user_metadata;
+  return [metadata?.logo_url, metadata?.logo, metadata?.logoUrl].some(
+    logo => typeof logo === 'string' && /^data:/i.test(logo),
+  );
+}
+
+function isUnsafeSocketAuthSession(session: any): boolean {
+  const token = session?.access_token;
+  return (typeof token === 'string' && token.length > MAX_SOCKET_AUTH_TOKEN_LENGTH) ||
+    hasInlineLogoMetadata(session);
+}
+
 export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   children,
   tenantId,
@@ -123,6 +153,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     readActiveCashRegisterName(normalizedTenantId)
   );
   const [openCashRegisterNames, setOpenCashRegisterNames] = useState<string[]>([]);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // These refs intentionally survive renders but are reset when the tenant scope changes.
   // A reconnect never clears the visible state; it only blocks pre-ready updates until a
@@ -142,6 +173,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
   const handshakeInFlightRef = useRef<Promise<void> | null>(null);
   const adminTokenRef = useRef<string | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handshakeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const authRetryCountRef = useRef(0);
 
   const canMutate = () => socket.connected && readyRef.current && navigator.onLine &&
@@ -172,6 +204,10 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     let connectionGeneration = 0;
     const current = () => !disposed && lifecycleRef.current === lifecycle;
     const cache = isWaiterMode ? null : readTenantCache<Record<string, any>>(getStorage(), normalizedTenantId);
+    const clearHandshakeTimeout = () => {
+      if (handshakeTimeoutRef.current) clearTimeout(handshakeTimeoutRef.current);
+      handshakeTimeoutRef.current = null;
+    };
 
     // A tenant change is a hard state boundary. Load only that tenant's cache and
     // never leave the previous account's orders/tables visible while the new socket
@@ -198,6 +234,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
     handshakeInFlightRef.current = null;
     if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     fallbackTimerRef.current = null;
+    clearHandshakeTimeout();
+    setSyncError(null);
     setLoading(!cache);
     setTables(cache?.tables ?? []);
     setComandas(cache?.comandas ?? []);
@@ -305,7 +343,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         return;
       }
       const pending = pendingInitRef.current;
-      if (!socket.connected || (pending && pending.socketId !== (socket.id || null))) return;
+      if (!pending || !socket.connected || pending.socketId !== (socket.id || null)) return;
       // This is intentionally strict for a scoped provider. A pre-auth/default or
       // old-tenant snapshot is ignored and cannot wipe current/cache state.
       if (!isInitDataAccepted(data, normalizedTenantId, pending?.epoch)) {
@@ -364,6 +402,8 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       pendingInitRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      clearHandshakeTimeout();
+      setSyncError(null);
       cacheRef.current = { ...cacheRef.current, ...cachePatch, tenantId: normalizedTenantId };
       if (!isWaiterMode) writeTenantCache(getStorage(), normalizedTenantId, cacheRef.current);
       setLoading(false);
@@ -396,58 +436,103 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
         (socket.id || null) === connectionId && connectionGeneration === generation;
       const epoch = makeInitEpoch();
       pendingInitRef.current = { epoch, socketId: socket.id || null };
+      clearHandshakeTimeout();
+      handshakeTimeoutRef.current = setTimeout(() => {
+        if (!connectionCurrent() || readyRef.current || pendingInitRef.current?.epoch !== epoch) return;
+        connectionGeneration++;
+        handshakeInFlightRef.current = null;
+        adminTokenRef.current = null;
+        pendingInitRef.current = null;
+        if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+        handshakeTimeoutRef.current = null;
+        setConnectionReady(false);
+        setSyncError('Tempo limite ao sincronizar. Tente sincronizar novamente.');
+        setLoading(false);
+      }, 18_000);
       const promise = (async () => {
 
-        let token = isReconnect ? adminTokenRef.current : null;
+        let token = isReconnect && adminTokenRef.current &&
+          adminTokenRef.current.length <= MAX_SOCKET_AUTH_TOKEN_LENGTH
+          ? adminTokenRef.current : null;
+        let unsafeFallback = false;
+        let unsafeReason: string | null = null;
+        let proxyError: string | null = null;
         if (!token) {
+          const storedSession = readStoredAuthSession();
+          unsafeFallback = isUnsafeSocketAuthSession(storedSession);
+          if (unsafeFallback) {
+            unsafeReason = 'A sessão contém uma logo inline antiga; a recuperação deve usar o proxy.';
+          }
           // 0. Proxy refresh — contorna extensões que bloqueiam o domínio do Supabase.
           try {
             const proxyResult = await refreshViaProxy();
-            token = proxyResult?.access_token ?? null;
+            const proxyToken = proxyResult?.access_token ?? null;
+            if (proxyToken && proxyToken.length <= MAX_SOCKET_AUTH_TOKEN_LENGTH) {
+              token = proxyToken;
+            } else if (proxyToken) {
+              unsafeFallback = true;
+              unsafeReason = 'O proxy devolveu uma sessão maior que o limite de sincronização.';
+            } else {
+              proxyError = getProxyRefreshError();
+            }
           } catch {
-            token = null;
+            proxyError = getProxyRefreshError();
           }
           if (!connectionCurrent() || isAutoAuthSuspended()) return;
           // 1. SDK refresh — renovação direta pelo Supabase Auth SDK.
-          if (!token) {
+          if (!token && !unsafeFallback) {
             try {
               const session = await forceRefreshSession();
-              token = session?.access_token ?? null;
+              if (isUnsafeSocketAuthSession(session)) {
+                unsafeFallback = true;
+                unsafeReason = 'A sessão renovada pelo SDK ainda contém dados de logo inline ou um JWT grande.';
+              } else {
+                token = session?.access_token ?? null;
+              }
             } catch {
               token = null;
             }
           }
           if (!connectionCurrent() || isAutoAuthSuspended()) return;
           // 2. Sessão em cache — lê sem precisar de lock exclusivo (múltiplas abas).
-          if (!token) {
+          if (!token && !unsafeFallback) {
             try {
               const cached = await getSession();
-              token = cached?.access_token ?? null;
-            } catch {
-              token = null;
-            }
-          }
-          // 3. Último recurso: lê o token diretamente do localStorage, sem SDK.
-          if (!token) {
-            try {
-              const key = Object.keys(localStorage).find(
-                k => k.startsWith('sb-') && k.endsWith('-auth-token')
-              );
-              if (key) {
-                const raw = localStorage.getItem(key);
-                const data = raw ? JSON.parse(raw) : null;
-                token = data?.access_token ?? null;
+              if (isUnsafeSocketAuthSession(cached)) {
+                unsafeFallback = true;
+                unsafeReason = 'A sessão em cache ainda contém dados de logo inline ou um JWT grande.';
+              } else {
+                token = cached?.access_token ?? null;
               }
             } catch {
               token = null;
             }
           }
+          // 3. Último recurso: lê o token diretamente do localStorage, sem SDK.
+          if (!token && !unsafeFallback) {
+            const storedSession = readStoredAuthSession();
+            if (isUnsafeSocketAuthSession(storedSession)) {
+              unsafeReason = 'A sessão local ainda contém dados de logo inline ou um JWT grande.';
+            } else {
+              token = storedSession?.access_token ?? null;
+            }
+          }
         }
-        if (!connectionCurrent() || isAutoAuthSuspended()) return;
-        if (!token) {
-          toast.error('Sessão não confirmada. Faça login novamente.');
+        if (!connectionCurrent()) return;
+        if (isAutoAuthSuspended()) {
+          setSyncError('A autenticação automática está temporariamente suspensa.');
           setLoading(false);
-          if (!everReadyRef.current) forceLocalSignOut().catch(() => {});
+          return;
+        }
+        if (!token) {
+          const reason = proxyError || getProxyRefreshError() || unsafeReason ||
+            'Sessão não confirmada. Tente sincronizar novamente.';
+          setSyncError(reason);
+          toast.error(reason);
+          setLoading(false);
+          clearHandshakeTimeout();
+          pendingInitRef.current = null;
           return;
         }
         adminTokenRef.current = token;
@@ -536,6 +621,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       approvedRequestSocketRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      clearHandshakeTimeout();
       // Clear cached token so identifyConnection always runs the full proxy
       // refresh chain. Reusing an old token risks sending an expired JWT when
       // the socket reconnects after the 1-hour Supabase expiry window.
@@ -553,6 +639,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       handshakeInFlightRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      clearHandshakeTimeout();
     };
 
     // A command can lose authorization even after the initial handshake. Never
@@ -565,7 +652,6 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       readyRef.current = false;
       readySocketRef.current = null;
       setConnectionReady(false);
-      if (!wasReady && handshakeInFlightRef.current) return;
       connectionGeneration++;
       handshakeInFlightRef.current = null;
       adminTokenRef.current = null;
@@ -573,12 +659,13 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       approvedRequestSocketRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      clearHandshakeTimeout();
       const serverMsg: string = data?.message || '(sem mensagem)';
+      setSyncError(serverMsg);
       authRetryCountRef.current += 1;
       if (authRetryCountRef.current > 2) {
-        toast.error(`Sessão não confirmada. Faça login novamente. ${serverMsg}`);
+        toast.error(`Sessão não confirmada. Tente sincronizar novamente. ${serverMsg}`);
         setLoading(false);
-        if (!everReadyRef.current && !isWaiterMode) forceLocalSignOut().catch(() => {});
         return;
       }
       if (isWaiterMode) {
@@ -595,10 +682,30 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
 
     refreshSnapshotRef.current = () => {
       if (!current() || !normalizedTenantId || !socket.connected) return;
+      if (!readyRef.current) {
+        // A tentativa manual também invalida uma promessa antiga: só a geração
+        // atual pode emitir o JWT e aceitar o init_data correspondente.
+        connectionGeneration++;
+        handshakeInFlightRef.current = null;
+        adminTokenRef.current = null;
+        pendingInitRef.current = null;
+        if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+        clearHandshakeTimeout();
+        setSyncError(null);
+        setLoading(true);
+        if (isWaiterMode) {
+          requestApprovedInit();
+        } else {
+          identifyConnection(false);
+        }
+        return;
+      }
       if (handshakeInFlightRef.current) return;
       readyRef.current = false;
       readySocketRef.current = null;
       setConnectionReady(false);
+      setSyncError(null);
       const epoch = makeInitEpoch();
       pendingInitRef.current = { epoch, socketId: socket.id || null };
       requestInitData(epoch);
@@ -639,6 +746,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       handshakeInFlightRef.current = null;
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
+      clearHandshakeTimeout();
       socket.off('init_data', handleInitData);
       socket.off('update_orders', handleUpdateOrders);
       socket.off('update_tables', handleUpdateTables);
@@ -710,6 +818,7 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       toggleCashRegister,
       canMutate,
       ready: connectionReady,
+      syncError,
       refreshSnapshot,
       currentWaiter,
       activeCashRegisterName,

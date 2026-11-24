@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import type { ProfileFields, EstablishmentProfileResponse } from './establishment-profile';
 
 export async function signInOwner(email: string, password: string) {
   const res = await fetch('/api/auth/signin', {
@@ -79,21 +80,37 @@ export async function forceRefreshSession() {
  * Atualiza o localStorage diretamente para que os fallbacks subsequentes
  * encontrem o novo access_token sem depender do SDK.
  */
+type ProxyResult = { access_token: string; user?: any; profile?: any; ok?: true };
 let proxyRefreshInFlight: {
-  key: string; token: string; userId: string; promise: Promise<{ access_token: string } | null>;
+  key: string; token: string; userId: string; intent: string; promise: Promise<ProxyResult | null>;
 } | null = null;
+let proxyRefreshError: { userId: string; message: string } | null = null;
 
-export function refreshViaProxy(): Promise<{ access_token: string } | null> {
+export function getProxyRefreshError(): string | null {
+  try {
+    const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    const userId = key && JSON.parse(localStorage.getItem(key) || 'null')?.user?.id;
+    return userId && proxyRefreshError?.userId === userId ? proxyRefreshError.message : null;
+  } catch { return null; }
+}
+
+function queueProxyRefresh(removeFields?: ProfileFields, expectedUserId?: string): Promise<ProxyResult | null> {
   try {
     const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
     if (!key) return Promise.resolve(null);
     const session = JSON.parse(localStorage.getItem(key) || 'null');
     const token = session?.refresh_token;
     const userId = session?.user?.id;
-    if (!token || !userId) return Promise.resolve(null);
+    if (!token || !userId || (expectedUserId && expectedUserId !== userId)) return Promise.resolve(null);
+    const intent = removeFields ? JSON.stringify(removeFields) : 'refresh';
     if (proxyRefreshInFlight?.key === key && proxyRefreshInFlight.token === token &&
-        proxyRefreshInFlight.userId === userId) return proxyRefreshInFlight.promise;
-    const operation = { key, token, userId, promise: performProxyRefresh() };
+        proxyRefreshInFlight.userId === userId) {
+      if (proxyRefreshInFlight.intent === intent) return proxyRefreshInFlight.promise;
+      // Automatic migration and an explicit removal must not use the same
+      // refresh token concurrently. Re-read the rotated token, never the owner.
+      return proxyRefreshInFlight.promise.then(() => queueProxyRefresh(removeFields, userId));
+    }
+    const operation = { key, token, userId, intent, promise: performProxyRefresh(removeFields) };
     operation.promise = operation.promise.finally(() => {
       if (proxyRefreshInFlight === operation) proxyRefreshInFlight = null;
     });
@@ -102,7 +119,22 @@ export function refreshViaProxy(): Promise<{ access_token: string } | null> {
   } catch { return Promise.resolve(null); }
 }
 
-async function performProxyRefresh(): Promise<{ access_token: string } | null> {
+export async function refreshViaProxy(): Promise<{ access_token: string } | null> {
+  const result = await queueProxyRefresh();
+  return result ? { access_token: result.access_token } : null;
+}
+
+export async function removeEstablishmentLogoViaProxy(fields: ProfileFields): Promise<EstablishmentProfileResponse> {
+  const result = await queueProxyRefresh({ ...fields });
+  if (!result?.ok || !result.user?.id || result.profile?.logo_url !== '') {
+    throw new Error(getProxyRefreshError() || 'Não foi possível confirmar a remoção da logo. Tente novamente.');
+  }
+  return { ok: true, user: result.user, profile: result.profile };
+}
+
+async function performProxyRefresh(removeFields?: ProfileFields): Promise<ProxyResult | null> {
+  let operationUserId = '';
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
     if (!key) return null;
@@ -110,11 +142,16 @@ async function performProxyRefresh(): Promise<{ access_token: string } | null> {
     const stored = raw ? JSON.parse(raw) : null;
     const refresh_token: string | undefined = stored?.refresh_token;
     if (!refresh_token) return null;
+    operationUserId = stored?.user?.id || '';
+    proxyRefreshError = null;
 
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    if (controller && typeof setTimeout !== 'undefined') timeout = setTimeout(() => controller.abort(), 15_000);
     const res = await fetch('/api/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token }),
+      body: JSON.stringify({ refresh_token, ...(removeFields ? { removeLogo: true, fields: removeFields } : {}) }),
+      ...(controller ? { signal: controller.signal } : {}),
     });
     const data = await res.json();
 
@@ -135,9 +172,16 @@ async function performProxyRefresh(): Promise<{ access_token: string } | null> {
           typeof data.refresh_token === 'string' && data.refresh_token) {
         localStorage.setItem(key, JSON.stringify({ ...current, refresh_token: data.refresh_token }));
       }
+      proxyRefreshError = { userId: operationUserId,
+        message: typeof data?.error === 'string' ? data.error : 'Não foi possível renovar a sessão do estabelecimento.' };
       return null;
     }
-    if (!data?.access_token) return null;
+    if (!data?.access_token || data.access_token.length > 48_000 ||
+        /^data:image\//i.test(data.user?.user_metadata?.logo_url || '') ||
+        /^data:image\//i.test(data.user?.user_metadata?.logo || '')) {
+      proxyRefreshError = { userId: operationUserId, message: 'O servidor ainda não confirmou uma sessão limpa.' };
+      return null;
+    }
     // Persiste os novos tokens no localStorage para os fallbacks do SDK
     if (stored) {
       stored.access_token = data.access_token;
@@ -154,9 +198,14 @@ async function performProxyRefresh(): Promise<{ access_token: string } | null> {
         detail: { tenantId: data.user.id, profile: data.user.user_metadata, user: data.user },
       }));
     }
-    return { access_token: data.access_token };
-  } catch {
+    return { access_token: data.access_token, user: data.user, profile: data.profile, ok: data.ok };
+  } catch (error) {
+    proxyRefreshError = { userId: operationUserId, message: error instanceof Error && error.name === 'AbortError'
+      ? 'A renovação da sessão demorou demais. Tente sincronizar novamente.'
+      : 'Não foi possível contactar o servidor para recuperar a sessão.' };
     return null;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 

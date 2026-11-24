@@ -103,3 +103,10 @@ Evidências: rotina/helper/caminho em memória removidos; 378 cargas reais extra
 - [x] Preservar pedidos/pagamentos/histórico, guardas recentes, impressão/Parquinho/KDS e PDV_TEST_RESET_ON_DEPLOY=false; validar testes/build/TypeScript com baseline fresca. Fazer PR/merge sem deploy manual nem monitorar Easypanel; e-mail fiscal permanece adiado.
 
 Evidências: build aprovado; 14 suítes essenciais passaram, incluindo 378 cargas reais de preservação, grants/handlers extraídos por AST e SDK real com fetch simulado. TypeScript baseline31/atual31, zero novos. Recuperação legada implementada e testada, mas TESTE01 real permanece intacta até próximo login/refresh da versão publicada. Bucket será criado/configurado somente no primeiro upload/migração válida pelo servidor service-role. Nenhum dado real alterado, sem deploy/restart/monitoramento manual. O teste legado test-auth-role falha também na fonte main por expectativa obsoleta; hardware e sessão real pendentes.
+
+## Reparo após atualização — 23/11/2026 às 21:35
+- [x] Abrir Caixa não fica preso indefinidamente em Sincronizando: recuperar sessão/logo, autenticar e receber snapshot correto antes de permitir comandos; falha exibe motivo e opção segura de tentar novamente.
+- [x] Permitir editar e remover logo legada ou nova por ação explícita confirmada, sem exigir upload da imagem retirada nem restaurá-la em cache/branding/impressão. Falha preserva formulário, sem sucesso falso.
+- [x] Preservar demais dados do perfil, pedidos, pagamentos, histórico e isolamento; manter limpeza por deploy desativada. Validar caminhos afetados e entregar por PR/merge, sem deploy manual.
+
+Evidências: 12 suítes focais passaram (uma chamada inicial usou caminho inexistente; execução corrigida em scripts). Build final aprovado, TypeScript baseline31/atual31, zero novos. Diagnóstico real somente de leitura confirmou refresh-token de12caracteres e logo ainda inline; nenhuma credencial/imagem retornada. Nenhum dado real alterado; recuperação real aguarda publicação/renovação da sessão.

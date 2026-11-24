@@ -227,6 +227,19 @@ function user(id, metadata) {
     (error) => error.code === 'LOGO_DATA_URL_INVALID',
   );
   assert.equal(invalidLegacy.state.uploads.length, 0, 'SVG legado falha antes do upload e não é descartado');
+  const legacyRemoval = makeFixture({ users: { [TENANT_A]: user(TENANT_A, {
+    logo_url: svgDataUrl, logo: jpegDataUrl, plan: 'premium', responsible_name: 'Preservado',
+  }) } });
+  const explicitlyRemoved = await legacyRemoval.service.update(TENANT_A, {
+    fields: { address: 'Endereço editado' }, removeLogo: true,
+  });
+  assert.equal(explicitlyRemoved.profile.logo_url, '');
+  assert.equal(explicitlyRemoved.user.user_metadata.logo, '');
+  assert.equal(explicitlyRemoved.profile.address, 'Endereço editado');
+  assert.equal(explicitlyRemoved.user.user_metadata.responsible_name, 'Preservado');
+  assert.equal(explicitlyRemoved.user.user_metadata.plan, 'premium');
+  assert.equal(legacyRemoval.state.bucketCalls.length, 0);
+  assert.equal(legacyRemoval.state.uploads.length, 0, 'remoção autorizada não exige migrar imagem retirada');
 
   assert.equal(isCanonicalLogoReference(first.profile.logo_url, TENANT_A, SUPABASE_URL), true);
   assert.equal(isCanonicalLogoReference(first.profile.logo_url, TENANT_B, SUPABASE_URL), false);

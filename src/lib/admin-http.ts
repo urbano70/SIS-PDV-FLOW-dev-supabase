@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { refreshViaProxy } from './auth';
+import { refreshViaProxy, getProxyRefreshError } from './auth';
 
 export const PRIVATE_ADMIN_API = /^\/api\/(?:establishment\/profile(?:\/|$)|fiscal(?:\/|$)|backup(?:\/|$)|seed(?:[/?]|$)|seed-menu(?:[/?]|$)|agent-config(?:[/?]|$)|fix-tables(?:[/?]|$)|force-release-table(?:[/?]|$)|admin\/create-waiter(?:[/?]|$))/;
 
@@ -69,7 +69,7 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     throw new Error('adminFetch aceita apenas APIs privadas same-origin');
   }
   const token = await getAdminAccessToken();
-  if (!token) throw new Error('Sessão administrativa indisponível');
+  if (!token) throw new Error(getProxyRefreshError() || 'Sessão administrativa indisponível');
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
   return nativeFetch(input, { ...init, headers });
