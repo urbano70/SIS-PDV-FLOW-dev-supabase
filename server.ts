@@ -3198,6 +3198,37 @@ async function startServer() {
           writeAudit(_tid(), 'item_removed', _removedActor,
             `Item removido — Mesa ${order.tableId ?? '?'}${reason ? ` (${reason})` : ''}`,
             { orderId, reason: reason || null });
+
+          // Auto-libera a mesa quando todos os itens foram removidos
+          const allItemsRemoved = (order.items || []).length > 0 && (order.items || []).every((i: any) => i.removed === true);
+          if (allItemsRemoved) {
+            const tenantId = _tid();
+            const stagedOrder = JSON.parse(JSON.stringify(order));
+            stagedOrder.status = 'finalizada';
+            stagedOrder.forceReleased = true;
+            const autoFreeTables: any[] = [];
+            const autoFreeComandas: any[] = [];
+            _st().tables.forEach((t: any) => {
+              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+                autoFreeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
+              }
+            });
+            _st().comandas.forEach((c: any) => {
+              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+                autoFreeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+              }
+            });
+            await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: autoFreeTables, comandas: autoFreeComandas });
+            replaceStagedOrderState(_st(), { order: stagedOrder, tables: autoFreeTables, comandas: autoFreeComandas });
+            io.to(_room()).emit('update_orders', _st().orders);
+            io.to(_room()).emit('update_tables', _st().tables);
+            io.to(_room()).emit('update_comandas', _st().comandas);
+            writeAudit(tenantId, 'force_release' as any, _removedActor,
+              `Mesa auto-liberada — todos os itens removidos (Mesa ${order.tableId ?? '?'})`,
+              { orderId: String(order.id) });
+            return;
+          }
+
           enqueueWrite('orders', order, String(order.id), _tid());
           io.to(_room()).emit("update_orders", _st().orders);
         }
@@ -6470,27 +6501,59 @@ async function startServer() {
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!await requireAdminHttp(req, res, [tenantId])) return;
     const st = getState(tenantId);
-    const activeIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
     let fixed = 0;
-    st.tables = st.tables.map((t: any) => {
-      if (t.status !== 'free' && t.currentOrder && !activeIds.has(String(t.currentOrder))) {
+    // Force-release ALL occupied/linked/aguardando tables and comandas.
+    // For each active order found, mark it finalizada + forceReleased so it
+    // is excluded from cash register reports.
+    const ordersToRelease = new Map<string, any>();
+    const freeTables: any[] = [];
+    const freeComandas: any[] = [];
+    for (const t of st.tables) {
+      if (t.status !== 'free') {
         fixed++;
-        if (db) saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), tenantId).catch(() => {});
-        return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+        freeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
+        if (t.currentOrder) {
+          const activeOrder = st.orders.find((o: any) => String(o.id) === String(t.currentOrder) && o.status !== 'finalizada' && o.status !== 'paid');
+          if (activeOrder && !ordersToRelease.has(String(activeOrder.id))) {
+            ordersToRelease.set(String(activeOrder.id), { ...activeOrder, status: 'finalizada', forceReleased: true });
+          }
+        }
       }
-      return t;
-    });
-    st.comandas = st.comandas.map((c: any) => {
-      if (c.status !== 'free' && c.currentOrder && !activeIds.has(String(c.currentOrder))) {
+    }
+    for (const c of st.comandas) {
+      if (c.status !== 'free') {
         fixed++;
-        if (db) saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), tenantId).catch(() => {});
-        return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+        freeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+        if (c.currentOrder) {
+          const activeOrder = st.orders.find((o: any) => String(o.id) === String(c.currentOrder) && o.status !== 'finalizada' && o.status !== 'paid');
+          if (activeOrder && !ordersToRelease.has(String(activeOrder.id))) {
+            ordersToRelease.set(String(activeOrder.id), { ...activeOrder, status: 'finalizada', forceReleased: true });
+          }
+        }
       }
-      return c;
-    });
+    }
     if (fixed > 0) {
+      // Persist all freed tables/comandas and their orders
+      for (const t of freeTables) {
+        if (db) saveToSupabase('tables', t, t.id.toString(), tenantId).catch(() => {});
+        const idx = st.tables.findIndex((x: any) => x.id === t.id);
+        if (idx !== -1) st.tables[idx] = t;
+      }
+      for (const c of freeComandas) {
+        if (db) saveToSupabase('comandas', c, c.id.toString(), tenantId).catch(() => {});
+        const idx = st.comandas.findIndex((x: any) => x.id === c.id);
+        if (idx !== -1) st.comandas[idx] = c;
+      }
+      for (const [, stagedOrder] of ordersToRelease) {
+        if (db) saveToSupabase('orders', stagedOrder, String(stagedOrder.id), tenantId).catch(() => {});
+        const idx = st.orders.findIndex((o: any) => String(o.id) === String(stagedOrder.id));
+        if (idx !== -1) st.orders[idx] = stagedOrder;
+      }
+      io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
       io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
       io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+      writeAudit(tenantId, 'force_release' as any, 'ADM',
+        `Corrigir Mesas: ${fixed} mesa(s)/comanda(s) liberadas à força`, {});
     }
     res.json({ ok: true, fixed });
   });

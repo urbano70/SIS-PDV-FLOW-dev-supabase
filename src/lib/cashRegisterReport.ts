@@ -346,7 +346,7 @@ export function summarizeCashRegisterOrders(
     const timestamp = order.timestamp ? Date.parse(order.timestamp) : Number.NaN;
     return !Number.isFinite(timestamp) || timestamp >= shiftMs;
   });
-  const finishedOrders = ordersInShift.filter(order => order.status === 'finalizada');
+  const finishedOrders = ordersInShift.filter(order => order.status === 'finalizada' && !(order as any).forceReleased);
   const allPayments = finishedOrders.flatMap(getCashReportPayments);
   const hasAttributedPayments = allPayments.some(payment => cleanText(payment.cashRegister) !== null);
   const filterByRegister = Boolean(registerName && hasAttributedPayments);
