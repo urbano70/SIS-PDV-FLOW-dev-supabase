@@ -9507,7 +9507,7 @@ export default function Dashboard({
                 {(() => {
                   const visibleCats = menu.filter(cat => cat.visible !== false);
                   const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
-                  const subcats = (effectiveCat?.subcategories || []).filter(s => s.visible !== false);
+                  const subcats = (effectiveCat?.subcategories || []).filter(s => s.visible !== false && !s.isAdicional);
                   return (
                     <>
                       <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
@@ -9571,7 +9571,7 @@ export default function Dashboard({
                     const tokens = normalize(searchTerm).split(/\s+/).filter(Boolean);
                     const allItems = visibleCats.flatMap(cat => [
                       ...cat.items,
-                      ...(cat.subcategories || []).filter(s => s.visible !== false).flatMap(s => s.items),
+                      ...(cat.subcategories || []).filter(s => s.visible !== false && !s.isAdicional).flatMap(s => s.items),
                     ]);
                     return allItems.filter(item => {
                       const haystack = normalize(item.name + ' ' + (item.ingredients || ''));
@@ -9584,7 +9584,7 @@ export default function Dashboard({
                     return (sub?.items || []).filter(i => i.visible !== false);
                   }
                   const directItems = effectiveCat.items.filter(i => i.visible !== false);
-                  const subItems = (effectiveCat.subcategories || []).filter(s => s.visible !== false).flatMap(s => s.items.filter(i => i.visible !== false));
+                  const subItems = (effectiveCat.subcategories || []).filter(s => s.visible !== false && !s.isAdicional).flatMap(s => s.items.filter(i => i.visible !== false));
                   return [...directItems, ...subItems];
                 })().map((item, idx) => (
                     <button

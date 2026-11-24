@@ -3050,6 +3050,18 @@ async function startServer() {
           if (order) usedFallback = true;
         }
       }
+
+      // Fallback 2: currentOrder stale ou nulo — busca qualquer pedido ativo da mesa por tableId
+      if (!order && fallbackTableId) {
+        const activeForTable = _st().orders.filter((o: any) =>
+          o.tableId && String(o.tableId) === String(fallbackTableId) &&
+          !!o.isComanda === !!fallbackIsComanda &&
+          o.status !== 'finalizada' && o.status !== 'aguardando_baixa'
+        ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+        if (activeForTable.length > 0) { order = activeForTable[0]; usedFallback = true; }
+      }
+
+
       if (!order) {
         socket.emit('update_orders', _st().orders);
         socket.emit('update_tables', _st().tables);
