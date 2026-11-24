@@ -43,9 +43,12 @@ const compiled = esbuild.buildSync({
       import { restoreOpenCashRegisterOwners, getOpenCashRegisterNames } from './src/server/cash-register-state.ts';
       import { normalizePlaygroundConfig, ensurePlaygroundProduct } from './src/server/playground-core.ts';
       import { sanitizeWaiters } from './src/server/waiter-auth.ts';
+      import { brandingFromUser, publicLogoReference } from './src/server/establishment-profile.ts';
       const { db, getState, io, waitForTenantWrites, tenantWriteRevision,
         commitCriticalOrderState, saveMenuToSupabase, clientSessions } = globalThis.__deps;
+      const establishmentProfile = null;
       ${['rowToOrder', 'rowToTable', 'rowToStock', 'publicWaiters', 'replaceStagedOrderState'].map(extract).join('\n')}
+      ${['applyUserBrandingToState', 'loadAuthUserBranding'].map(extract).join('\n')}
       ${loaderSource}
       module.exports = { loadTenantData, rowToOrder, rowToTable };
     `,
