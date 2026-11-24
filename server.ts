@@ -1077,9 +1077,13 @@ async function startServer() {
     if (bebidasIdx === -1) { console.log('[seed-bebidas] Categoria bebidas não encontrada'); return; }
 
     const cat = menu[bebidasIdx];
-    const existingSubNames = (cat.subcategories || []).map((s: any) => s.name);
-    const toAdd = SUBCATS.filter(s => !existingSubNames.includes(s.name));
-    if (toAdd.length === 0) { console.log('[seed-bebidas] Todas as subcategorias já existem, nada a fazer.'); return; }
+    // Só semeia se a categoria não tem nenhuma subcategoria (setup inicial).
+    // Se o tenant já possui subcategorias (mesmo deletadas algumas), não interfere.
+    if ((cat.subcategories || []).length > 0) {
+      console.log('[seed-bebidas] Subcategorias já existem — seed ignorado para preservar cardápio customizado.');
+      return;
+    }
+    const toAdd = SUBCATS;
 
     const newSubs = toAdd.map((s, pos) => ({
       id: randomUUID(),
