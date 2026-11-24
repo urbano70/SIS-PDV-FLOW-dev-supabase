@@ -3,12 +3,13 @@ import { PizzaItem, Order } from '../types';
 import { X, Check, CreditCard, Banknote, QrCode, Wallet, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { createOrderRequestId } from '../lib/order-command';
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: Order;
-  onPaymentComplete: (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => void;
+  onPaymentComplete: (selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string, requestId?: string) => Promise<boolean | void> | boolean | void;
   onApplyDiscount: (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => void;
 }
 
@@ -30,6 +31,17 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const [step, setStep] = useState<'selection' | 'methods'>('selection');
   const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
   const [isConfirming, setIsConfirming] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const paymentRequestIdRef = useRef<string | null>(null);
+  const paymentIntentRef = useRef<string | null>(null);
+  const currentOrderIdRef = useRef(String(order.id));
+  useEffect(() => { currentOrderIdRef.current = String(order.id); }, [order.id]);
+
+  const requestClose = () => {
+    if (isSubmittingRef.current) return;
+    onCloseRef.current();
+  };
 
   // Dismiss mobile keyboard when confirmation popup appears by focusing a non-input element
   // (must be declared AFTER isConfirming useState to avoid TDZ error)
@@ -168,6 +180,10 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         'Dinheiro': { method: 'Dinheiro', enabled: false, amount: 0, received: 0 },
       });
       setIsConfirming(false);
+      setIsSubmitting(false);
+      isSubmittingRef.current = false;
+      paymentRequestIdRef.current = null;
+      paymentIntentRef.current = null;
       setPayerName('');
     }
   }, [isOpen, order.id]); // onClose excluded — stabilized via onCloseRef to avoid stale closure re-runs
@@ -318,13 +334,65 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     setStep('methods');
   };
 
-  const handleFinishPayment = () => {
+  const paymentIntent = (items: Record<string, number>, amount: number, method?: PaymentMethod) =>
+    JSON.stringify({
+      orderId: String(order.id),
+      items,
+      amount: Number(amount.toFixed(2)),
+      method: method || null,
+      payerName: payerName.trim(),
+    });
+
+  const submitPayment = async (
+    items: Record<string, number>,
+    amount: number,
+    method?: PaymentMethod,
+  ): Promise<boolean> => {
+    if (isSubmittingRef.current) return false;
+    const scopeOrderId = String(order.id);
+    const intent = paymentIntent(items, amount, method);
+    if (paymentIntentRef.current !== intent || !paymentRequestIdRef.current) {
+      paymentIntentRef.current = intent;
+      paymentRequestIdRef.current = createOrderRequestId('payment');
+    }
+    const requestId = paymentRequestIdRef.current;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const result = await onPaymentComplete(items, amount, method, payerName || undefined, requestId || undefined);
+      // undefined is intentionally treated as success for the synchronous
+      // WaiterTerminal-era callback contract; only false means rejection.
+      if (result === false) {
+        setErrorMessage('Pagamento não confirmado. Confira o pedido antes de tentar novamente.');
+        return false;
+      }
+      // Never close a newly scoped order after an old callback resolves.
+      if (currentOrderIdRef.current !== scopeOrderId) {
+        setErrorMessage('A conta mudou enquanto o pagamento era confirmado. Confira o pedido atual.');
+        return false;
+      }
+      setIsConfirming(false);
+      // Internal close after a confirmed result is allowed while the lock is
+      // still held; user-initiated close remains blocked until finally.
+      onCloseRef.current();
+      return true;
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.');
+      return false;
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleFinishPayment = async () => {
+    if (isSubmittingRef.current) return;
     const method = (Object.keys(payments) as PaymentMethod[]).find(m => payments[m].enabled && payments[m].amount > 0);
 
     if (isSplitPayment) {
       if (remaining > 0.01 && totalPaid > 0) {
         // Partial of the partial? Let's just use totalPaid
-        confirmFinal();
+        await confirmFinal();
         return;
       }
       if (Math.abs(remaining) > 0.01 && totalPaid === 0) {
@@ -363,9 +431,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         }
       }
       
-      onPaymentComplete(adjustedSelected, totalPaid, method, payerName || undefined);
-      onClose();
-      setIsConfirming(false);
+      await submitPayment(adjustedSelected, totalPaid, method);
       return;
     }
 
@@ -399,16 +465,10 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     setIsDiscountModalOpen(true);
   };
 
-  const confirmFinal = () => {
+  const confirmFinal = async () => {
+    if (isSubmittingRef.current) return;
     const method = (Object.keys(payments) as PaymentMethod[]).find(m => payments[m].enabled && payments[m].amount > 0);
-    
-    if (isSplitPayment) {
-      onPaymentComplete({}, totalPaid, method, payerName || undefined);
-    } else {
-      onPaymentComplete(selectedItems, totalPaid, method, payerName || undefined);
-    }
-    onClose();
-    setIsConfirming(false);
+    await submitPayment(isSplitPayment ? {} : selectedItems, totalPaid, method);
   };
 
   if (!isOpen) return null;
@@ -434,7 +494,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               <h2 className="font-serif italic text-2xl leading-none">Pagamento</h2>
               <p className="text-[10px] uppercase tracking-widest opacity-50 mt-1">Mesa {order.tableId} • Comanda #{order.id}</p>
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+            <button onClick={requestClose} disabled={isSubmitting} className="p-1.5 hover:bg-white/10 rounded-full transition-colors disabled:opacity-40 disabled:cursor-wait">
               <X size={20} />
             </button>
           </header>
@@ -1093,11 +1153,12 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                 )}
                 </div>
                 <button
-                  onClick={handleFinishPayment}
-                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 mt-3 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0"
+                  onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
+                  disabled={isSubmitting}
+                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 mt-3 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0 disabled:opacity-40 disabled:cursor-wait"
                 >
                   <Check size={20} />
-                  <span>Finalizar Pagamento</span>
+                  <span>{isSubmitting ? 'Enviando...' : 'Finalizar Pagamento'}</span>
                 </button>
               </div>
             )}
@@ -1251,13 +1312,15 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               <div className="flex space-x-3">
                 <button 
                   onClick={() => setIsConfirming(false)}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10 hover:bg-gray-50"
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-wait"
                 >
                   Não
                 </button>
                 <button 
-                  onClick={confirmFinal}
-                  className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
+                  onClick={() => { void confirmFinal().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
+                  disabled={isSubmitting}
+                  className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-wait"
                 >
                   Sim
                 </button>

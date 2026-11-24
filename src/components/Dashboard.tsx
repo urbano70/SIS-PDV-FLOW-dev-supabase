@@ -18,12 +18,25 @@ import { LATEST_PR } from '../version';
 import { useFirebase } from './FirebaseProvider';
 import { TesteDeForgo } from './TesteDeForgo';
 import { getPizzaKitchenDetails } from '../lib/pizzaKitchenDetails';
+import { getDrinkProductionDetails } from '../lib/drinkPrintDetails';
 import { adminFetch, downloadAdminFile, fetchWithAdminAuth } from '../lib/admin-http';
+import {
+  createOrderRequestId,
+  orderCommandMessage,
+  sendOrderCommand,
+  type OrderCommandAck,
+  type OrderCommandScope,
+} from '../lib/order-command';
 import PlaygroundAdminCard from './PlaygroundAdminCard';
 import PlaygroundOperatorAccessCard from './PlaygroundOperatorAccessCard';
 import PlaygroundReport from './PlaygroundReport';
 import KitchenItemStatusBadge from './KitchenItemStatusBadge';
 import { formatPlaygroundMoney, isPlaygroundItem as isManagedPlaygroundItem } from '../lib/playgroundClient';
+import {
+  buildCashRegisterReportEscPos,
+  renderCashRegisterReportHtml,
+  summarizeCashRegisterOrders,
+} from '../lib/cashRegisterReport';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -339,8 +352,20 @@ function buildEscPosKitchenTicket(
       wordWrap('Borda: ' + item.crust.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
-    if (item.observations) {
-      wordWrap('OBS: ' + item.observations.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+    const drinkDetails = item.type === 'bebidas' ? getDrinkProductionDetails(item) : null;
+    if (drinkDetails?.lines.length) {
+      // Keep every selected drink option bold, then explicitly turn it off
+      // before the ordinary observation and the next item.
+      push(0x1B, 0x45, 0x01);
+      drinkDetails.lines.forEach(detail => {
+        wordWrap(detail.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
+      });
+      push(0x1B, 0x45, 0x00);
+    }
+
+    const observation = drinkDetails?.remainingObservation ?? item.observations;
+    if (observation) {
+      wordWrap('OBS: ' + observation.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
     }
 
     if (item.adicionais?.length > 0) {
@@ -365,6 +390,12 @@ function buildEscPosKitchenTicket(
 
   return b;
 }
+
+const DashboardShortcutBadge = ({ shortcut }: { shortcut: string }) => (
+  <kbd className="inline-flex min-w-[1.5rem] shrink-0 items-center justify-center rounded-md border border-[#141414]/20 bg-white px-1 py-0.5 font-mono text-[10px] font-bold leading-none tracking-wide text-[#141414] shadow-sm group-disabled:opacity-60">
+    {shortcut}
+  </kbd>
+);
 
 // Separate component for Order Details to avoid Hook issues and improve readability
 const OrderDetails = ({
@@ -521,11 +552,11 @@ const OrderDetails = ({
                   }
                   setIsAddItemModalOpen(true);
                 }}
-                className="text-[#141414] opacity-30 hover:opacity-100 transition-opacity flex items-center gap-1"
+                className="group flex items-center gap-1 rounded-md text-[#141414] transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1"
                 title="Adicionar Pedido (ADM) — F2"
               >
-                <PlusCircle size={20} />
-                <kbd className="text-[8px] font-mono bg-gray-100 px-1 rounded opacity-70 normal-case">F2</kbd>
+                <PlusCircle size={20} className="opacity-40 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                <DashboardShortcutBadge shortcut="F2" />
               </button>
             </div>
             {waiter && (
@@ -826,27 +857,100 @@ export default function Dashboard({
   ownerCreatedAt,
   tenantId = '',
 }: DashboardProps) {
-  const { updateTableStatusLocal, optimisticAddItemToOrder, canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, data: { shiftStartedAt } } = useFirebase();
+  const firebaseContext = useFirebase();
+  const { canMutate, logout, clockOffset, activeCashRegisterName, openCashRegisterNames, syncError, refreshSnapshot, data: { shiftStartedAt } } = firebaseContext;
   // Mantém requests públicos/externalizados no fetch nativo e autentica apenas
   // a allowlist privada via fetchWithAdminAuth.
   const fetch = fetchWithAdminAuth;
   useEffect(() => { document.title = 'Painel - FechaConta'; return () => { document.title = 'FechaConta - PDV'; }; }, []);
 
-  // Fila de operações pendentes quando o socket está desconectado.
-  // Flush automático quando init_data chega (conexão restaurada).
-  const pendingOpsRef = useRef<Array<() => void>>([]);
-  useEffect(() => {
-    const flushPendingOps = () => {
-      if (!socket.connected) return;
-      const ops = pendingOpsRef.current.splice(0);
-      if (ops.length === 0) return;
-      ops.forEach(op => op());
-      toast.success(`${ops.length} ${ops.length === 1 ? 'item pendente sincronizado' : 'itens pendentes sincronizados'}.`);
-    };
-    socket.on('init_data', flushPendingOps);
-    return () => { socket.off('init_data', flushPendingOps); };
-  }, []);
+  // Cada comando captura tenant, socket e lifecycle antes do emit. A ref impede
+  // que um callback de uma renderização anterior opere após troca de conta.
+  const commandScopeRef = useRef<{ tenantId: string; lifecycle: number }>({ tenantId, lifecycle: 0 });
+  if (commandScopeRef.current.tenantId !== tenantId) {
+    commandScopeRef.current = { tenantId, lifecycle: commandScopeRef.current.lifecycle + 1 };
+  }
+  const getCommandScope = (): OrderCommandScope => ({
+    tenantId: commandScopeRef.current.tenantId,
+    socketId: socket.id || null,
+    lifecycle: commandScopeRef.current.lifecycle,
+  });
+  const commandTenantId = tenantId;
+  const runOrderCommand = ({
+    event,
+    payload,
+    requestId,
+    orderId,
+  }: {
+    event: string;
+    payload?: Record<string, unknown>;
+    requestId?: string;
+    orderId?: string | number;
+  }) => sendOrderCommand({
+    socket,
+    event,
+    tenantId: commandTenantId,
+    requestId: requestId || createOrderRequestId(event),
+    payload,
+    orderId,
+    canMutate,
+    getScope: getCommandScope,
+    refreshSnapshot,
+  });
 
+  const [menuDragSource, setMenuDragSource] = useState<{
+    itemId: string;
+    categoryName: string;
+    subcategoryId: string | null;
+  } | null>(null);
+  const [menuDropTarget, setMenuDropTarget] = useState<string | null>(null);
+  const menuDropKey = (categoryName: string, subcategoryId?: string | null): string =>
+    `${categoryName}::${subcategoryId || '__root__'}`;
+  const handleMenuDragStart = (event: React.DragEvent, item: MenuItem, categoryName: string, subcategoryId?: string) => {
+    if (isManagedPlaygroundItem(item)) {
+      event.preventDefault();
+      return;
+    }
+    const source = { itemId: String(item.id), categoryName, subcategoryId: subcategoryId || null };
+    setMenuDragSource(source);
+    setMenuDropTarget(null);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', source.itemId);
+  };
+  const handleMenuDragEnd = () => {
+    setMenuDragSource(null);
+    setMenuDropTarget(null);
+  };
+  const handleMenuDrop = (event: React.DragEvent, categoryName: string, subcategoryId?: string) => {
+    event.preventDefault();
+    const itemId = menuDragSource?.itemId || event.dataTransfer.getData('text/plain');
+    const source = menuDragSource;
+    setMenuDropTarget(null);
+    if (!itemId || !source) return;
+    if (!canMutate()) {
+      setMenuDragSource(null);
+      toast.error('Sem conexão com o servidor; o catálogo não foi alterado.');
+      return;
+    }
+    const targetSubcategoryId = subcategoryId || null;
+    if (source.categoryName === categoryName && source.subcategoryId === targetSubcategoryId) {
+      setMenuDragSource(null);
+      return;
+    }
+    socket.timeout(10000).emit('move_menu_item', {
+      itemId,
+      targetCategoryName: categoryName,
+      targetSubcategoryId,
+    }, (timeoutError: any, ack: any) => {
+      if (timeoutError) {
+        toast.error('O servidor não confirmou o movimento; o catálogo não foi alterado nesta tela.');
+      } else if (ack?.ok) {
+        toast.success('Produto movido e catálogo sincronizado.');
+      }
+      // Em erro, o servidor também envia error_message e não há estado otimista.
+    });
+    setMenuDragSource(null);
+  };
   const [notificationMode, setNotificationMode] = useState<NotificationMode>(() => loadNotificationMode());
   const handleNotificationModeChange = (mode: NotificationMode) => { setNotificationMode(mode); saveNotificationMode(mode); };
   const { notifications, unreadCount, markAllRead, clearAll, addCallNotification } = useOrderNotifications(orders, notificationMode, isCashRegisterOpen);
@@ -942,6 +1046,9 @@ export default function Dashboard({
   const [isComandaSelected, setIsComandaSelected] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isBaixaModalOpen, setIsBaixaModalOpen] = useState(false);
+  const [isBaixaPending, setIsBaixaPending] = useState(false);
+  const [isForceReleasePending, setIsForceReleasePending] = useState(false);
+  const forceReleasePendingRef = useRef(false);
   const [printOnBaixa, setPrintOnBaixa] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
@@ -1065,8 +1172,10 @@ export default function Dashboard({
   const [localNumTables, setLocalNumTables] = useState<number>(pizzariaConfig.numTables ?? 10);
   const [localNumComandas, setLocalNumComandas] = useState<number>(pizzariaConfig.numComandas ?? 50);
   const [localMaxWaiters, setLocalMaxWaiters] = useState<number>(pizzariaConfig.maxWaiters ?? 10);
-  const [localLogoUrl, setLocalLogoUrl] = useState<string>(printerConfig.logoUrl || '');
   const [savingConfig, setSavingConfig] = useState(false);
+  const savingSalonRef = useRef(false);
+  const [savingPrinters, setSavingPrinters] = useState(false);
+  const savingPrintersRef = useRef(false);
   const [cashRegisterPickerOpen, setCashRegisterPickerOpen] = useState(false);
   const needsCaixa = isCashRegisterOpen && !activeCashRegisterName;
   const [localCashRegisters, setLocalCashRegisters] = useState<{ id: string; name: string }[]>(() => pizzariaConfig.cashRegisters ?? []);
@@ -1124,27 +1233,29 @@ export default function Dashboard({
     setLocalCashRegisters(pizzariaConfig.cashRegisters ?? []);
   }, [pizzariaConfig.cashRegisters]);
 
-  useEffect(() => {
-    setLocalLogoUrl(printerConfig.logoUrl || '');
-  }, [printerConfig.logoUrl]);
-
   const salonDirty =
     localNumTables !== (pizzariaConfig.numTables ?? 10) ||
     localNumComandas !== (pizzariaConfig.numComandas ?? 50) ||
-    localMaxWaiters !== (pizzariaConfig.maxWaiters ?? 10) ||
-    localLogoUrl !== (printerConfig.logoUrl || '');
+    localMaxWaiters !== (pizzariaConfig.maxWaiters ?? 10);
 
   const saveSalonConfig = async () => {
+    if (savingSalonRef.current) return;
+    savingSalonRef.current = true;
     setSavingConfig(true);
-    updatePizzeriaConfig({ ...pizzariaConfig, numTables: localNumTables, numComandas: Math.min(50, localNumComandas), maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)), logoUrl: localLogoUrl });
-    (setPrinterConfig as any)((prev: any) => {
-      const updated = { ...prev, logoUrl: localLogoUrl };
-      localStorage.setItem('printerConfig', JSON.stringify(updated));
-      return updated;
-    });
-    await new Promise(r => setTimeout(r, 600));
-    setSavingConfig(false);
-    toast.success('Configurações do salão salvas!');
+    const scope = getCommandScope();
+    try {
+      const saved = await firebaseContext.updatePizzeriaConfig({ ...pizzariaConfig,
+        numTables: localNumTables, numComandas: Math.min(50, localNumComandas),
+        maxWaiters: Math.max(1, Math.min(40, localMaxWaiters)),
+      });
+      const current = getCommandScope();
+      if (saved && current.tenantId === scope.tenantId && current.lifecycle === scope.lifecycle) {
+        toast.success('Configurações do salão salvas!');
+      }
+    } finally {
+      savingSalonRef.current = false;
+      setSavingConfig(false);
+    }
   };
 
   // Pizzaria mode: local state for config editing
@@ -1274,6 +1385,9 @@ export default function Dashboard({
   const [xmlLoteAno, setXmlLoteAno] = useState(() => String(new Date().getFullYear()));
   const [xmlLoteMes, setXmlLoteMes] = useState(() => String(new Date().getMonth() + 1));
   const [xmlLoteLoading, setXmlLoteLoading] = useState(false);
+  const [xmlContadorEmail, setXmlContadorEmail] = useState('');
+  const [xmlEmailLoading, setXmlEmailLoading] = useState(false);
+  const [xmlEmailResult, setXmlEmailResult] = useState<{ recipient: string; missing: number } | null>(null);
   const [nfceContingenciaMode, setNfceContingenciaMode] = useState<'normal' | 'offline' | 'epec' | 'svcrs'>('normal');
   const [nfceDhCont, setNfceDhCont] = useState('');
   const [nfceXJust, setNfceXJust] = useState('');
@@ -1413,8 +1527,6 @@ export default function Dashboard({
       setSeedSteps(prev => [...prev, 'Aplicando cardápio padrão do plano...']);
       const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
       socket.emit('bulk_import', { menu: seedMenu });
-      localStorage.removeItem('plan_menu_seeded');
-      localStorage.setItem('plan_menu_seeded', '1');
 
       setSeedSteps(prev => [...prev, 'Concluído!']);
       setIsSeedComplete(true);
@@ -1476,20 +1588,6 @@ export default function Dashboard({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, pizzariaConfig.numTables, tables.length]);
-
-  // Seed default menu once when menu is empty
-  useEffect(() => {
-    const seedKey = 'plan_menu_seeded';
-    if (localStorage.getItem(seedKey)) return;
-    if (menu.length > 0) {
-      localStorage.setItem(seedKey, '1');
-      return;
-    }
-    const seedMenu = pizzariaConfig.enabled ? PIZZA_DEFAULT_MENU : PLAN_DEFAULT_MENU;
-    socket.emit('bulk_import', { menu: seedMenu });
-    localStorage.setItem(seedKey, '1');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plan, menu.length, pizzariaConfig.enabled]);
 
   const handleTestPrinter = (printerName: string) => {
     if (!printerName || printerName === 'none') {
@@ -1782,25 +1880,26 @@ export default function Dashboard({
     }
   }, [isAddItemModalOpen]);
 
-  const handleSavePrinters = () => {
-    (setPrinterConfig as any)((latest: any) => {
-      try {
-        localStorage.setItem('printerConfig', JSON.stringify(latest));
-        // Persiste no Supabase para não perder ao trocar de navegador ou dispositivo
-        socket.emit('save_printer_config', latest);
-        // Sincroniza nome e logo com o servidor para exibição na página da mesa
-        socket.emit('update_pizzaria_config', {
-          establishmentName: latest.establishmentName || '',
-          logoUrl: latest.logoUrl || '',
-        });
-        toast.success('Configurações salvas!', {
-          description: 'Impressoras e cupom salvos no servidor.'
-        });
-      } catch {
-        toast.error('Erro ao salvar configurações.');
+  const handleSavePrinters = async () => {
+    if (savingPrintersRef.current) return;
+    savingPrintersRef.current = true;
+    setSavingPrinters(true);
+    const snapshot = printerConfig;
+    try {
+      const ack = await runOrderCommand({ event: 'save_printer_config', payload: { ...snapshot } });
+      if (!ack.ok) { toast.error(orderCommandMessage(ack)); return; }
+      if (ack.config && typeof ack.config === 'object') {
+        (setPrinterConfig as any)((current: any) => current === snapshot ? ack.config : current);
       }
-      return latest;
-    });
+      toast.success('Configurações salvas!', {
+        description: 'Impressoras e cupom confirmados no servidor.',
+      });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+    } finally {
+      savingPrintersRef.current = false;
+      setSavingPrinters(false);
+    }
   };
 
   const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
@@ -1914,10 +2013,16 @@ export default function Dashboard({
                 ).join('')
               : '')
             : (item.crust ? `<div style="font-size:${_obsFs}">Borda: ${item.crust.toUpperCase()}</div>` : '');
+          const drinkDetails = item.type === 'bebidas' ? getDrinkProductionDetails(item) : null;
+          const drinkDetailsHtml = drinkDetails?.lines.length
+            ? drinkDetails.lines.map(detail => `<div style="font-size:${_obsFs};font-weight:bold">${detail.toUpperCase()}</div>`).join('')
+            : '';
+          const observation = drinkDetails?.remainingObservation ?? item.observations;
           return `
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
           ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
-          ${item.observations ? `<div class="observation">OBS: ${item.observations.toUpperCase()}</div>` : ''}
+          ${drinkDetailsHtml}
+          ${observation ? `<div class="observation">OBS: ${observation.toUpperCase()}</div>` : ''}
           ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}</div>`).join('') : ''}
         `;
         }).join(`<div class="sep"></div>`);
@@ -2093,301 +2198,39 @@ export default function Dashboard({
     const printer = receiptPrinterName
       ? (printerConfig.registeredPrinters || []).find((p: any) => p.name === receiptPrinterName)
       : null;
-
-    const is50mm = (printerConfig.paperWidth || '80mm') === '50mm';
-    const lineLen = is50mm ? 32 : 48;
-    const b: number[] = [];
-    const push = (...bytes: number[]) => b.push(...bytes);
-    const lf = () => push(0x0A);
-    const text = (s: string) => push(...escStr(s));
-    const ln  = () => { text('-'.repeat(lineLen)); lf(); };
-    const dln = () => { text('='.repeat(lineLen)); lf(); };
-    const center = () => push(0x1B, 0x61, 0x01);
-    const left   = () => push(0x1B, 0x61, 0x00);
-    const right  = () => push(0x1B, 0x61, 0x02);
-    const bold   = (on: boolean) => push(0x1B, 0x45, on ? 0x01 : 0x00);
-    const dbl    = (on: boolean) => push(0x1D, 0x21, on ? 0x11 : 0x00);
-
-    const fmtMoney = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
-    const fmtDate  = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const colRow   = (left2: string, right2: string) => {
-      const sp = Math.max(1, lineLen - left2.length - right2.length);
-      text(left2 + ' '.repeat(sp) + right2); lf();
-    };
-    const col3Row  = (c1: string, c2: string, c3: string, w1: number) => {
-      const rem = lineLen - w1;
-      const w2 = Math.floor(rem / 2);
-      const w3 = rem - w2;
-      const p1 = c1.substring(0, w1).padEnd(w1);
-      const p2 = c2.substring(0, w2).padStart(w2);
-      const p3 = c3.substring(0, w3).padStart(w3);
-      text(p1 + p2 + p3); lf();
-    };
-
-    // Coleta dados do turno
-    const shiftOrders = orders.filter((o: any) => {
-      if (!shiftStartedAt) return true;
-      return new Date(o.timestamp) >= new Date(shiftStartedAt);
+    const paperWidth = printerConfig.paperWidth === '50mm' ? '50mm' : '80mm';
+    const registerName = activeCashRegisterName || pendingCloseRegisterName || null;
+    const categoryNames = Object.fromEntries((menu || []).map((category: any) => [category.type, category.name]));
+    const createdAt = new Date().toISOString();
+    const reportData = summarizeCashRegisterOrders(orders as any, {
+      shiftStartedAt: shiftStartedAt || null,
+      cashRegisterName: registerName,
+      categoryNames,
     });
-    const finishedOrders = shiftOrders.filter((o: any) => o.status === 'finalizada');
-
-    // Verifica se já existem pagamentos com cashRegister atribuído (feature nova)
-    const hasAttributedPayments = finishedOrders.some((o: any) =>
-      (o.paymentLog || []).some((p: any) => p.cashRegister)
-    );
-    // Filtra por caixa apenas quando há dados de atribuição e um caixa identificado
-    const useCaixaFilter = registerName !== '-' && hasAttributedPayments;
-
-    const caixaPayments = useCaixaFilter
-      ? finishedOrders.flatMap((o: any) =>
-          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.cashRegister === registerName)
-        )
-      : finishedOrders.flatMap((o: any) => (o.paymentLog || o.partialPayments || []));
-
-    // Pagamentos de garçons sem caixa atribuído (exibidos como informação separada)
-    const waiterPayments = useCaixaFilter
-      ? finishedOrders.flatMap((o: any) =>
-          (o.paymentLog || o.partialPayments || []).filter((p: any) => p.closedByWaiter && !p.cashRegister)
-        )
-      : [];
-
-    // Pedidos com pelo menos um pagamento deste caixa (para itens/categorias)
-    const caixaOrders = useCaixaFilter
-      ? finishedOrders.filter((o: any) =>
-          (o.paymentLog || []).some((p: any) => p.cashRegister === registerName)
-        )
-      : finishedOrders;
-
-    // Totais por método de pagamento (deste caixa)
-    const methodTotals: Record<string, number> = {};
-    caixaPayments.forEach((p: any) => {
-      const m = (p.method || 'Outros').trim();
-      methodTotals[m] = (methodTotals[m] || 0) + (p.amount || 0);
-    });
-
-    // Totais de garçons (informativo)
-    const waiterMethodTotals: Record<string, number> = {};
-    waiterPayments.forEach((p: any) => {
-      const m = (p.method || 'Outros').trim();
-      waiterMethodTotals[m] = (waiterMethodTotals[m] || 0) + (p.amount || 0);
-    });
-
-    // Totais por produto (pedidos deste caixa)
-    const productTotals: Record<string, { qty: number; total: number }> = {};
-    caixaOrders.forEach((o: any) => {
-      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
-        const k = i.name || 'Item';
-        if (!productTotals[k]) productTotals[k] = { qty: 0, total: 0 };
-        const q = i.quantity || 1;
-        productTotals[k].qty   += q;
-        productTotals[k].total += i.price || 0;
-      });
-    });
-
-    // Totais por categoria (pedidos deste caixa)
-    const categoryTotals: Record<string, { qty: number; total: number }> = {};
-    caixaOrders.forEach((o: any) => {
-      (o.items || []).filter((i: any) => !i.removed).forEach((i: any) => {
-        const cat = (i.type || 'outros').toUpperCase();
-        if (!categoryTotals[cat]) categoryTotals[cat] = { qty: 0, total: 0 };
-        categoryTotals[cat].qty   += i.quantity || 1;
-        categoryTotals[cat].total += i.price || 0;
-      });
-    });
-
-    const totalBruto = Object.values(productTotals).reduce((s, v) => s + v.total, 0);
-    const totalDesc  = caixaOrders.reduce((s: number, o: any) => {
-      const disc = o.discount ? (o.discountType === 'percentage' ? totalBruto * o.discount / 100 : o.discount) : 0;
-      return s + disc;
-    }, 0);
-    const totalLiq   = totalBruto - totalDesc;
-    const totalPaid  = Object.values(methodTotals).reduce((s, v) => s + v, 0);
-    const totalWaiterPaid = Object.values(waiterMethodTotals).reduce((s, v) => s + v, 0);
-
-    const now = new Date();
-    const registerName = activeCashRegisterName || pendingCloseRegisterName || '-';
-
-    // ── Helpers de layout ───────────────────────────────────────────────
-    // Título de seção: "===== TITULO =====" centralizado
-    const secTitle = (t: string) => {
-      const inner = ` ${t} `;
-      const sides = Math.floor((lineLen - inner.length) / 2);
-      const eqR = '='.repeat(Math.max(0, lineLen - sides - inner.length));
-      text('='.repeat(Math.max(0, sides)) + inner + eqR); lf();
+    const reportInput = {
+      type: 'close' as const,
+      cashRegisterName: registerName,
+      shiftStartedAt: shiftStartedAt || null,
+      createdAt,
+      reportData,
     };
-    // 2 colunas: label esquerda, valor direita
-    const col2 = (label: string, value: string) => {
-      const sp = Math.max(1, lineLen - label.length - value.length);
-      text(label + ' '.repeat(sp) + value); lf();
-    };
-    // 3 colunas: nome | qtde | total (colunas 2 e 3 alinhadas à direita)
-    const w1 = is50mm ? 14 : 24;
-    const w2 = is50mm ? 6  : 8;
-    const w3 = lineLen - w1 - w2;
-    const col3 = (c1: string, c2: string, c3: string) => {
-      text(c1.substring(0, w1).padEnd(w1) + c2.substring(0, w2).padStart(w2) + c3.padStart(w3)); lf();
-    };
-    // Linha de pagamento: nome à esquerda, valor à direita (12 chars)
-    const payRow = (label: string, value: string) => {
-      const vLen = Math.min(12, lineLen - 2);
-      text(label.substring(0, lineLen - vLen - 1).padEnd(lineLen - vLen) + value.padStart(vLen)); lf();
-    };
-
-    // ── Montar o documento ESC/POS ──────────────────────────────────────
-    push(0x1B, 0x40); // init
-    push(0x1B, 0x74, 0x02); // CP437
-
-    // Cabeçalho
-    center();
-    dbl(true); bold(true); text('RELATORIO DE CAIXA'); lf(); dbl(false); bold(false);
-    lf();
-    left();
-    text(`Cx: ${registerName}`); lf();
-    col2('Abertura:', fmtDate(new Date(shiftStartedAt)));
-    col2('Fechamento:', fmtDate(now));
-    col2('Fundo de Caixa:', fmtMoney(0));
-    dln();
-
-    // Formas de pagamento
-    secTitle('PAGAMENTOS');
-    bold(true); payRow('Meio de Pagamento', 'Total'); bold(false);
-    ln();
-    const payEntries = Object.entries(methodTotals).sort((a, b) => b[1] - a[1]);
-    if (payEntries.length === 0) {
-      text('Nenhum pagamento registrado.'); lf();
-    } else {
-      payEntries.forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
-    }
-    ln();
-    bold(true); payRow('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ',')); bold(false);
-    lf();
-
-    // Pagamentos de garçons (informativo, apenas no modo multi-caixa)
-    if (waiterPayments.length > 0) {
-      secTitle('PAGAMENTOS GARCONS');
-      bold(true); payRow('Metodo', 'Total'); bold(false);
-      ln();
-      Object.entries(waiterMethodTotals).sort((a, b) => b[1] - a[1]).forEach(([m, v]) => payRow(m, v.toFixed(2).replace('.', ',')));
-      ln();
-      bold(true); payRow('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ',')); bold(false);
-      lf();
-    }
-
-    // Itens vendidos
-    secTitle('ITENS VENDIDOS');
-    bold(true); col3('Produto', 'Qtde', 'Total'); bold(false);
-    ln();
-    if (Object.keys(productTotals).length === 0) {
-      text('Nenhum item vendido.'); lf();
-    } else {
-      Object.entries(productTotals).sort((a, b) => b[1].total - a[1].total).forEach(([name, v]) => {
-        const qtyStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        col3(name, qtyStr, v.total.toFixed(2).replace('.', ','));
-      });
-    }
-    ln();
-    bold(true);
-    col2('TOTAL VENDIDO BRUTO:', fmtMoney(totalBruto));
-    if (totalDesc > 0) col2('Descontos:', `-${fmtMoney(totalDesc)}`);
-    col2('TOTAL VENDIDO LIQUIDO:', fmtMoney(totalLiq));
-    bold(false);
-    lf();
-
-    // Categorias
-    if (Object.keys(categoryTotals).length > 0) {
-      secTitle('CATEGORIAS');
-      bold(true); col3('Categoria', 'Qtde', 'Total'); bold(false);
-      ln();
-      Object.entries(categoryTotals).sort((a, b) => b[1].total - a[1].total).forEach(([cat, v]) => {
-        const qStr = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        col3(cat, qStr, v.total.toFixed(2).replace('.', ','));
-      });
-      ln();
-      bold(true); col2('TOTAL CLASSES:', fmtMoney(totalLiq)); bold(false);
-      lf();
-    }
-
-    // Rodapé
-    dln();
-    bold(true); col2('TOTAL VALES:', fmtMoney(0)); bold(false);
-    lf();
-    text(`Usuario: ${registerName}`); lf();
-    if (printerConfig.receiptFooter) { lf(); center(); text(printerConfig.receiptFooter); left(); lf(); }
-    push(0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x41, 0x10); // feed + cut
-
+    const ticket = buildCashRegisterReportEscPos(reportInput, paperWidth);
     if (printer) {
-      if (printer.ip) {
-        emitPrint({ ip: printer.ip, port: printer.port || 9100, data: b });
-      } else {
-        emitPrint({ localName: printer.name, data: b });
-      }
+      const data = Array.from(ticket);
+      if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
+      else emitPrint({ localName: printer.name, data });
       toast.success('Relatório de caixa enviado para impressão');
-    } else {
-      // Fallback: janela de impressão do navegador
-      const fmtDateFb = (d: Date) => d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      const sep = '='.repeat(42);
-      const dash = '-'.repeat(42);
-      const rows: string[] = [];
-      const add = (s = '') => rows.push(s);
-      const fb2 = (l: string, r: string) => add(l.padEnd(42 - r.length) + r);
-      const fb3 = (c1: string, c2: string, c3: string) => add(c1.padEnd(24) + c2.padStart(8) + c3.padStart(10));
-      const fbPay = (l: string, r: string) => add(l.padEnd(30) + r.padStart(12));
-      add('         RELATORIO DE CAIXA');
-      add('');
-      add(`Cx: ${registerName}`);
-      fb2('Abertura:', fmtDateFb(new Date(shiftStartedAt)));
-      fb2('Fechamento:', fmtDateFb(now));
-      fb2('Fundo de Caixa:', 'R$ 0,00');
-      add(sep);
-      add('===== PAGAMENTOS =====');
-      fbPay('Meio de Pagamento', 'Total');
-      add(dash);
-      payEntries.forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
-      add(dash);
-      fbPay('TOTAL RECEBIDO:', totalPaid.toFixed(2).replace('.', ','));
-      add('');
-      if (waiterPayments.length > 0) {
-        add('===== PAGAMENTOS GARCONS =====');
-        fbPay('Metodo', 'Total');
-        add(dash);
-        Object.entries(waiterMethodTotals).sort((a,b)=>b[1]-a[1]).forEach(([m, v]) => fbPay(m, v.toFixed(2).replace('.', ',')));
-        add(dash);
-        fbPay('TOTAL GARCONS:', totalWaiterPaid.toFixed(2).replace('.', ','));
-        add('');
-      }
-      add('===== ITENS VENDIDOS =====');
-      fb3('Produto', 'Qtde', 'Total');
-      add(dash);
-      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n, v]) => {
-        const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-        fb3(n, q, v.total.toFixed(2).replace('.', ','));
-      });
-      add(dash);
-      fb2('TOTAL VENDIDO BRUTO:', `R$ ${totalBruto.toFixed(2)}`);
-      if (totalDesc > 0) fb2('Descontos:', `-R$ ${totalDesc.toFixed(2)}`);
-      fb2('TOTAL VENDIDO LIQUIDO:', `R$ ${totalLiq.toFixed(2)}`);
-      add('');
-      if (Object.keys(categoryTotals).length > 0) {
-        add('===== CATEGORIAS =====');
-        fb3('Categoria', 'Qtde', 'Total');
-        add(dash);
-        Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat, v]) => {
-          const q = v.qty % 1 === 0 ? v.qty.toString() : v.qty.toFixed(3).replace('.', ',');
-          fb3(cat, q, v.total.toFixed(2).replace('.', ','));
-        });
-        add(dash);
-        fb2('TOTAL CLASSES:', `R$ ${totalLiq.toFixed(2)}`);
-        add('');
-      }
-      add(sep);
-      fb2('TOTAL VALES:', 'R$ 0,00');
-      add(`Usuario: ${registerName}`);
-      const pw = window.open('', '_blank');
-      if (pw) {
-        pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);
-        pw.document.close();
-      }
+      return;
     }
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('Não foi possível abrir a janela de impressão. Permita pop-ups para o relatório.');
+      return;
+    }
+    const html = renderCashRegisterReportHtml(reportInput, paperWidth)
+      .replace('</body>', '<script>window.onload=()=>{window.print();window.close()}<\/script></body>');
+    popup.document.write(html);
+    popup.document.close();
   };
 
   const emitPrint = (payload: { ip?: string; port?: number; localName?: string; data: number[] }) => {
@@ -2395,17 +2238,11 @@ export default function Dashboard({
     socket.emit('print_escpos', { ...payload, ...(target && target !== 'local' ? { targetCaixaId: target } : {}) });
   };
 
-  const printReceiptToPrinter = (orderId: number | string, amount: number) => {
-    const targetPrinterName = printerConfig.receipts;
-    if (targetPrinterName) {
-      const printer = (printerConfig.registeredPrinters || []).find((p: any) => p.name === targetPrinterName);
-      if (printer) {
-        toast.info(`Imprimindo comprovante em ${targetPrinterName}`, {
-          description: `Total: R$ ${amount.toFixed(2)}`,
-          icon: <FileText size={16} />
-        });
-      }
-    }
+  // F4 remains a keyboard-compatible status action. It does not create a new
+  // receipt or claim that a printer accepted bytes; the existing confirmed
+  // baixa flow owns the actual receipt layout/transport.
+  const printReceiptToPrinter = (_orderId: number | string, _amount: number) => {
+    toast.info('O comprovante será impresso pelo fluxo de baixa confirmada; nenhum recibo foi criado agora.');
   };
 
   const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros' => {
@@ -2646,32 +2483,45 @@ export default function Dashboard({
     }
   };
 
-  const handlePaymentComplete = (orderId: number | string, selectedItems: Record<string, number>, partialAmount?: number, paymentMethod?: string, payerName?: string) => {
-    if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return; }
+  const handlePaymentComplete = async (
+    orderId: number | string,
+    selectedItems: Record<string, number>,
+    partialAmount?: number,
+    paymentMethod?: string,
+    payerName?: string,
+    requestId?: string,
+  ): Promise<boolean> => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar antes de registrar o pagamento.'); return false; }
+    if (needsCaixa) { toast.error('Abra um caixa para registrar pagamentos.'); setCashRegisterPickerOpen(true); return false; }
     const mapped = mapPaymentMethod(paymentMethod);
-    setLastPaymentMethod(mapped);
-    socket.emit('pay_items', {
-      orderId,
-      selectedItems,
-      partialAmount,
-      paymentMethod,
-      payerName,
-      fromAdmin: true,
-      adminCashRegisterName: activeCashRegisterName ?? undefined
-    });
-
-    // Handle receipt printing
-    const order = orders.find(o => orderId && o.id && String(o.id) === String(orderId));
-    if (order) {
-      const totalToPrint = partialAmount || Object.entries(selectedItems).reduce((acc, [itemId, qty]) => {
-        const item = (order.items || []).find(i => i.id === itemId);
-        return acc + (item ? item.price * qty : 0);
-      }, 0);
-      
-      printReceiptToPrinter(orderId, totalToPrint);
+    let ack: OrderCommandAck;
+    try {
+      ack = await runOrderCommand({
+        event: 'pay_items',
+        orderId,
+        requestId,
+        payload: {
+          orderId,
+          selectedItems,
+          partialAmount,
+          paymentMethod,
+          payerName,
+          fromAdmin: true,
+          adminCashRegisterName: activeCashRegisterName ?? undefined,
+        },
+      });
+    } catch (error) {
+      toast.error(orderCommandMessage(error, true));
+      return false;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack, true));
+      return false;
     }
 
-    // NFC-e automática / pós-pagamento
+    setLastPaymentMethod(mapped);
+
+    // Fiscal effects are deliberately downstream of the durable payment ACK.
     const emissaoNfce = fiscalConfig?.emissaoNfce;
     if (emissaoNfce && emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
       const orderRef = orders.find((o: any) => orderId && o.id && String(o.id) === String(orderId));
@@ -2692,12 +2542,15 @@ export default function Dashboard({
       if (emissaoNfce === 'apos_confirmacao') {
         setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
       } else if (emissaoNfce === 'automatico_cartao_pix') {
-        if (isEletronico) emitirNfceAuto(orderId, mapped);
+        if (isEletronico) await emitirNfceAuto(orderId, mapped);
         else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
       } else if (emissaoNfce === 'automatico_sempre') {
-        emitirNfceAuto(orderId, mapped);
+        await emitirNfceAuto(orderId, mapped);
       }
     }
+
+    toast.success(ack.alreadyApplied ? 'Pagamento já confirmado anteriormente.' : 'Pagamento confirmado pelo servidor.');
+    return true;
   };
 
   const handleApplyDiscount = (orderId: number | string, itemId: string | null, discount: number, discountType: 'percentage' | 'value') => {
@@ -2990,7 +2843,8 @@ export default function Dashboard({
     return 1;
   };
 
-  const handleAddItem = (tableId: number, item: any) => {
+  const handleAddItem = async (tableId: number, item: any) => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; o item não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(item)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -3081,43 +2935,64 @@ export default function Dashboard({
       guestName: item.guestName || admGuestForItem || undefined,
     };
 
-    const offline = !canMutate();
+    const requestId = createOrderRequestId('item');
+    let ack: OrderCommandAck;
+    try {
+      ack = activeOrder
+        ? await runOrderCommand({
+            event: 'add_item_to_order',
+            orderId: activeOrder.id,
+            requestId,
+            payload: {
+              orderId: activeOrder.id,
+              tableId: activeOrder.tableId,
+              isComanda: !!activeOrder.isComanda,
+              item: newItem,
+            },
+          })
+        : await runOrderCommand({
+            event: 'new_order',
+            requestId,
+            payload: {
+              tableId,
+              isComanda: isComandaSelected,
+              items: [newItem],
+              waiterId: 'ADM',
+              waiterName: 'ADM',
+              guests: admGuestForItem ? [admGuestForItem] : undefined,
+            },
+          });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+      return;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack));
+      return;
+    }
+
     if (activeOrder) {
-      optimisticAddItemToOrder(activeOrder.id, newItem);
-      const emitAdd = () => {
-        socket.emit('add_item_to_order', {
+      const guestForThisItem = newItem.guestName;
+      if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
+        socket.emit('set_order_guests', {
+          tenantId,
+          requestId: createOrderRequestId('guest'),
           orderId: activeOrder.id,
-          tableId: activeOrder.tableId,
-          isComanda: !!activeOrder.isComanda,
-          item: newItem
+          guests: [...(activeOrder.guests || []), guestForThisItem],
         });
-        const guestForThisItem = newItem.guestName;
-        if (guestForThisItem && !(activeOrder.guests || []).includes(guestForThisItem)) {
-          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), guestForThisItem] });
-        }
-      };
-      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
-    } else {
-      updateTableStatusLocal(tableId, isComandaSelected, 'occupied');
-      const emitNew = () => socket.emit('new_order', {
-        tableId,
-        isComanda: isComandaSelected,
-        items: [newItem],
-        waiterId: 'ADM',
-        waiterName: 'ADM',
-        guests: admGuestForItem ? [admGuestForItem] : undefined,
-      });
-      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
+      }
     }
     setIsAddItemModalOpen(false);
     setIsFlavorModalOpen(false);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
-    else toast.success('Item adicionado pelo ADM');
+    toast.success(ack.orderId !== undefined && !activeOrder
+      ? `Item adicionado pelo ADM (pedido ${ack.orderId})`
+      : 'Item adicionado pelo ADM');
   };
 
-  const confirmQuantitySelection = () => {
+  const confirmQuantitySelection = async () => {
+    if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; o item não foi enviado.'); return; }
     if (needsCaixa) { toast.error('Abra um caixa para realizar lançamentos.'); setCashRegisterPickerOpen(true); return; }
     if (isManagedPlaygroundItem(selectedQuantityItem)) { toast.error('Lance a criança pelo aplicativo Operador de Parquinho.'); return; }
     if (!isCashRegisterOpen) {
@@ -3165,40 +3040,60 @@ export default function Dashboard({
       ).sort((a: any, b: any) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())[0];
     }
 
-    const offline = !canMutate();
+    const requestId = createOrderRequestId('item');
+    let ack: OrderCommandAck;
+    try {
+      ack = activeOrder
+        ? await runOrderCommand({
+            event: 'add_item_to_order',
+            orderId: activeOrder.id,
+            requestId,
+            payload: {
+              orderId: activeOrder.id,
+              tableId: activeOrder.tableId,
+              isComanda: !!activeOrder.isComanda,
+              item: newItem,
+            },
+          })
+        : await runOrderCommand({
+            event: 'new_order',
+            requestId,
+            payload: {
+              tableId: targetId,
+              isComanda: isComandaSelected,
+              items: [newItem],
+              waiterId: 'ADM',
+              waiterName: 'ADM',
+              guests: admGuestForItem ? [admGuestForItem] : undefined,
+            },
+          });
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+      return;
+    }
+    if (!ack.ok) {
+      toast.error(orderCommandMessage(ack));
+      return;
+    }
+
     if (activeOrder) {
-      optimisticAddItemToOrder(activeOrder.id, newItem);
-      const emitAdd = () => {
-        socket.emit('add_item_to_order', {
+      if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
+        socket.emit('set_order_guests', {
+          tenantId,
+          requestId: createOrderRequestId('guest'),
           orderId: activeOrder.id,
-          tableId: activeOrder.tableId,
-          isComanda: !!activeOrder.isComanda,
-          item: newItem
+          guests: [...(activeOrder.guests || []), admGuestForItem],
         });
-        if (admGuestForItem && !(activeOrder.guests || []).includes(admGuestForItem)) {
-          socket.emit('set_order_guests', { orderId: activeOrder.id, guests: [...(activeOrder.guests || []), admGuestForItem] });
-        }
-      };
-      if (offline) pendingOpsRef.current.push(emitAdd); else emitAdd();
-    } else {
-      updateTableStatusLocal(targetId, isComandaSelected, 'occupied');
-      const emitNew = () => socket.emit('new_order', {
-        tableId: targetId,
-        isComanda: isComandaSelected,
-        items: [newItem],
-        waiterId: 'ADM',
-        waiterName: 'ADM',
-        guests: admGuestForItem ? [admGuestForItem] : undefined,
-      });
-      if (offline) pendingOpsRef.current.push(emitNew); else emitNew();
+      }
     }
     setIsQuantityModalOpen(false);
     setSelectedQuantityItem(null);
     setSelectedAdicionais([]);
     setAdmGuestForItem('');
     setAdmModalNewGuest('');
-    if (offline) toast.info('Sem conexão — item será enviado ao reconectar.');
-    else toast.success('Item adicionado pelo ADM');
+    toast.success(ack.orderId !== undefined && !activeOrder
+      ? `Item adicionado pelo ADM (pedido ${ack.orderId})`
+      : 'Item adicionado pelo ADM');
   };
 
   const confirmFlavorSelection = () => {
@@ -3209,7 +3104,7 @@ export default function Dashboard({
     setSelectionStep('build');
   };
 
-  const confirmPizzaSelection = () => {
+  const confirmPizzaSelection = async () => {
     if (selectedFlavors.length === 0) { toast.error('Selecione pelo menos um sabor'); return; }
     if (!selectedPizzaSize && !selectedPizzaItem?.name) { toast.error('Selecione o tamanho'); return; }
     const flavorCountMap = new Map<string, number>();
@@ -3260,7 +3155,11 @@ export default function Dashboard({
     };
 
     const targetId = isComandaSelected ? selectedComandaId : selectedTableId;
-    handleAddItem(targetId!, itemWithDetails);
+    try {
+      await handleAddItem(targetId!, itemWithDetails);
+    } catch (error) {
+      toast.error(orderCommandMessage(error));
+    }
   };
 
   const safeWaiters = Array.isArray(waiters) ? waiters : [];
@@ -4007,7 +3906,7 @@ export default function Dashboard({
                     }
                   }}
                   disabled={!detailHasItems}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors ${
+                  className={`group flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1 ${
                     detailHasItems
                       ? 'bg-blue-50 hover:bg-blue-100 text-blue-700'
                       : 'bg-gray-50 text-gray-300 cursor-not-allowed opacity-50'
@@ -4015,7 +3914,7 @@ export default function Dashboard({
                 >
                   <Printer size={11} />
                   Resumo
-                  <kbd className="ml-0.5 text-[8px] font-mono opacity-60 normal-case">F4</kbd>
+                  <DashboardShortcutBadge shortcut="F4" />
                 </button>
                 <button
                   onClick={() => detailHasItems && setIsTransferModalOpen(true)}
@@ -4046,7 +3945,7 @@ export default function Dashboard({
                       detailHasItems && detailPendingAmount >= 0.01 && setIsPaymentModalOpen(true);
                     }}
                     disabled={detailCurrentItem?.status !== 'linked' && (!detailHasItems || detailPendingAmount < 0.01)}
-                    className={`px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm transition-colors flex items-center gap-1 ${
+                    className={`group px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm transition-colors flex items-center gap-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#141414]/30 focus-visible:ring-offset-1 ${
                       detailCurrentItem?.status === 'linked' || (detailHasItems && detailPendingAmount >= 0.01)
                         ? 'bg-green-600 hover:bg-green-700 text-white'
                         : 'bg-gray-200 text-gray-400 cursor-not-allowed'
@@ -4054,18 +3953,40 @@ export default function Dashboard({
                   >
                     <Wallet size={11} />
                     <span>Pagar</span>
-                    <kbd className="ml-0.5 text-[8px] font-mono opacity-70 normal-case">F8</kbd>
+                    <DashboardShortcutBadge shortcut="F8" />
                   </button>
                 )}
                 {detailAllItemsRemoved && (
                   <button
                     onClick={() => {
-                      socket.emit('update_order_status', { orderId: detailActiveOrder.id, status: 'aguardando_baixa' });
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a mesa não foi liberada.'); return; }
+                      if (isBaixaPending) return;
+                      setIsBaixaPending(true);
+                      const requestId = createOrderRequestId('baixa');
+                      socket.emit('update_order_status', {
+                        tenantId,
+                        requestId: createOrderRequestId('status'),
+                        orderId: detailActiveOrder.id,
+                        status: 'aguardando_baixa',
+                      });
                       setTimeout(() => {
-                        socket.emit('confirm_baixa', { orderId: detailActiveOrder.id });
-                        toast.success('Mesa liberada!');
+                        void runOrderCommand({
+                          event: 'confirm_baixa',
+                          orderId: detailActiveOrder.id,
+                          requestId,
+                          payload: { orderId: detailActiveOrder.id },
+                        }).then(ack => {
+                          if (!ack.ok) {
+                            toast.error(orderCommandMessage(ack));
+                            return;
+                          }
+                          toast.success(ack.alreadyApplied ? 'A mesa já estava liberada.' : 'Mesa liberada pelo servidor.');
+                        }).catch(error => {
+                          toast.error(orderCommandMessage(error));
+                        }).finally(() => setIsBaixaPending(false));
                       }, 300);
                     }}
+                    disabled={isBaixaPending}
                     className="px-3 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-red-600 hover:bg-red-700 text-white flex items-center space-x-1"
                   >
                     <span>Liberar Mesa</span>
@@ -4074,16 +3995,48 @@ export default function Dashboard({
                 {detailActiveOrder && detailCurrentItem?.status !== 'free' && detailActiveOrder.status !== 'finalizada' && detailActiveOrder.status !== 'paid' && (
                   <button
                     onClick={() => {
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a mesa não foi liberada.'); return; }
+                      if (forceReleasePendingRef.current) return;
                       if (!window.confirm('Forçar liberação descarta o pedido sem registrar pagamento. Continuar?')) return;
-                      socket.emit('force_release_table', { orderId: String(detailActiveOrder.id) });
-                      toast.success('Mesa liberada à força!');
+                      forceReleasePendingRef.current = true;
+                      setIsForceReleasePending(true);
+                      void runOrderCommand({
+                        event: 'force_release_table',
+                        orderId: String(detailActiveOrder.id),
+                        payload: { orderId: String(detailActiveOrder.id) },
+                      }).then(ack => {
+                        if (!ack.ok) {
+                          toast.error(orderCommandMessage(ack));
+                          return;
+                        }
+                        toast.success(ack.alreadyApplied ? 'A mesa já estava liberada.' : 'Mesa liberada à força pelo servidor.');
+                      }).catch(error => {
+                        toast.error(orderCommandMessage(error));
+                      }).finally(() => {
+                        forceReleasePendingRef.current = false;
+                        setIsForceReleasePending(false);
+                      });
                     }}
+                    disabled={isForceReleasePending}
                     className="px-2.5 py-1.5 rounded-lg font-sans not-italic font-bold text-[11px] uppercase shadow-sm bg-orange-600 hover:bg-orange-700 text-white flex items-center space-x-1"
                     title="Libera a mesa descartando o pedido sem pagamento (uso emergencial)"
                   >
                     <span>Forçar Liberação</span>
                   </button>
                 )}
+              </div>
+            )}
+            {syncError && !isCashRegisterOpen && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-[10px] text-amber-800">
+                <AlertTriangle size={12} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate" title={syncError}>{syncError}</span>
+                <button
+                  type="button"
+                  onClick={() => refreshSnapshot()}
+                  className="shrink-0 rounded-md bg-amber-600 px-2 py-1 font-bold uppercase text-white hover:bg-amber-700"
+                >
+                  Tentar sincronizar novamente
+                </button>
               </div>
             )}
           </div>
@@ -4183,6 +4136,14 @@ export default function Dashboard({
                     {pickerMode === 'list' ? 'Selecionar Caixa' : pickerMode === 'new' ? 'Novo Caixa' : (pickerSelectedReg?.name ?? 'Abrir Caixa')}
                   </span>
                 </div>
+                {syncError && (
+                  <div className="mx-3 mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[9px] text-amber-800">
+                    <p className="leading-tight">{syncError}</p>
+                    <button type="button" onClick={() => refreshSnapshot()} className="mt-1 font-bold uppercase text-amber-700 hover:text-amber-900">
+                      Tentar sincronizar novamente
+                    </button>
+                  </div>
+                )}
 
                 {pickerMode === 'list' && (
                   <>
@@ -5034,7 +4995,14 @@ export default function Dashboard({
                 {menu.map(category => {
                   const totalItems = category.items.length + (category.subcategories || []).reduce((sum, s) => sum + s.items.length, 0);
                   const renderItemRow = (item: MenuItem, catName: string, subId?: string) => (
-                    <div key={item.id} className={`px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors ${(item as any).visible === false ? 'opacity-40' : ''}`}>
+                    <div
+                      key={item.id}
+                      draggable={!isManagedPlaygroundItem(item)}
+                      onDragStart={(event) => handleMenuDragStart(event, item, catName, subId)}
+                      onDragEnd={handleMenuDragEnd}
+                      title={isManagedPlaygroundItem(item) ? 'Produto reservado do Modo Parquinho' : 'Arraste para outra categoria ou subcategoria'}
+                      className={`px-8 py-5 flex justify-between items-center hover:bg-gray-50/50 transition-colors ${!isManagedPlaygroundItem(item) ? 'cursor-grab active:cursor-grabbing' : ''} ${(item as any).visible === false ? 'opacity-40' : ''}`}
+                    >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-base">{item.name}</p>
@@ -5092,7 +5060,17 @@ export default function Dashboard({
                   return (
                     <div key={category.name} id={`category-${category.name}`} className="bg-white rounded-3xl border border-[#141414]/10 shadow-sm overflow-hidden scroll-mt-48 md:scroll-mt-32">
                       {/* Category header */}
-                      <div className="bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3">
+                      <div
+                        onDragOver={(event) => {
+                          if (!menuDragSource) return;
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = 'move';
+                          setMenuDropTarget(menuDropKey(category.name));
+                        }}
+                        onDragLeave={() => setMenuDropTarget(null)}
+                        onDrop={(event) => handleMenuDrop(event, category.name)}
+                        className={`bg-[#141414] px-8 py-4 border-b border-[#141414]/10 flex justify-between items-center flex-wrap gap-3 transition-all ${menuDropTarget === menuDropKey(category.name) ? 'ring-4 ring-inset ring-amber-300 bg-[#252525]' : ''}`}
+                      >
                         <div className="flex items-center gap-4">
                           {editingCategory?.oldName === category.name ? (
                             <div className="flex flex-col gap-2">
@@ -5182,7 +5160,17 @@ export default function Dashboard({
                       {(category.subcategories || []).map(sub => (
                         <div key={sub.id} className="border-b border-[#141414]/5 last:border-b-0">
                           {/* Subcategory header */}
-                          <div className="px-8 py-3 bg-[#141414]/[0.06] border-b border-[#141414]/10 flex items-center justify-between flex-wrap gap-2">
+                          <div
+                            onDragOver={(event) => {
+                              if (!menuDragSource) return;
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = 'move';
+                              setMenuDropTarget(menuDropKey(category.name, sub.id));
+                            }}
+                            onDragLeave={() => setMenuDropTarget(null)}
+                            onDrop={(event) => handleMenuDrop(event, category.name, sub.id)}
+                            className={`px-8 py-3 bg-[#141414]/[0.06] border-b border-[#141414]/10 flex items-center justify-between flex-wrap gap-2 transition-all ${menuDropTarget === menuDropKey(category.name, sub.id) ? 'ring-4 ring-inset ring-amber-300 bg-amber-50' : ''}`}
+                          >
                             <div className="flex items-center gap-3">
                               {editingSubcategory?.subcategoryId === sub.id ? (
                                 <div className="flex items-center gap-2">
@@ -6408,99 +6396,31 @@ export default function Dashboard({
                                 const printReport = () => {
                                   const pc: any = (() => { try { return JSON.parse(localStorage.getItem('printerConfig') || '{}'); } catch { return {}; } })();
                                   const printer = (pc.registeredPrinters || []).find((p: any) => p.name === pc.receipts);
-                                  const is50 = pc.paperWidth === '50mm';
-                                  const LL = is50 ? 32 : 48;
-                                  const ESC = 0x1b; const GS = 0x1d;
-                                  const by: number[] = [];
-                                  const pu = (...a: number[]) => a.forEach(x => by.push(x));
-                                  const lf = () => pu(0x0a);
-                                  const eS = (s: string) => { const r: number[] = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); r.push(c < 128 ? c : (c===231?135:c===199?199:c===227?227:c===195?195:c===245?245:c===213?213:c===233?130:c===201?201:c===225?160:c===193?193:c===237?161:c===205?205:c===243?162:c===211?211:c===250?163:c===218?218:c===252?129:c===220?154:c===226?131:c===234?136:c===244?147:63)); } return r; };
-                                  const tx = (s: string) => { pu(...eS(s)); lf(); };
-                                  const ln = () => tx('-'.repeat(LL));
-                                  const dln = () => tx('='.repeat(LL));
-                                  const aln = (a: 0|1|2) => pu(ESC, 0x61, a);
-                                  const bold = (on: boolean) => pu(ESC, 0x45, on ? 1 : 0);
-                                  const dbl = (on: boolean) => pu(GS, 0x21, on ? 0x11 : 0x00);
-                                  const fmtM = (v: number) => `R$ ${(v||0).toFixed(2).replace('.', ',')}`;
-                                  const fmtDT2 = (iso: string) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}); };
-                                  const col2 = (l: string, r: string) => { tx(l + ' '.repeat(Math.max(1, LL-l.length-r.length)) + r); };
-                                  const secT = (t: string) => { const inner=` ${t} `; const s=Math.floor((LL-inner.length)/2); tx('='.repeat(Math.max(0,s))+inner+'='.repeat(Math.max(0,LL-s-inner.length))); };
-                                  const w1r = is50 ? 14 : 24; const w2r = is50 ? 6 : 8; const w3r = LL-w1r-w2r;
-                                  const col3 = (c1: string, c2: string, c3: string) => tx(c1.substring(0,w1r).padEnd(w1r)+c2.substring(0,w2r).padStart(w2r)+c3.padStart(w3r));
-                                  const payR = (l: string, r: string) => { const vL=Math.min(12,LL-2); tx(l.substring(0,LL-vL-1).padEnd(LL-vL)+r.padStart(vL)); };
-
-                                  pu(ESC, 0x40); pu(ESC, 0x74, 2);
-                                  // Cabeçalho
-                                  aln(1); dbl(true); bold(true); tx('RELATORIO DE CAIXA'); dbl(false); bold(false);
-                                  lf(); aln(0);
-                                  tx(`Cx: ${report.cash_register_name || '-'}`);
-                                  col2('Abertura:', fmtDT2(report.shift_started_at));
-                                  col2('Fechamento:', fmtDT2(report.created_at));
-                                  col2('Fundo de Caixa:', fmtM(0));
-                                  dln();
-                                  // Pagamentos
-                                  secT('PAGAMENTOS');
-                                  bold(true); payR('Meio de Pagamento', 'Total'); bold(false);
-                                  ln();
-                                  const payE = Object.entries(methodTotals).sort((a,b)=>b[1]-a[1]);
-                                  if (payE.length === 0) { tx('Nenhum pagamento.'); } else { payE.forEach(([m,v])=>payR(m,(v as number).toFixed(2).replace('.',','))); }
-                                  ln(); bold(true); payR('TOTAL RECEBIDO:', (rd.totalPaid||0).toFixed(2).replace('.',',')); bold(false); lf();
-                                  // Itens
-                                  if (isClose && Object.keys(productTotals).length > 0) {
-                                    secT('ITENS VENDIDOS');
-                                    bold(true); col3('Produto','Qtde','Total'); bold(false); ln();
-                                    Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{
-                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
-                                      col3(n,q,v.total.toFixed(2).replace('.',','));
-                                    });
-                                    ln();
-                                    bold(true); col2('TOTAL VENDIDO BRUTO:', fmtM(rd.totalPaid||0)); bold(false); lf();
-                                  }
-                                  // Categorias
-                                  if (isClose && Object.keys(categoryTotals).length > 0) {
-                                    secT('CATEGORIAS');
-                                    bold(true); col3('Categoria','Qtde','Total'); bold(false); ln();
-                                    Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{
-                                      const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');
-                                      col3(cat,q,v.total.toFixed(2).replace('.',','));
-                                    });
-                                    ln(); bold(true); col2('TOTAL CLASSES:', fmtM(rd.totalPaid||0)); bold(false); lf();
-                                  }
-                                  // Rodapé
-                                  dln(); bold(true); col2('TOTAL VALES:', fmtM(0)); bold(false);
-                                  lf(); tx(`Usuario: ${report.cash_register_name || '-'}`);
-                                  pu(0x0a,0x0a,0x0a,GS,0x56,0x41,0x10);
-
+                                  const paperWidth = pc.paperWidth === '50mm' ? '50mm' : '80mm';
+                                  const reportInput = {
+                                    type: isClose ? 'close' as const : 'open' as const,
+                                    cashRegisterName: report.cash_register_name || null,
+                                    shiftStartedAt: report.shift_started_at || null,
+                                    createdAt: report.created_at || null,
+                                    reportData: rd,
+                                  };
+                                  const ticket = buildCashRegisterReportEscPos(reportInput, paperWidth);
                                   if (printer) {
-                                    if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port||9100, data: by });
-                                    else emitPrint({ localName: printer.name, data: by });
-                                  } else {
-                                    const sep='='.repeat(42); const dash='-'.repeat(42);
-                                    const rows: string[]=[]; const add=(s='')=>rows.push(s);
-                                    const fb2=(l:string,r:string)=>add(l.padEnd(42-r.length)+r);
-                                    const fb3=(c1:string,c2:string,c3:string)=>add(c1.padEnd(24)+c2.padStart(8)+c3.padStart(10));
-                                    const fbP=(l:string,r:string)=>add(l.padEnd(30)+r.padStart(12));
-                                    add('         RELATORIO DE CAIXA'); add('');
-                                    add(`Cx: ${report.cash_register_name||'-'}`);
-                                    fb2('Abertura:', fmtDT2(report.shift_started_at));
-                                    fb2('Fechamento:', fmtDT2(report.created_at));
-                                    fb2('Fundo de Caixa:', 'R$ 0,00'); add(sep);
-                                    add('===== PAGAMENTOS ====='); fbP('Meio de Pagamento','Total'); add(dash);
-                                    payE.forEach(([m,v])=>fbP(m,(v as number).toFixed(2).replace('.',',')));
-                                    add(dash); fbP('TOTAL RECEBIDO:',(rd.totalPaid||0).toFixed(2).replace('.',',')); add('');
-                                    if (isClose && Object.keys(productTotals).length>0) {
-                                      add('===== ITENS VENDIDOS ====='); fb3('Produto','Qtde','Total'); add(dash);
-                                      Object.entries(productTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([n,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(n,q,v.total.toFixed(2).replace('.',','));});
-                                      add(dash); fb2('TOTAL VENDIDO BRUTO:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
-                                    }
-                                    if (isClose && Object.keys(categoryTotals).length>0) {
-                                      add('===== CATEGORIAS ====='); fb3('Categoria','Qtde','Total'); add(dash);
-                                      Object.entries(categoryTotals).sort((a,b)=>b[1].total-a[1].total).forEach(([cat,v])=>{const q=v.qty%1===0?v.qty.toString():v.qty.toFixed(3).replace('.',',');fb3(cat,q,v.total.toFixed(2).replace('.',','));});
-                                      add(dash); fb2('TOTAL CLASSES:','R$ '+(rd.totalPaid||0).toFixed(2)); add('');
-                                    }
-                                    add(sep); fb2('TOTAL VALES:','R$ 0,00'); add(`Usuario: ${report.cash_register_name||'-'}`);
-                                    const pw=window.open('','_blank'); if(pw){pw.document.write(`<html><head><title>Rel. Caixa</title><style>body{font-family:monospace;font-size:12px;padding:16px;white-space:pre;line-height:1.5}@media print{body{margin:0}}</style></head><body>${rows.join('\n')}<script>window.onload=()=>{window.print();window.close()}<\/script></body></html>`);pw.document.close();}
+                                    const data = Array.from(ticket);
+                                    if (printer.ip) emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
+                                    else emitPrint({ localName: printer.name, data });
+                                    toast.success('Relatório de caixa enviado para impressão');
+                                    return;
                                   }
+                                  const popup = window.open('', '_blank');
+                                  if (!popup) {
+                                    toast.error('Não foi possível abrir a janela de impressão. Permita pop-ups para o relatório.');
+                                    return;
+                                  }
+                                  const html = renderCashRegisterReportHtml(reportInput, paperWidth)
+                                    .replace('</body>', '<script>window.onload=()=>{window.print();window.close()}<\/script></body>');
+                                  popup.document.write(html);
+                                  popup.document.close();
                                 };
 
                                 return (
@@ -6678,13 +6598,14 @@ export default function Dashboard({
                     </div>
                   )}
                   <div className="col-span-2">
-                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">URL da Logo</label>
+                    <label className="block text-[7.5px] font-black uppercase opacity-40 mb-1">Logo do Estabelecimento</label>
                     <input
-                      type="url" value={localLogoUrl}
-                      onChange={(e) => setLocalLogoUrl(e.target.value)}
-                      placeholder="https://..."
-                      className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] focus:ring-1 focus:ring-[#141414] outline-none"
+                      type="text" value={printerConfig.logoUrl || ''} readOnly
+                      placeholder="Nenhuma logo cadastrada"
+                      className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-2 font-bold text-[9px] outline-none"
                     />
+                    <a href="/portal" className="text-[10px] font-bold underline block mt-2">Editar logo e dados do estabelecimento</a>
+                    <p className="text-[9px] opacity-50 mt-1">A mesma logo é usada no formulário, no painel e na impressão.</p>
                   </div>
                 </div>
               </div>
@@ -7297,9 +7218,9 @@ export default function Dashboard({
                     )}
                   </div>
 
-                  <button onClick={handleSavePrinters}
-                    className="w-full bg-[#141414] text-[#E4E3E0] py-2.5 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm uppercase tracking-wide">
-                    Salvar configurações
+                  <button onClick={handleSavePrinters} disabled={savingPrinters || !canMutate()}
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-2.5 rounded-xl font-bold hover:opacity-90 transition-opacity text-sm uppercase tracking-wide disabled:opacity-40">
+                    {savingPrinters ? 'Salvando...' : 'Salvar configurações'}
                   </button>
                 </div>
 
@@ -7314,12 +7235,13 @@ export default function Dashboard({
                   {/* Identificação */}
                   <div>
                     <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Nome do Estabelecimento</label>
-                    <input type="text" value={printerConfig.establishmentName} onChange={(e) => setPrinterConfig({...printerConfig, establishmentName: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                    <input type="text" value={printerConfig.establishmentName} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
+                    <a href="/portal" className="text-xs font-bold underline block mt-1">Editar identificação no cadastro do estabelecimento</a>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">CNPJ / CPF</label>
-                      <input type="text" value={printerConfig.cnpj || ''} onChange={(e) => setPrinterConfig({...printerConfig, cnpj: e.target.value})} placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.cnpj || ''} readOnly placeholder="00.000.000/0001-00" className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Título do Cupom</label>
@@ -7329,11 +7251,11 @@ export default function Dashboard({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Endereço</label>
-                      <input type="text" value={printerConfig.address} onChange={(e) => setPrinterConfig({...printerConfig, address: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.address} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                     <div>
                       <label className="text-xs uppercase font-bold opacity-45 mb-1 block leading-none">Telefone</label>
-                      <input type="text" value={printerConfig.phone} onChange={(e) => setPrinterConfig({...printerConfig, phone: e.target.value})} className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm focus:ring-1 focus:ring-[#141414] outline-none" />
+                      <input type="text" value={printerConfig.phone} readOnly className="w-full bg-[#141414]/5 border-none rounded-lg py-1.5 px-3 font-bold text-sm outline-none" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -8122,6 +8044,54 @@ export default function Dashboard({
                       {xmlLoteLoading ? 'Gerando...' : 'Baixar ZIP'}
                     </button>
                   </div>
+                  <div className="mt-4 pt-4 border-t border-[#141414]/10">
+                    <label className="text-xs font-semibold uppercase text-[#141414]/40 block mb-1">Enviar ao contador</label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="email"
+                        value={xmlContadorEmail}
+                        onChange={e => { setXmlContadorEmail(e.target.value); setXmlEmailResult(null); }}
+                        placeholder="contador@empresa.com.br"
+                        maxLength={254}
+                        className="flex-1 border border-[#141414]/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#141414]/30"
+                        aria-label="E-mail do contador"
+                      />
+                      <button
+                        type="button"
+                        disabled={xmlEmailLoading || !xmlContadorEmail.trim()}
+                        onClick={async () => {
+                          const recipient = xmlContadorEmail.trim().toLowerCase();
+                          if (!/^([^\s@<>(),;:\\"']+)@([^\s@<>(),;:\"']+)\.[^\s@<>(),;:\"']+$/.test(recipient)) {
+                            toast.error('Informe um e-mail de contador válido.');
+                            return;
+                          }
+                          setXmlEmailLoading(true);
+                          setXmlEmailResult(null);
+                          try {
+                            const { data, error } = await supabase.functions.invoke('fiscal-xml-email', {
+                              body: { year: Number(xmlLoteAno), month: Number(xmlLoteMes), recipient },
+                            });
+                            if (error || !data?.ok) throw new Error(data?.error || error?.message || 'Envio não configurado.');
+                            setXmlEmailResult({ recipient: data.recipient, missing: Number(data.missing || 0) });
+                            toast.success('ZIP enviado ao contador.', { description: data.missing ? 'O manifesto informa registros sem XML.' : undefined });
+                          } catch (e: any) {
+                            toast.error(e.message || 'Não foi possível enviar o ZIP.');
+                          } finally {
+                            setXmlEmailLoading(false);
+                          }
+                        }}
+                        className="px-3 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-sm font-bold uppercase transition-colors disabled:opacity-40 whitespace-nowrap"
+                      >{xmlEmailLoading ? 'Enviando...' : 'Enviar ZIP'}</button>
+                    </div>
+                    <p className="text-[11px] text-[#141414]/45 mt-2 leading-relaxed">
+                      O envio só acontece ao clicar. O servidor valida sua sessão, deriva a conta autenticada e gera o ZIP a partir dos XMLs desse estabelecimento; nenhum anexo enviado pelo navegador é aceito.
+                    </p>
+                    {xmlEmailResult && (
+                      <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 mt-2">
+                        Enviado para {xmlEmailResult.recipient}{xmlEmailResult.missing ? ` · ${xmlEmailResult.missing} registro(s) sem XML no manifesto` : ''}.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
               )}
@@ -8778,7 +8748,7 @@ export default function Dashboard({
           isOpen={isPaymentModalOpen}
           onClose={() => setIsPaymentModalOpen(false)}
           order={detailActiveOrder}
-          onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName) => handlePaymentComplete(detailActiveOrder.id, selectedItems, partialAmount, paymentMethod, payerName)}
+          onPaymentComplete={(selectedItems, partialAmount, paymentMethod, payerName, requestId) => handlePaymentComplete(detailActiveOrder.id, selectedItems, partialAmount, paymentMethod, payerName, requestId)}
           onApplyDiscount={handleApplyDiscount}
         />
       )}
@@ -11066,9 +11036,28 @@ export default function Dashboard({
                     Cancelar
                   </button>
                   <button
-                    onClick={() => {
-                      socket.emit('confirm_baixa', { orderId: activeOrder.id });
-                      toast.success('Baixa confirmada! Mesa liberada.');
+                    onClick={async () => {
+                      if (!canMutate()) { toast.error('Aguarde a conexão sincronizar; a baixa não foi enviada.'); return; }
+                      if (isBaixaPending) return;
+                      setIsBaixaPending(true);
+                      let ack: OrderCommandAck;
+                      try {
+                        ack = await runOrderCommand({
+                          event: 'confirm_baixa',
+                          orderId: activeOrder.id,
+                          payload: { orderId: activeOrder.id },
+                        });
+                      } catch (error) {
+                        setIsBaixaPending(false);
+                        toast.error(orderCommandMessage(error));
+                        return;
+                      }
+                      if (!ack.ok) {
+                        setIsBaixaPending(false);
+                        toast.error(orderCommandMessage(ack));
+                        return;
+                      }
+                      toast.success(ack.alreadyApplied ? 'Baixa já estava confirmada.' : 'Baixa confirmada! Mesa liberada.');
                       setIsBaixaModalOpen(false);
                       if (printOnBaixa) {
                         const tableType = activeOrder.isComanda ? 'Comanda' : 'Mesa';
@@ -11187,8 +11176,10 @@ export default function Dashboard({
                           setTimeout(() => printOnePage(), _c * 600);
                         }
                       }
+                      setIsBaixaPending(false);
                     }}
-                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors"
+                    disabled={isBaixaPending}
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-wait"
                   >
                     <CheckCircle size={16} />
                     Confirmar Baixa

@@ -1,4 +1,6 @@
 import { getPizzaKitchenDetails } from './pizzaKitchenDetails';
+import { buildCashRegisterReportEscPos, type CashRegisterReportInput, type CashReportPaperWidth } from './cashRegisterReport';
+import { getDrinkProductionDetails } from './drinkPrintDetails';
 
 /**
  * Web Bluetooth BLE thermal printer utility.
@@ -86,6 +88,14 @@ export function disconnectBT(): void {
 
 export function getConnectedDevice(): BluetoothDevice | null {
   return _device;
+}
+
+/** Uses the same 80 mm report document as the agent/RAW printer path. */
+export function buildCashRegisterReportTicket(
+  input: CashRegisterReportInput,
+  paperWidth: CashReportPaperWidth = '80mm',
+): Uint8Array {
+  return buildCashRegisterReportEscPos(input, paperWidth);
 }
 
 // ── ESC/POS builders ───────────────────────────────────────────────────────────
@@ -182,7 +192,7 @@ export interface TicketOrder {
   isComanda?: boolean;
   waiterName?: string;
   observations?: string;
-  items: { name: string; price: number; quantity?: number; obs?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
+  items: { name: string; price: number; quantity?: number; obs?: string; observations?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
 }
 
 function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
@@ -255,7 +265,12 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
       parts.push(BOLD_ON, encode(`${qty}x ${item.name}\n`), BOLD_OFF);
     }
     parts.push(...(isPizza ? pizzaKitchenParts(item) : pizzaItemParts(item)));
-    if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
+    const drinkDetails = item.type === 'bebidas' ? getDrinkProductionDetails(item) : null;
+    if (drinkDetails?.lines.length) {
+      drinkDetails.lines.forEach(detail => parts.push(BOLD_ON, encode(`${detail}\n`), BOLD_OFF));
+    }
+    const observation = drinkDetails?.remainingObservation ?? item.obs;
+    if (observation) parts.push(encode(`   Obs: ${observation}\n`));
   }
 
   parts.push(DASHES);

@@ -17,6 +17,7 @@ import type { CertificadoCarregado } from './certificate.js';
 import { getEndpoint } from './endpoints.js';
 import { montarEnvelopeAutorizacao, soapCall, extrairCampo } from './sefaz-soap.js';
 import { consultarNFCe, consultarNFe } from './sefaz-direct.js';
+import { authorizationDateFromResult } from './authorization-date.js';
 
 // ── Tipos públicos ────────────────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ export async function reconciliarResultadoDesconhecido(
   limit = 10,
 ): Promise<ResultadoReconciliacao> {
   const { data: notas, error } = await db.from('fiscal_notes')
-    .select('id,chave_acesso,modelo,ambiente,xml_assinado,intencao_json,status,order_id')
+    .select('id,chave_acesso,modelo,ambiente,xml_assinado,intencao_json,status,order_id,autorizado_em')
     .eq('tenant_id', tenantId)
     .in('status', ['RESULTADO_DESCONHECIDO', 'PROCESSANDO', 'EPEC_AUTORIZADO', 'CONTINGENCIA_PENDENTE_TRANSMISSAO'])
     .not('chave_acesso', 'is', null)
@@ -132,6 +133,7 @@ export async function reconciliarResultadoDesconhecido(
     const modelo   = nota.modelo   as ModeloFiscal;
 
     let cStat: string, xMotivo: string, protocolo: string;
+    let dhRecbto = '';
     let statusNovo: FiscalDocStatus;
     let retransmitida = false;
 
@@ -148,6 +150,7 @@ export async function reconciliarResultadoDesconhecido(
           cStat     = rt.cStat;
           xMotivo   = rt.xMotivo;
           protocolo = rt.protocolo;
+          dhRecbto = rt.dhRecbto;
           retransmitida = true;
           statusNovo = classificarCstatAutorizacao(cStat);
           if (statusNovo === 'RESULTADO_DESCONHECIDO') {
@@ -173,6 +176,7 @@ export async function reconciliarResultadoDesconhecido(
         cStat    = r.cStat;
         xMotivo  = r.xMotivo;
         protocolo = r.protocolo;
+        dhRecbto = r.dhRecbto;
       } catch {
         // Falha de rede — tentar no próximo ciclo
         ainda_pendentes++;
@@ -193,6 +197,7 @@ export async function reconciliarResultadoDesconhecido(
             cStat     = rt.cStat;
             xMotivo   = rt.xMotivo;
             protocolo = rt.protocolo;
+            dhRecbto = rt.dhRecbto;
             retransmitida = true;
             statusNovo = classificarCstatAutorizacao(cStat);
             if (statusNovo === 'RESULTADO_DESCONHECIDO') {
@@ -222,6 +227,8 @@ export async function reconciliarResultadoDesconhecido(
       updated_at: new Date().toISOString(),
     };
     if (protocolo) updatePayload.protocolo = protocolo;
+    const autorizadoEm = authorizationDateFromResult({ status: statusNovo, dhRecbto }, nota.autorizado_em);
+    if (autorizadoEm) updatePayload.autorizado_em = autorizadoEm;
 
     // Espelhar atualização no intencao_json para o DANFE refletir o protocolo
     if (nota.intencao_json) {
@@ -229,6 +236,7 @@ export async function reconciliarResultadoDesconhecido(
         ...nota.intencao_json,
         status:   statusNovo,
         protocolo: protocolo || nota.intencao_json.protocolo,
+        dhRecbto: dhRecbto || nota.intencao_json.dhRecbto,
         cStat,
         xMotivo,
       };

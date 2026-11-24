@@ -17,7 +17,11 @@ assert.ok(predicate, 'production readiness predicate must exist');
 for (const connected of [false, true]) {
   for (const current of [false, true]) {
     for (const onLine of [false, true]) {
-      const check = vm.runInNewContext(`(${predicate[1]})`, { socket: { connected }, readyRef: { current }, navigator: { onLine } });
+      const check = vm.runInNewContext(`(${predicate[1]})`, {
+        socket: { connected, id: 'connection-a' }, readyRef: { current }, navigator: { onLine },
+        readySocketRef: { current: 'connection-a' }, effectTenantRef: { current: 'tenant-a' },
+        normalizedTenantId: 'tenant-a',
+      });
       assert.equal(check(), connected && current && onLine);
     }
   }
