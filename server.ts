@@ -4264,7 +4264,7 @@ async function startServer() {
           throw err;
         }
         io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
-        const labels: Record<string, string> = { waiting: 'Na fila', preparing: 'Em preparo', oven: 'No forno', ready: 'Pronto — retirar' };
+        const labels: Record<string, string> = { waiting: 'A Preparar', preparing: 'Preparando', oven: 'No Forno', ready: 'Aguardando Garçom' };
         return { item: item.name, next, label: labels[next] || next };
       });
       return res.json({ ok: true, message: `${result.item} → ${result.label}` });
