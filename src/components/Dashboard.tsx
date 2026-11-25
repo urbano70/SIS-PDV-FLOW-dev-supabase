@@ -37,6 +37,7 @@ import {
   renderCashRegisterReportHtml,
   summarizeCashRegisterOrders,
 } from '../lib/cashRegisterReport';
+import { encodeKdsBarcode, escPosCode128Bytes } from '../lib/kdsBarcode';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -251,7 +252,9 @@ function buildEscPosKitchenTicket(
   tableType: string,
   targetId: string | number,
   printerName: string,
-  paperWidth: string
+  paperWidth: string,
+  kdsEnabled?: boolean,
+  orderId?: string | number
 ): number[] {
   const itemList: any[] = Array.isArray(items) ? items : [items];
   const wide = paperWidth === '80mm';
@@ -375,6 +378,14 @@ function buildEscPosKitchenTicket(
       (item.adicionais as { name: string; price: number }[]).forEach(a => {
         wordWrap(`+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}`, lineLen).forEach(l => { text(l); lf(); });
       });
+    }
+
+    if (kdsEnabled && orderId != null && item.id && (item.type === 'pizzas' || item.type === 'lanches')) {
+      const barcode = encodeKdsBarcode(orderId, item.id);
+      push(0x1B, 0x61, 0x01); // center
+      push(...escPosCode128Bytes(barcode));
+      lf();
+      push(0x1B, 0x61, 0x00); // left
     }
   });
 
@@ -1909,7 +1920,7 @@ export default function Dashboard({
     }
   };
 
-  const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
+  const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean, orderId?: string | number) => {
     const targetId = tableId || (isComandaSelected ? selectedComandaId : selectedTableId);
     const tableType = isComanda !== undefined ? (isComanda ? 'Comanda' : 'Mesa') : (isComandaSelected ? 'Comanda' : 'Mesa');
 
@@ -1974,7 +1985,7 @@ export default function Dashboard({
 
       if (printer) {
         // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
-        const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth);
+        const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth, pizzariaConfig?.kdsEnabled, orderId);
         if (printer.ip) {
           emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
         } else {
@@ -2070,7 +2081,7 @@ export default function Dashboard({
     const handleKitchenOrder = (data: any) => {
       const items = data?.items;
       if (items?.length > 0) {
-        printOrderToPrinters(items, data.tableId, data.isComanda);
+        printOrderToPrinters(items, data.tableId, data.isComanda, data.id);
       }
     };
 
@@ -6897,7 +6908,7 @@ export default function Dashboard({
                         <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? false) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
                       </div>
                     </div>
-                    <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                    <button disabled={planCfg.kdsLocked} onClick={() => { if (planCfg.kdsLocked) return; const enabling = !(pizzariaConfig.kdsEnabled ?? false); const token = enabling && !pizzariaConfig.kdsScanToken ? crypto.randomUUID() : pizzariaConfig.kdsScanToken; updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: enabling, ...(token ? { kdsScanToken: token } : {}) }); }} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
                       <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? false) ? 'translate-x-4' : ''}`} />
                     </button>
                   </div>
@@ -6906,6 +6917,18 @@ export default function Dashboard({
                       <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
                       <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
                       <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/app/kitchen`)} className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700">Copiar</button>
+                    </div>
+                  )}
+                  {(pizzariaConfig.kdsEnabled ?? false) && pizzariaConfig.kdsScanToken && (
+                    <div className="flex flex-col gap-1 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+                      <span className="text-[6px] uppercase font-bold text-blue-700">Scanner KDS (leitor de código de barras)</span>
+                      <div className="flex items-center gap-2">
+                        <QRCodeSVG value={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} size={48} />
+                        <div className="flex-1 min-w-0">
+                          <a href={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} target="_blank" rel="noopener noreferrer" className="text-[6.5px] text-blue-700 font-mono break-all hover:underline block leading-tight">{`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`}</a>
+                          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`)} className="text-[6px] bg-blue-600 text-white rounded px-1 py-0.5 hover:bg-blue-700 mt-0.5">Copiar link</button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {/* Garçom pode pagar */}

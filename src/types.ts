@@ -67,6 +67,7 @@ export interface PizzeriaConfig {
   parquinhoChildNameRequired?: boolean;
   parquinhoPrice?: number | null;
   parquinhoProductId?: string;
+  kdsScanToken?: string;
 }
 
 export interface Order {

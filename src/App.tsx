@@ -26,6 +26,7 @@ import { LogIn } from 'lucide-react';
 import { onAuthStateChange, getSession } from './lib/auth';
 import { supabase } from './lib/supabase';
 import LandingPage from './pages/LandingPage';
+import KdsScanPage from './pages/KdsScanPage';
 import DanfePage from './pages/DanfePage';
 import DanfeNFePage from './pages/DanfeNFePage';
 import LoginPage from './pages/LoginPage';
@@ -645,6 +646,7 @@ export default function App() {
         <Route path="/danfe/nfce/:chaveAcesso" element={<DanfePage />} />
         <Route path="/danfe/nfe/:chaveAcesso" element={<DanfeNFePage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/kds-scan" element={<KdsScanPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

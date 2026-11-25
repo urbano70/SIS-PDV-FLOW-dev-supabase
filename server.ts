@@ -4209,6 +4209,72 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.post("/api/kds/scan", express.json({ limit: '4kb' }), async (req, res) => {
+    const { barcode, token } = req.body || {};
+    if (!barcode || !token) return res.status(400).json({ ok: false, message: 'barcode e token são obrigatórios.' });
+
+    // find tenant by kdsScanToken
+    let tenantId: string | null = null;
+    for (const [tid, st] of tenants.entries()) {
+      if (st.pizzariaConfig?.kdsScanToken === token) { tenantId = tid; break; }
+    }
+    if (!tenantId) return res.status(401).json({ ok: false, message: 'Token inválido.' });
+
+    const pipeIdx = String(barcode).indexOf('|');
+    if (pipeIdx < 1) return res.status(400).json({ ok: false, message: 'Código de barras inválido.' });
+    const orderId = String(barcode).slice(0, pipeIdx);
+    const itemId = String(barcode).slice(pipeIdx + 1);
+
+    try {
+      const result = await withTenantCommand(tenantId, async () => {
+        const st = getState(tenantId!);
+        if (!st.pizzariaConfig?.kdsEnabled) throw new Error('KDS desativado.');
+        const order = (st.orders || []).find((o: any) => String(o.id) === orderId);
+        if (!order) throw new Error('Pedido não encontrado.');
+        const CLOSED = new Set(['finalizada', 'finalized', 'paid', 'cancelled', 'cancelada', 'canceled']);
+        if (CLOSED.has(String(order.status || '').toLowerCase())) throw new Error('Pedido encerrado.');
+        const item = (order.items || []).find((i: any) => String(i.id) === itemId);
+        if (!item) throw new Error('Item não encontrado.');
+        if (item.removed) throw new Error('Item removido.');
+        if (item.deliveredAt) throw new Error('Item já entregue.');
+
+        const type = (() => {
+          if (item.type === 'pizzas') return 'pizzas';
+          const cat = (st.menu || []).find((c: any) => {
+            const products = [...(c.items || []), ...(c.subcategories || []).flatMap((g: any) => g.items || [])];
+            return products.some((p: any) => item.menuItemId ? p.id === item.menuItemId : p.name === item.name);
+          });
+          return cat?.type || item.type;
+        })();
+        if (type !== 'pizzas' && type !== 'lanches') throw new Error('Item fora das filas KDS.');
+
+        const current: string = item.kitchenStatus || 'waiting';
+        const isPizza = type === 'pizzas';
+        let next: string;
+        if (current === 'waiting') next = 'preparing';
+        else if (current === 'preparing' && isPizza) next = 'oven';
+        else if (current === 'preparing' && !isPizza) next = 'ready';
+        else if (current === 'oven' && isPizza) next = 'ready';
+        else throw new Error(`Item já está em "${current}". Sem próximo estágio.`);
+
+        const before = JSON.parse(JSON.stringify(order));
+        item.kitchenStatus = next;
+        try {
+          await saveToSupabase('orders', order, String(order.id), tenantId!);
+        } catch (err) {
+          Object.assign(order, before);
+          throw err;
+        }
+        io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
+        const labels: Record<string, string> = { waiting: 'Na fila', preparing: 'Em preparo', oven: 'No forno', ready: 'Pronto — retirar' };
+        return { item: item.name, next, label: labels[next] || next };
+      });
+      return res.json({ ok: true, message: `${result.item} → ${result.label}` });
+    } catch (err: any) {
+      return res.status(400).json({ ok: false, message: err?.message || 'Não foi possível atualizar o KDS.' });
+    }
+  });
+
   const profileFailure = (res: any, error: any) => {
     const status = error instanceof EstablishmentProfileError ? error.status : 503;
     const code = error instanceof EstablishmentProfileError ? error.code : 'ESTABLISHMENT_PROFILE_FAILED';
