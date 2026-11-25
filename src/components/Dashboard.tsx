@@ -380,13 +380,6 @@ function buildEscPosKitchenTicket(
       });
     }
 
-    if (kdsEnabled && orderId != null && item.id) {
-      const barcode = encodeKdsBarcode(orderId, item.id);
-      push(0x1B, 0x61, 0x01); // center
-      push(...escPosCode128Bytes(barcode));
-      lf();
-      push(0x1B, 0x61, 0x00); // left
-    }
   });
 
   // Garçom — garante tamanho normal e alinhamento esquerdo antes de imprimir
@@ -394,6 +387,19 @@ function buildEscPosKitchenTicket(
   push(0x1B, 0x61, 0x00); // align left
   line();
   text('Garcom: ' + waiterName); lf();
+
+  // Códigos de barras KDS — após o garçom, um por item
+  if (kdsEnabled && orderId != null) {
+    itemList.forEach(item => {
+      if (!item.id) return;
+      const barcode = encodeKdsBarcode(orderId, item.id);
+      push(0x1B, 0x61, 0x01); // center
+      push(...escPosCode128Bytes(barcode));
+      lf();
+      push(0x1B, 0x61, 0x00); // left
+    });
+  }
+
   lf(); lf(); lf(); lf(); // avança papel para garçom ficar visível acima do corte
 
   // Corte parcial
