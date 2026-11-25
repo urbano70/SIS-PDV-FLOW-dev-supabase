@@ -2532,27 +2532,29 @@ export default function Dashboard({
     const emissaoNfce = fiscalConfig?.emissaoNfce;
     if (emissaoNfce && emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
       const orderRef = orders.find((o: any) => orderId && o.id && String(o.id) === String(orderId));
-      let nfceTotal = 0;
+      let nfceOrderTotal = 0;
       if (orderRef) {
-        nfceTotal = (orderRef.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+        nfceOrderTotal = (orderRef.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
           let price = Number(i.price) || 0;
           if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
           return acc + price;
         }, 0);
         if (orderRef.discount) {
           const dv = Number(orderRef.discount) || 0;
-          if (orderRef.discountType === 'percentage') nfceTotal *= (1 - dv / 100);
-          else nfceTotal = Math.max(0, nfceTotal - dv);
+          if (orderRef.discountType === 'percentage') nfceOrderTotal *= (1 - dv / 100);
+          else nfceOrderTotal = Math.max(0, nfceOrderTotal - dv);
         }
       }
+      // For partial payments use the amount actually paid; otherwise use full order total
+      const nfceTotal = (partialAmount && partialAmount > 0) ? partialAmount : nfceOrderTotal;
       const isEletronico = mapped === 'pix' || mapped === 'cartao_credito' || mapped === 'cartao_debito';
       if (emissaoNfce === 'apos_confirmacao') {
         setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_cartao_pix') {
-        if (isEletronico) await emitirNfceAuto(orderId, mapped);
+        if (isEletronico) await emitirNfceAuto(orderId, mapped, undefined, undefined, nfceTotal < nfceOrderTotal ? nfceTotal : undefined);
         else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_sempre') {
-        await emitirNfceAuto(orderId, mapped);
+        await emitirNfceAuto(orderId, mapped, undefined, undefined, nfceTotal < nfceOrderTotal ? nfceTotal : undefined);
       }
     }
 
