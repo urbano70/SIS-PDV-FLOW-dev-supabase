@@ -1386,6 +1386,8 @@ export default function Dashboard({
   const [nfcePostTotalEdited, setNfcePostTotalEdited] = useState<string>('');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
+  const [nfcePostKbdIdx, setNfcePostKbdIdx] = useState(0); // 0=Não, 1=Emitir NFC-e, 2=Emitir NF-e
+  useEffect(() => { if (nfcePostPayment) setNfcePostKbdIdx(0); }, [nfcePostPayment]);
   const [nfcePostCpf, setNfcePostCpf] = useState('');
   const [nfcePostEmitting, setNfcePostEmitting] = useState(false);
   const [nfceEmitting, setNfceEmitting] = useState(false);
@@ -11369,8 +11371,9 @@ export default function Dashboard({
                       }
                       setIsBaixaPending(false);
                     }}
+                    autoFocus
                     disabled={isBaixaPending}
-                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-wait"
+                    className="flex-1 py-3.5 rounded-2xl font-bold text-sm bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center gap-2 transition-colors disabled:opacity-40 disabled:cursor-wait focus:ring-2 focus:ring-purple-400 focus:outline-none"
                   >
                     <CheckCircle size={16} />
                     Confirmar Baixa
@@ -11839,7 +11842,22 @@ export default function Dashboard({
       {/* Dialog pós-pagamento: emitir NFC-e? */}
       <AnimatePresence>
         {nfcePostPayment && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[700] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onKeyDown={e => {
+              if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                const delta = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+                setNfcePostKbdIdx(prev => (prev + delta + 3) % 3);
+              }
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const btns = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-nfce-btn]'));
+                btns[nfcePostKbdIdx]?.click();
+              }
+            }}
+          >
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-xs overflow-hidden">
               <div className="bg-green-600 p-4 flex items-center gap-2">
                 <CheckCircle className="text-white" size={16} />
@@ -11883,11 +11901,12 @@ export default function Dashboard({
                   </button>
                 )}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); setNfcePostTotalEdited(''); }}
-                    className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
+                  <button data-nfce-btn="0" disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); setNfcePostTotalEdited(''); }}
+                    autoFocus
+                    className={`flex-1 py-2 rounded-xl border text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50 focus:outline-none ${nfcePostKbdIdx === 0 ? 'border-[#141414]/60 ring-2 ring-[#141414]/30' : 'border-[#141414]/20'}`}>
                     Não
                   </button>
-                  <button disabled={nfcePostEmitting} onClick={async () => {
+                  <button data-nfce-btn="1" disabled={nfcePostEmitting} onClick={async () => {
                     const _override = nfcePostTotalEdited !== '' ? parseFloat(nfcePostTotalEdited) : undefined;
                     setNfcePostEmitting(true);
                     await emitirNfceAuto(nfcePostPayment.orderId, nfcePagamento, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined, _override && _override > 0 ? _override : undefined);
@@ -11897,11 +11916,11 @@ export default function Dashboard({
                     setNfceConsolidar(false);
                     setNfcePostTotalEdited('');
                   }}
-                    className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                    className={`flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1 focus:outline-none ${nfcePostKbdIdx === 1 ? 'ring-2 ring-offset-1 ring-blue-400' : ''}`}>
                     {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
                   </button>
                 </div>
-                <button disabled={nfcePostEmitting} onClick={() => {
+                <button data-nfce-btn="2" disabled={nfcePostEmitting} onClick={() => {
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
                     setNfceConsolidar(false);
@@ -11915,7 +11934,7 @@ export default function Dashboard({
                     setNfeMunicipio(''); setNfeCodigoMunicipio(''); setNfeUf(''); setNfeCep(''); setNfeTelefone('');
                     setNfeModalOpen(true);
                   }}
-                  className="w-full mt-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+                  className={`w-full mt-1 py-2 rounded-xl bg-emerald-600 text-white text-[9px] font-bold uppercase hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1 focus:outline-none ${nfcePostKbdIdx === 2 ? 'ring-2 ring-offset-1 ring-emerald-400' : ''}`}>
                   <FileText size={11} />Emitir NF-e
                 </button>
               </div>
