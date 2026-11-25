@@ -272,7 +272,7 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string, 
     }
     const observation = drinkDetails?.remainingObservation ?? item.obs;
     if (observation) parts.push(encode(`   Obs: ${observation}\n`));
-    if (kdsEnabled && item.id && (item.type === 'pizzas' || item.type === 'lanches')) {
+    if (kdsEnabled && item.id) {
       const barcode = encodeKdsBarcode(order.id, item.id);
       parts.push(new Uint8Array(escPosCode128Bytes(barcode)));
       parts.push(NL);

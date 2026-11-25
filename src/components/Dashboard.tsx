@@ -380,7 +380,7 @@ function buildEscPosKitchenTicket(
       });
     }
 
-    if (kdsEnabled && orderId != null && item.id && (item.type === 'pizzas' || item.type === 'lanches')) {
+    if (kdsEnabled && orderId != null && item.id) {
       const barcode = encodeKdsBarcode(orderId, item.id);
       push(0x1B, 0x61, 0x01); // center
       push(...escPosCode128Bytes(barcode));

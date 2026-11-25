@@ -4246,8 +4246,6 @@ async function startServer() {
           });
           return cat?.type || item.type;
         })();
-        if (type !== 'pizzas' && type !== 'lanches') throw new Error('Item fora das filas KDS.');
-
         const current: string = item.kitchenStatus || 'waiting';
         const isPizza = type === 'pizzas';
         let next: string;
