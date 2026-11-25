@@ -54,12 +54,17 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   }, [isConfirming]);
 
   useEffect(() => {
-    const update = () => setVisualVH(window.visualViewport?.height ?? window.innerHeight);
+    const update = () => {
+      const keyboardH = Math.max(0, window.innerHeight - (window.visualViewport?.height ?? window.innerHeight));
+      document.documentElement.style.setProperty('--keyboard-height', `${keyboardH}px`);
+    };
+    update();
     window.visualViewport?.addEventListener('resize', update);
     window.addEventListener('resize', update);
     return () => {
       window.visualViewport?.removeEventListener('resize', update);
       window.removeEventListener('resize', update);
+      document.documentElement.style.removeProperty('--keyboard-height');
     };
   }, []);
 
@@ -83,7 +88,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [cashReceivedStr, setCashReceivedStr] = useState('');
   const [isInputFocused, setIsInputFocused] = useState(false);
-  const [visualVH, setVisualVH] = useState(() => window.visualViewport?.height ?? window.innerHeight);
   const [guestFilter, setGuestFilter] = useState<string>('');
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -496,14 +500,14 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
         className="fixed inset-0 z-[100] flex flex-col justify-end md:items-center md:justify-center md:p-2 bg-black/60"
+        style={{ paddingBottom: 'var(--keyboard-height, 0px)' }}
       >
         <motion.div
           initial={{ y: '100%', opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: '100%', opacity: 0 }}
           transition={{ duration: 0.22, ease: 'easeOut' }}
-          className="bg-[#E4E3E0] w-full md:max-w-4xl rounded-t-[2rem] md:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col"
-          style={{ maxHeight: `${Math.round(visualVH * 0.92)}px` }}
+          className="bg-[#E4E3E0] w-full md:max-w-4xl rounded-t-[2rem] md:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[90dvh] md:max-h-[95dvh]"
         >
           <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
             <div>
