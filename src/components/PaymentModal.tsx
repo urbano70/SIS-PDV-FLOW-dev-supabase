@@ -1051,7 +1051,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm shrink-0">
+                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm">
                   <div className="pb-2 border-b border-[#141414]/5 shrink-0">
                     <span className="font-serif italic text-sm uppercase tracking-wide opacity-60">Formas de Pagamento</span>
                   </div>
@@ -1135,38 +1135,42 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="flex items-center bg-white/60 border border-[#141414]/10 rounded-xl px-3 py-2 shrink-0">
-                  <span className="text-[9px] uppercase font-bold opacity-40 mr-2 whitespace-nowrap">Pagador</span>
-                  <input
-                    type="text"
-                    value={payerName}
-                    onChange={(e) => setPayerName(e.target.value)}
-                    onFocus={() => setIsInputFocused(true)}
-                    onBlur={() => setIsInputFocused(false)}
-                    placeholder="Nome (opcional)"
-                    className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
-                  />
                 </div>
 
-                {errorMessage && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="mb-4 p-3 bg-red-100 text-red-700 rounded-xl text-xs font-bold text-center border border-red-200"
+                <div className="shrink-0 flex flex-col gap-2 pt-2">
+                  <div className="flex items-center bg-white/60 border border-[#141414]/10 rounded-xl px-3 py-2">
+                    <span className="text-[9px] uppercase font-bold opacity-40 mr-2 whitespace-nowrap">Pagador</span>
+                    <input
+                      type="text"
+                      value={payerName}
+                      onChange={(e) => setPayerName(e.target.value)}
+                      onFocus={() => setIsInputFocused(true)}
+                      onBlur={() => setIsInputFocused(false)}
+                      placeholder="Nome (opcional)"
+                      className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
+                    />
+                  </div>
+
+                  {errorMessage && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="p-3 bg-red-100 text-red-700 rounded-xl text-xs font-bold text-center border border-red-200"
+                    >
+                      {errorMessage}
+                    </motion.div>
+                  )}
+
+                  <button
+                    onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
+                    disabled={isSubmitting}
+                    className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-wait"
                   >
-                    {errorMessage}
-                  </motion.div>
-                )}
+                    <Check size={20} />
+                    <span>{isSubmitting ? 'Enviando...' : 'Finalizar Pagamento'}</span>
+                  </button>
                 </div>
-                <button
-                  onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
-                  disabled={isSubmitting}
-                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 mt-3 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0 disabled:opacity-40 disabled:cursor-wait"
-                >
-                  <Check size={20} />
-                  <span>{isSubmitting ? 'Enviando...' : 'Finalizar Pagamento'}</span>
-                </button>
               </div>
             )}
           </div>
