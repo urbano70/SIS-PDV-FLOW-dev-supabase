@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePWA } from '../hooks/usePWA';
 import { Table, Order, Waiter, StockItem, MenuCategory, MenuItem, MenuSubcategory, PizzeriaConfig } from '../types';
 import socket from '../lib/socket';
@@ -1077,6 +1077,7 @@ export default function Dashboard({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [kbdItemIdx, setKbdItemIdx] = useState(0);
   const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
   const [selectedPizzaItem, setSelectedPizzaItem] = useState<any>(null);
   const [selectedFlavors, setSelectedFlavors] = useState<any[]>([]);
@@ -1159,6 +1160,7 @@ export default function Dashboard({
   }, [detailActiveOrder?.id, JSON.stringify(detailActiveOrder?.guests)]);
   // --- End computed state for top-bar action buttons ---
   const detailsRef = useRef<HTMLDivElement>(null);
+  const kbdItemListRef = useRef<HTMLDivElement>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportStartDate, setReportStartDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportEndDate, setReportEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -1895,8 +1897,81 @@ export default function Dashboard({
         setAdmGuestForItem('');
       }
       admOpeningSubModal.current = false;
+    } else {
+      setKbdItemIdx(0);
     }
   }, [isAddItemModalOpen]);
+
+  useEffect(() => { setKbdItemIdx(0); }, [selectedCategory, selectedSubcategory, searchTerm]);
+
+  const addModalItems = useMemo(() => {
+    const visibleCats = menu.filter((cat: any) => cat.visible !== false);
+    const effectiveCat = selectedCategory ? visibleCats.find((c: any) => c.name === selectedCategory) : visibleCats[0];
+    if (searchTerm.length > 0) {
+      const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const tokens = normalize(searchTerm).split(/\s+/).filter(Boolean);
+      const allItems = visibleCats.flatMap((cat: any) => [
+        ...cat.items,
+        ...(cat.subcategories || []).filter((s: any) => s.visible !== false && !s.isAdicional).flatMap((s: any) => s.items),
+      ]);
+      return allItems.filter((item: any) => {
+        const haystack = normalize(item.name + ' ' + (item.ingredients || ''));
+        return tokens.every((tok: string) => haystack.includes(tok));
+      });
+    }
+    if (!effectiveCat) return [];
+    if (selectedSubcategory) {
+      const sub = (effectiveCat.subcategories || []).find((s: any) => s.id === selectedSubcategory);
+      return (sub?.items || []).filter((i: any) => i.visible !== false);
+    }
+    const directItems = effectiveCat.items.filter((i: any) => i.visible !== false);
+    const subItems = (effectiveCat.subcategories || []).filter((s: any) => s.visible !== false && !s.isAdicional).flatMap((s: any) => s.items.filter((i: any) => i.visible !== false));
+    return [...directItems, ...subItems];
+  }, [menu, selectedCategory, selectedSubcategory, searchTerm]);
+
+  useEffect(() => {
+    if (!isAddItemModalOpen) return;
+    const visibleCats = menu.filter((cat: any) => cat.visible !== false);
+    const handler = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setKbdItemIdx(i => Math.min(i + 1, addModalItems.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setKbdItemIdx(i => Math.max(i - 1, 0));
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const curCatIdx = selectedCategory ? visibleCats.findIndex((c: any) => c.name === selectedCategory) : 0;
+        const effectiveIdx = curCatIdx < 0 ? 0 : curCatIdx;
+        const nextIdx = e.key === 'ArrowRight'
+          ? Math.min(effectiveIdx + 1, visibleCats.length - 1)
+          : Math.max(effectiveIdx - 1, 0);
+        const cat = visibleCats[nextIdx];
+        if (cat) {
+          const firstSub = (cat.subcategories || []).filter((s: any) => s.visible !== false)[0];
+          setSelectedCategory(cat.name);
+          setSelectedSubcategory(cat.type === 'pizzas' && firstSub ? firstSub.id : null);
+          setKbdItemIdx(0);
+        }
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const item = addModalItems[kbdItemIdx];
+        if (item) handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isAddItemModalOpen, addModalItems, kbdItemIdx, selectedCategory, isComandaSelected, selectedComandaId, selectedTableId]);
+
+  useEffect(() => {
+    if (!isAddItemModalOpen) return;
+    const list = kbdItemListRef.current;
+    if (!list) return;
+    const el = list.querySelector(`[data-kbd-idx="${kbdItemIdx}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [kbdItemIdx, isAddItemModalOpen]);
 
   const handleSavePrinters = async () => {
     if (savingPrintersRef.current) return;
@@ -9608,44 +9683,25 @@ export default function Dashboard({
                 })()}
               </div>
 
-              <div className="flex flex-col overflow-y-auto flex-1 divide-y divide-[#141414]/8 rounded-xl overflow-hidden border border-[#141414]/8">
-                {(() => {
-                  const visibleCats = menu.filter(cat => cat.visible !== false);
-                  const effectiveCat = selectedCategory ? visibleCats.find(c => c.name === selectedCategory) : visibleCats[0];
-                  if (searchTerm.length > 0) {
-                    const normalize = (s: string) =>
-                      s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-                    const tokens = normalize(searchTerm).split(/\s+/).filter(Boolean);
-                    const allItems = visibleCats.flatMap(cat => [
-                      ...cat.items,
-                      ...(cat.subcategories || []).filter(s => s.visible !== false && !s.isAdicional).flatMap(s => s.items),
-                    ]);
-                    return allItems.filter(item => {
-                      const haystack = normalize(item.name + ' ' + (item.ingredients || ''));
-                      return tokens.every(tok => haystack.includes(tok));
-                    });
-                  }
-                  if (!effectiveCat) return [];
-                  if (selectedSubcategory) {
-                    const sub = (effectiveCat.subcategories || []).find(s => s.id === selectedSubcategory);
-                    return (sub?.items || []).filter(i => i.visible !== false);
-                  }
-                  const directItems = effectiveCat.items.filter(i => i.visible !== false);
-                  const subItems = (effectiveCat.subcategories || []).filter(s => s.visible !== false && !s.isAdicional).flatMap(s => s.items.filter(i => i.visible !== false));
-                  return [...directItems, ...subItems];
-                })().map((item, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item)}
-                      className={`flex justify-between items-center px-3 py-2 transition-colors text-left w-full ${idx % 2 === 0 ? 'bg-white' : 'bg-[#F5F4F1]'} hover:bg-[#E8E7E4]`}
-                    >
-                      <div className="flex-1 min-w-0 mr-3">
-                        <p className="font-semibold text-sm leading-tight">{item.name}</p>
-                        {item.ingredients && <p className="text-[10px] opacity-50 leading-tight truncate">{item.ingredients}</p>}
-                      </div>
-                      <span className="font-mono font-bold text-sm whitespace-nowrap">R$ {item.price.toFixed(2)}</span>
-                    </button>
-                  ))}
+              <div className="flex flex-col overflow-y-auto flex-1 divide-y divide-[#141414]/8 rounded-xl overflow-hidden border border-[#141414]/8" ref={kbdItemListRef}>
+                {addModalItems.map((item: any, idx: number) => (
+                  <button
+                    key={idx}
+                    data-kbd-idx={idx}
+                    onClick={() => handleAddItem((isComandaSelected ? selectedComandaId : selectedTableId)!, item)}
+                    className={`flex justify-between items-center px-3 py-2 transition-colors text-left w-full ${
+                      idx === kbdItemIdx
+                        ? 'bg-[#141414] text-[#E4E3E0]'
+                        : idx % 2 === 0 ? 'bg-white hover:bg-[#E8E7E4]' : 'bg-[#F5F4F1] hover:bg-[#E8E7E4]'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0 mr-3">
+                      <p className="font-semibold text-sm leading-tight">{item.name}</p>
+                      {item.ingredients && <p className="text-[10px] opacity-50 leading-tight truncate">{item.ingredients}</p>}
+                    </div>
+                    <span className="font-mono font-bold text-sm whitespace-nowrap">R$ {item.price.toFixed(2)}</span>
+                  </button>
+                ))}
               </div>
             </motion.div>
           </div>
@@ -9856,7 +9912,16 @@ export default function Dashboard({
                     >
                       −
                     </button>
-                    <span className="text-5xl font-black tabular-nums">{itemQuantity}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={itemQuantity}
+                      onChange={e => setItemQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                      onFocus={e => e.target.select()}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirmQuantitySelection(); } }}
+                      autoFocus
+                      className="text-5xl font-black tabular-nums w-24 text-center bg-transparent focus:outline-none focus:ring-2 focus:ring-[#141414]/20 rounded-xl"
+                    />
                     <button
                       onClick={() => setItemQuantity(itemQuantity + 1)}
                       className="w-12 h-12 rounded-xl bg-[#141414] text-white shadow-sm flex items-center justify-center text-2xl font-black active:scale-95 transition-transform select-none"
