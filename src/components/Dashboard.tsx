@@ -787,17 +787,25 @@ const OrderDetails = ({
                   })()}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-blue-600">
-                <span className="text-xs uppercase font-bold">
-                  Já Pago {activeOrder.paymentLog && activeOrder.paymentLog.length > 0 ? '(Registrado)' : ''}
-                </span>
-                <span className="text-base font-bold">
-                  - R$ {(() => {
-                    const totalPaidFromLog = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
-                    return totalPaidFromLog.toFixed(2);
-                  })()}
-                </span>
-              </div>
+              {(activeOrder.paymentLog || []).length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-blue-600">
+                    <span className="text-xs uppercase font-bold">Já Pago</span>
+                    <span className="text-base font-bold">
+                      - R$ {(activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {(activeOrder.paymentLog as any[]).map((p: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center pl-2 border-l-2 border-blue-200">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-semibold text-blue-700 capitalize">{p.method || 'Não informado'}</span>
+                        {p.payer && <span className="text-[8px] text-[#141414]/50">{p.payer}</span>}
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-600">- R$ {Number(p.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between items-center pt-2 border-t border-dashed border-[#141414]/10">
                 <span className="text-sm uppercase font-bold">Restante a Pagar</span>
                 <span className="text-2xl font-bold">
