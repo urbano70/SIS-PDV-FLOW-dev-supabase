@@ -1415,6 +1415,7 @@ export default function Dashboard({
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   // F2 → adicionar item | F4 → imprimir comprovante | F8 → pagamento | Esc → fechar modal
+  // Setas → navegar mesas/comandas
   const kbDashRef = React.useRef({
     detailTargetId: null as number | null,
     isCashRegisterOpen: false,
@@ -1435,6 +1436,12 @@ export default function Dashboard({
     detailHasItems: false,
     detailPendingAmount: 0,
     detailActiveOrderId: null as number | string | null,
+    selectedTableId: null as number | null,
+    selectedComandaId: null as number | null,
+    isComandaSelected: false,
+    overviewTab: 'tables' as 'tables' | 'comandas',
+    visibleTables: [] as { id: number }[],
+    visibleComandas: [] as { id: number }[],
   });
   React.useEffect(() => {
     kbDashRef.current = {
@@ -1457,6 +1464,12 @@ export default function Dashboard({
       detailHasItems,
       detailPendingAmount,
       detailActiveOrderId: detailActiveOrder?.id ?? null,
+      selectedTableId,
+      selectedComandaId,
+      isComandaSelected,
+      overviewTab,
+      visibleTables: [...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))),
+      visibleComandas: [...comandas].sort((a: any, b: any) => a.id - b.id).filter((c: any) => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas),
     };
   });
   React.useEffect(() => {
@@ -1498,6 +1511,45 @@ export default function Dashboard({
       if (e.key === 'F8') {
         e.preventDefault();
         if (s.detailTargetId && s.detailHasItems && s.detailPendingAmount >= 0.01 && !s.isPaymentModalOpen) setIsPaymentModalOpen(true);
+        return;
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        if (s.isAddItemModalOpen || s.isFlavorModalOpen || s.isQuantityModalOpen || s.isPaymentModalOpen ||
+            s.isBaixaModalOpen || s.isHistoryModalOpen || s.isLinkModalOpen || s.isTransferModalOpen ||
+            s.isSizeModalOpen || s.isCrustModalOpen || s.scanModalOpen || s.nfeModalOpen || s.nfceModal) return;
+        e.preventDefault();
+        const isComanda = s.overviewTab === 'comandas';
+        const list = isComanda ? s.visibleComandas : s.visibleTables;
+        if (list.length === 0) return;
+        const currentId = isComanda ? s.selectedComandaId : s.selectedTableId;
+        const currentIdx = currentId != null ? list.findIndex(t => t.id === currentId) : -1;
+        const COLS = 8;
+        let nextIdx: number;
+        if (currentIdx < 0) {
+          nextIdx = 0;
+        } else if (e.key === 'ArrowRight') {
+          nextIdx = Math.min(currentIdx + 1, list.length - 1);
+        } else if (e.key === 'ArrowLeft') {
+          nextIdx = Math.max(currentIdx - 1, 0);
+        } else if (e.key === 'ArrowDown') {
+          nextIdx = Math.min(currentIdx + COLS, list.length - 1);
+        } else {
+          nextIdx = Math.max(currentIdx - COLS, 0);
+        }
+        const next = list[nextIdx];
+        if (!next) return;
+        if (isComanda) {
+          setSelectedComandaId(next.id);
+          setIsComandaSelected(true);
+          setShowingRecentOrders(false);
+        } else {
+          setSelectedTableId(next.id);
+          setIsComandaSelected(false);
+          setShowingRecentOrders(false);
+        }
+        requestAnimationFrame(() => {
+          document.querySelector(`[data-kbd-table="${next.id}-${isComanda ? 'c' : 't'}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
         return;
       }
     };
@@ -4388,6 +4440,7 @@ export default function Dashboard({
                             {[...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))).map(table => (
                               <button
                                 key={table.id}
+                                data-kbd-table={`${table.id}-t`}
                                 draggable={table.status === 'occupied'}
                                 onDragStart={e => { if (table.status === 'occupied') { setDragSourceTable(table.id); e.dataTransfer.effectAllowed = 'move'; } }}
                                 onDragEnd={() => setDragSourceTable(null)}
@@ -4474,6 +4527,7 @@ export default function Dashboard({
                             {[...comandas].sort((a, b) => a.id - b.id).filter(c => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas).map(comanda => (
                               <button
                                 key={comanda.id}
+                                data-kbd-table={`${comanda.id}-c`}
                                 draggable={comanda.status === 'occupied'}
                                 onDragStart={e => { if (comanda.status === 'occupied') { setDragSourceComanda(comanda.id); e.dataTransfer.effectAllowed = 'move'; } }}
                                 onDragEnd={() => setDragSourceComanda(null)}
