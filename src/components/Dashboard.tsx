@@ -6920,14 +6920,15 @@ export default function Dashboard({
                     </div>
                   )}
                   {(pizzariaConfig.kdsEnabled ?? false) && pizzariaConfig.kdsScanToken && (
-                    <div className="flex flex-col gap-1 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
-                      <span className="text-[6px] uppercase font-bold text-blue-700">Scanner KDS (leitor de código de barras)</span>
-                      <div className="flex items-center gap-2">
-                        <QRCodeSVG value={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} size={48} />
-                        <div className="flex-1 min-w-0">
-                          <a href={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} target="_blank" rel="noopener noreferrer" className="text-[6.5px] text-blue-700 font-mono break-all hover:underline block leading-tight">{`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`}</a>
-                          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`)} className="text-[6px] bg-blue-600 text-white rounded px-1 py-0.5 hover:bg-blue-700 mt-0.5">Copiar link</button>
-                        </div>
+                    <div className="flex flex-col gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5">
+                      <span className="text-[7px] uppercase font-bold text-blue-700 tracking-wide">Scanner KDS — leitor de código de barras</span>
+                      <div className="flex justify-center bg-white rounded-lg p-3 border border-blue-100">
+                        <QRCodeSVG value={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} size={160} includeMargin />
+                      </div>
+                      <p className="text-[6.5px] text-blue-600 text-center leading-tight">Aponte a câmera do celular para abrir o scanner</p>
+                      <div className="flex flex-col gap-1">
+                        <a href={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} target="_blank" rel="noopener noreferrer" className="text-[6px] text-blue-700 font-mono break-all hover:underline leading-tight text-center">{`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`}</a>
+                        <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`)} className="text-[7px] bg-blue-600 text-white rounded-lg py-1.5 hover:bg-blue-700 font-bold w-full">Copiar link</button>
                       </div>
                     </div>
                   )}
