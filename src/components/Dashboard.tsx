@@ -11059,6 +11059,31 @@ export default function Dashboard({
                       }
                       toast.success(ack.alreadyApplied ? 'Baixa já estava confirmada.' : 'Baixa confirmada! Mesa liberada.');
                       setIsBaixaModalOpen(false);
+
+                      // NFC-e / NF-e: open emission screen if enabled
+                      const _emissaoNfce = fiscalConfig?.emissaoNfce;
+                      if (_emissaoNfce && _emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
+                        const _items = (activeOrder.items || []).filter((i: any) => !i.removed);
+                        let _total = _items.reduce((acc: number, i: any) => {
+                          let p = Number(i.price || 0);
+                          if (i.discount) p = i.discountType === 'percentage' ? p * (1 - i.discount / 100) : Math.max(0, p - i.discount);
+                          return acc + p * (i.quantity || 1);
+                        }, 0);
+                        const _dv = Number(activeOrder.discount || 0);
+                        if (_dv > 0) _total = activeOrder.discountType === 'percentage' ? _total * (1 - _dv / 100) : Math.max(0, _total - _dv);
+                        const _pl = activeOrder.paymentLog || [];
+                        const _mapped = mapPaymentMethod(_pl[_pl.length - 1]?.method);
+                        if (_emissaoNfce === 'automatico_sempre') {
+                          void emitirNfceAuto(activeOrder.id, _mapped);
+                        } else if (_emissaoNfce === 'automatico_cartao_pix') {
+                          const _isEletronico = _mapped === 'pix' || _mapped === 'cartao_credito' || _mapped === 'cartao_debito';
+                          if (_isEletronico) void emitirNfceAuto(activeOrder.id, _mapped);
+                          else setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); }, 400);
+                        } else {
+                          setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); }, 400);
+                        }
+                      }
+
                       if (printOnBaixa) {
                         const tableType = activeOrder.isComanda ? 'Comanda' : 'Mesa';
                         const tableLabel = `${tableType} ${activeOrder.tableId}`;
