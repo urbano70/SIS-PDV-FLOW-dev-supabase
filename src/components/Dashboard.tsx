@@ -1361,7 +1361,8 @@ export default function Dashboard({
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfceConsolidar, setNfceConsolidar] = useState(false);
-  const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
+  const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'vale_refeicao' | 'vale_alimentacao' | 'outros'>('dinheiro');
+  const [nfcePostTotalEdited, setNfcePostTotalEdited] = useState<string>('');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
   const [nfcePostCpf, setNfcePostCpf] = useState('');
@@ -2243,9 +2244,11 @@ export default function Dashboard({
     toast.info('O comprovante será impresso pelo fluxo de baixa confirmada; nenhum recibo foi criado agora.');
   };
 
-  const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros' => {
+  const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'vale_refeicao' | 'vale_alimentacao' | 'outros' => {
     if (!m) return 'dinheiro';
     const l = m.toLowerCase();
+    if (l === 'vale_refeicao' || l.includes('refei')) return 'vale_refeicao';
+    if (l === 'vale_alimentacao' || l.includes('alimen')) return 'vale_alimentacao';
     if (l.includes('créd') || l.includes('cred')) return 'cartao_credito';
     if (l.includes('déb') || l.includes('deb')) return 'cartao_debito';
     if (l.includes('pix')) return 'pix';
@@ -2258,13 +2261,13 @@ export default function Dashboard({
     window.open(`/danfe/nfce/${chaveAcesso}?tenant=${encodeURIComponent(tenantId)}&autoprint=1`, '_blank');
   };
 
-  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any) => {
+  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any, valorOverride?: number) => {
     if (!tenantId) return;
     const isAsync = !!(fiscalConfig as any)?.emissaoAssincrona;
     try {
       const r = await fetch(`/api/fiscal/nfce/${orderId}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync }),
+        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync, valorOverride: valorOverride && valorOverride > 0 ? valorOverride : undefined }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -2538,10 +2541,10 @@ export default function Dashboard({
       }
       const isEletronico = mapped === 'pix' || mapped === 'cartao_credito' || mapped === 'cartao_debito';
       if (emissaoNfce === 'apos_confirmacao') {
-        setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+        setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_cartao_pix') {
         if (isEletronico) await emitirNfceAuto(orderId, mapped);
-        else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+        else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_sempre') {
         await emitirNfceAuto(orderId, mapped);
       }
@@ -7700,6 +7703,18 @@ export default function Dashboard({
                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.emissaoAssincrona ? 'translate-x-5' : ''}`} />
                           </button>
                         </div>
+                        <div className="flex items-center justify-between gap-3 py-3 border-t border-[#141414]/10">
+                          <div>
+                            <p className="text-sm font-bold text-[#141414]">Permitir edição do valor na emissão</p>
+                            <p className="text-xs text-[#141414]/40 mt-0.5 leading-tight">Exibe campo editável do total na tela de emissão de NFC-e / NF-e.</p>
+                          </div>
+                          <button
+                            onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), permitirEdicaoValorNfce: !(prev?.permitirEdicaoValorNfce) }))}
+                            className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${cfg.permitirEdicaoValorNfce ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.permitirEdicaoValorNfce ? 'translate-x-5' : ''}`} />
+                          </button>
+                        </div>
                         <div className="border-t border-[#141414]/10 pt-3">
                           <label className="text-xs font-semibold uppercase text-[#141414]/50 mb-1 block">Item Consolidado</label>
                           <p className="text-xs text-[#141414]/40 mb-2">Ao emitir NFC-e, permite substituir todos os itens por um único produto (ex: "Refeição").</p>
@@ -11078,9 +11093,9 @@ export default function Dashboard({
                         } else if (_emissaoNfce === 'automatico_cartao_pix') {
                           const _isEletronico = _mapped === 'pix' || _mapped === 'cartao_credito' || _mapped === 'cartao_debito';
                           if (_isEletronico) void emitirNfceAuto(activeOrder.id, _mapped);
-                          else setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); }, 400);
+                          else setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); setNfcePagamento(_mapped); setNfcePostTotalEdited(''); }, 400);
                         } else {
-                          setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); }, 400);
+                          setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); setNfcePagamento(_mapped); setNfcePostTotalEdited(''); }, 400);
                         }
                       }
 
@@ -11682,9 +11697,35 @@ export default function Dashboard({
               <div className="p-4 space-y-3">
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-[8px] text-[#141414]/50 uppercase font-bold mb-0.5">Total do Pedido</p>
-                  <p className="text-xl font-bold text-[#141414]">R$ {nfcePostPayment.total.toFixed(2)}</p>
+                  {fiscalConfig?.permitirEdicaoValorNfce ? (
+                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                      <span className="text-sm font-bold text-[#141414]/50">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={nfcePostTotalEdited !== '' ? nfcePostTotalEdited : nfcePostPayment.total.toFixed(2)}
+                        onChange={e => setNfcePostTotalEdited(e.target.value)}
+                        className="w-28 text-xl font-bold text-[#141414] text-center border-b-2 border-blue-400 bg-transparent focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xl font-bold text-[#141414]">R$ {nfcePostPayment.total.toFixed(2)}</p>
+                  )}
                 </div>
                 <p className="text-[9px] text-[#141414]/60 text-center">Deseja emitir NFC-e para este pedido?</p>
+                <div>
+                  <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
+                  <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="cartao_credito">Cartão de Crédito</option>
+                    <option value="cartao_debito">Cartão de Débito</option>
+                    <option value="pix">PIX</option>
+                    <option value="vale_refeicao">Vale Refeição</option>
+                    <option value="vale_alimentacao">Vale Alimentação</option>
+                    <option value="outros">Outros</option>
+                  </select>
+                </div>
                 <div>
                   <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
                   <input value={nfcePostCpf} onChange={e => setNfcePostCpf(e.target.value)} placeholder="000.000.000-00"
@@ -11703,17 +11744,19 @@ export default function Dashboard({
                   </button>
                 )}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); }}
+                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); setNfcePostTotalEdited(''); }}
                     className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Não
                   </button>
                   <button disabled={nfcePostEmitting} onClick={async () => {
+                    const _override = nfcePostTotalEdited !== '' ? parseFloat(nfcePostTotalEdited) : undefined;
                     setNfcePostEmitting(true);
-                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePostPayment.method, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined);
+                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePagamento, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined, _override && _override > 0 ? _override : undefined);
                     setNfcePostEmitting(false);
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
                     setNfceConsolidar(false);
+                    setNfcePostTotalEdited('');
                   }}
                     className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
                     {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
@@ -11723,6 +11766,7 @@ export default function Dashboard({
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
                     setNfceConsolidar(false);
+                    setNfcePostTotalEdited('');
                     setNfeOrderId(String(nfcePostPayment.orderId));
                     setNfePagamento(nfcePostPayment.method || 'dinheiro');
                     setNfeTipo('pf');
@@ -11831,6 +11875,8 @@ export default function Dashboard({
                             <option value="cartao_credito">Cartão de Crédito</option>
                             <option value="cartao_debito">Cartão de Débito</option>
                             <option value="pix">PIX</option>
+                            <option value="vale_refeicao">Vale Refeição</option>
+                            <option value="vale_alimentacao">Vale Alimentação</option>
                             <option value="outros">Outros</option>
                           </select>
                         </div>

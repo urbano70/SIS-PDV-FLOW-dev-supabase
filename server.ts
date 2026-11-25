@@ -4689,7 +4689,7 @@ async function startServer() {
   // POST /api/fiscal/nfce/:orderId
   app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
     const { orderId } = req.params;
-    const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean };
+    const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode, valorOverride } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean; valorOverride?: number };
 
     if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
@@ -4760,7 +4760,9 @@ async function startServer() {
     // Montar itens
     const orderItemsRaw = (order.items || []).filter((i: any) => !i.removed);
     if (orderItemsRaw.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
-    const orderTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+    const baseTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+    const effectiveTotal = (valorOverride && valorOverride > 0) ? valorOverride : baseTotal;
+    const scaleFactor = baseTotal > 0 ? effectiveTotal / baseTotal : 1;
 
     let items: ItemNota[];
     if (consolidarItem?.id) {
@@ -4775,27 +4777,31 @@ async function startServer() {
         unidade: consolidarItem.unidade || 'UN',
         origem: '0',
         quantidade: 1,
-        valorUnitario: orderTotal,
-        valorTotal: orderTotal,
+        valorUnitario: effectiveTotal,
+        valorTotal: effectiveTotal,
         piscofins: { cst: '07' },
       }];
     } else {
-      items = orderItemsRaw.map((i: any, idx: number) => ({
-        seq: idx + 1,
-        codigo: String(100 + idx),
-        descricao: (i.name || 'Item').substring(0, 120),
-        ncm: i.ncm || '21069090',
-        cfop: i.cfop || '5102',
-        csosn: i.csosn || '400',
-        cst: i.cst,
-        unidade: i.unidade || 'UN',
-        origem: i.origem || '0',
-        quantidade: i.quantity ?? 1,
-        valorUnitario: i.price / (i.quantity ?? 1),
-        valorTotal: i.price,
-        piscofins: { cst: i.pisCofinsCst || '07' },
-        gtin: i.gtin || undefined,
-      }));
+      items = orderItemsRaw.map((i: any, idx: number) => {
+        const scaledTotal = i.price * scaleFactor;
+        const qty = i.quantity ?? 1;
+        return {
+          seq: idx + 1,
+          codigo: String(100 + idx),
+          descricao: (i.name || 'Item').substring(0, 120),
+          ncm: i.ncm || '21069090',
+          cfop: i.cfop || '5102',
+          csosn: i.csosn || '400',
+          cst: i.cst,
+          unidade: i.unidade || 'UN',
+          origem: i.origem || '0',
+          quantidade: qty,
+          valorUnitario: scaledTotal / qty,
+          valorTotal: scaledTotal,
+          piscofins: { cst: i.pisCofinsCst || '07' },
+          gtin: i.gtin || undefined,
+        };
+      });
     }
     const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
