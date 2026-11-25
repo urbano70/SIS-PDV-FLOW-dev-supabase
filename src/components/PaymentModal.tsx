@@ -52,22 +52,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       setTimeout(() => confirmPopupRef.current?.focus(), 50);
     }
   }, [isConfirming]);
-
-  useEffect(() => {
-    const update = () => {
-      const keyboardH = Math.max(0, window.innerHeight - (window.visualViewport?.height ?? window.innerHeight));
-      document.documentElement.style.setProperty('--keyboard-height', `${keyboardH}px`);
-    };
-    update();
-    window.visualViewport?.addEventListener('resize', update);
-    window.addEventListener('resize', update);
-    return () => {
-      window.visualViewport?.removeEventListener('resize', update);
-      window.removeEventListener('resize', update);
-      document.documentElement.style.removeProperty('--keyboard-height');
-    };
-  }, []);
-
   const [isQuantitySelectOpen, setIsQuantitySelectOpen] = useState(false);
   const [itemToSelectQuantity, setItemToSelectQuantity] = useState<PizzaItem | null>(null);
   const [tempQuantity, setTempQuantity] = useState(1);
@@ -87,7 +71,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [cashReceivedStr, setCashReceivedStr] = useState('');
-  const [isInputFocused, setIsInputFocused] = useState(false);
   const [guestFilter, setGuestFilter] = useState<string>('');
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -259,7 +242,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           ...prev,
           'Dinheiro': { ...prev['Dinheiro'], enabled: false, amount: 0, received: 0 }
         }));
-        setIsInputFocused(false);
         return;
       }
     }
@@ -274,7 +256,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         newState[method] = { ...newState[method], amount: Number(amountToFill.toFixed(2)) };
       } else {
         newState[method] = { ...newState[method], amount: 0 };
-        setIsInputFocused(false);
       }
       return newState;
     });
@@ -499,15 +480,14 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
-        className="fixed inset-0 z-[100] flex flex-col justify-end md:items-center md:justify-center md:p-2 bg-black/60"
-        style={{ paddingBottom: 'var(--keyboard-height, 0px)' }}
+        className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/60"
       >
         <motion.div
-          initial={{ y: '100%', opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: '100%', opacity: 0 }}
-          transition={{ duration: 0.22, ease: 'easeOut' }}
-          className="bg-[#E4E3E0] w-full md:max-w-4xl rounded-t-[2rem] md:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[90dvh] md:max-h-[95dvh]"
+          initial={{ scale: 0.95, y: 16, opacity: 0 }}
+          animate={{ scale: 1, y: 0, opacity: 1 }}
+          exit={{ scale: 0.95, y: 16, opacity: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95dvh]"
         >
           <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
             <div>
@@ -1023,8 +1003,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               </div>
             ) : (
               <div className="flex flex-col flex-1 min-h-0">
-                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 pb-1">
-                <div className={`flex justify-between items-start shrink-0 overflow-hidden transition-all duration-200 ${isInputFocused ? 'max-h-0 opacity-0 mb-0' : 'max-h-40 opacity-100'}`}>
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 pb-1">
+                <div className="flex justify-between items-start shrink-0">
                   <button onClick={() => setStep('selection')} className="text-xs font-bold flex items-center opacity-50 hover:opacity-100">
                     <X size={14} className="mr-1 rotate-45" /> Voltar para seleção
                   </button>
@@ -1068,7 +1048,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm">
+                <div className="bg-white rounded-3xl border border-[#141414]/10 p-3 md:p-4 flex flex-col shadow-sm shrink-0">
                   <div className="pb-2 border-b border-[#141414]/5 shrink-0">
                     <span className="font-serif italic text-sm uppercase tracking-wide opacity-60">Formas de Pagamento</span>
                   </div>
@@ -1088,18 +1068,18 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         <div
                           key={method}
                           ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
-                          className={`p-3 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
+                          className={`p-4 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
                         >
                           <div className="flex flex-col h-full space-y-2.5">
                             <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`transition-opacity group w-full ${state.enabled ? 'flex items-center gap-2.5 text-left' : 'flex flex-col items-center justify-center gap-1.5 min-h-[56px] hover:opacity-80'}`}
+                              className={`flex items-center space-x-3 text-left transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[72px] hover:opacity-80'}`}
                             >
                               <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${cfg.iconBg}`}>
                                 {state.enabled ? <Check size={20} /> : <Icon size={20} />}
                               </div>
-                              <span className={`font-bold text-sm leading-tight ${state.enabled ? '' : 'text-center'} ${cfg.label}`}>{method}</span>
+                              <span className={`font-bold text-base truncate ${cfg.label}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
@@ -1113,8 +1093,6 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                       step="0.01"
                                       value={state.amount || ''}
                                       onChange={(e) => handleAmountChange(method, parseFloat(e.target.value) || 0)}
-                                      onFocus={() => setIsInputFocused(true)}
-                                      onBlur={() => setIsInputFocused(false)}
                                       className="w-full font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
                                       autoFocus
                                     />
@@ -1152,42 +1130,36 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
                 </div>
 
+                <div className="flex items-center bg-white/60 border border-[#141414]/10 rounded-xl px-3 py-2 shrink-0">
+                  <span className="text-[9px] uppercase font-bold opacity-40 mr-2 whitespace-nowrap">Pagador</span>
+                  <input
+                    type="text"
+                    value={payerName}
+                    onChange={(e) => setPayerName(e.target.value)}
+                    placeholder="Nome (opcional)"
+                    className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
+                  />
                 </div>
 
-                <div className="shrink-0 flex flex-col gap-2 pt-2">
-                  <div className="flex items-center bg-white/60 border border-[#141414]/10 rounded-xl px-3 py-2">
-                    <span className="text-[9px] uppercase font-bold opacity-40 mr-2 whitespace-nowrap">Pagador</span>
-                    <input
-                      type="text"
-                      value={payerName}
-                      onChange={(e) => setPayerName(e.target.value)}
-                      onFocus={() => setIsInputFocused(true)}
-                      onBlur={() => setIsInputFocused(false)}
-                      placeholder="Nome (opcional)"
-                      className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
-                    />
-                  </div>
-
-                  {errorMessage && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0.9 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9 }}
-                      className="p-3 bg-red-100 text-red-700 rounded-xl text-xs font-bold text-center border border-red-200"
-                    >
-                      {errorMessage}
-                    </motion.div>
-                  )}
-
-                  <button
-                    onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
-                    disabled={isSubmitting}
-                    className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-wait"
+                {errorMessage && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="mb-4 p-3 bg-red-100 text-red-700 rounded-xl text-xs font-bold text-center border border-red-200"
                   >
-                    <Check size={20} />
-                    <span>{isSubmitting ? 'Enviando...' : 'Finalizar Pagamento'}</span>
-                  </button>
+                    {errorMessage}
+                  </motion.div>
+                )}
                 </div>
+                <button
+                  onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
+                  disabled={isSubmitting}
+                  className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 mt-3 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 shrink-0 disabled:opacity-40 disabled:cursor-wait"
+                >
+                  <Check size={20} />
+                  <span>{isSubmitting ? 'Enviando...' : 'Finalizar Pagamento'}</span>
+                </button>
               </div>
             )}
           </div>

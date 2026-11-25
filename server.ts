@@ -3098,37 +3098,28 @@ async function startServer() {
       const stagedOrder = JSON.parse(JSON.stringify(order));
       stagedOrder.items = [...(stagedOrder.items || []), itemWithTimestamp];
 
-      // Repair mesa pointer — covers both fallback and normal path.
-      // If the mesa is 'free' or its currentOrder doesn't match the order we just wrote to,
-      // the tile would show LIVRE even though there are active items. Fix unconditionally.
+      // Repair mesa pointer when fallback found an order the mesa doesn't reference
       const stagedTables: any[] = [];
       const stagedComandas: any[] = [];
-      {
-        const repairTableId = fallbackTableId || stagedOrder.tableId;
-        const repairIsComanda = fallbackIsComanda !== undefined ? !!fallbackIsComanda : !!stagedOrder.isComanda;
-        if (repairTableId) {
-          const repairList = repairIsComanda ? _st().comandas : _st().tables;
-          const repairMesa = repairList.find((t: any) => t.id && String(t.id) === String(repairTableId));
-          if (repairMesa && repairMesa.status !== 'linked' && (
-            repairMesa.status === 'free' ||
-            !repairMesa.currentOrder ||
-            String(repairMesa.currentOrder) !== String(stagedOrder.id)
-          )) {
-            const repairedMesa = {
-              ...repairMesa,
-              currentOrder: stagedOrder.id,
-              status: repairMesa.status === 'free' ? 'occupied' : repairMesa.status,
-            };
-            if (repairIsComanda) stagedComandas.push(repairedMesa);
-            else stagedTables.push(repairedMesa);
-          }
+      if (usedFallback && fallbackTableId) {
+        const fbTargetList = fallbackIsComanda ? _st().comandas : _st().tables;
+        const fbMesa = fbTargetList.find((t: any) => t.id && String(t.id) === String(fallbackTableId));
+        if (fbMesa && (!fbMesa.currentOrder || String(fbMesa.currentOrder) !== String(stagedOrder.id))) {
+          const repairedMesa = {
+            ...fbMesa,
+            currentOrder: stagedOrder.id,
+            status: fbMesa.status === 'free' ? 'occupied' : fbMesa.status,
+          };
+          if (fallbackIsComanda) stagedComandas.push(repairedMesa);
+          else stagedTables.push(repairedMesa);
         }
       }
 
       ensureCurrentCommandSession();
+      await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       replaceStagedOrderState(_st(), { order: stagedOrder, tables: stagedTables, comandas: stagedComandas });
       io.to(_room()).emit("update_orders", _st().orders);
-      if (stagedTables.length > 0 || stagedComandas.length > 0) {
+      if (usedFallback || stagedTables.length > 0 || stagedComandas.length > 0) {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }
