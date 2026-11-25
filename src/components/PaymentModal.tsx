@@ -71,6 +71,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [cashReceivedStr, setCashReceivedStr] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const [guestFilter, setGuestFilter] = useState<string>('');
 
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false);
@@ -242,6 +243,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
           ...prev,
           'Dinheiro': { ...prev['Dinheiro'], enabled: false, amount: 0, received: 0 }
         }));
+        setIsInputFocused(false);
         return;
       }
     }
@@ -256,6 +258,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         newState[method] = { ...newState[method], amount: Number(amountToFill.toFixed(2)) };
       } else {
         newState[method] = { ...newState[method], amount: 0 };
+        setIsInputFocused(false);
       }
       return newState;
     });
@@ -1003,8 +1006,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               </div>
             ) : (
               <div className="flex flex-col flex-1 min-h-0">
-                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 pb-1">
-                <div className="flex justify-between items-start shrink-0">
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 pb-1">
+                <div className={`flex justify-between items-start shrink-0 overflow-hidden transition-all duration-200 ${isInputFocused ? 'max-h-0 opacity-0 mb-0' : 'max-h-40 opacity-100'}`}>
                   <button onClick={() => setStep('selection')} className="text-xs font-bold flex items-center opacity-50 hover:opacity-100">
                     <X size={14} className="mr-1 rotate-45" /> Voltar para seleção
                   </button>
@@ -1093,6 +1096,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                                       step="0.01"
                                       value={state.amount || ''}
                                       onChange={(e) => handleAmountChange(method, parseFloat(e.target.value) || 0)}
+                                      onFocus={() => setIsInputFocused(true)}
+                                      onBlur={() => setIsInputFocused(false)}
                                       className="w-full font-mono font-bold focus:outline-none text-right text-sm bg-transparent"
                                       autoFocus
                                     />
@@ -1136,6 +1141,8 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                     type="text"
                     value={payerName}
                     onChange={(e) => setPayerName(e.target.value)}
+                    onFocus={() => setIsInputFocused(true)}
+                    onBlur={() => setIsInputFocused(false)}
                     placeholder="Nome (opcional)"
                     className="flex-1 bg-transparent text-xs font-medium focus:outline-none placeholder:opacity-30"
                   />
