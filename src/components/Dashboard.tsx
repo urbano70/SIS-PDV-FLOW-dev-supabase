@@ -1361,7 +1361,7 @@ export default function Dashboard({
   const [nfceModal, setNfceModal] = useState<{ orderId: number | string; total: number } | null>(null);
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfceConsolidar, setNfceConsolidar] = useState(false);
-  const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'vale_refeicao' | 'vale_alimentacao' | 'outros'>('dinheiro');
+  const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostTotalEdited, setNfcePostTotalEdited] = useState<string>('');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
@@ -2244,11 +2244,9 @@ export default function Dashboard({
     toast.info('O comprovante será impresso pelo fluxo de baixa confirmada; nenhum recibo foi criado agora.');
   };
 
-  const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'vale_refeicao' | 'vale_alimentacao' | 'outros' => {
+  const mapPaymentMethod = (m?: string): 'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros' => {
     if (!m) return 'dinheiro';
     const l = m.toLowerCase();
-    if (l === 'vale_refeicao' || l.includes('refei')) return 'vale_refeicao';
-    if (l === 'vale_alimentacao' || l.includes('alimen')) return 'vale_alimentacao';
     if (l.includes('créd') || l.includes('cred')) return 'cartao_credito';
     if (l.includes('déb') || l.includes('deb')) return 'cartao_debito';
     if (l.includes('pix')) return 'pix';
@@ -11715,18 +11713,6 @@ export default function Dashboard({
                 </div>
                 <p className="text-[9px] text-[#141414]/60 text-center">Deseja emitir NFC-e para este pedido?</p>
                 <div>
-                  <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">Forma de Pagamento</label>
-                  <select value={nfcePagamento} onChange={e => setNfcePagamento(e.target.value as any)} className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none">
-                    <option value="dinheiro">Dinheiro</option>
-                    <option value="cartao_credito">Cartão de Crédito</option>
-                    <option value="cartao_debito">Cartão de Débito</option>
-                    <option value="pix">PIX</option>
-                    <option value="vale_refeicao">Vale Refeição</option>
-                    <option value="vale_alimentacao">Vale Alimentação</option>
-                    <option value="outros">Outros</option>
-                  </select>
-                </div>
-                <div>
                   <label className="text-[7px] font-bold uppercase text-[#141414]/50 block mb-1">CPF do Consumidor (opcional)</label>
                   <input value={nfcePostCpf} onChange={e => setNfcePostCpf(e.target.value)} placeholder="000.000.000-00"
                     className="w-full border border-[#141414]/15 rounded px-2 py-1.5 text-[9px] focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -11875,8 +11861,6 @@ export default function Dashboard({
                             <option value="cartao_credito">Cartão de Crédito</option>
                             <option value="cartao_debito">Cartão de Débito</option>
                             <option value="pix">PIX</option>
-                            <option value="vale_refeicao">Vale Refeição</option>
-                            <option value="vale_alimentacao">Vale Alimentação</option>
                             <option value="outros">Outros</option>
                           </select>
                         </div>
