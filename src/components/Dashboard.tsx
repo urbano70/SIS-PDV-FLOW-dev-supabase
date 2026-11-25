@@ -2234,7 +2234,7 @@ export default function Dashboard({
       socket.off('kitchen_print_order', handleKitchenOrder);
       socket.off('print_result', handlePrintResult);
     };
-  }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth]);
+  }, [printerConfig.autoPrintKitchen, printerConfig.autoPrintPizzas, printerConfig.autoPrintDrinks, printerConfig.kitchen, printerConfig.drinks, printerConfig.pizzas, printerConfig.registeredPrinters, printerConfig.paperWidth, pizzariaConfig?.kdsEnabled]);
 
   // Status do agente de impressão local
   const [pendingAgentSocketId, setPendingAgentSocketId] = useState<string | null>(null);
