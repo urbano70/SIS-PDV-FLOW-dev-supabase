@@ -1,6 +1,7 @@
 import { getPizzaKitchenDetails } from './pizzaKitchenDetails';
 import { buildCashRegisterReportEscPos, type CashRegisterReportInput, type CashReportPaperWidth } from './cashRegisterReport';
 import { getDrinkProductionDetails } from './drinkPrintDetails';
+import { encodeKdsBarcode, escPosCode128Bytes } from './kdsBarcode';
 
 /**
  * Web Bluetooth BLE thermal printer utility.
@@ -192,7 +193,7 @@ export interface TicketOrder {
   isComanda?: boolean;
   waiterName?: string;
   observations?: string;
-  items: { name: string; price: number; quantity?: number; obs?: string; observations?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
+  items: { id?: string; name: string; price: number; quantity?: number; obs?: string; observations?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
 }
 
 function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
@@ -240,7 +241,7 @@ function pizzaBaseName(item: TicketOrder['items'][0]): string {
   return item.name.replace(/\s*\(.*?\)(\s*\+.*)?$/, '').trim();
 }
 
-export function buildOrderTicket(order: TicketOrder, establishmentName: string): Uint8Array {
+export function buildOrderTicket(order: TicketOrder, establishmentName: string, kdsEnabled = false): Uint8Array {
   const now = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', hour12: false });
   const label = order.isComanda ? `Comanda ${order.tableId}` : `Mesa ${order.tableId}`;
   const items = (order.items || []).filter(i => !i.removed);
@@ -271,6 +272,11 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string):
     }
     const observation = drinkDetails?.remainingObservation ?? item.obs;
     if (observation) parts.push(encode(`   Obs: ${observation}\n`));
+    if (kdsEnabled && item.id && (item.type === 'pizzas' || item.type === 'lanches')) {
+      const barcode = encodeKdsBarcode(order.id, item.id);
+      parts.push(new Uint8Array(escPosCode128Bytes(barcode)));
+      parts.push(NL);
+    }
   }
 
   parts.push(DASHES);
