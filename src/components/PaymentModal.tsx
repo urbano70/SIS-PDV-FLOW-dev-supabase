@@ -28,6 +28,11 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
 
   const confirmPopupRef = useRef<HTMLDivElement>(null);
   const dinheiroCardRef = useRef<HTMLDivElement>(null);
+  const finalizarBtnRef = useRef<HTMLButtonElement>(null);
+  const pagarAgoraBtnRef = useRef<HTMLButtonElement>(null);
+  const simBtnRef = useRef<HTMLButtonElement>(null);
+  const naoBtnRef = useRef<HTMLButtonElement>(null);
+  const [kbdMethodIdx, setKbdMethodIdx] = useState(0);
   const [step, setStep] = useState<'selection' | 'methods'>('selection');
   const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
   const [isConfirming, setIsConfirming] = useState(false);
@@ -47,11 +52,24 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
   // (must be declared AFTER isConfirming useState to avoid TDZ error)
   useEffect(() => {
     if (isConfirming) {
-      // Blur first (works on Android), then focus the popup container (works on iOS)
       (document.activeElement as HTMLElement)?.blur();
-      setTimeout(() => confirmPopupRef.current?.focus(), 50);
+      setTimeout(() => { confirmPopupRef.current?.focus(); simBtnRef.current?.focus(); }, 50);
     }
   }, [isConfirming]);
+
+  // Focus "Pagar Agora" when modal opens at selection step
+  useEffect(() => {
+    if (isOpen && step === 'selection') {
+      setTimeout(() => pagarAgoraBtnRef.current?.focus(), 100);
+    }
+  }, [isOpen, step]);
+
+  // Focus first payment method when moving to methods step
+  useEffect(() => {
+    if (step === 'methods') {
+      setKbdMethodIdx(0);
+    }
+  }, [step]);
 
   useEffect(() => {
     const update = () => {
@@ -489,6 +507,67 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
     const method = (Object.keys(payments) as PaymentMethod[]).find(m => payments[m].enabled && payments[m].amount > 0);
     await submitPayment(isSplitPayment ? {} : selectedItems, totalPaid, method);
   };
+
+  const PAYMENT_METHODS: PaymentMethod[] = ['Crédito', 'Débito', 'PIX', 'Dinheiro'];
+
+  // Keyboard navigation handler for the payment flow
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      // Confirmation popup keyboard navigation
+      if (isConfirming) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const focused = document.activeElement;
+          if (focused === naoBtnRef.current) { setIsConfirming(false); }
+          else { void confirmFinal().catch(err => setErrorMessage(err?.message || 'Pagamento não confirmado.')); }
+          return;
+        }
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault();
+          if (document.activeElement === simBtnRef.current) naoBtnRef.current?.focus();
+          else simBtnRef.current?.focus();
+          return;
+        }
+        return;
+      }
+
+      if (isInput || isCashModalOpen || isSplitModalOpen || isDiscountModalOpen) return;
+
+      if (step === 'selection') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          pagarAgoraBtnRef.current?.click();
+        }
+        return;
+      }
+
+      // step === 'methods'
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const cols = 4;
+        const delta = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        setKbdMethodIdx(prev => (prev + delta + cols) % cols);
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (document.activeElement === finalizarBtnRef.current) {
+          finalizarBtnRef.current?.click();
+          return;
+        }
+        // Toggle the highlighted payment method then focus Finalizar
+        handlePaymentToggle(PAYMENT_METHODS[kbdMethodIdx]);
+        setTimeout(() => finalizarBtnRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isOpen, step, isConfirming, kbdMethodIdx, isCashModalOpen, isSplitModalOpen, isDiscountModalOpen]);
 
   if (!isOpen) return null;
 
@@ -1013,6 +1092,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                     ) : null}
                   </div>
                   <button
+                    ref={pagarAgoraBtnRef}
                     disabled={!isSplitPayment && Object.keys(selectedItems).length === 0}
                     onClick={() => setStep('methods')}
                     className="bg-[#141414] text-[#E4E3E0] px-8 py-3 rounded-2xl font-bold text-base shadow-lg disabled:opacity-30 disabled:cursor-not-allowed active:scale-95 transition-all"
@@ -1074,9 +1154,10 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   </div>
 
                   <div className="pt-3 grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                    {(['Crédito', 'Débito', 'PIX', 'Dinheiro'] as PaymentMethod[]).map(method => {
+                    {(['Crédito', 'Débito', 'PIX', 'Dinheiro'] as PaymentMethod[]).map((method, methodIdx) => {
                       const Icon = method === 'Crédito' || method === 'Débito' ? CreditCard : method === 'PIX' ? QrCode : Banknote;
                       const state = payments[method];
+                      const isKbdActive = kbdMethodIdx === methodIdx && step === 'methods';
                       const cfg = {
                         'Crédito': { border: state.enabled ? 'border-blue-500' : 'border-blue-200', bg: state.enabled ? 'bg-blue-50' : 'bg-blue-50/40', iconBg: state.enabled ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-400', label: state.enabled ? 'text-blue-700' : 'text-blue-400', hover: 'hover:border-blue-400 hover:bg-blue-50/70' },
                         'Débito':  { border: state.enabled ? 'border-violet-500' : 'border-violet-200', bg: state.enabled ? 'bg-violet-50' : 'bg-violet-50/40', iconBg: state.enabled ? 'bg-violet-500 text-white' : 'bg-violet-100 text-violet-400', label: state.enabled ? 'text-violet-700' : 'text-violet-400', hover: 'hover:border-violet-400 hover:bg-violet-50/70' },
@@ -1088,7 +1169,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         <div
                           key={method}
                           ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
-                          className={`p-3 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
+                          className={`p-3 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'} ${isKbdActive ? 'ring-2 ring-offset-1 ring-[#141414]/40' : ''}`}
                         >
                           <div className="flex flex-col h-full space-y-2.5">
                             <button
@@ -1180,6 +1261,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                   )}
 
                   <button
+                    ref={finalizarBtnRef}
                     onClick={() => { void handleFinishPayment().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
                     disabled={isSubmitting}
                     className="w-full bg-[#141414] text-[#E4E3E0] py-3.5 rounded-2xl font-bold text-lg shadow-xl active:scale-95 transition-all flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-wait"
@@ -1338,17 +1420,19 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
               <h3 className="font-serif italic text-2xl">Finalizar?</h3>
               <p className="text-sm opacity-60">Deseja concluir o pagamento desta comanda?</p>
               <div className="flex space-x-3">
-                <button 
+                <button
+                  ref={naoBtnRef}
                   onClick={() => setIsConfirming(false)}
                   disabled={isSubmitting}
-                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-wait"
+                  className="flex-1 py-3 rounded-xl font-bold text-sm border border-[#141414]/10 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-wait focus:ring-2 focus:ring-[#141414]/30 focus:outline-none"
                 >
                   Não
                 </button>
-                <button 
+                <button
+                  ref={simBtnRef}
                   onClick={() => { void confirmFinal().catch(error => setErrorMessage(error?.message || 'Pagamento não confirmado. Confira o pedido antes de tentar novamente.')); }}
                   disabled={isSubmitting}
-                  className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-wait"
+                  className="flex-1 bg-[#141414] text-[#E4E3E0] py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-wait focus:ring-2 focus:ring-[#141414]/50 focus:outline-none"
                 >
                   Sim
                 </button>
