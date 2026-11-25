@@ -12,10 +12,10 @@ export interface ItemActionAck {
 }
 
 export const KITCHEN_STAGE_LABELS: Record<KitchenStage, string> = {
-  waiting: 'Na fila',
-  preparing: 'Em preparo',
-  oven: 'No forno',
-  ready: 'Pronto — retirar',
+  waiting: 'A Preparar',
+  preparing: 'Preparando',
+  oven: 'No Forno',
+  ready: 'Aguardando Garçom',
 };
 
 export function isPlaygroundItem(item: Pick<PizzaItem, 'menuItemId' | 'source'> & { isParquinho?: boolean }): boolean {
