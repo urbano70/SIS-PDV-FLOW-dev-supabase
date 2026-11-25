@@ -2468,7 +2468,7 @@ async function startServer() {
           replaceStagedOrderState(_st(), { order: stagedOrder });
           io.to(_room()).emit("update_orders", _st().orders);
           if (newItems.length > 0) {
-            const kPayload1 = { items: newItems, tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
+            const kPayload1 = { id: stagedOrder.id, items: newItems, tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
             io.to(_room()).emit("kitchen_new_order", kPayload1);
             emitPrintOrder(kPayload1);
             applyStockReduction(_st(), tenantId, newItems);
@@ -2524,7 +2524,7 @@ async function startServer() {
       commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas })
         .catch(err => console.error('[new_order] commit failed:', err));
       if ((newOrder.items || []).length > 0) {
-        const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
+        const kPayload2 = { id: newOrder.id, items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
         emitPrintOrder(kPayload2);
         applyStockReduction(_st(), tenantId, newOrder.items);
@@ -3134,7 +3134,7 @@ async function startServer() {
       }
       commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas })
         .catch(err => console.error('[add_item] commit failed:', err));
-      const kPayload3 = { items: [itemWithTimestamp], tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
+      const kPayload3 = { id: stagedOrder.id, items: [itemWithTimestamp], tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
       io.to(_room()).emit("kitchen_new_order", kPayload3);
       emitPrintOrder(kPayload3);
       applyStockReduction(_st(), tenantId, [itemWithTimestamp]);
