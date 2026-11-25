@@ -480,14 +480,14 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15, ease: 'easeOut' }}
-        className="fixed inset-0 z-[100] flex items-center justify-center p-2 bg-black/60"
+        className="fixed inset-0 z-[100] flex flex-col justify-end md:items-center md:justify-center md:p-2 bg-black/60"
       >
         <motion.div
-          initial={{ scale: 0.95, y: 16, opacity: 0 }}
-          animate={{ scale: 1, y: 0, opacity: 1 }}
-          exit={{ scale: 0.95, y: 16, opacity: 0 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className="bg-[#E4E3E0] w-full max-w-4xl rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[95dvh]"
+          initial={{ y: '100%', opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: '100%', opacity: 0 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          className="bg-[#E4E3E0] w-full md:max-w-4xl rounded-t-[2rem] md:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col max-h-[90dvh] md:max-h-[95dvh]"
         >
           <header className="px-6 py-3 bg-[#141414] text-[#E4E3E0] flex justify-between items-center shrink-0">
             <div>
@@ -1074,7 +1074,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                             <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`transition-opacity group w-full ${state.enabled ? 'flex items-center gap-2.5 text-left' : 'flex flex-col items-center justify-center gap-1.5 min-h-[72px] hover:opacity-80'}`}
+                              className={`transition-opacity group w-full ${state.enabled ? 'flex items-center gap-2.5 text-left' : 'flex flex-col items-center justify-center gap-1.5 min-h-[56px] hover:opacity-80'}`}
                             >
                               <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${cfg.iconBg}`}>
                                 {state.enabled ? <Check size={20} /> : <Icon size={20} />}
