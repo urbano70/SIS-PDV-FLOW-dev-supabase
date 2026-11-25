@@ -1068,18 +1068,18 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
                         <div
                           key={method}
                           ref={method === 'Dinheiro' ? dinheiroCardRef : undefined}
-                          className={`p-4 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
+                          className={`p-3 rounded-2xl border-2 transition-all select-none flex flex-col ${cfg.border} ${cfg.bg} ${!state.enabled ? cfg.hover + ' cursor-pointer' : 'shadow-md'}`}
                         >
                           <div className="flex flex-col h-full space-y-2.5">
                             <button
                               type="button"
                               onClick={() => handlePaymentToggle(method)}
-                              className={`flex items-center space-x-3 text-left transition-opacity group ${state.enabled ? '' : 'flex-1 justify-center min-h-[72px] hover:opacity-80'}`}
+                              className={`transition-opacity group w-full ${state.enabled ? 'flex items-center gap-2.5 text-left' : 'flex flex-col items-center justify-center gap-1.5 min-h-[72px] hover:opacity-80'}`}
                             >
                               <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors shrink-0 ${cfg.iconBg}`}>
                                 {state.enabled ? <Check size={20} /> : <Icon size={20} />}
                               </div>
-                              <span className={`font-bold text-base truncate ${cfg.label}`}>{method}</span>
+                              <span className={`font-bold text-sm leading-tight ${state.enabled ? '' : 'text-center'} ${cfg.label}`}>{method}</span>
                             </button>
 
                             {state.enabled && (
