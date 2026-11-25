@@ -2513,7 +2513,6 @@ async function startServer() {
         });
       }
       ensureCurrentCommandSession();
-      await commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas });
       _st().dailyCounter = nextCounter;
       _st().lastOrderDate = dateStr;
       replaceStagedOrderState(_st(), { order: newOrder, tables: stagedTables, comandas: stagedComandas });
@@ -2522,6 +2521,8 @@ async function startServer() {
       io.to(_room()).emit("update_orders", _st().orders);
       io.to(_room()).emit("update_tables", _st().tables);
       io.to(_room()).emit("update_comandas", _st().comandas);
+      commitCriticalOrderState({ tenantId, order: newOrder, tables: stagedTables, comandas: stagedComandas })
+        .catch(err => console.error('[new_order] commit failed:', err));
       if ((newOrder.items || []).length > 0) {
         const kPayload2 = { items: newOrder.items, tableId: newOrder.tableId, isComanda: newOrder.isComanda };
         io.to(_room()).emit("kitchen_new_order", kPayload2);
@@ -3122,6 +3123,8 @@ async function startServer() {
         io.to(_room()).emit("update_tables", _st().tables);
         io.to(_room()).emit("update_comandas", _st().comandas);
       }
+      commitCriticalOrderState({ tenantId, order: stagedOrder, tables: stagedTables, comandas: stagedComandas })
+        .catch(err => console.error('[add_item] commit failed:', err));
       const kPayload3 = { items: [itemWithTimestamp], tableId: stagedOrder.tableId, isComanda: stagedOrder.isComanda };
       io.to(_room()).emit("kitchen_new_order", kPayload3);
       emitPrintOrder(kPayload3);
@@ -3198,6 +3201,37 @@ async function startServer() {
           writeAudit(_tid(), 'item_removed', _removedActor,
             `Item removido — Mesa ${order.tableId ?? '?'}${reason ? ` (${reason})` : ''}`,
             { orderId, reason: reason || null });
+
+          // Auto-libera a mesa quando todos os itens foram removidos
+          const allItemsRemoved = (order.items || []).length > 0 && (order.items || []).every((i: any) => i.removed === true);
+          if (allItemsRemoved) {
+            const tenantId = _tid();
+            const stagedOrder = JSON.parse(JSON.stringify(order));
+            stagedOrder.status = 'finalizada';
+            stagedOrder.forceReleased = true;
+            const autoFreeTables: any[] = [];
+            const autoFreeComandas: any[] = [];
+            _st().tables.forEach((t: any) => {
+              if (t.currentOrder && String(t.currentOrder) === String(order.id)) {
+                autoFreeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
+              }
+            });
+            _st().comandas.forEach((c: any) => {
+              if (c.currentOrder && String(c.currentOrder) === String(order.id)) {
+                autoFreeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+              }
+            });
+            await commitCriticalOrderState({ tenantId, order: stagedOrder, tables: autoFreeTables, comandas: autoFreeComandas });
+            replaceStagedOrderState(_st(), { order: stagedOrder, tables: autoFreeTables, comandas: autoFreeComandas });
+            io.to(_room()).emit('update_orders', _st().orders);
+            io.to(_room()).emit('update_tables', _st().tables);
+            io.to(_room()).emit('update_comandas', _st().comandas);
+            writeAudit(tenantId, 'force_release' as any, _removedActor,
+              `Mesa auto-liberada — todos os itens removidos (Mesa ${order.tableId ?? '?'})`,
+              { orderId: String(order.id) });
+            return;
+          }
+
           enqueueWrite('orders', order, String(order.id), _tid());
           io.to(_room()).emit("update_orders", _st().orders);
         }
@@ -3483,16 +3517,18 @@ async function startServer() {
           sourceTable.status = "free";
           sourceTable.linkedTo = null;
 
-          // Persist changes
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', sourceTable, sourceTable.id.toString(), _tid());
-          await saveToSupabase(isComanda ? 'comandas' : 'tables', targetTable, targetTable.id.toString(), _tid());
-          if (sourceOrder) await saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid());
-          if (targetOrder) await saveToSupabase('orders', targetOrder, targetOrder.id, _tid());
+          // Emit immediately, then persist in background
+          io.to(_room()).emit("update_tables", _st().tables);
+          io.to(_room()).emit("update_comandas", _st().comandas);
+          io.to(_room()).emit("update_orders", _st().orders);
+          const _tableCol = isComanda ? 'comandas' : 'tables';
+          Promise.all([
+            saveToSupabase(_tableCol, sourceTable, sourceTable.id.toString(), _tid()),
+            saveToSupabase(_tableCol, targetTable, targetTable.id.toString(), _tid()),
+            sourceOrder ? saveToSupabase('orders', sourceOrder, sourceOrder.id, _tid()) : Promise.resolve(),
+            targetOrder ? saveToSupabase('orders', targetOrder, targetOrder.id, _tid()) : Promise.resolve(),
+          ]).catch(err => console.error('[transfer_table] persist failed:', err));
         }
-
-        io.to(_room()).emit("update_tables", _st().tables);
-        io.to(_room()).emit("update_comandas", _st().comandas);
-        io.to(_room()).emit("update_orders", _st().orders);
       }
     });
 
@@ -3770,6 +3806,61 @@ async function startServer() {
           `Mesa liberada à força — Pedido ${normalizedOrderId}`, { orderId: normalizedOrderId });
       }
       return makeAck(tenantId, { ok: true, orderId: normalizedOrderId, status: stagedOrder.status, alreadyApplied: alreadyFinal });
+    }));
+
+    // Limpa TODOS os pedidos ativos e libera TODAS as mesas/comandas.
+    // Usado antes de aplicar uma atualização do app para garantir estado limpo.
+    onTenantCommand("force_release_all_tables", requireAdmin(async () => {
+      const tenantId = _tid();
+      await loadTenantIfNeeded(tenantId);
+      ensureCurrentCommandSession();
+      const st = _st();
+      let freed = 0;
+      const freeTables: any[] = [];
+      const freeComandas: any[] = [];
+      // Cancel ALL active orders regardless of mesa status
+      const ordersToCancel: any[] = [];
+      for (const o of st.orders) {
+        if (o.status !== 'finalizada' && o.status !== 'paid') {
+          ordersToCancel.push({ ...o, status: 'finalizada', forceReleased: true });
+        }
+      }
+      for (const t of st.tables) {
+        if (t.status !== 'free') {
+          freed++;
+          freeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
+        }
+      }
+      for (const c of st.comandas) {
+        if (c.status !== 'free') {
+          freed++;
+          freeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+        }
+      }
+      // Persist all cancelled orders
+      for (const stagedOrder of ordersToCancel) {
+        if (db) saveToSupabase('orders', stagedOrder, String(stagedOrder.id), tenantId).catch(() => {});
+        const idx = st.orders.findIndex((o: any) => String(o.id) === String(stagedOrder.id));
+        if (idx !== -1) st.orders[idx] = stagedOrder;
+      }
+      // Persist all freed tables
+      for (const t of freeTables) {
+        if (db) saveToSupabase('tables', t, t.id.toString(), tenantId).catch(() => {});
+        const idx = st.tables.findIndex((x: any) => x.id === t.id);
+        if (idx !== -1) st.tables[idx] = t;
+      }
+      // Persist all freed comandas
+      for (const c of freeComandas) {
+        if (db) saveToSupabase('comandas', c, c.id.toString(), tenantId).catch(() => {});
+        const idx = st.comandas.findIndex((x: any) => x.id === c.id);
+        if (idx !== -1) st.comandas[idx] = c;
+      }
+      io.to(_room()).emit('update_orders', st.orders);
+      io.to(_room()).emit('update_tables', st.tables);
+      io.to(_room()).emit('update_comandas', st.comandas);
+      writeAudit(tenantId, 'force_release' as any, 'ADM',
+        `Limpeza pré-atualização: ${ordersToCancel.length} pedido(s) cancelado(s), ${freed} mesa(s)/comanda(s) liberada(s)`, {});
+      return makeAck(tenantId, { ok: true, freed, cancelled: ordersToCancel.length });
     }));
 
     onTenantCommand("request_bill", async ({ tableId, isComanda }) => {
@@ -4107,6 +4198,72 @@ async function startServer() {
   };
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  app.post("/api/kds/scan", express.json({ limit: '4kb' }), async (req, res) => {
+    const { barcode, token } = req.body || {};
+    if (!barcode || !token) return res.status(400).json({ ok: false, message: 'barcode e token são obrigatórios.' });
+
+    // find tenant by kdsScanToken
+    let tenantId: string | null = null;
+    for (const [tid, st] of tenants.entries()) {
+      if (st.pizzariaConfig?.kdsScanToken === token) { tenantId = tid; break; }
+    }
+    if (!tenantId) return res.status(401).json({ ok: false, message: 'Token inválido.' });
+
+    const pipeIdx = String(barcode).indexOf('|');
+    if (pipeIdx < 1) return res.status(400).json({ ok: false, message: 'Código de barras inválido.' });
+    const orderId = String(barcode).slice(0, pipeIdx);
+    const itemId = String(barcode).slice(pipeIdx + 1);
+
+    try {
+      const result = await withTenantCommand(tenantId, async () => {
+        const st = getState(tenantId!);
+        if (!st.pizzariaConfig?.kdsEnabled) throw new Error('KDS desativado.');
+        const order = (st.orders || []).find((o: any) => String(o.id) === orderId);
+        if (!order) throw new Error('Pedido não encontrado.');
+        const CLOSED = new Set(['finalizada', 'finalized', 'paid', 'cancelled', 'cancelada', 'canceled']);
+        if (CLOSED.has(String(order.status || '').toLowerCase())) throw new Error('Pedido encerrado.');
+        const item = (order.items || []).find((i: any) => String(i.id) === itemId);
+        if (!item) throw new Error('Item não encontrado.');
+        if (item.removed) throw new Error('Item removido.');
+        if (item.deliveredAt) throw new Error('Item já entregue.');
+
+        const type = (() => {
+          if (item.type === 'pizzas') return 'pizzas';
+          const cat = (st.menu || []).find((c: any) => {
+            const products = [...(c.items || []), ...(c.subcategories || []).flatMap((g: any) => g.items || [])];
+            return products.some((p: any) => item.menuItemId ? p.id === item.menuItemId : p.name === item.name);
+          });
+          return cat?.type || item.type;
+        })();
+        if (type !== 'pizzas' && type !== 'lanches') throw new Error('Item fora das filas KDS.');
+
+        const current: string = item.kitchenStatus || 'waiting';
+        const isPizza = type === 'pizzas';
+        let next: string;
+        if (current === 'waiting') next = 'preparing';
+        else if (current === 'preparing' && isPizza) next = 'oven';
+        else if (current === 'preparing' && !isPizza) next = 'ready';
+        else if (current === 'oven' && isPizza) next = 'ready';
+        else throw new Error(`Item já está em "${current}". Sem próximo estágio.`);
+
+        const before = JSON.parse(JSON.stringify(order));
+        item.kitchenStatus = next;
+        try {
+          await saveToSupabase('orders', order, String(order.id), tenantId!);
+        } catch (err) {
+          Object.assign(order, before);
+          throw err;
+        }
+        io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
+        const labels: Record<string, string> = { waiting: 'Na fila', preparing: 'Em preparo', oven: 'No forno', ready: 'Pronto — retirar' };
+        return { item: item.name, next, label: labels[next] || next };
+      });
+      return res.json({ ok: true, message: `${result.item} → ${result.label}` });
+    } catch (err: any) {
+      return res.status(400).json({ ok: false, message: err?.message || 'Não foi possível atualizar o KDS.' });
+    }
   });
 
   const profileFailure = (res: any, error: any) => {
@@ -4589,7 +4746,7 @@ async function startServer() {
   // POST /api/fiscal/nfce/:orderId
   app.post("/api/fiscal/nfce/:orderId", express.json(), async (req, res) => {
     const { orderId } = req.params;
-    const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean };
+    const { tenantId, pagamento, cpfConsumidor, consolidarItem, asyncMode, valorOverride } = req.body as { tenantId: string; pagamento: string; cpfConsumidor?: string; consolidarItem?: { id: string; name: string; ncm?: string; cfop?: string; csosn?: string; cst?: string; unidade?: string }; asyncMode?: boolean; valorOverride?: number };
 
     if (!await requireAdminHttp(req, res, [tenantId])) return;
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
@@ -4660,7 +4817,9 @@ async function startServer() {
     // Montar itens
     const orderItemsRaw = (order.items || []).filter((i: any) => !i.removed);
     if (orderItemsRaw.length === 0) return res.status(400).json({ error: 'Pedido sem itens' });
-    const orderTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+    const baseTotal = orderItemsRaw.reduce((s: number, i: any) => s + i.price, 0);
+    const effectiveTotal = (valorOverride && valorOverride > 0) ? valorOverride : baseTotal;
+    const scaleFactor = baseTotal > 0 ? effectiveTotal / baseTotal : 1;
 
     let items: ItemNota[];
     if (consolidarItem?.id) {
@@ -4675,27 +4834,31 @@ async function startServer() {
         unidade: consolidarItem.unidade || 'UN',
         origem: '0',
         quantidade: 1,
-        valorUnitario: orderTotal,
-        valorTotal: orderTotal,
+        valorUnitario: effectiveTotal,
+        valorTotal: effectiveTotal,
         piscofins: { cst: '07' },
       }];
     } else {
-      items = orderItemsRaw.map((i: any, idx: number) => ({
-        seq: idx + 1,
-        codigo: String(100 + idx),
-        descricao: (i.name || 'Item').substring(0, 120),
-        ncm: i.ncm || '21069090',
-        cfop: i.cfop || '5102',
-        csosn: i.csosn || '400',
-        cst: i.cst,
-        unidade: i.unidade || 'UN',
-        origem: i.origem || '0',
-        quantidade: i.quantity ?? 1,
-        valorUnitario: i.price / (i.quantity ?? 1),
-        valorTotal: i.price,
-        piscofins: { cst: i.pisCofinsCst || '07' },
-        gtin: i.gtin || undefined,
-      }));
+      items = orderItemsRaw.map((i: any, idx: number) => {
+        const scaledTotal = i.price * scaleFactor;
+        const qty = i.quantity ?? 1;
+        return {
+          seq: idx + 1,
+          codigo: String(100 + idx),
+          descricao: (i.name || 'Item').substring(0, 120),
+          ncm: i.ncm || '21069090',
+          cfop: i.cfop || '5102',
+          csosn: i.csosn || '400',
+          cst: i.cst,
+          unidade: i.unidade || 'UN',
+          origem: i.origem || '0',
+          quantidade: qty,
+          valorUnitario: scaledTotal / qty,
+          valorTotal: scaledTotal,
+          piscofins: { cst: i.pisCofinsCst || '07' },
+          gtin: i.gtin || undefined,
+        };
+      });
     }
     const total = items.reduce((s, i) => s + i.valorTotal, 0);
 
@@ -6464,35 +6627,59 @@ async function startServer() {
     }
   });
 
-  // Libera mesas/comandas ocupadas sem pedido ativo (correção manual)
+  // Cancela TODOS os pedidos ativos e libera TODAS as mesas/comandas (correção manual).
+  // Cobre o caso em que mesa.status='free' mas há pedidos ativos apontando para ela.
   app.post("/api/fix-tables", async (req, res) => {
     const tenantId: string = String(req.body?.tenantId || '').trim();
     if (!tenantId) return res.status(400).json({ error: 'tenantId obrigatório' });
     if (!await requireAdminHttp(req, res, [tenantId])) return;
     const st = getState(tenantId);
-    const activeIds = new Set(st.orders.filter((o: any) => o.status !== 'finalizada' && o.status !== 'paid').map((o: any) => String(o.id)));
     let fixed = 0;
-    st.tables = st.tables.map((t: any) => {
-      if (t.status !== 'free' && t.currentOrder && !activeIds.has(String(t.currentOrder))) {
-        fixed++;
-        if (db) saveToSupabase('tables', { ...t, status: 'free', currentOrder: null, linkedTo: null }, t.id.toString(), tenantId).catch(() => {});
-        return { ...t, status: 'free', currentOrder: null, linkedTo: null };
+    const cancelledOrders: any[] = [];
+    const freeTables: any[] = [];
+    const freeComandas: any[] = [];
+    // 1. Cancel ALL active orders regardless of mesa status
+    for (const o of st.orders) {
+      if (o.status !== 'finalizada' && o.status !== 'paid') {
+        cancelledOrders.push({ ...o, status: 'finalizada', forceReleased: true });
       }
-      return t;
-    });
-    st.comandas = st.comandas.map((c: any) => {
-      if (c.status !== 'free' && c.currentOrder && !activeIds.has(String(c.currentOrder))) {
+    }
+    // 2. Free ALL non-free mesas/comandas
+    for (const t of st.tables) {
+      if (t.status !== 'free') {
         fixed++;
-        if (db) saveToSupabase('comandas', { ...c, status: 'free', currentOrder: null, linkedTo: null }, c.id.toString(), tenantId).catch(() => {});
-        return { ...c, status: 'free', currentOrder: null, linkedTo: null };
+        freeTables.push({ ...t, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: t.currentOrder });
       }
-      return c;
-    });
-    if (fixed > 0) {
+    }
+    for (const c of st.comandas) {
+      if (c.status !== 'free') {
+        fixed++;
+        freeComandas.push({ ...c, status: 'free', currentOrder: null, linkedTo: null, expectedCurrentOrder: c.currentOrder });
+      }
+    }
+    if (cancelledOrders.length > 0 || fixed > 0) {
+      for (const o of cancelledOrders) {
+        if (db) saveToSupabase('orders', o, String(o.id), tenantId).catch(() => {});
+        const idx = st.orders.findIndex((x: any) => String(x.id) === String(o.id));
+        if (idx !== -1) st.orders[idx] = o;
+      }
+      for (const t of freeTables) {
+        if (db) saveToSupabase('tables', t, t.id.toString(), tenantId).catch(() => {});
+        const idx = st.tables.findIndex((x: any) => x.id === t.id);
+        if (idx !== -1) st.tables[idx] = t;
+      }
+      for (const c of freeComandas) {
+        if (db) saveToSupabase('comandas', c, c.id.toString(), tenantId).catch(() => {});
+        const idx = st.comandas.findIndex((x: any) => x.id === c.id);
+        if (idx !== -1) st.comandas[idx] = c;
+      }
+      io.to(`tenant:${tenantId}`).emit('update_orders', st.orders);
       io.to(`tenant:${tenantId}`).emit('update_tables', st.tables);
       io.to(`tenant:${tenantId}`).emit('update_comandas', st.comandas);
+      writeAudit(tenantId, 'force_release' as any, 'ADM',
+        `Corrigir Mesas: ${cancelledOrders.length} pedido(s) cancelado(s), ${fixed} mesa(s)/comanda(s) liberada(s)`, {});
     }
-    res.json({ ok: true, fixed });
+    res.json({ ok: true, fixed, cancelled: cancelledOrders.length });
   });
 
   app.post("/api/admin/create-waiter", express.json(), async (req, res) => {

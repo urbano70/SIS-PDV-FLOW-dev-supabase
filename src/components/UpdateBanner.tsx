@@ -13,6 +13,8 @@ export default function UpdateBanner() {
   const [externalUpdate, setExternalUpdate] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [cleaning, setCleaning] = useState(false);
   const registration = useRef<ServiceWorkerRegistration | undefined>(undefined);
   const {
     needRefresh: [needRefresh],
@@ -55,7 +57,7 @@ export default function UpdateBanner() {
   const updateKey = remoteBuildId || (needRefresh || externalUpdate ? 'pwa-update' : '');
   if (!updateKey || (dismissed === updateKey && !error)) return null;
 
-  const update = async () => {
+  const doUpdate = async () => {
     if (updating) return;
     setUpdating(true);
     setError('');
@@ -71,23 +73,92 @@ export default function UpdateBanner() {
     }
   };
 
+  const handleUpdateClick = () => {
+    setShowConfirm(true);
+  };
+
+  const handleConfirm = async () => {
+    setCleaning(true);
+    // Tenta limpar todos os pedidos e mesas antes de atualizar.
+    // Se falhar (ex: não é admin), continua com a atualização mesmo assim.
+    await new Promise<void>(resolve => {
+      const timeout = setTimeout(resolve, 5000);
+      socket.emit('force_release_all_tables', {}, (ack: any) => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      // Fallback: se o servidor não mandar ack em 5s, continua mesmo assim
+    });
+    setCleaning(false);
+    setShowConfirm(false);
+    doUpdate();
+  };
+
+  const handleCancel = () => {
+    setShowConfirm(false);
+  };
+
   return (
-    <div className="fixed top-2 right-2 z-[9999] pointer-events-none max-w-[calc(100vw-1rem)]">
-      <div role="status" className="bg-white text-[#141414] border border-[#141414]/15 rounded-xl px-3 py-2 shadow-sm pointer-events-auto max-w-sm">
-        <p className="font-medium text-xs leading-tight">Atualização disponível</p>
-        <p className="text-[10px] opacity-60 mt-0.5">Atualize quando concluir sua operação.</p>
-        {error && <p role="alert" className="text-xs text-red-300 mt-2">{error}</p>}
-        <div className="flex justify-end gap-2 mt-1.5">
-          <button disabled={updating} onClick={() => {
-            setDismissed(updateKey);
-            setError('');
-            try { sessionStorage.setItem(dismissalKey, updateKey); } catch {}
-          }} className="text-xs px-2 py-1 rounded-lg disabled:opacity-50">Mais tarde</button>
-          <button disabled={updating} onClick={update} className="bg-[#141414] text-white font-medium text-xs px-2.5 py-1 rounded-lg active:scale-95 transition-transform disabled:opacity-50">
-            {updating ? 'Atualizando...' : 'Atualizar agora'}
-          </button>
+    <>
+      {/* Popup de confirmação */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full mx-4 p-5">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
+                <svg viewBox="0 0 24 24" className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </div>
+              <div>
+                <p className="font-bold text-sm text-[#141414]">Atualizar o sistema</p>
+                <p className="text-xs text-[#141414]/60 mt-1 leading-relaxed">
+                  Esta atualização irá <span className="font-semibold text-red-600">cancelar todos os pedidos em aberto</span> nas mesas e liberar todas as mesas. Os itens não serão cobrados nos relatórios.
+                </p>
+                <p className="text-xs text-[#141414]/50 mt-2">Confirme apenas se não houver pedidos em andamento.</p>
+              </div>
+            </div>
+            {error && <p role="alert" className="text-xs text-red-500 mb-3 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+            <div className="flex gap-2 mt-4">
+              <button
+                disabled={cleaning}
+                onClick={handleCancel}
+                className="flex-1 py-2 rounded-xl border border-[#141414]/15 text-sm font-medium text-[#141414]/70 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={cleaning}
+                onClick={handleConfirm}
+                className="flex-1 py-2 rounded-xl bg-[#141414] text-white text-sm font-bold hover:bg-[#141414]/90 transition-colors active:scale-95 disabled:opacity-50"
+              >
+                {cleaning ? 'Limpando...' : 'Confirmar e atualizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de atualização disponível */}
+      <div className="fixed top-2 right-2 z-[9999] pointer-events-none max-w-[calc(100vw-1rem)]">
+        <div role="status" className="bg-white text-[#141414] border border-[#141414]/15 rounded-xl px-3 py-2 shadow-sm pointer-events-auto max-w-sm">
+          <p className="font-medium text-xs leading-tight">Atualização disponível</p>
+          <p className="text-[10px] opacity-60 mt-0.5">Atualize quando concluir sua operação.</p>
+          {error && <p role="alert" className="text-xs text-red-300 mt-2">{error}</p>}
+          <div className="flex justify-end gap-2 mt-1.5">
+            <button disabled={updating} onClick={() => {
+              setDismissed(updateKey);
+              setError('');
+              try { sessionStorage.setItem(dismissalKey, updateKey); } catch {}
+            }} className="text-xs px-2 py-1 rounded-lg disabled:opacity-50">Mais tarde</button>
+            <button disabled={updating} onClick={handleUpdateClick} className="bg-[#141414] text-white font-medium text-xs px-2.5 py-1 rounded-lg active:scale-95 transition-transform disabled:opacity-50">
+              {updating ? 'Atualizando...' : 'Atualizar agora'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

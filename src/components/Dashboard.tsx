@@ -37,6 +37,7 @@ import {
   renderCashRegisterReportHtml,
   summarizeCashRegisterOrders,
 } from '../lib/cashRegisterReport';
+import { encodeKdsBarcode, escPosCode128Bytes } from '../lib/kdsBarcode';
 
 const PLAN_DEFAULT_MENU: MenuCategory[] = [
   {
@@ -251,7 +252,9 @@ function buildEscPosKitchenTicket(
   tableType: string,
   targetId: string | number,
   printerName: string,
-  paperWidth: string
+  paperWidth: string,
+  kdsEnabled?: boolean,
+  orderId?: string | number
 ): number[] {
   const itemList: any[] = Array.isArray(items) ? items : [items];
   const wide = paperWidth === '80mm';
@@ -375,6 +378,14 @@ function buildEscPosKitchenTicket(
       (item.adicionais as { name: string; price: number }[]).forEach(a => {
         wordWrap(`+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}`, lineLen).forEach(l => { text(l); lf(); });
       });
+    }
+
+    if (kdsEnabled && orderId != null && item.id && (item.type === 'pizzas' || item.type === 'lanches')) {
+      const barcode = encodeKdsBarcode(orderId, item.id);
+      push(0x1B, 0x61, 0x01); // center
+      push(...escPosCode128Bytes(barcode));
+      lf();
+      push(0x1B, 0x61, 0x00); // left
     }
   });
 
@@ -787,17 +798,25 @@ const OrderDetails = ({
                   })()}
                 </span>
               </div>
-              <div className="flex justify-between items-center text-blue-600">
-                <span className="text-xs uppercase font-bold">
-                  Já Pago {activeOrder.paymentLog && activeOrder.paymentLog.length > 0 ? '(Registrado)' : ''}
-                </span>
-                <span className="text-base font-bold">
-                  - R$ {(() => {
-                    const totalPaidFromLog = (activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0);
-                    return totalPaidFromLog.toFixed(2);
-                  })()}
-                </span>
-              </div>
+              {(activeOrder.paymentLog || []).length > 0 && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-blue-600">
+                    <span className="text-xs uppercase font-bold">Já Pago</span>
+                    <span className="text-base font-bold">
+                      - R$ {(activeOrder.paymentLog || []).reduce((acc: number, p: any) => acc + Number(p.amount || 0), 0).toFixed(2)}
+                    </span>
+                  </div>
+                  {(activeOrder.paymentLog as any[]).map((p: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center pl-2 border-l-2 border-blue-200">
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-semibold text-blue-700 capitalize">{p.method || 'Não informado'}</span>
+                        {p.payer && <span className="text-[8px] text-[#141414]/50">{p.payer}</span>}
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-600">- R$ {Number(p.amount || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="flex justify-between items-center pt-2 border-t border-dashed border-[#141414]/10">
                 <span className="text-sm uppercase font-bold">Restante a Pagar</span>
                 <span className="text-2xl font-bold">
@@ -1362,6 +1381,7 @@ export default function Dashboard({
   const [nfceCpf, setNfceCpf] = useState('');
   const [nfceConsolidar, setNfceConsolidar] = useState(false);
   const [nfcePagamento, setNfcePagamento] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
+  const [nfcePostTotalEdited, setNfcePostTotalEdited] = useState<string>('');
   const [lastPaymentMethod, setLastPaymentMethod] = useState<'dinheiro' | 'cartao_credito' | 'cartao_debito' | 'pix' | 'outros'>('dinheiro');
   const [nfcePostPayment, setNfcePostPayment] = useState<{ orderId: string | number; total: number; method: string } | null>(null);
   const [nfcePostCpf, setNfcePostCpf] = useState('');
@@ -1488,7 +1508,7 @@ export default function Dashboard({
       const res = await fetch('/api/fix-tables', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId: tenantId || 'default' }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erro desconhecido');
-      toast.success(`Mesas corrigidas: ${data.fixed} liberada(s)`);
+      toast.success(`Mesas corrigidas: ${data.cancelled ?? 0} pedido(s) cancelado(s), ${data.fixed} mesa(s) liberada(s)`);
     } catch (error: any) {
       toast.error(`Erro ao corrigir mesas: ${error.message}`);
     }
@@ -1900,7 +1920,7 @@ export default function Dashboard({
     }
   };
 
-  const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean) => {
+  const printOrderToPrinters = (orderItems: any[], tableId?: number | string, isComanda?: boolean, orderId?: string | number) => {
     const targetId = tableId || (isComandaSelected ? selectedComandaId : selectedTableId);
     const tableType = isComanda !== undefined ? (isComanda ? 'Comanda' : 'Mesa') : (isComandaSelected ? 'Comanda' : 'Mesa');
 
@@ -1965,7 +1985,7 @@ export default function Dashboard({
 
       if (printer) {
         // ── Impressão ESC/POS: via TCP (IP) ou via agente local (USB/localName) ──
-        const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth);
+        const data = buildEscPosKitchenTicket(items, tableType, String(targetId), printerName, paperWidth, pizzariaConfig?.kdsEnabled, orderId);
         if (printer.ip) {
           emitPrint({ ip: printer.ip, port: printer.port || 9100, data });
         } else {
@@ -2061,7 +2081,7 @@ export default function Dashboard({
     const handleKitchenOrder = (data: any) => {
       const items = data?.items;
       if (items?.length > 0) {
-        printOrderToPrinters(items, data.tableId, data.isComanda);
+        printOrderToPrinters(items, data.tableId, data.isComanda, data.id);
       }
     };
 
@@ -2258,13 +2278,13 @@ export default function Dashboard({
     window.open(`/danfe/nfce/${chaveAcesso}?tenant=${encodeURIComponent(tenantId)}&autoprint=1`, '_blank');
   };
 
-  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any) => {
+  const emitirNfceAuto = async (orderId: string | number, payMethod: string, cpf?: string, consolidarItem?: any, valorOverride?: number) => {
     if (!tenantId) return;
     const isAsync = !!(fiscalConfig as any)?.emissaoAssincrona;
     try {
       const r = await fetch(`/api/fiscal/nfce/${orderId}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync }),
+        body: JSON.stringify({ tenantId, pagamento: payMethod, cpfConsumidor: cpf || undefined, consolidarItem: consolidarItem || undefined, asyncMode: isAsync, valorOverride: valorOverride && valorOverride > 0 ? valorOverride : undefined }),
       });
       const d = await r.json();
       if (!r.ok) {
@@ -2523,27 +2543,29 @@ export default function Dashboard({
     const emissaoNfce = fiscalConfig?.emissaoNfce;
     if (emissaoNfce && emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
       const orderRef = orders.find((o: any) => orderId && o.id && String(o.id) === String(orderId));
-      let nfceTotal = 0;
+      let nfceOrderTotal = 0;
       if (orderRef) {
-        nfceTotal = (orderRef.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
+        nfceOrderTotal = (orderRef.items || []).filter((i: any) => !i.removed).reduce((acc: number, i: any) => {
           let price = Number(i.price) || 0;
           if (i.discount) { if (i.discountType === 'percentage') price *= (1 - i.discount / 100); else price = Math.max(0, price - i.discount); }
           return acc + price;
         }, 0);
         if (orderRef.discount) {
           const dv = Number(orderRef.discount) || 0;
-          if (orderRef.discountType === 'percentage') nfceTotal *= (1 - dv / 100);
-          else nfceTotal = Math.max(0, nfceTotal - dv);
+          if (orderRef.discountType === 'percentage') nfceOrderTotal *= (1 - dv / 100);
+          else nfceOrderTotal = Math.max(0, nfceOrderTotal - dv);
         }
       }
+      // For partial payments use the amount actually paid; otherwise use full order total
+      const nfceTotal = (partialAmount && partialAmount > 0) ? partialAmount : nfceOrderTotal;
       const isEletronico = mapped === 'pix' || mapped === 'cartao_credito' || mapped === 'cartao_debito';
       if (emissaoNfce === 'apos_confirmacao') {
-        setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+        setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_cartao_pix') {
-        if (isEletronico) await emitirNfceAuto(orderId, mapped);
-        else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); }, 400);
+        if (isEletronico) await emitirNfceAuto(orderId, mapped, undefined, undefined, nfceTotal < nfceOrderTotal ? nfceTotal : undefined);
+        else setTimeout(() => { setNfcePostPayment({ orderId, total: nfceTotal, method: mapped }); setNfcePostCpf(''); setNfcePagamento(mapped); setNfcePostTotalEdited(''); }, 400);
       } else if (emissaoNfce === 'automatico_sempre') {
-        await emitirNfceAuto(orderId, mapped);
+        await emitirNfceAuto(orderId, mapped, undefined, undefined, nfceTotal < nfceOrderTotal ? nfceTotal : undefined);
       }
     }
 
@@ -4314,8 +4336,9 @@ export default function Dashboard({
                                   if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-md shadow-yellow-300/60 hover:shadow-lg hover:shadow-yellow-400/70';
                                   if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-md shadow-orange-300/60 hover:shadow-lg hover:shadow-orange-400/70';
                                   if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-md shadow-red-300/60 hover:shadow-lg hover:shadow-red-500/70';
-                                  if (table.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
-                                  if (table.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
+                                  const tileHasActiveOrder = table.status === 'free' && orders.some((o: any) => o.tableId && String(o.tableId) === String(table.id) && !o.isComanda && o.status !== 'finalizada' && o.status !== 'aguardando_baixa');
+                                  if (table.status === 'free' && !tileHasActiveOrder) return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
+                                  if (table.status === 'occupied' || tileHasActiveOrder) return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
                                   if (table.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-md shadow-purple-300/60 hover:shadow-lg hover:shadow-purple-500/70';
                                   if (table.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700 shadow-sm shadow-blue-200/60 hover:shadow-md hover:shadow-blue-400/50';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse shadow-sm hover:shadow-md hover:shadow-yellow-400/50';
@@ -4397,8 +4420,9 @@ export default function Dashboard({
                                   if (pc === 'yellow') return 'border-yellow-400 bg-gradient-to-b from-yellow-300 to-yellow-400 text-[#141414] shadow-md shadow-yellow-300/60 hover:shadow-lg hover:shadow-yellow-400/70';
                                   if (pc === 'orange') return 'border-orange-400 bg-gradient-to-b from-orange-400 to-orange-500 text-white shadow-md shadow-orange-300/60 hover:shadow-lg hover:shadow-orange-400/70';
                                   if (pc === 'red') return 'border-red-500 bg-gradient-to-b from-red-400 to-red-500 text-white animate-pulse shadow-md shadow-red-300/60 hover:shadow-lg hover:shadow-red-500/70';
-                                  if (comanda.status === 'free') return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
-                                  if (comanda.status === 'occupied') return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
+                                  const cmdTileHasActiveOrder = comanda.status === 'free' && orders.some((o: any) => o.tableId && String(o.tableId) === String(comanda.id) && !!o.isComanda && o.status !== 'finalizada' && o.status !== 'aguardando_baixa');
+                                  if (comanda.status === 'free' && !cmdTileHasActiveOrder) return 'border-[#141414]/10 bg-white/60 hover:bg-white hover:border-[#141414]/20 text-[#141414]/35 shadow-sm hover:shadow-md hover:shadow-[#141414]/10';
+                                  if (comanda.status === 'occupied' || cmdTileHasActiveOrder) return 'border-[#141414]/80 bg-gradient-to-b from-[#202020] to-[#141414] text-[#E4E3E0] shadow-md shadow-[#141414]/30 hover:shadow-lg hover:shadow-[#141414]/50';
                                   if (comanda.status === 'aguardando_baixa') return 'border-purple-400 bg-gradient-to-b from-purple-500 to-purple-600 text-white animate-pulse shadow-md shadow-purple-300/60 hover:shadow-lg hover:shadow-purple-500/70';
                                   if (comanda.status === 'linked') return 'border-blue-400 bg-gradient-to-b from-blue-50 to-blue-100 text-blue-700 shadow-sm shadow-blue-200/60 hover:shadow-md hover:shadow-blue-400/50';
                                   return 'border-yellow-500 bg-yellow-50 animate-pulse shadow-sm hover:shadow-md hover:shadow-yellow-400/50';
@@ -6884,7 +6908,7 @@ export default function Dashboard({
                         <p className="text-[6.5px] opacity-40 leading-tight mt-0.5">{(pizzariaConfig.kdsEnabled ?? false) ? 'Cozinha marca "Pronto" antes da entrega.' : 'KDS desativado.'}</p>
                       </div>
                     </div>
-                    <button disabled={planCfg.kdsLocked} onClick={() => !planCfg.kdsLocked && updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: !(pizzariaConfig.kdsEnabled ?? false) })} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
+                    <button disabled={planCfg.kdsLocked} onClick={() => { if (planCfg.kdsLocked) return; const enabling = !(pizzariaConfig.kdsEnabled ?? false); const token = enabling && !pizzariaConfig.kdsScanToken ? crypto.randomUUID() : pizzariaConfig.kdsScanToken; updatePizzeriaConfig({ ...pizzariaConfig, kdsEnabled: enabling, ...(token ? { kdsScanToken: token } : {}) }); }} className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ml-2 ${planCfg.kdsLocked ? 'cursor-not-allowed opacity-50' : ''} ${(pizzariaConfig.kdsEnabled ?? false) ? 'bg-green-500' : 'bg-[#141414]/20'}`}>
                       <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${(pizzariaConfig.kdsEnabled ?? false) ? 'translate-x-4' : ''}`} />
                     </button>
                   </div>
@@ -6893,6 +6917,18 @@ export default function Dashboard({
                       <span className="text-[6px] uppercase font-bold text-green-700 shrink-0">Link:</span>
                       <a href={`${window.location.origin}/app/kitchen`} target="_blank" rel="noopener noreferrer" className="text-[7px] text-green-700 font-mono truncate hover:underline flex-1">{`${window.location.origin}/app/kitchen`}</a>
                       <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/app/kitchen`)} className="shrink-0 text-[6px] bg-green-600 text-white rounded px-1 py-0.5 hover:bg-green-700">Copiar</button>
+                    </div>
+                  )}
+                  {(pizzariaConfig.kdsEnabled ?? false) && pizzariaConfig.kdsScanToken && (
+                    <div className="flex flex-col gap-1 bg-blue-50 border border-blue-200 rounded-lg px-2 py-1.5">
+                      <span className="text-[6px] uppercase font-bold text-blue-700">Scanner KDS (leitor de código de barras)</span>
+                      <div className="flex items-center gap-2">
+                        <QRCodeSVG value={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} size={48} />
+                        <div className="flex-1 min-w-0">
+                          <a href={`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`} target="_blank" rel="noopener noreferrer" className="text-[6.5px] text-blue-700 font-mono break-all hover:underline block leading-tight">{`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`}</a>
+                          <button onClick={() => navigator.clipboard.writeText(`${window.location.origin}/kds-scan?token=${pizzariaConfig.kdsScanToken}`)} className="text-[6px] bg-blue-600 text-white rounded px-1 py-0.5 hover:bg-blue-700 mt-0.5">Copiar link</button>
+                        </div>
+                      </div>
                     </div>
                   )}
                   {/* Garçom pode pagar */}
@@ -7489,7 +7525,7 @@ export default function Dashboard({
                       <button title="Substitui o cardápio atual pelo modelo padrão do sistema (categorias e produtos de exemplo). Use apenas para restaurar um cardápio zerado ou em testes — todas as categorias e produtos personalizados serão sobrescritos." onClick={handleSeedMenu} className="flex items-center justify-center space-x-1 py-1.5 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 hover:bg-blue-100 transition-all active:scale-95">
                         <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Atualizar Cardápio</span>
                       </button>
-                      <button title="Libera mesas e comandas que ficaram travadas (status ocupado sem pedido ativo). Use quando uma mesa aparecer como ocupada incorretamente." onClick={handleFixTables} className="flex items-center justify-center space-x-1 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-100 hover:bg-yellow-100 transition-all active:scale-95">
+                      <button title="Libera TODAS as mesas e comandas ocupadas da grade. Pedidos em aberto são cancelados e não entram nos relatórios de caixa. Use com cuidado." onClick={handleFixTables} className="flex items-center justify-center space-x-1 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg border border-yellow-100 hover:bg-yellow-100 transition-all active:scale-95">
                         <RefreshCcw size={10} /><span className="text-[7px] font-bold uppercase">Corrigir Mesas</span>
                       </button>
                       <button title="Preenche o banco de dados com os dados iniciais do sistema (mesas, cardápio padrão, configurações). Use apenas na configuração inicial ou para resetar o ambiente de testes." onClick={handleSeedDatabase} className="flex items-center justify-center space-x-1 py-1.5 bg-red-50 text-red-700 rounded-lg border border-red-100 hover:bg-red-100 transition-all active:scale-95">
@@ -7696,6 +7732,18 @@ export default function Dashboard({
                             className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${cfg.emissaoAssincrona ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
                           >
                             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.emissaoAssincrona ? 'translate-x-5' : ''}`} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between gap-3 py-3 border-t border-[#141414]/10">
+                          <div>
+                            <p className="text-sm font-bold text-[#141414]">Permitir edição do valor na emissão</p>
+                            <p className="text-xs text-[#141414]/40 mt-0.5 leading-tight">Exibe campo editável do total na tela de emissão de NFC-e / NF-e.</p>
+                          </div>
+                          <button
+                            onClick={() => setFiscalConfig((prev: any) => ({ ...(prev || {}), permitirEdicaoValorNfce: !(prev?.permitirEdicaoValorNfce) }))}
+                            className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${cfg.permitirEdicaoValorNfce ? 'bg-blue-500' : 'bg-[#141414]/20'}`}
+                          >
+                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${cfg.permitirEdicaoValorNfce ? 'translate-x-5' : ''}`} />
                           </button>
                         </div>
                         <div className="border-t border-[#141414]/10 pt-3">
@@ -11057,6 +11105,31 @@ export default function Dashboard({
                       }
                       toast.success(ack.alreadyApplied ? 'Baixa já estava confirmada.' : 'Baixa confirmada! Mesa liberada.');
                       setIsBaixaModalOpen(false);
+
+                      // NFC-e / NF-e: open emission screen if enabled
+                      const _emissaoNfce = fiscalConfig?.emissaoNfce;
+                      if (_emissaoNfce && _emissaoNfce !== 'desativado' && tenantId && fiscalConfig?.cnpj) {
+                        const _items = (activeOrder.items || []).filter((i: any) => !i.removed);
+                        let _total = _items.reduce((acc: number, i: any) => {
+                          let p = Number(i.price || 0);
+                          if (i.discount) p = i.discountType === 'percentage' ? p * (1 - i.discount / 100) : Math.max(0, p - i.discount);
+                          return acc + p * (i.quantity || 1);
+                        }, 0);
+                        const _dv = Number(activeOrder.discount || 0);
+                        if (_dv > 0) _total = activeOrder.discountType === 'percentage' ? _total * (1 - _dv / 100) : Math.max(0, _total - _dv);
+                        const _pl = activeOrder.paymentLog || [];
+                        const _mapped = mapPaymentMethod(_pl[_pl.length - 1]?.method);
+                        if (_emissaoNfce === 'automatico_sempre') {
+                          void emitirNfceAuto(activeOrder.id, _mapped);
+                        } else if (_emissaoNfce === 'automatico_cartao_pix') {
+                          const _isEletronico = _mapped === 'pix' || _mapped === 'cartao_credito' || _mapped === 'cartao_debito';
+                          if (_isEletronico) void emitirNfceAuto(activeOrder.id, _mapped);
+                          else setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); setNfcePagamento(_mapped); setNfcePostTotalEdited(''); }, 400);
+                        } else {
+                          setTimeout(() => { setNfcePostPayment({ orderId: activeOrder.id, total: _total, method: _mapped }); setNfcePostCpf(''); setNfcePagamento(_mapped); setNfcePostTotalEdited(''); }, 400);
+                        }
+                      }
+
                       if (printOnBaixa) {
                         const tableType = activeOrder.isComanda ? 'Comanda' : 'Mesa';
                         const tableLabel = `${tableType} ${activeOrder.tableId}`;
@@ -11655,7 +11728,21 @@ export default function Dashboard({
               <div className="p-4 space-y-3">
                 <div className="bg-gray-50 rounded-lg p-3 text-center">
                   <p className="text-[8px] text-[#141414]/50 uppercase font-bold mb-0.5">Total do Pedido</p>
-                  <p className="text-xl font-bold text-[#141414]">R$ {nfcePostPayment.total.toFixed(2)}</p>
+                  {fiscalConfig?.permitirEdicaoValorNfce ? (
+                    <div className="flex items-center justify-center gap-1 mt-0.5">
+                      <span className="text-sm font-bold text-[#141414]/50">R$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={nfcePostTotalEdited !== '' ? nfcePostTotalEdited : nfcePostPayment.total.toFixed(2)}
+                        onChange={e => setNfcePostTotalEdited(e.target.value)}
+                        className="w-28 text-xl font-bold text-[#141414] text-center border-b-2 border-blue-400 bg-transparent focus:outline-none focus:border-blue-600"
+                      />
+                    </div>
+                  ) : (
+                    <p className="text-xl font-bold text-[#141414]">R$ {nfcePostPayment.total.toFixed(2)}</p>
+                  )}
                 </div>
                 <p className="text-[9px] text-[#141414]/60 text-center">Deseja emitir NFC-e para este pedido?</p>
                 <div>
@@ -11676,17 +11763,19 @@ export default function Dashboard({
                   </button>
                 )}
                 <div className="flex gap-2 pt-1">
-                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); }}
+                  <button disabled={nfcePostEmitting} onClick={() => { setNfcePostPayment(null); setNfcePostCpf(''); setNfceConsolidar(false); setNfcePostTotalEdited(''); }}
                     className="flex-1 py-2 rounded-xl border border-[#141414]/20 text-[9px] font-bold uppercase hover:bg-gray-50 transition-colors disabled:opacity-50">
                     Não
                   </button>
                   <button disabled={nfcePostEmitting} onClick={async () => {
+                    const _override = nfcePostTotalEdited !== '' ? parseFloat(nfcePostTotalEdited) : undefined;
                     setNfcePostEmitting(true);
-                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePostPayment.method, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined);
+                    await emitirNfceAuto(nfcePostPayment.orderId, nfcePagamento, nfcePostCpf || undefined, nfceConsolidar ? fiscalConfig?.itemConsolidado : undefined, _override && _override > 0 ? _override : undefined);
                     setNfcePostEmitting(false);
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
                     setNfceConsolidar(false);
+                    setNfcePostTotalEdited('');
                   }}
                     className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-[9px] font-bold uppercase hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
                     {nfcePostEmitting ? 'Emitindo...' : <><FileText size={11} />Emitir NFC-e</>}
@@ -11696,6 +11785,7 @@ export default function Dashboard({
                     setNfcePostPayment(null);
                     setNfcePostCpf('');
                     setNfceConsolidar(false);
+                    setNfcePostTotalEdited('');
                     setNfeOrderId(String(nfcePostPayment.orderId));
                     setNfePagamento(nfcePostPayment.method || 'dinheiro');
                     setNfeTipo('pf');
