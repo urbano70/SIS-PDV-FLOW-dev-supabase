@@ -26,6 +26,8 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const [selectedPlan, setSelectedPlan] = useState<string>(planParam || 'free');
+
   const [activationPopup, setActivationPopup] = useState(false);
   const [pendingUserId, setPendingUserId] = useState('');
   const [activationCode, setActivationCode] = useState('');
@@ -55,7 +57,7 @@ export default function LoginPage() {
         navigate('/portal');
 
       } else if (mode === 'signup') {
-        const signUpData = await signUpOwner(email, password, establishmentName, planParam || 'premium');
+        const signUpData = await signUpOwner(email, password, establishmentName, selectedPlan);
         const userId = signUpData?.user?.id;
         if (!userId) throw new Error('Erro ao criar conta. Tente novamente.');
         const actResp = await fetch('/api/auth/request-activation', {
@@ -225,6 +227,57 @@ export default function LoginPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Signup: plan selector */}
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-sm font-semibold text-[#141414] mb-3">Escolha seu plano</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Free */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlan('free')}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      selectedPlan === 'free'
+                        ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]'
+                        : 'border-[#141414]/15 bg-[#F5F5F3] text-[#141414] hover:border-[#141414]/40'
+                    }`}
+                  >
+                    <p className="font-bold text-sm mb-0.5">Gratuito</p>
+                    <p className={`text-xs mb-3 ${selectedPlan === 'free' ? 'text-[#E4E3E0]/60' : 'text-[#141414]/40'}`}>
+                      30 dias grátis
+                    </p>
+                    <ul className={`space-y-1 text-xs ${selectedPlan === 'free' ? 'text-[#E4E3E0]/80' : 'text-[#141414]/60'}`}>
+                      <li>✓ 5 mesas</li>
+                      <li>✓ 5 comandas</li>
+                      <li>✓ 1 garçom</li>
+                      <li>✓ Cardápio digital</li>
+                    </ul>
+                  </button>
+                  {/* Pro */}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPlan('pro')}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      selectedPlan === 'pro'
+                        ? 'border-[#141414] bg-[#141414] text-[#E4E3E0]'
+                        : 'border-[#141414]/15 bg-[#F5F5F3] text-[#141414] hover:border-[#141414]/40'
+                    }`}
+                  >
+                    <p className="font-bold text-sm mb-0.5">Pro</p>
+                    <p className={`text-xs mb-3 ${selectedPlan === 'pro' ? 'text-[#E4E3E0]/60' : 'text-[#141414]/40'}`}>
+                      R$ 99 / mês
+                    </p>
+                    <ul className={`space-y-1 text-xs ${selectedPlan === 'pro' ? 'text-[#E4E3E0]/80' : 'text-[#141414]/60'}`}>
+                      <li>✓ Mesas ilimitadas</li>
+                      <li>✓ Multi-garçons</li>
+                      <li>✓ KDS cozinha</li>
+                      <li>✓ Suporte prioritário</li>
+                    </ul>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Signup: establishment name */}
             {mode === 'signup' && (
               <div>
