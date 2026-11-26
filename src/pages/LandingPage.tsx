@@ -32,7 +32,7 @@ export default function LandingPage({ ownerUser }: LandingPageProps) {
           Gerencie mesas, comandas, pedidos e estoque em tempo real. Simples, rápido e feito para restaurantes modernos.
         </p>
         <button
-          onClick={() => navigate(ownerUser ? '/portal' : '/login')}
+          onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=free')}
           className="px-8 py-4 bg-[#141414] text-[#E4E3E0] rounded-xl text-lg font-bold hover:opacity-90 transition-opacity"
         >
           {ownerUser ? 'Ir para o Painel' : 'Começar gratuitamente'}

@@ -210,7 +210,20 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
   const [currentPlan, setCurrentPlan] = useState<string>(meta.plan || 'premium');
   const [savingPlan, setSavingPlan]   = useState(false);
 
+  const isFreeTrialUser = currentPlan === 'free';
+
+  // Trial countdown (30 days from account creation)
+  const trialRemainingDays = (() => {
+    if (!isFreeTrialUser) return null;
+    const createdAt = ownerUser?.created_at;
+    if (!createdAt) return null;
+    const start = new Date(createdAt).getTime();
+    const expiry = start + 30 * 24 * 60 * 60 * 1000;
+    return Math.max(0, Math.ceil((expiry - Date.now()) / (24 * 60 * 60 * 1000)));
+  })();
+
   const handleSelectPlan = async (planId: string) => {
+    if (isFreeTrialUser) return; // free trial users cannot change plans here
     if (!canSelectAccountPlan(planId) || planId === currentPlan || savingPlan) return;
     const prev = currentPlan;
     setCurrentPlan(planId);
@@ -555,32 +568,77 @@ export default function UserPanel({ ownerUser }: UserPanelProps) {
                 {/* Plano */}
                 <div>
                   <label className="text-xs uppercase font-bold text-[#141414]/40 block mb-3">Meu Plano</label>
-                  <p id="premium-only-plan-help" className="text-[11px] text-[#141414]/50 mb-3">
-                    Até segunda ordem, somente o Premium pode ser selecionado. Free e Essencial estão indisponíveis.
-                  </p>
-                  <div role="group" aria-label="Planos da conta" aria-describedby="premium-only-plan-help" className="grid grid-cols-3 gap-2">
-                    {PLANS.map(({ id, label, desc, icon: Icon }) => {
-                      const active = currentPlan === id;
-                      const selectable = canSelectAccountPlan(id);
-                      const selectionState = active
-                        ? (selectable ? 'Ativo' : 'Atual · indisponível')
-                        : (selectable ? desc : 'Indisponível');
-                      const accessibleState = selectable
-                        ? (active ? 'plano atual' : 'disponível para seleção')
-                        : (active ? 'plano atual, indisponível para nova seleção' : 'indisponível até segunda ordem');
-                      return (
-                        <button type="button" key={id} onClick={() => handleSelectPlan(id)} disabled={savingPlan || !selectable}
-                          aria-pressed={active} aria-disabled={!selectable} aria-describedby="premium-only-plan-help"
-                          aria-label={`${label}: ${accessibleState}`} title={!selectable ? 'Plano indisponível até segunda ordem' : undefined}
-                          className={`rounded-xl border p-3 flex flex-col items-center gap-1 transition-all ${selectable ? 'disabled:opacity-60' : 'cursor-not-allowed opacity-60'} ${active ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md' : selectable ? 'bg-[#F5F5F3] text-[#141414]/50 border-[#141414]/10 hover:border-[#141414]/30' : 'bg-[#F5F5F3] text-[#141414]/35 border-[#141414]/10'}`}>
-                          <Icon size={16} className={active ? 'opacity-80' : 'opacity-40'} />
-                          <p className="text-[11px] font-bold leading-none">Plano</p>
-                          <p className={`text-sm font-bold leading-none ${active ? '' : 'text-[#141414]/50'}`}>{label}</p>
-                          <p className={`text-[10px] leading-none mt-0.5 ${active ? 'opacity-60' : 'opacity-40'}`}>{selectionState}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
+
+                  {isFreeTrialUser ? (
+                    <div className="space-y-3">
+                      {/* Free plan card */}
+                      <div className="rounded-xl border-2 border-[#141414] bg-[#141414] text-[#E4E3E0] p-4 flex items-center gap-3">
+                        <Zap size={20} className="opacity-80 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-[11px] font-bold uppercase tracking-widest opacity-60">Plano Atual</p>
+                          <p className="text-base font-bold">Free · Avaliação Gratuita</p>
+                        </div>
+                        <span className="text-xs font-semibold bg-[#E4E3E0]/20 px-2 py-1 rounded-lg">Ativo</span>
+                      </div>
+
+                      {/* Trial countdown */}
+                      {trialRemainingDays !== null && (
+                        <div className={`rounded-xl border px-4 py-3 flex items-center justify-between ${trialRemainingDays <= 3 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                          <div>
+                            <p className={`text-[11px] font-bold uppercase tracking-widest ${trialRemainingDays <= 3 ? 'text-red-600' : 'text-amber-700'}`}>
+                              Período de teste
+                            </p>
+                            <p className={`text-sm font-semibold mt-0.5 ${trialRemainingDays <= 3 ? 'text-red-700' : 'text-amber-800'}`}>
+                              {trialRemainingDays > 0
+                                ? `${trialRemainingDays} dia${trialRemainingDays !== 1 ? 's' : ''} restante${trialRemainingDays !== 1 ? 's' : ''}`
+                                : 'Período encerrado'}
+                            </p>
+                          </div>
+                          <div className={`text-3xl font-black font-mono ${trialRemainingDays <= 3 ? 'text-red-500' : 'text-amber-500'}`}>
+                            {trialRemainingDays}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Upgrade CTA */}
+                      <button
+                        onClick={() => window.location.href = '/login?plan=pro'}
+                        className="w-full py-2.5 rounded-xl border border-[#141414]/20 text-sm font-semibold text-[#141414]/60 hover:bg-[#141414]/5 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Shield size={14} />
+                        Fazer upgrade para o Pro
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p id="premium-only-plan-help" className="text-[11px] text-[#141414]/50 mb-3">
+                        Até segunda ordem, somente o Premium pode ser selecionado. Free e Essencial estão indisponíveis.
+                      </p>
+                      <div role="group" aria-label="Planos da conta" aria-describedby="premium-only-plan-help" className="grid grid-cols-3 gap-2">
+                        {PLANS.map(({ id, label, desc, icon: Icon }) => {
+                          const active = currentPlan === id;
+                          const selectable = canSelectAccountPlan(id);
+                          const selectionState = active
+                            ? (selectable ? 'Ativo' : 'Atual · indisponível')
+                            : (selectable ? desc : 'Indisponível');
+                          const accessibleState = selectable
+                            ? (active ? 'plano atual' : 'disponível para seleção')
+                            : (active ? 'plano atual, indisponível para nova seleção' : 'indisponível até segunda ordem');
+                          return (
+                            <button type="button" key={id} onClick={() => handleSelectPlan(id)} disabled={savingPlan || !selectable}
+                              aria-pressed={active} aria-disabled={!selectable} aria-describedby="premium-only-plan-help"
+                              aria-label={`${label}: ${accessibleState}`} title={!selectable ? 'Plano indisponível até segunda ordem' : undefined}
+                              className={`rounded-xl border p-3 flex flex-col items-center gap-1 transition-all ${selectable ? 'disabled:opacity-60' : 'cursor-not-allowed opacity-60'} ${active ? 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-md' : selectable ? 'bg-[#F5F5F3] text-[#141414]/50 border-[#141414]/10 hover:border-[#141414]/30' : 'bg-[#F5F5F3] text-[#141414]/35 border-[#141414]/10'}`}>
+                              <Icon size={16} className={active ? 'opacity-80' : 'opacity-40'} />
+                              <p className="text-[11px] font-bold leading-none">Plano</p>
+                              <p className={`text-sm font-bold leading-none ${active ? '' : 'text-[#141414]/50'}`}>{label}</p>
+                              <p className={`text-[10px] leading-none mt-0.5 ${active ? 'opacity-60' : 'opacity-40'}`}>{selectionState}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Abrir PDV */}

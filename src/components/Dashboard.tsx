@@ -118,14 +118,15 @@ const PLAN_CONFIG = {
   free: {
     maxTables: 5,
     tablesLocked: true,
-    comandasEnabled: false,
+    comandasEnabled: true,
+    maxComandas: 5,
     comandasLocked: true,
     pizzaEnabled: false,
     pizzaLocked: true,
     kdsEnabled: false,
     kdsLocked: true,
     maxWaiters: 1,
-    trialDays: 14,
+    trialDays: 30,
   },
   essencial: {
     maxTables: 10,
@@ -1477,7 +1478,11 @@ export default function Dashboard({
       isComandaSelected,
       overviewTab,
       visibleTables: [...tables].sort((a, b) => a.id - b.id).filter(t => t.id <= (planCfg.tablesLocked ? planCfg.maxTables : (pizzariaConfig.numTables ?? planCfg.maxTables))),
-      visibleComandas: [...comandas].sort((a: any, b: any) => a.id - b.id).filter((c: any) => !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas),
+      visibleComandas: [...comandas].sort((a: any, b: any) => a.id - b.id).filter((c: any) => {
+        const planMax = (planCfg as any).maxComandas as number | undefined;
+        if (planMax !== undefined && c.id > planMax) return false;
+        return !pizzariaConfig.numComandas || c.id <= pizzariaConfig.numComandas;
+      }),
     };
   });
   React.useEffect(() => {
@@ -1625,6 +1630,13 @@ export default function Dashboard({
   // Admin pode sobrescrever o limite de garçons nas configurações (até 40)
   const effectiveMaxWaiters = pizzariaConfig.maxWaiters ?? planCfg.maxWaiters;
 
+  // Free plan cannot access settings tab — redirect to overview if somehow there
+  useEffect(() => {
+    if (planKey === 'free' && activeTab === 'settings') {
+      setActiveTab('overview');
+    }
+  }, [planKey, activeTab]);
+
   // Map internal type values to display labels
   const typeLabel = (type: string) => {
     if (type === 'pizzas') return 'Pizzas';
@@ -1650,19 +1662,18 @@ export default function Dashboard({
     // Keep the existing plan UI restrictions, but never rewrite this flag here.
     const maxTableId = tables.length > 0 ? Math.max(...tables.map(t => Number(t.id) || 0)) : 0;
     const currentNumTables = pizzariaConfig.numTables ?? cfg.maxTables;
+    const cfgMaxComandas = (cfg as any).maxComandas as number | undefined;
     const needsUpdate =
       (cfg.tablesLocked && pizzariaConfig.numTables !== cfg.maxTables) ||
       (!cfg.tablesLocked && maxTableId > currentNumTables) ||
       pizzariaConfig.comandasEnabled !== cfg.comandasEnabled ||
+      (cfgMaxComandas !== undefined && pizzariaConfig.numComandas !== cfgMaxComandas) ||
       (cfg.tablesLocked && pizzariaConfig.enabled !== cfg.pizzaEnabled);
     if (needsUpdate) {
-      // A partial patch does not overwrite another PC's KDS, price or branding.
-      // For locked plans (free/essencial): enforce maxTables and pizza=false.
-      // For unlocked plans (premium): only auto-expand numTables to fit existing tables;
-      // pizza enable/disable is the tenant's choice and must not be overridden here.
       socket.emit('update_pizzaria_config', {
         numTables: cfg.tablesLocked ? cfg.maxTables : Math.max(currentNumTables, maxTableId),
         comandasEnabled: cfg.comandasEnabled,
+        ...(cfgMaxComandas !== undefined ? { numComandas: cfgMaxComandas } : {}),
         ...(cfg.tablesLocked ? { enabled: cfg.pizzaEnabled } : {}),
       });
     }
@@ -3771,13 +3782,15 @@ export default function Dashboard({
             <FileText size={20} />
             <span className="text-sm font-medium">Relatórios</span>
           </button>
-          <button
-            onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
-            className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
-          >
-            <Settings size={20} />
-            <span className="text-sm font-medium">Configurações</span>
-          </button>
+          {planKey !== 'free' && (
+            <button
+              onClick={() => { setActiveTab('settings'); setIsSidebarOpen(false); }}
+              className={`flex items-center space-x-3 p-3 rounded-lg transition-colors ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0]' : 'hover:bg-[#141414]/10'}`}
+            >
+              <Settings size={20} />
+              <span className="text-sm font-medium">Configurações</span>
+            </button>
+          )}
           {(pizzariaConfig.kdsEnabled ?? false) && (
             <div className="border-t border-[#141414]/10 pt-2 mt-1">
               <a
@@ -3852,13 +3865,15 @@ export default function Dashboard({
                 >
                   <FileText size={16} />
                 </button>
-                <button
-                  onClick={() => setActiveTab('settings')}
-                  className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
-                  title="Configurações"
-                >
-                  <Settings size={16} />
-                </button>
+                {planKey !== 'free' && (
+                  <button
+                    onClick={() => setActiveTab('settings')}
+                    className={`p-1.5 rounded-lg transition-all shrink-0 ${activeTab === 'settings' ? 'bg-[#141414] text-[#E4E3E0] shadow-md' : 'text-[#141414]/40 hover:bg-[#141414]/10'}`}
+                    title="Configurações"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
                 {(pizzariaConfig.kdsEnabled ?? false) && (
                   <>
                     <div className="w-px h-4 bg-[#141414]/10 mx-0.5 shrink-0" />
