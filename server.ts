@@ -7028,6 +7028,125 @@ async function startServer() {
 
   // ── Activation Codes (stored in Supabase user_metadata) ─────────────────────
 
+  // ── Email via Resend ──────────────────────────────────────────────────────────
+  async function sendEmailViaResend(to: string, subject: string, html: string): Promise<boolean> {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) { console.log(`[email] RESEND_API_KEY não configurado — e-mail para ${to} não enviado.`); return false; }
+    const from = process.env.RESEND_FROM || 'FechaConta <noreply@fechaconta.app>';
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ from, to: [to], subject, html }),
+      });
+      const ok = r.ok;
+      if (!ok) { const t = await r.text(); console.error('[email] Resend error:', t); }
+      return ok;
+    } catch (e: any) { console.error('[email] exception:', e.message); return false; }
+  }
+
+  function activationEmailHtml(name: string, code: string, plan: string): string {
+    const planLabel = plan === 'pro' ? 'Pro' : 'Gratuito';
+    const planColor = plan === 'pro' ? '#6366f1' : '#10b981';
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Código de Ativação — FechaConta</title></head>
+<body style="margin:0;padding:0;background:#E4E3E0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#E4E3E0;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+      <!-- Logo -->
+      <tr><td align="center" style="padding-bottom:28px;">
+        <span style="font-size:28px;font-weight:700;font-style:italic;color:#141414;letter-spacing:-0.5px;">FechaConta</span>
+      </td></tr>
+      <!-- Card -->
+      <tr><td style="background:#ffffff;border-radius:16px;padding:40px 36px;border:1px solid rgba(20,20,20,0.08);">
+        <p style="margin:0 0 8px;font-size:14px;color:#141414;opacity:0.5;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;">Código de Ativação</p>
+        <h1 style="margin:0 0 20px;font-size:26px;font-weight:700;color:#141414;font-style:italic;">Olá, ${name}!</h1>
+        <p style="margin:0 0 28px;font-size:15px;color:#444;line-height:1.6;">
+          Seu cadastro no <strong>FechaConta</strong> foi recebido com sucesso.<br>
+          Use o código abaixo para ativar sua conta e começar a usar o seu PDV.
+        </p>
+        <!-- Código -->
+        <div style="background:#141414;border-radius:12px;padding:24px 0;text-align:center;margin-bottom:24px;">
+          <span style="font-size:52px;font-weight:700;color:#E4E3E0;letter-spacing:0.4em;font-family:'Courier New',monospace;">${code}</span>
+        </div>
+        <!-- Plano -->
+        <p style="text-align:center;margin:0 0 28px;">
+          <span style="display:inline-block;background:${planColor}20;color:${planColor};border:1px solid ${planColor}40;border-radius:99px;padding:4px 16px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Plano ${planLabel}</span>
+        </p>
+        <p style="margin:0 0 32px;font-size:14px;color:#666;line-height:1.6;text-align:center;">
+          Acesse <strong>fechaconta.app/login</strong>, clique em <em>Criar conta</em> e informe esse código quando solicitado.
+        </p>
+        <!-- Aviso -->
+        <div style="background:#F5F5F3;border-radius:10px;padding:16px 20px;border-left:3px solid #141414;">
+          <p style="margin:0;font-size:13px;color:#666;line-height:1.5;">
+            Se você não realizou esse cadastro, ignore este e-mail. O código expira em 24 horas.
+          </p>
+        </div>
+      </td></tr>
+      <!-- Footer -->
+      <tr><td align="center" style="padding-top:28px;">
+        <p style="margin:0;font-size:13px;color:#141414;opacity:0.4;">A equipe FechaConta agradece. 🙏</p>
+        <p style="margin:6px 0 0;font-size:11px;color:#141414;opacity:0.25;">© ${new Date().getFullYear()} FechaConta · Todos os direitos reservados</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+  }
+
+  function welcomeEmailHtml(name: string, plan: string): string {
+    const isFree = plan !== 'pro';
+    const subject = isFree
+      ? 'Bem-vindo ao FechaConta! Aproveite seus dias de teste 🎉'
+      : 'Parabéns — bem-vindo ao FechaConta Pro! 🚀';
+    const heading = isFree ? `Bem-vindo, ${name}!` : `Parabéns, ${name}!`;
+    const body = isFree
+      ? `Sua conta gratuita está ativa e seu restaurante já pode operar com o PDV FechaConta.<br><br>
+        Você tem <strong>30 dias</strong> para explorar o sistema à vontade — cadastre suas mesas, lance pedidos, experimente o app do garçom e veja como a operação fica mais simples e ágil.<br><br>
+        Queremos que você aproveite ao máximo esses dias de teste. Conta com a gente para qualquer dúvida!`
+      : `Sua assinatura do plano <strong>Pro</strong> está ativa e todas as funcionalidades do FechaConta já estão disponíveis para você.<br><br>
+        Mesas ilimitadas, múltiplos garçons, KDS de cozinha, relatórios avançados e muito mais.<br><br>
+        Estamos muito felizes em ter você como cliente e esperamos que aproveite ao máximo todos os nossos recursos!`;
+    const ctaColor = isFree ? '#141414' : '#6366f1';
+    void subject;
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${heading}</title></head>
+<body style="margin:0;padding:0;background:#E4E3E0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#E4E3E0;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
+      <!-- Logo -->
+      <tr><td align="center" style="padding-bottom:28px;">
+        <span style="font-size:28px;font-weight:700;font-style:italic;color:#141414;letter-spacing:-0.5px;">FechaConta</span>
+      </td></tr>
+      <!-- Card -->
+      <tr><td style="background:#ffffff;border-radius:16px;padding:40px 36px;border:1px solid rgba(20,20,20,0.08);">
+        <!-- Ícone -->
+        <div style="text-align:center;margin-bottom:24px;">
+          <span style="font-size:48px;">${isFree ? '🎉' : '🚀'}</span>
+        </div>
+        <h1 style="margin:0 0 20px;font-size:26px;font-weight:700;color:#141414;font-style:italic;text-align:center;">${heading}</h1>
+        <p style="margin:0 0 28px;font-size:15px;color:#444;line-height:1.7;text-align:center;">${body}</p>
+        <!-- CTA -->
+        <div style="text-align:center;margin-bottom:28px;">
+          <a href="https://fechaconta.app/portal" style="display:inline-block;background:${ctaColor};color:#E4E3E0;text-decoration:none;border-radius:10px;padding:14px 32px;font-size:15px;font-weight:700;">Abrir meu PDV</a>
+        </div>
+        <div style="background:#F5F5F3;border-radius:10px;padding:16px 20px;">
+          <p style="margin:0;font-size:13px;color:#666;line-height:1.5;text-align:center;">
+            Em caso de dúvidas, estamos aqui para ajudar. Responda este e-mail a qualquer momento.
+          </p>
+        </div>
+      </td></tr>
+      <!-- Footer -->
+      <tr><td align="center" style="padding-top:28px;">
+        <p style="margin:0;font-size:13px;color:#141414;opacity:0.4;">A equipe FechaConta agradece. 🙏</p>
+        <p style="margin:6px 0 0;font-size:11px;color:#141414;opacity:0.25;">© ${new Date().getFullYear()} FechaConta · Todos os direitos reservados</p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+  }
+
   app.post('/api/auth/request-activation', express.json(), async (req, res) => {
     const { email, name } = req.body || {};
     if (!email) return res.status(400).json({ error: 'email é obrigatório' });
@@ -7047,6 +7166,10 @@ async function startServer() {
         return res.status(500).json({ error: updateErr.message });
       }
       console.log(`[activation] código ${code} gerado para ${email} (${user.id})`);
+      const userPlan = user.user_metadata?.plan || 'free';
+      const displayName = name || user.user_metadata?.establishment_name || email;
+      sendEmailViaResend(email, 'Seu código de ativação — FechaConta', activationEmailHtml(displayName, code, userPlan))
+        .then(sent => { if (sent) console.log(`[activation] e-mail de código enviado para ${email}`); });
       return res.json({ ok: true, userId: user.id });
     } catch (e: any) {
       console.error('[activation] exception:', e.message);
@@ -7071,6 +7194,14 @@ async function startServer() {
         user_metadata: { activation_code: null },
       });
       if (confirmErr) return res.status(500).json({ error: confirmErr.message });
+      const userEmail = user.email || '';
+      const userName = user.user_metadata?.establishment_name || userEmail;
+      const userPlan = user.user_metadata?.plan || 'free';
+      const welcomeSubject = userPlan === 'pro'
+        ? 'Parabéns — bem-vindo ao FechaConta Pro! 🚀'
+        : 'Bem-vindo ao FechaConta! Aproveite seus dias de teste 🎉';
+      sendEmailViaResend(userEmail, welcomeSubject, welcomeEmailHtml(userName, userPlan))
+        .then(sent => { if (sent) console.log(`[activation] e-mail de boas-vindas enviado para ${userEmail}`); });
       return res.json({ ok: true });
     } catch (e: any) {
       return res.status(500).json({ error: e.message });
