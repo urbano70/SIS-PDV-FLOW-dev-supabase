@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { signInOwner, signUpOwner, sendPasswordReset, updateUserPassword } from '../lib/auth';
+import FechaContaBrand from '../components/FechaContaBrand';
 import { Eye, EyeOff } from 'lucide-react';
 
 const REMEMBER_KEY     = 'fechaconta_remembered_email';
@@ -188,10 +189,10 @@ export default function LoginPage() {
       )}
 
       <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-9 h-9 bg-[#141414] rounded-full" />
-          <span className="font-serif italic text-3xl font-bold text-[#141414]">FechaConta</span>
+        <div className="mb-8 flex justify-center">
+          <div className="rounded-xl bg-[#030505] px-4 py-3">
+            <FechaContaBrand />
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-[#141414]/10 shadow-sm p-8">
