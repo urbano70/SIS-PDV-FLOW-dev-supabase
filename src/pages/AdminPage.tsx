@@ -118,6 +118,7 @@ function StatusBadge({ s }: { s: string }) {
 
 // ── Login Screen ──────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
+  const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -191,6 +192,15 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
             {loading ? 'Aguarde…' : 'Entrar'}
           </button>
         </form>
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+          >
+            ← Voltar ao modo Cliente
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -213,12 +223,71 @@ interface PendingActivation {
   email: string;
   name: string;
   code: string;
+  plan: string;
   createdAt: string;
+}
+
+function planLabel(plan: string) {
+  if (plan === 'pro' || plan === 'premium') return { text: 'Pro', cls: 'bg-indigo-500/20 text-indigo-300' };
+  return { text: 'Gratuito', cls: 'bg-emerald-500/20 text-emerald-400' };
+}
+
+function EmailPreviewModal({ activation, onClose }: { activation: PendingActivation; onClose: () => void }) {
+  const { text: planText } = planLabel(activation.plan);
+  const subject = 'Seu código de ativação FechaConta';
+  const body = `Olá, ${activation.name || 'usuário'}!\n\nSeu cadastro foi recebido com sucesso.\n\nPlano: ${planText}\nCódigo de ativação: ${activation.code}\n\nAcesse fechaconta.app/login e informe esse código para ativar sua conta.\n\nAté logo,\nEquipe FechaConta`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+      <div className="bg-[#111] border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
+          <h3 className="text-white font-semibold text-sm">Preview do E-mail de Ativação</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
+        </div>
+        <div className="px-6 py-5 space-y-4">
+          <div className="space-y-2 text-sm">
+            <div className="flex gap-2">
+              <span className="text-gray-500 w-16 shrink-0">Para:</span>
+              <span className="text-white">{activation.email}</span>
+            </div>
+            <div className="flex gap-2">
+              <span className="text-gray-500 w-16 shrink-0">Assunto:</span>
+              <span className="text-white">{subject}</span>
+            </div>
+          </div>
+          <div className="bg-[#1A1A1A] border border-white/5 rounded-xl p-4">
+            <pre className="text-gray-300 text-xs whitespace-pre-wrap font-sans leading-relaxed">{body}</pre>
+          </div>
+          <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-4 py-3">
+            <p className="text-yellow-400 text-xs">
+              ⚠ Envio automático pendente de integração com serviço de e-mail.<br />
+              Por enquanto, copie o código e envie manualmente ao usuário.
+            </p>
+          </div>
+        </div>
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={() => { navigator.clipboard.writeText(activation.code); }}
+            className="flex-1 py-2 bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors"
+          >
+            Copiar Código
+          </button>
+          <button
+            onClick={() => { navigator.clipboard.writeText(`Para: ${activation.email}\nAssunto: ${subject}\n\n${body}`); }}
+            className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg text-xs font-semibold transition-colors"
+          >
+            Copiar E-mail Completo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ActivationsPanel() {
   const [activations, setActivations] = useState<PendingActivation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emailPreview, setEmailPreview] = useState<PendingActivation | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -237,6 +306,8 @@ function ActivationsPanel() {
 
   return (
     <div className="p-6 space-y-6">
+      {emailPreview && <EmailPreviewModal activation={emailPreview} onClose={() => setEmailPreview(null)} />}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-white font-semibold">Ativações Pendentes</h2>
@@ -253,19 +324,33 @@ function ActivationsPanel() {
         </div>
       ) : (
         <div className="space-y-3">
-          {activations.map(a => (
-            <div key={a.userId} className="bg-[#1A1A1A] border border-white/5 rounded-xl p-5 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-white font-medium truncate">{a.name || 'Sem nome'}</p>
-                <p className="text-gray-500 text-xs truncate mt-0.5">{a.email}</p>
-                <p className="text-gray-600 text-[10px] mt-1">{fmtDate(a.createdAt)}</p>
+          {activations.map(a => {
+            const badge = planLabel(a.plan);
+            return (
+              <div key={a.userId} className="bg-[#1A1A1A] border border-white/5 rounded-xl p-5 flex items-center justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <p className="text-white font-medium truncate">{a.name || 'Sem nome'}</p>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase shrink-0 ${badge.cls}`}>{badge.text}</span>
+                  </div>
+                  <p className="text-gray-500 text-xs truncate">{a.email}</p>
+                  <p className="text-gray-600 text-[10px] mt-1">{fmtDate(a.createdAt)}</p>
+                </div>
+                <div className="shrink-0 text-right flex flex-col items-end gap-2">
+                  <div>
+                    <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-1">Código</p>
+                    <p className="text-white text-3xl font-bold font-mono tracking-[0.3em]">{a.code}</p>
+                  </div>
+                  <button
+                    onClick={() => setEmailPreview(a)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 rounded-lg px-3 py-1 transition-colors"
+                  >
+                    ✉ Preparar E-mail
+                  </button>
+                </div>
               </div>
-              <div className="shrink-0 text-right">
-                <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-1">Código</p>
-                <p className="text-white text-3xl font-bold font-mono tracking-[0.3em]">{a.code}</p>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

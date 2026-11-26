@@ -7205,6 +7205,7 @@ async function startServer() {
             email: u.email || '',
             name: u.user_metadata?.establishment_name || u.user_metadata?.activation_name || '',
             code: u.user_metadata?.activation_code,
+            plan: u.user_metadata?.plan || 'free',
             createdAt: u.created_at,
           }))
           .sort((a: any, b: any) => (a.createdAt > b.createdAt ? -1 : 1));
