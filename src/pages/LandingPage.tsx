@@ -34,7 +34,7 @@ const features = [
 
 const plans = [
   { id: 'free', name: 'Gratuito', price: '0', period: 'para sempre', items: ['Até 10 mesas', '1 usuário admin', 'Cardápio digital', 'App do garçom'], action: 'Começar grátis' },
-  { id: 'pro', name: 'Pro', price: '240,79', period: 'por mês', items: ['Mesas ilimitadas', 'Múltiplos garçons', 'Relatórios avançados', 'Controle de estoque', 'Emissão de NF-e e NFC-e', 'Suporte prioritário'], action: 'Assinar Pro' },
+  { id: 'pro', name: 'Pro', price: '240,79', period: 'por mês', items: ['Mesas ilimitadas', 'Múltiplos garçons', 'Cardápio digital com QR Code nas mesas para autoatendimento', 'App do garçom disponível', 'Modo Parquinho integrado', 'Modo KDS integrado', 'Relatórios avançados', 'Controle de estoque', 'Emissão de NF-e e NFC-e', 'Suporte prioritário'], action: 'Assinar Pro' },
 ];
 
 function RestaurantGallery() {
@@ -192,6 +192,7 @@ export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
                       <li>Check-in de departamento</li>
                       <li>Gestão do registro de ponto dos colaboradores</li>
                       <li>Gestão de pagamentos e descontos dos colaboradores</li>
+                      <li>Gestor de etiquetas</li>
                     </ul>
                   </section>
                 )}
