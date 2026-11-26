@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowRight, ArrowUpRight, Beer, Calculator, Check, ChefHat, CircleDollarSign, CookingPot, Hamburger, Layers, Pizza, Printer, ReceiptText, Shapes, Smartphone, UtensilsCrossed } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, Beer, Check, ChefHat, CircleDollarSign, CookingPot, Hamburger, Layers, Pizza, Printer, ReceiptText, Shapes, Smartphone, UtensilsCrossed } from 'lucide-react';
 import salao from '../assets/landing/salao.webp';
 import atendimento from '../assets/landing/atendimento.webp';
 import pizzaiolo from '../assets/landing/pizzaiolo.webp';
 import cozinha from '../assets/landing/cozinha.webp';
 import chef from '../assets/landing/chef.webp';
+import FechaContaBrand from '../components/FechaContaBrand';
 import './LandingPage.css';
 
 const photos = [
@@ -35,10 +36,6 @@ const plans = [
   { id: 'free', name: 'Gratuito', price: '0', period: 'para sempre', items: ['Até 10 mesas', '1 usuário admin', 'Cardápio digital', 'App do garçom'], action: 'Começar grátis' },
   { id: 'pro', name: 'Pro', price: '240,79', period: 'por mês', items: ['Mesas ilimitadas', 'Múltiplos garçons', 'Relatórios avançados', 'Controle de estoque', 'Emissão de NF-e e NFC-e', 'Suporte prioritário'], action: 'Assinar Pro' },
 ];
-
-function Brand() {
-  return <span className="fc-brand"><Calculator aria-hidden="true" /><span>FechaConta<span className="fc-lime">.app</span></span></span>;
-}
 
 function RestaurantGallery() {
   const [slide, setSlide] = useState({ current: 0, previous: -1 });
@@ -129,7 +126,7 @@ export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
     <div ref={landing} className="fc-landing" id="inicio">
       <a className="fc-skip" href="#conteudo">Pular para o conteúdo</a>
       <header className="fc-header fc-wrap">
-        <a href="#conteudo" aria-label="FechaConta, início"><Brand /></a>
+        <a href="#conteudo" aria-label="FechaConta, início"><FechaContaBrand /></a>
         <nav aria-label="Navegação principal">
           <a href="#recursos">Recursos</a><a href="#planos">Planos</a>
         </nav>
@@ -206,7 +203,7 @@ export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
           </div>
         </section>
       </main>
-      <footer className="fc-footer fc-wrap"><Brand /><p>© {new Date().getFullYear()} FechaConta</p><a href="#conteudo">Voltar ao início ↑</a></footer>
+      <footer className="fc-footer fc-wrap"><FechaContaBrand /><p>© {new Date().getFullYear()} FechaConta</p><a href="#conteudo">Voltar ao início ↑</a></footer>
     </div>
   );
 }
