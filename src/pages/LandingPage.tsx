@@ -1,144 +1,212 @@
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowDown, ArrowRight, ArrowUpRight, Beer, Calculator, Check, ChefHat, CircleDollarSign, CookingPot, Hamburger, Layers, Pizza, Printer, ReceiptText, Shapes, Smartphone, UtensilsCrossed } from 'lucide-react';
+import salao from '../assets/landing/salao.webp';
+import atendimento from '../assets/landing/atendimento.webp';
+import pizzaiolo from '../assets/landing/pizzaiolo.webp';
+import cozinha from '../assets/landing/cozinha.webp';
+import chef from '../assets/landing/chef.webp';
+import './LandingPage.css';
 
-interface LandingPageProps {
-  ownerUser?: any;
+const photos = [
+  { src: salao, alt: 'Salão de restaurante com mesas postas e iluminação suave' },
+  { src: atendimento, alt: 'Garçom servindo um prato à mesa' },
+  { src: pizzaiolo, alt: 'Pizzaiolo abrindo a massa de pizza à mão' },
+  { src: cozinha, alt: 'Cozinha profissional limpa e organizada, com bancadas de aço inox' },
+  { src: chef, alt: 'Chef conferindo a qualidade de um prato com um tablet antes do serviço' },
+];
+
+const stages = [
+  { id: 'salao', name: 'Salão', icon: Smartphone, heading: 'Mesa 08', item: '1x Porção de Picanha', detail: 'Alho dourado · Cebola grelhada', status: 'Pedido lançado' },
+  { id: 'cozinha', name: 'Cozinha', icon: ChefHat, heading: 'Em preparo', item: '1x Porção de Picanha', detail: 'Alho dourado · Cebola grelhada', status: 'Comanda na cozinha' },
+  { id: 'caixa', name: 'Caixa', icon: ReceiptText, heading: 'Conta paga', item: 'Total da mesa', detail: 'R$ 78,00 · Pix', status: 'Pagamento registrado' },
+];
+
+const features = [
+  { icon: Smartphone, title: 'Atendimento à mesa', detail: 'O garçom abre a comanda pelo celular ou tablet. O pedido aparece em tempo real no painel e na cozinha. Pelo QR Code da mesa, o cliente pode conferir o pedido e chamar o garçom sempre que precisar.' },
+  { icon: UtensilsCrossed, title: 'Pedido do jeito do cliente', detail: 'Registre sabores, adicionais e outros detalhes no mesmo pedido. A cozinha recebe a combinação escolhida na mesa.' },
+  { icon: Printer, title: 'Preparo e impressão', detail: 'A equipe acompanha o preparo no painel da cozinha e recebe as comandas nas impressoras térmicas. Pelo QR Code da mesa, o cliente acompanha cada etapa do pedido.' },
+  { icon: Layers, title: 'Cardápio e estoque', detail: 'Organize categorias e produtos no cardápio e consulte o estoque durante o atendimento.' },
+  { icon: CircleDollarSign, title: 'Caixa e pagamentos', detail: 'Feche comandas, registre a forma de pagamento e confira as vendas do turno no relatório de caixa.' },
+  { icon: Shapes, title: 'Modo Parquinho', detail: 'Vincule a entrada da criança à mesa do responsável e acompanhe o atendimento da área infantil em um terminal próprio.' },
+];
+
+const plans = [
+  { id: 'free', name: 'Gratuito', price: '0', period: 'para sempre', items: ['Até 10 mesas', '1 usuário admin', 'Cardápio digital', 'App do garçom'], action: 'Começar grátis' },
+  { id: 'pro', name: 'Pro', price: '240,79', period: 'por mês', items: ['Mesas ilimitadas', 'Múltiplos garçons', 'Relatórios avançados', 'Controle de estoque', 'Emissão de NF-e e NFC-e', 'Suporte prioritário'], action: 'Assinar Pro' },
+];
+
+function Brand() {
+  return <span className="fc-brand"><Calculator aria-hidden="true" /><span>FechaConta<span className="fc-lime">.app</span></span></span>;
 }
 
-export default function LandingPage({ ownerUser }: LandingPageProps) {
-  const navigate = useNavigate();
-
+function RestaurantGallery() {
+  const [slide, setSlide] = useState({ current: 0, previous: -1 });
+  useEffect(() => {
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let timer: number;
+    function schedule() {
+      window.clearInterval(timer);
+      if (!document.hidden && !motion.matches) {
+        timer = window.setInterval(() => {
+          setSlide(({ current }) => ({ previous: current, current: (current + 1) % photos.length }));
+        }, 7500);
+      }
+    }
+    schedule();
+    motion.addEventListener('change', schedule);
+    document.addEventListener('visibilitychange', schedule);
+    return () => {
+      window.clearInterval(timer);
+      motion.removeEventListener('change', schedule);
+      document.removeEventListener('visibilitychange', schedule);
+    };
+  }, []);
   return (
-    <div className="min-h-screen bg-[#E4E3E0] text-[#141414] font-sans">
-      {/* Header */}
-      <header className="flex items-center justify-between px-8 py-5 border-b border-[#141414]/10 bg-[#E4E3E0]">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#141414] rounded-full" />
-          <span className="font-serif italic text-2xl font-bold">FechaConta</span>
+    <div className="fc-gallery" role="group" aria-label="Cenas do restaurante">
+      {photos.map(({ src, alt }, i) => (
+        <img key={src} src={src} alt={alt} width="1450" height="967"
+          className={i === slide.current ? 'current' : i === slide.previous ? 'previous' : undefined}
+          aria-hidden={i !== slide.current} fetchPriority={i === 0 ? 'high' : 'auto'} />
+      ))}
+    </div>
+  );
+}
+
+function OrderPreview() {
+  const [selected, setSelected] = useState(0);
+  return (
+    <figure className="fc-preview" id="demonstracao" aria-label="Demonstração de um pedido">
+      <div className="fc-photo">
+        <RestaurantGallery />
+        <div className="fc-shot-label"><span /> Pedido de exemplo</div>
+      </div>
+      <div className="fc-ticket-stack" aria-live="polite" aria-atomic="true">
+        {stages.map((stage, index) => (
+          <div key={stage.id} className="fc-ticket" id={'fc-ticket-' + stage.id}
+            data-stage={selected === index ? stage.id : undefined} aria-hidden={selected !== index}>
+            <div className="fc-ticket-meta"><ReceiptText size={15} aria-hidden="true" /> COMANDA · 018</div>
+            <strong>{stage.heading}</strong>
+            <b>{stage.item}</b><small>{stage.detail}</small>
+            <div className="fc-ticket-status"><Check size={13} aria-hidden="true" />{stage.status}</div>
+          </div>
+        ))}
+      </div>
+      <figcaption>
+        <span className="fc-demo-label">Explore o pedido</span>
+        <div role="group" aria-label="Etapa do pedido" className="fc-stages">
+          {stages.map(({ id, name, icon: Icon }, index) => (
+            <button key={name} type="button" aria-controls={'fc-ticket-' + id} aria-pressed={selected === index} onClick={() => setSelected(index)}>
+              <Icon size={15} aria-hidden="true" />{name}
+            </button>
+          ))}
         </div>
-        <button
-          onClick={() => navigate(ownerUser ? '/portal' : '/login')}
-          className="px-5 py-2 rounded-xl border border-[#141414] text-[#141414] hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors font-semibold"
-        >
-          {ownerUser ? 'Painel' : 'Entrar'}
-        </button>
+      </figcaption>
+    </figure>
+  );
+}
+
+export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
+  const landing = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!landing.current || !('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          observer.unobserve(entry.target);
+        }
+      }
+    }, { threshold: 0.6 });
+    const targets = landing.current.querySelectorAll(
+      '.fc-industry-list, .fc-order-route, .fc-feature-list .lucide-smartphone, .fc-feature-list .lucide-printer'
+    );
+    targets.forEach(target => observer.observe(target));
+    return () => observer.disconnect();
+  }, []);
+  const access = ownerUser ? '/portal' : '/login';
+  return (
+    <div ref={landing} className="fc-landing" id="inicio">
+      <a className="fc-skip" href="#conteudo">Pular para o conteúdo</a>
+      <header className="fc-header fc-wrap">
+        <a href="#conteudo" aria-label="FechaConta, início"><Brand /></a>
+        <nav aria-label="Navegação principal">
+          <a href="#recursos">Recursos</a><a href="#planos">Planos</a>
+        </nav>
+        <Link className="fc-enter" to={access}>{ownerUser ? 'Meu painel' : 'Entrar'} <ArrowUpRight size={15} /></Link>
       </header>
-
-      {/* Hero */}
-      <section className="flex flex-col items-center justify-center text-center px-6 pt-24 pb-20">
-        <h1 className="font-serif italic text-5xl md:text-6xl font-bold max-w-3xl leading-tight mb-6">
-          O sistema PDV que seu restaurante merece
-        </h1>
-        <p className="text-[#141414]/60 text-lg max-w-xl mb-10">
-          Gerencie mesas, comandas, pedidos e estoque em tempo real. Simples, rápido e feito para restaurantes modernos.
-        </p>
-        <button
-          onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=free')}
-          className="px-8 py-4 bg-[#141414] text-[#E4E3E0] rounded-xl text-lg font-bold hover:opacity-90 transition-opacity"
-        >
-          {ownerUser ? 'Ir para o Painel' : 'Começar gratuitamente'}
-        </button>
-      </section>
-
-      {/* Feature Cards */}
-      <section className="px-6 pb-20">
-        <div className="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl p-8 border border-[#141414]/10 shadow-sm">
-            <div className="w-12 h-12 bg-[#141414] rounded-xl flex items-center justify-center mb-5">
-              <svg className="w-6 h-6 text-[#E4E3E0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 0v10m0 0a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-              </svg>
+      <main id="conteudo" tabIndex={-1}>
+        <section className="fc-hero fc-wrap" aria-labelledby="fc-title">
+          <div className="fc-intro">
+            <p className="fc-kicker"><span /> Gestão para food service</p>
+            <h1 id="fc-title">Casa cheia.<br />Operação<br /><em>no ponto.</em></h1>
+            <p className="fc-lead">Do pedido no celular do garçom ao fechamento do caixa. Mesas, cozinha e pagamentos no mesmo PDV, em tempo real.</p>
+            <div className="fc-actions">
+              <Link className="fc-button fc-primary" to={ownerUser ? '/portal' : '/login?plan=free'}>{ownerUser ? 'Acessar meu painel' : 'Começar grátis'} <ArrowUpRight size={18} /></Link>
+              <a className="fc-text-link" href="#recursos">Ver recursos <ArrowDown size={15} /></a>
             </div>
-            <h3 className="font-serif italic text-xl font-bold mb-2">Mesas em tempo real</h3>
-            <p className="text-[#141414]/60">
-              Visualize o status de todas as mesas e comandas instantaneamente. Nada fica desatualizado.
-            </p>
           </div>
-
-          <div className="bg-white rounded-2xl p-8 border border-[#141414]/10 shadow-sm">
-            <div className="w-12 h-12 bg-[#141414] rounded-xl flex items-center justify-center mb-5">
-              <svg className="w-6 h-6 text-[#E4E3E0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
-            <h3 className="font-serif italic text-xl font-bold mb-2">App do garçom</h3>
-            <p className="text-[#141414]/60">
-              Garçons lançam pedidos diretamente pelo celular. Sem papel, sem atraso, sem erro.
-            </p>
-          </div>
-
-          <div className="bg-white rounded-2xl p-8 border border-[#141414]/10 shadow-sm">
-            <div className="w-12 h-12 bg-[#141414] rounded-xl flex items-center justify-center mb-5">
-              <svg className="w-6 h-6 text-[#E4E3E0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h3 className="font-serif italic text-xl font-bold mb-2">Relatórios e estoque</h3>
-            <p className="text-[#141414]/60">
-              Acompanhe vendas, movimentação de estoque e desempenho dos garçons em um só lugar.
-            </p>
+          <OrderPreview />
+        </section>
+        <div className="fc-industries">
+          <div className="fc-wrap fc-industry-list">
+            <span><UtensilsCrossed />Restaurantes</span><span><Pizza />Pizzarias</span>
+            <span><Beer />Bares</span><span><Hamburger />Lanchonetes</span>
           </div>
         </div>
-      </section>
-
-      {/* Pricing */}
-      <section className="px-6 pb-24 bg-white">
-        <div className="max-w-4xl mx-auto pt-20">
-          <h2 className="font-serif italic text-4xl font-bold text-center mb-4">Preços simples</h2>
-          <p className="text-center text-[#141414]/60 mb-14">Sem surpresas. Comece de graça, cresça quando precisar.</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Free */}
-            <div className="rounded-2xl border border-[#141414]/10 p-8">
-              <p className="font-semibold text-[#141414]/50 mb-2 uppercase text-sm tracking-widest">Gratuito</p>
-              <p className="font-serif italic text-5xl font-bold mb-1">R$ 0</p>
-              <p className="text-[#141414]/50 mb-8">para sempre</p>
-              <ul className="space-y-3 mb-8">
-                {['Até 10 mesas', '1 usuário admin', 'Cardápio digital', 'App do garçom'].map(f => (
-                  <li key={f} className="flex items-center gap-3">
-                    <span className="w-5 h-5 rounded-full bg-[#141414]/10 flex items-center justify-center text-[#141414] text-xs font-bold">✓</span>
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=free')}
-                className="w-full py-3 rounded-xl border border-[#141414] text-[#141414] font-semibold hover:bg-[#141414] hover:text-[#E4E3E0] transition-colors"
-              >
-                {ownerUser ? 'Acessar meu Painel' : 'Começar grátis'}
-              </button>
+        <section className="fc-resources" id="recursos" aria-labelledby="fc-res-title">
+          <div className="fc-wrap fc-resource-grid">
+            <div className="fc-section-intro">
+              <p className="fc-kicker"><span /> Recursos do PDV</p>
+              <h2 id="fc-res-title">O turno<br />por inteiro.</h2>
+              <p>Gerencie seu estabelecimento pela internet, com a identidade da sua casa e os dados de cada operação separados.</p>
+              <ol className="fc-order-route" aria-label="Caminho do pedido">
+                {stages.map(({ name, icon }, index) => {
+                  const Icon = index === 1 ? CookingPot : icon;
+                  return (
+                    <li key={name} style={{ '--step': index } as CSSProperties}>
+                      <span className="fc-stop"><Icon size={15} aria-hidden="true" /></span><span>{name}</span>
+                    </li>
+                  );
+                })}
+              </ol>
             </div>
-
-            {/* Pro */}
-            <div className="rounded-2xl bg-[#141414] text-[#E4E3E0] p-8">
-              <p className="font-semibold text-[#E4E3E0]/50 mb-2 uppercase text-sm tracking-widest">Pro</p>
-              <p className="font-serif italic text-5xl font-bold mb-1">R$ 99</p>
-              <p className="text-[#E4E3E0]/50 mb-8">por mês</p>
-              <ul className="space-y-3 mb-8">
-                {['Mesas ilimitadas', 'Múltiplos garçons', 'Relatórios avançados', 'Controle de estoque', 'Suporte prioritário'].map(f => (
-                  <li key={f} className="flex items-center gap-3">
-                    <span className="w-5 h-5 rounded-full bg-[#E4E3E0]/20 flex items-center justify-center text-[#E4E3E0] text-xs font-bold">✓</span>
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => navigate(ownerUser ? '/portal' : '/login?plan=pro')}
-                className="w-full py-3 rounded-xl bg-[#E4E3E0] text-[#141414] font-semibold hover:opacity-90 transition-opacity"
-              >
-                {ownerUser ? 'Upgrade no Painel' : 'Assinar Pro'}
-              </button>
+            <div className="fc-feature-list">
+              {features.map(({ icon: Icon, title, detail }) => (
+                <article key={title}><Icon size={25} aria-hidden="true" /><div><h3>{title}</h3><p>{detail}</p></div></article>
+              ))}
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="px-8 py-8 border-t border-[#141414]/10 flex flex-col md:flex-row items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-[#141414] rounded-full" />
-          <span className="font-serif italic text-lg font-bold">FechaConta</span>
-        </div>
-        <p className="text-[#141414]/40 text-sm">© {new Date().getFullYear()} FechaConta. Todos os direitos reservados.</p>
-      </footer>
+        </section>
+        <section className="fc-plans fc-wrap" id="planos" aria-labelledby="fc-plan-title">
+          <p className="fc-kicker"><span /> Planos FechaConta</p>
+          <h2 id="fc-plan-title">Escolha seu plano.</h2>
+          <div className="fc-plan-grid">
+            {plans.map(plan => (
+              <article className={'fc-plan fc-plan-' + plan.id} key={plan.id}>
+                <h3>{plan.name}</h3>
+                <p className="fc-price"><span>R$</span> <strong>{plan.price}</strong> <small>{plan.period}</small></p>
+                <ul>{plan.items.map(item => <li key={item}><Check size={16} aria-hidden="true" />{item}</li>)}</ul>
+                {plan.id === 'pro' && (
+                  <section className="fc-business-module" aria-labelledby="fc-business-title">
+                    <h4 id="fc-business-title">Gestor empresarial</h4>
+                    <ul>
+                      <li>Checklist de estoque</li>
+                      <li>Check-in de departamento</li>
+                      <li>Gestão do registro de ponto dos colaboradores</li>
+                      <li>Gestão de pagamentos e descontos dos colaboradores</li>
+                    </ul>
+                  </section>
+                )}
+                <Link className={'fc-button ' + (plan.id === 'pro' ? 'fc-primary' : 'fc-secondary')} to={ownerUser ? '/portal' : '/login?plan=' + plan.id}>
+                  {ownerUser ? 'Acessar meu painel' : plan.action}<ArrowRight size={17} />
+                </Link>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+      <footer className="fc-footer fc-wrap"><Brand /><p>© {new Date().getFullYear()} FechaConta</p><a href="#conteudo">Voltar ao início ↑</a></footer>
     </div>
   );
 }

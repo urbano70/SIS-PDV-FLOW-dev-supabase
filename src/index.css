@@ -107,3 +107,59 @@ html, body {
 .animate-bounce-once {
   animation: bounce-once 0.6s ease-out;
 }
+
+/* Paleta operacional do FechaConta. As classes de estado continuam com suas cores próprias. */
+@layer utilities {
+  @media screen {
+    @scope (#root) to (.fc-landing, #printable-report) {
+      :scope {
+        --pdv-ink: #030505;
+        --pdv-graphite: #121614;
+        --pdv-raised: #202821;
+        --pdv-lime: #8ff607;
+        --pdv-forest: #365323;
+        --pdv-paper: #f3f3ea;
+        --pdv-panel: #fdfdf8;
+        --pdv-canvas: #e7ebe1;
+        --pdv-line: #c4ccbd;
+        --pdv-input-line: #879580;
+      }
+
+      [class~="bg-[#E4E3E0]"] { background-color: var(--pdv-canvas); }
+      :is([class~="bg-[#F5F5F3]" i], [class~="bg-[#F5F4F1]"], [class~="bg-[#F5F4F0]"],
+          [class~="bg-[#F8F7F4]"], [class~="bg-[#F8F8F6]"], .bg-gray-50) { background-color: var(--pdv-paper); }
+      :is(.bg-white, [class~="bg-[#fafafa]" i]) { background-color: var(--pdv-panel); }
+      :is([class~="bg-[#141414]"], [class~="bg-[#111]"], .bg-gray-900) { background-color: var(--pdv-graphite); }
+      [class~="bg-[#0A0A0A]" i] { background-color: var(--pdv-ink); }
+      :is([class~="bg-[#1a1a1a]" i], [class~="bg-[#2a2a2a]" i]) { background-color: var(--pdv-raised); }
+      [class~="text-[#141414]"] { color: var(--pdv-graphite); }
+      [class~="text-[#E4E3E0]"] { color: var(--pdv-paper); }
+
+      /* Ações neutras no fundo grafite recebem o mesmo destaque da marca. */
+      :where(button, a, [role="button"]):where([class~="bg-[#141414]"]):is(.text-white, [class~="text-[#E4E3E0]"]) {
+        color: var(--pdv-lime);
+      }
+
+      :is([class~="border-[#141414]/5"], [class~="border-[#141414]/6"], [class~="border-[#141414]/8"],
+          [class~="border-[#141414]/10"], [class~="border-[#14141408]"], .border-gray-200) {
+        border-color: var(--pdv-line);
+      }
+      :is([class~="border-[#141414]/15"], [class~="border-[#141414]/20"], [class~="border-[#141414]/25"],
+          [class~="border-[#141414]/30"], .border-gray-300) { border-color: var(--pdv-input-line); }
+      [class~="border-[#141414]"] { border-color: #465443; }
+      :is([class~="border-white/5"], [class~="border-white/10"]) { border-color: #475446; }
+      :is([class~="focus:ring-[#141414]"], [class~="focus:ring-[#141414]/20"],
+          [class~="focus:ring-[#141414]/30"], [class~="focus:ring-[#141414]/50"]):focus {
+        --tw-ring-color: #68844d;
+      }
+      :is([class~="focus:border-[#141414]"], [class~="focus:border-[#141414]/20"]):focus {
+        border-color: var(--pdv-forest);
+      }
+
+      /* Mantém a densidade original de cada camada de modal. */
+      :where(.fixed.inset-0)[class~="bg-black/40"] { background-color: rgb(11 21 14 / 40%); }
+      :where(.fixed.inset-0)[class~="bg-black/50"] { background-color: rgb(11 21 14 / 50%); }
+      :where(.fixed.inset-0)[class~="bg-black/60"] { background-color: rgb(11 21 14 / 60%); }
+    }
+  }
+}
