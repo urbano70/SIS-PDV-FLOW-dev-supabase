@@ -7045,106 +7045,103 @@ async function startServer() {
     } catch (e: any) { console.error('[email] exception:', e.message); return false; }
   }
 
-  function activationEmailHtml(name: string, code: string, plan: string): string {
-    const planLabel = plan === 'pro' ? 'Pro' : 'Gratuito';
-    const planColor = plan === 'pro' ? '#6366f1' : '#10b981';
-    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Código de Ativação — FechaConta</title></head>
-<body style="margin:0;padding:0;background:#E4E3E0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#E4E3E0;padding:40px 16px;">
-  <tr><td align="center">
-    <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
-      <!-- Logo -->
-      <tr><td align="center" style="padding-bottom:28px;">
-        <span style="font-size:28px;font-weight:700;font-style:italic;color:#141414;letter-spacing:-0.5px;">FechaConta</span>
-      </td></tr>
-      <!-- Card -->
-      <tr><td style="background:#ffffff;border-radius:16px;padding:40px 36px;border:1px solid rgba(20,20,20,0.08);">
-        <p style="margin:0 0 8px;font-size:14px;color:#141414;opacity:0.5;text-transform:uppercase;letter-spacing:0.08em;font-weight:600;">Código de Ativação</p>
-        <h1 style="margin:0 0 20px;font-size:26px;font-weight:700;color:#141414;font-style:italic;">Olá, ${name}!</h1>
-        <p style="margin:0 0 28px;font-size:15px;color:#444;line-height:1.6;">
-          Seu cadastro no <strong>FechaConta</strong> foi recebido com sucesso.<br>
-          Use o código abaixo para ativar sua conta e começar a usar o seu PDV.
-        </p>
-        <!-- Código -->
-        <div style="background:#141414;border-radius:12px;padding:24px 0;text-align:center;margin-bottom:24px;">
-          <span style="font-size:52px;font-weight:700;color:#E4E3E0;letter-spacing:0.4em;font-family:'Courier New',monospace;">${code}</span>
-        </div>
-        <!-- Plano -->
-        <p style="text-align:center;margin:0 0 28px;">
-          <span style="display:inline-block;background:${planColor}20;color:${planColor};border:1px solid ${planColor}40;border-radius:99px;padding:4px 16px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;">Plano ${planLabel}</span>
-        </p>
-        <p style="margin:0 0 32px;font-size:14px;color:#666;line-height:1.6;text-align:center;">
-          Acesse <strong>fechaconta.app/login</strong>, clique em <em>Criar conta</em> e informe esse código quando solicitado.
-        </p>
-        <!-- Aviso -->
-        <div style="background:#F5F5F3;border-radius:10px;padding:16px 20px;border-left:3px solid #141414;">
-          <p style="margin:0;font-size:13px;color:#666;line-height:1.5;">
-            Se você não realizou esse cadastro, ignore este e-mail. O código expira em 24 horas.
-          </p>
-        </div>
-      </td></tr>
-      <!-- Footer -->
-      <tr><td align="center" style="padding-top:28px;">
-        <p style="margin:0;font-size:13px;color:#141414;opacity:0.4;">A equipe FechaConta agradece. 🙏</p>
-        <p style="margin:6px 0 0;font-size:11px;color:#141414;opacity:0.25;">© ${new Date().getFullYear()} FechaConta · Todos os direitos reservados</p>
-      </td></tr>
-    </table>
+  function emailShell(title: string, body: string): string {
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head>
+<body style="margin:0;padding:0;background-color:#0d110d;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#0d110d"><tr><td align="center" style="padding:40px 16px;">
+<table width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;">
+  <tr><td align="center" style="padding-bottom:32px;">
+    <span style="font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:800;font-style:italic;color:#ffffff;letter-spacing:-1px;">FechaConta<span style="color:#8ff607;">.app</span></span>
+  </td></tr>
+  <tr><td style="background-color:#121614;border-radius:14px;overflow:hidden;border:1px solid #2a302a;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td height="4" bgcolor="#8ff607" style="font-size:0;line-height:0;">&nbsp;</td></tr></table>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:36px 32px;">
+      ${body}
+    </td></tr></table>
+  </td></tr>
+  <tr><td align="center" style="padding-top:24px;">
+    <p style="margin:0 0 4px;font-size:13px;color:#506050;">A equipe FechaConta agradece.</p>
+    <p style="margin:0;font-size:11px;color:#384038;">&copy; ${new Date().getFullYear()} FechaConta &middot; Todos os direitos reservados</p>
   </td></tr>
 </table>
+</td></tr></table>
 </body></html>`;
+  }
+
+  function activationEmailHtml(name: string, code: string, plan: string): string {
+    const planLabel = plan === 'pro' ? 'Pro' : 'Gratuito';
+    const planBg   = plan === 'pro' ? '#1a1a3a' : '#0f2010';
+    const planFg   = plan === 'pro' ? '#818cf8' : '#8ff607';
+    const body = `
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding-bottom:24px;">
+        <table cellpadding="0" cellspacing="0" border="0"><tr>
+          <td width="60" height="60" align="center" valign="middle" style="background-color:#8ff607;border-radius:30px;width:60px;height:60px;">
+            <span style="font-size:28px;color:#030505;font-weight:900;">&#10003;</span>
+          </td>
+        </tr></table>
+      </td></tr></table>
+      <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#8ff607;text-transform:uppercase;letter-spacing:3px;text-align:center;">Código de Ativação</p>
+      <h1 style="margin:0 0 18px;font-family:Georgia,serif;font-size:26px;font-weight:800;font-style:italic;color:#ffffff;text-align:center;">Olá, ${name}!</h1>
+      <p style="margin:0 0 28px;font-size:15px;color:#c7ccc8;line-height:1.7;text-align:center;">
+        Seu cadastro no <strong style="color:#fff;">FechaConta</strong> foi recebido.<br>Use o código abaixo para ativar sua conta.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
+        <tr><td style="background-color:#0d110d;border-radius:10px;padding:24px 0;text-align:center;border:2px solid #8ff607;">
+          <span style="font-size:56px;font-weight:900;color:#8ff607;letter-spacing:12px;font-family:'Courier New',Courier,monospace;">${code}</span>
+        </td></tr>
+      </table>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+        <tr><td align="center">
+          <table cellpadding="0" cellspacing="0" border="0">
+            <tr><td style="background-color:${planBg};border-radius:99px;padding:5px 18px;border:1px solid ${planFg}40;">
+              <span style="font-size:12px;font-weight:700;color:${planFg};text-transform:uppercase;letter-spacing:2px;">Plano ${planLabel}</span>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 24px;font-size:14px;color:#9a9f9a;line-height:1.6;text-align:center;">
+        Acesse <strong style="color:#fff;">fechaconta.app/login</strong> e informe esse código quando solicitado.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+        <tr><td align="center">
+          <a href="https://fechaconta.app/login" style="display:inline-block;background-color:#8ff607;color:#030505;text-decoration:none;border-radius:8px;padding:14px 36px;font-size:15px;font-weight:800;font-family:Arial,Helvetica,sans-serif;">Ativar minha conta &rarr;</a>
+        </td></tr>
+      </table>
+      <p style="margin:0;font-size:12px;color:#506050;text-align:center;border-top:1px solid #2a302a;padding-top:18px;">
+        Se você não realizou esse cadastro, ignore este e-mail. O código expira em 24 horas.
+      </p>`;
+    return emailShell('Código de Ativação — FechaConta', body);
   }
 
   function welcomeEmailHtml(name: string, plan: string): string {
     const isFree = plan !== 'pro';
-    const subject = isFree
-      ? 'Bem-vindo ao FechaConta! Aproveite seus dias de teste 🎉'
-      : 'Parabéns — bem-vindo ao FechaConta Pro! 🚀';
+    const title   = isFree ? 'Bem-vindo ao FechaConta!' : 'Bem-vindo ao FechaConta Pro!';
     const heading = isFree ? `Bem-vindo, ${name}!` : `Parabéns, ${name}!`;
-    const body = isFree
+    const kicker  = isFree ? 'Conta ativada — Plano Gratuito' : 'Conta ativada — Plano Pro';
+    const bodyText = isFree
       ? `Sua conta gratuita está ativa e seu restaurante já pode operar com o PDV FechaConta.<br><br>
-        Você tem <strong>30 dias</strong> para explorar o sistema à vontade — cadastre suas mesas, lance pedidos, experimente o app do garçom e veja como a operação fica mais simples e ágil.<br><br>
-        Queremos que você aproveite ao máximo esses dias de teste. Conta com a gente para qualquer dúvida!`
-      : `Sua assinatura do plano <strong>Pro</strong> está ativa e todas as funcionalidades do FechaConta já estão disponíveis para você.<br><br>
-        Mesas ilimitadas, múltiplos garçons, KDS de cozinha, relatórios avançados e muito mais.<br><br>
-        Estamos muito felizes em ter você como cliente e esperamos que aproveite ao máximo todos os nossos recursos!`;
-    const ctaColor = isFree ? '#141414' : '#6366f1';
-    void subject;
-    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${heading}</title></head>
-<body style="margin:0;padding:0;background:#E4E3E0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#E4E3E0;padding:40px 16px;">
-  <tr><td align="center">
-    <table width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;">
-      <!-- Logo -->
-      <tr><td align="center" style="padding-bottom:28px;">
-        <span style="font-size:28px;font-weight:700;font-style:italic;color:#141414;letter-spacing:-0.5px;">FechaConta</span>
-      </td></tr>
-      <!-- Card -->
-      <tr><td style="background:#ffffff;border-radius:16px;padding:40px 36px;border:1px solid rgba(20,20,20,0.08);">
-        <!-- Ícone -->
-        <div style="text-align:center;margin-bottom:24px;">
-          <span style="font-size:48px;">${isFree ? '🎉' : '🚀'}</span>
-        </div>
-        <h1 style="margin:0 0 20px;font-size:26px;font-weight:700;color:#141414;font-style:italic;text-align:center;">${heading}</h1>
-        <p style="margin:0 0 28px;font-size:15px;color:#444;line-height:1.7;text-align:center;">${body}</p>
-        <!-- CTA -->
-        <div style="text-align:center;margin-bottom:28px;">
-          <a href="https://fechaconta.app/portal" style="display:inline-block;background:${ctaColor};color:#E4E3E0;text-decoration:none;border-radius:10px;padding:14px 32px;font-size:15px;font-weight:700;">Abrir meu PDV</a>
-        </div>
-        <div style="background:#F5F5F3;border-radius:10px;padding:16px 20px;">
-          <p style="margin:0;font-size:13px;color:#666;line-height:1.5;text-align:center;">
-            Em caso de dúvidas, estamos aqui para ajudar. Responda este e-mail a qualquer momento.
-          </p>
-        </div>
-      </td></tr>
-      <!-- Footer -->
-      <tr><td align="center" style="padding-top:28px;">
-        <p style="margin:0;font-size:13px;color:#141414;opacity:0.4;">A equipe FechaConta agradece. 🙏</p>
-        <p style="margin:6px 0 0;font-size:11px;color:#141414;opacity:0.25;">© ${new Date().getFullYear()} FechaConta · Todos os direitos reservados</p>
-      </td></tr>
-    </table>
-  </td></tr>
-</table>
-</body></html>`;
+         Você tem <strong style="color:#8ff607;">30 dias</strong> para explorar o sistema à vontade — cadastre suas mesas, lance pedidos, experimente o app do garçom e veja como a operação fica mais simples e ágil.<br><br>
+         Queremos que você <strong style="color:#fff;">aproveite ao máximo esses dias de teste</strong>. Estamos torcendo pelo sucesso do seu negócio!`
+      : `Sua assinatura do plano <strong style="color:#8ff607;">Pro</strong> está ativa e todas as funcionalidades do FechaConta já estão disponíveis para você.<br><br>
+         Mesas ilimitadas, múltiplos garçons, KDS de cozinha, relatórios avançados e muito mais — tudo pronto para você usar.<br><br>
+         Ficamos muito felizes em tê-lo como nosso cliente. <strong style="color:#fff;">Aproveite ao máximo todos os nossos recursos!</strong>`;
+    const icon = isFree ? '&#127881;' : '&#128640;';
+    const body = `
+      <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" style="padding-bottom:20px;">
+        <span style="font-size:52px;">${icon}</span>
+      </td></tr></table>
+      <p style="margin:0 0 6px;font-size:11px;font-weight:700;color:#8ff607;text-transform:uppercase;letter-spacing:3px;text-align:center;">${kicker}</p>
+      <h1 style="margin:0 0 20px;font-family:Georgia,serif;font-size:26px;font-weight:800;font-style:italic;color:#ffffff;text-align:center;">${heading}</h1>
+      <p style="margin:0 0 28px;font-size:15px;color:#c7ccc8;line-height:1.7;text-align:center;">${bodyText}</p>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+        <tr><td align="center">
+          <a href="https://fechaconta.app/portal" style="display:inline-block;background-color:#8ff607;color:#030505;text-decoration:none;border-radius:8px;padding:14px 36px;font-size:15px;font-weight:800;font-family:Arial,Helvetica,sans-serif;">Abrir meu PDV &rarr;</a>
+        </td></tr>
+      </table>
+      <p style="margin:0;font-size:12px;color:#506050;text-align:center;border-top:1px solid #2a302a;padding-top:18px;">
+        Em caso de dúvidas, responda este e-mail — estamos aqui para ajudar.
+      </p>`;
+    return emailShell(title, body);
   }
 
   app.post('/api/auth/request-activation', express.json(), async (req, res) => {
