@@ -4487,13 +4487,14 @@ async function startServer() {
       }
       const supabaseBase = (process.env.SUPABASE_URL || 'https://iagflqaopurjnnzkunph.supabase.co').replace(/\/$/, '');
       const anonKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlhZ2ZscWFvcHVyam5uemt1bnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDk1MjcsImV4cCI6MjA5NTU4NTUyN30.A6OxNQ3gRUMzr-KLicnm83mG3SrT7U4J8CP6EjMZRmo';
+      const activation_code = String(Math.floor(1000 + Math.random() * 9000));
       const upstream = await fetch(`${supabaseBase}/auth/v1/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': anonKey },
         body: JSON.stringify({
           email,
           password,
-          data: { establishment_name: establishment_name || '', plan: plan || 'premium' },
+          data: { establishment_name: establishment_name || '', plan: plan || 'premium', activation_code },
         }),
       });
       const payload = await upstream.json() as any;
