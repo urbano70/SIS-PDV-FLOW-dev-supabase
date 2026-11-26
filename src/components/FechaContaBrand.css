@@ -1,0 +1,21 @@
+.fc-brand {
+  --brand-lime: var(--lime, #8ff607);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 800 24px/1 Arial, Helvetica, sans-serif;
+  letter-spacing: -.075em;
+  color: #fff;
+}
+
+.fc-brand svg {
+  width: 25px;
+  height: 28px;
+  stroke-width: 2.35;
+}
+
+.fc-brand svg, .fc-brand-suffix { color: var(--brand-lime); }
+
+@media (max-width: 700px) {
+  .fc-brand { font-size: 21px; }
+}
