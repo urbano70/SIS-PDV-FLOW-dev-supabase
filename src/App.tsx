@@ -37,7 +37,16 @@ import AttendancePage from './pages/AttendancePage';
 import { ChamarGarcomPage } from './pages/ChamarGarcomPage';
 import { ClientePage } from './pages/ClientePage';
 import DashboardLockScreen from './components/DashboardLockScreen';
+import TrialExpiredScreen from './components/TrialExpiredScreen';
 import { brandingFromMetadata, getEstablishmentProfile } from './lib/establishment-profile';
+
+function isTrialExpired(user: any): boolean {
+  if (!user || user?.user_metadata?.plan !== 'free') return false;
+  const createdAt = user?.created_at;
+  if (!createdAt) return false;
+  const start = new Date(createdAt).getTime();
+  return Date.now() > start + 30 * 24 * 60 * 60 * 1000;
+}
 
 function AppContent({ ownerUser }: { ownerUser: any }) {
   const navigate = useNavigate();
@@ -610,13 +619,21 @@ export default function App() {
         />
         <Route
           path="/portal"
-          element={ownerUser ? <UserPanel ownerUser={ownerUser} /> : <Navigate to="/login" replace />}
+          element={
+            ownerUser
+              ? isTrialExpired(ownerUser)
+                ? <TrialExpiredScreen plan={ownerUser?.user_metadata?.plan} />
+                : <UserPanel ownerUser={ownerUser} />
+              : <Navigate to="/login" replace />
+          }
         />
         <Route
           path="/app/*"
           element={
             ownerUser ? (
-              dashboardLocked ? (
+              isTrialExpired(ownerUser) ? (
+                <TrialExpiredScreen plan={ownerUser?.user_metadata?.plan} />
+              ) : dashboardLocked ? (
                 <DashboardLockScreen
                   ownerEmail={ownerUser.email}
                   onUnlock={() => {
