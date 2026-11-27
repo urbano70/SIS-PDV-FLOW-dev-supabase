@@ -4373,7 +4373,7 @@ async function startServer() {
         // rejeitado. Erros 5xx podem ser repetidos para não perder a sessão após
         // a primeira rotação de refresh-token.
         if (status < 500 || attempt === attempts - 1) {
-          throw new EstablishmentProfileError(authMessage, 'AUTH_GRANT_FAILED', status === 401 ? 401 : 502);
+          throw new EstablishmentProfileError(authMessage, 'AUTH_GRANT_FAILED', status < 500 ? 401 : 502);
         }
         lastError = new Error(authMessage);
       } catch (error: any) {
