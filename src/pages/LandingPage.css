@@ -257,7 +257,7 @@
 .fc-title-line { display: block; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .fc-shot-label span { animation: fc-online-pulse 3.6s ease-in-out infinite; }
+  .fc-shot-label span { animation: fc-online-pulse 1.8s ease-in-out infinite; }
   .fc-title-line {
     animation: fc-headline-in 980ms ease-in-out backwards;
   }
