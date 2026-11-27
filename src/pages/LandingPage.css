@@ -78,7 +78,7 @@
 .fc-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(175deg, #0008, transparent 28%, transparent 70%, #160b0466); pointer-events: none; }
 .fc-shot-label { position: absolute; z-index: 1; top: 21px; left: 22px; gap: 8px; color: #fff; text-shadow: 0 1px 4px #000; }
 .fc-shot-label span { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); }
-.fc-ticket-stack { display: grid; }
+.fc-ticket-stack { display: grid; overflow: clip; }
 .fc-ticket-stack > .fc-ticket { grid-area: 1 / 1; min-width: 0; }
 .fc-ticket[aria-hidden="true"] { visibility: hidden; }
 .fc-ticket {
@@ -196,8 +196,8 @@
   .fc-ticket[data-stage="caixa"] .fc-ticket-status svg path { stroke-dasharray:24; animation:fc-payment-check .6s ease-out both; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .fc-feature-list .lucide-smartphone.in-view { animation: fc-call-wiggle .7s ease-in-out; }
-  .fc-feature-list .lucide-printer.in-view rect { animation: fc-paper-feed .75s ease-out; transform-box: fill-box; transform-origin: top; }
+  .fc-feature-list .in-view .lucide-smartphone { animation: fc-call-wiggle .7s ease-in-out; }
+  .fc-feature-list .in-view .lucide-printer rect { animation: fc-paper-feed .75s ease-out; transform-box: fill-box; transform-origin: top; }
 }
 @keyframes fc-call-wiggle {
   20%, 60% { transform: rotate(-7deg); }
@@ -253,3 +253,46 @@
 @keyframes fc-send-order { from { transform:translateY(4px); opacity:.25; } }
 @keyframes fc-print-order { from { clip-path:inset(0 0 90%); transform:translateY(-3px); } to { clip-path:inset(0); } }
 @keyframes fc-payment-check { from { stroke-dashoffset:24; } to { stroke-dashoffset:0; } }
+
+.fc-title-line { display: block; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .fc-title-line {
+    animation: fc-headline-in 680ms var(--ease-out) backwards;
+  }
+  .fc-title-line:nth-child(2) { animation-delay: 85ms; }
+  .fc-title-line:nth-child(3) { animation-delay: 170ms; }
+
+  .fc-ticket[data-stage] {
+    animation: fc-receipt-feed 440ms var(--ease-out);
+  }
+  .fc-ticket[data-stage="caixa"] .fc-ticket-status {
+    animation: fc-confirm-payment 520ms var(--ease-out);
+    transform-origin: left center;
+  }
+
+  .fc-feature-list article.in-view > div,
+  .fc-plan.in-view {
+    animation: fc-section-in 540ms var(--ease-out);
+  }
+  .fc-plan-pro.in-view { animation-delay: 75ms; animation-fill-mode: backwards; }
+}
+
+@keyframes fc-headline-in {
+  from { opacity: .15; transform: translateY(.33em) rotate(1.5deg); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fc-receipt-feed {
+  from { opacity: .45; transform: translateY(-52%); }
+  70% { opacity: 1; transform: translateY(3%); }
+  to { transform: none; }
+}
+@keyframes fc-confirm-payment {
+  from { opacity: .4; transform: scale(.85); }
+  65% { opacity: 1; transform: scale(1.08); }
+  to { transform: none; }
+}
+@keyframes fc-section-in {
+  from { opacity: .45; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
