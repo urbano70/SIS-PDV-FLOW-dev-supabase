@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import socket from '../lib/socket';
 import { LATEST_PR } from '../version';
 import { isDifferentBuild, updateAppManually } from '../lib/appUpdate';
 
 export default function UpdateBanner() {
+  const location = useLocation();
+  const isDashboard = location.pathname.startsWith('/app/dashboard');
   const [remoteBuildId, setRemoteBuildId] = useState('');
   const dismissalKey = `pdv_update_dismissed:${__BUILD_ID__}`;
   const [dismissed, setDismissed] = useState(() => {
@@ -55,7 +58,20 @@ export default function UpdateBanner() {
   }, []);
 
   const updateKey = remoteBuildId || (needRefresh || externalUpdate ? 'pwa-update' : '');
-  if (!updateKey || (dismissed === updateKey && !error)) return null;
+
+  // Fora do dashboard: atualiza silenciosamente sem mostrar banner
+  const silentUpdateDone = useRef(false);
+  useEffect(() => {
+    if (isDashboard || !updateKey || silentUpdateDone.current) return;
+    silentUpdateDone.current = true;
+    updateAppManually(
+      registration.current,
+      'serviceWorker' in navigator ? navigator.serviceWorker : undefined,
+      () => window.location.reload(),
+    ).catch(() => window.location.reload());
+  }, [isDashboard, updateKey]);
+
+  if (!updateKey || !isDashboard || (dismissed === updateKey && !error)) return null;
 
   const doUpdate = async () => {
     if (updating) return;
