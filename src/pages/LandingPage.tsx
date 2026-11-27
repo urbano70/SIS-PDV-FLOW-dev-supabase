@@ -114,9 +114,9 @@ export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
           observer.unobserve(entry.target);
         }
       }
-    }, { threshold: 0.6 });
+    }, { root: landing.current, threshold: 0.12 });
     const targets = landing.current.querySelectorAll(
-      '.fc-industry-list, .fc-order-route, .fc-feature-list .lucide-smartphone, .fc-feature-list .lucide-printer'
+      '.fc-industry-list, .fc-order-route, .fc-feature-list article, .fc-plan'
     );
     targets.forEach(target => observer.observe(target));
     return () => observer.disconnect();
@@ -136,7 +136,11 @@ export default function LandingPage({ ownerUser }: { ownerUser?: unknown }) {
         <section className="fc-hero fc-wrap" aria-labelledby="fc-title">
           <div className="fc-intro">
             <p className="fc-kicker"><span /> Gestão para food service</p>
-            <h1 id="fc-title">Casa cheia.<br />Operação<br /><em>no ponto.</em></h1>
+            <h1 id="fc-title">
+              <span className="fc-title-line">Casa cheia.</span>{' '}
+              <span className="fc-title-line">Operação</span>{' '}
+              <span className="fc-title-line"><em>no ponto.</em></span>
+            </h1>
             <p className="fc-lead">Do pedido no celular do garçom ao fechamento do caixa. Mesas, cozinha e pagamentos no mesmo PDV, em tempo real.</p>
             <div className="fc-actions">
               <Link className="fc-button fc-primary" to={ownerUser ? '/portal' : '/login?plan=free'}>{ownerUser ? 'Acessar meu painel' : 'Começar grátis'} <ArrowUpRight size={18} /></Link>
