@@ -47,7 +47,7 @@ function RestaurantGallery() {
       if (!document.hidden && !motion.matches) {
         timer = window.setInterval(() => {
           setSlide(({ current }) => ({ previous: current, current: (current + 1) % photos.length }));
-        }, 7500);
+        }, 9500);
       }
     }
     schedule();
@@ -76,7 +76,7 @@ function OrderPreview() {
     <figure className="fc-preview" id="demonstracao" aria-label="Demonstração de um pedido">
       <div className="fc-photo">
         <RestaurantGallery />
-        <div className="fc-shot-label"><span /> Pedido de exemplo</div>
+        <div className="fc-shot-label"><span /> sistema 100% online</div>
       </div>
       <div className="fc-ticket-stack" aria-live="polite" aria-atomic="true">
         {stages.map((stage, index) => (
