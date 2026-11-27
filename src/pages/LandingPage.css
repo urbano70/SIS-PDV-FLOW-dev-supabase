@@ -59,7 +59,7 @@
 .fc-gallery img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; opacity:0; }
 @media (prefers-reduced-motion: no-preference) {
   .fc-gallery img.current, .fc-gallery img.previous {
-    animation: fc-photo-zoom 10.1s linear both;
+    animation: fc-photo-zoom 12.7s linear both;
   }
 }
 @keyframes fc-photo-zoom {
@@ -67,7 +67,7 @@
   to { transform: scale(1.045); }
 }
 .fc-gallery img.previous { opacity:1; }
-.fc-gallery img.current { z-index:1; opacity:1; transition:opacity 2.6s cubic-bezier(.45,0,.55,1); }
+.fc-gallery img.current { z-index:1; opacity:1; transition:opacity 3.2s cubic-bezier(.45,0,.55,1); }
 @media (max-width:390px) {
   .fc-shot-label { left:12px; font-size:9px; }
 }
@@ -76,8 +76,8 @@
 }
 
 .fc-photo::after { content: ''; position: absolute; inset: 0; background: linear-gradient(175deg, #0008, transparent 28%, transparent 70%, #160b0466); pointer-events: none; }
-.fc-shot-label { position: absolute; z-index: 1; top: 21px; left: 22px; gap: 8px; color: #fff; text-shadow: 0 1px 4px #000; }
-.fc-shot-label span { width: 7px; height: 7px; border-radius: 50%; background: var(--lime); }
+.fc-shot-label { position: absolute; z-index: 1; top: 21px; left: 22px; gap: 8px; color: #fff; text-transform: none; text-shadow: 0 1px 4px #000; }
+.fc-shot-label span { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--lime); }
 .fc-ticket-stack { display: grid; overflow: clip; }
 .fc-ticket-stack > .fc-ticket { grid-area: 1 / 1; min-width: 0; }
 .fc-ticket[aria-hidden="true"] { visibility: hidden; }
@@ -257,42 +257,45 @@
 .fc-title-line { display: block; }
 
 @media (prefers-reduced-motion: no-preference) {
+  .fc-shot-label span { animation: fc-online-pulse 3.6s ease-in-out infinite; }
   .fc-title-line {
-    animation: fc-headline-in 680ms var(--ease-out) backwards;
+    animation: fc-headline-in 980ms ease-in-out backwards;
   }
-  .fc-title-line:nth-child(2) { animation-delay: 85ms; }
-  .fc-title-line:nth-child(3) { animation-delay: 170ms; }
+  .fc-title-line:nth-child(2) { animation-delay: 110ms; }
+  .fc-title-line:nth-child(3) { animation-delay: 220ms; }
 
   .fc-ticket[data-stage] {
-    animation: fc-receipt-feed 440ms var(--ease-out);
+    animation: fc-receipt-feed 780ms ease-in-out;
   }
   .fc-ticket[data-stage="caixa"] .fc-ticket-status {
-    animation: fc-confirm-payment 520ms var(--ease-out);
+    animation: fc-confirm-payment 760ms ease-in-out;
     transform-origin: left center;
   }
 
   .fc-feature-list article.in-view > div,
   .fc-plan.in-view {
-    animation: fc-section-in 540ms var(--ease-out);
+    animation: fc-section-in 820ms ease-in-out;
   }
   .fc-plan-pro.in-view { animation-delay: 75ms; animation-fill-mode: backwards; }
 }
 
+@keyframes fc-online-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
 @keyframes fc-headline-in {
-  from { opacity: .15; transform: translateY(.33em) rotate(1.5deg); }
+  from { opacity: .4; transform: translateY(.22em); }
   to { opacity: 1; transform: none; }
 }
 @keyframes fc-receipt-feed {
-  from { opacity: .45; transform: translateY(-52%); }
-  70% { opacity: 1; transform: translateY(3%); }
+  from { opacity: .55; transform: translateY(-32%); }
   to { transform: none; }
 }
 @keyframes fc-confirm-payment {
-  from { opacity: .4; transform: scale(.85); }
-  65% { opacity: 1; transform: scale(1.08); }
+  from { opacity: .6; transform: scale(.96); }
   to { transform: none; }
 }
 @keyframes fc-section-in {
-  from { opacity: .45; transform: translateY(24px); }
+  from { opacity: .6; transform: translateY(16px); }
   to { opacity: 1; transform: none; }
 }
