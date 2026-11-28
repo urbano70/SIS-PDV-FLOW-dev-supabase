@@ -2683,7 +2683,13 @@ export default function Dashboard({
       return false;
     }
     if (!ack.ok) {
-      toast.error(orderCommandMessage(ack, true));
+      const code = String((ack as any).code || '').toLowerCase();
+      if (code === 'payment_quantity_invalid') {
+        toast.error('Itens já pagos ou removidos. Feche e reabra o pedido para ver o estado atual antes de tentar novamente.', { duration: 6000 });
+        setIsPaymentModalOpen(false);
+      } else {
+        toast.error(orderCommandMessage(ack, true));
+      }
       return false;
     }
 

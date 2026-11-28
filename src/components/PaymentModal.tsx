@@ -220,6 +220,7 @@ export default function PaymentModal({ isOpen, onClose, order, onPaymentComplete
       paymentRequestIdRef.current = null;
       paymentIntentRef.current = null;
       setPayerName('');
+      setErrorMessage(null);
     }
   }, [isOpen, order.id]); // onClose excluded — stabilized via onCloseRef to avoid stale closure re-runs
 
