@@ -41,6 +41,7 @@ let statusMsg    = 'Aguardando configuração.';
 let serverSocket = null;
 let scanResults  = [];
 let isScanRunning = false;
+let pendingForegroundScan = false;
 
 if (args.includes('--uninstall')) { uninstallStartup(); process.exit(0); }
 
@@ -155,7 +156,11 @@ function saveScanCache(results) {
 }
 
 async function runLocalScan(background = false) {
-  if (isScanRunning) return;
+  if (isScanRunning) {
+    if (!background) pendingForegroundScan = true;
+    return;
+  }
+  pendingForegroundScan = false;
   isScanRunning = true;
 
   // Scan explícito (solicitado pelo Dashboard) sempre parte do zero
@@ -197,9 +202,17 @@ async function runLocalScan(background = false) {
   console.log(`[scan] Concluído. ${scanResults.length} impressora(s) no total.`);
   saveScanCache(scanResults);
 
-  // Só envia resultado ao servidor se foi solicitado pelo Dashboard (não background)
-  if (!background && serverSocket?.connected) {
+  // Envia resultado ao servidor se: (a) foi solicitado explicitamente pelo Dashboard,
+  // ou (b) scan background terminou enquanto o agente já está online/pareado
+  // (cobre o caso em que o scan background bloqueou o scan solicitado pelo pareamento)
+  if (serverSocket?.connected && (!background || agentStatus === 'online')) {
     serverSocket.emit('scan_printers_result', { printers: scanResults });
+  }
+
+  // Se um scan foreground foi bloqueado por este scan background, executa agora
+  if (background && pendingForegroundScan) {
+    pendingForegroundScan = false;
+    runLocalScan(false);
   }
 }
 
