@@ -2268,8 +2268,8 @@ export default function Dashboard({
       if (typeof data?.printerAgentOnline === 'boolean') setPrinterAgentOnline(data.printerAgentOnline);
       socket.emit('register_print_socket');
     };
-    const handleScanResult = (data: { printers: {ip: string; port: number}[]; error?: string }) => {
-      setScanRunning(false);
+    const handleScanResult = (data: { printers: {ip: string; port: number}[]; cached?: boolean; error?: string }) => {
+      if (!data.cached) setScanRunning(false);
       if (data.error) { toast.error(data.error); return; }
       setScanPrinters(data.printers);
     };
@@ -2357,7 +2357,7 @@ export default function Dashboard({
         setScanRunning(false);
         toast.error('Tempo limite do scan atingido. Verifique se o agente está conectado.');
       }
-    }, 90000);
+    }, 150000);
     return () => clearTimeout(t);
   }, [scanRunning]);
 
@@ -7178,14 +7178,17 @@ export default function Dashboard({
                           </>
                         )}
                       </div>
-                    ) : scanRunning ? (
+                    ) : scanRunning && scanPrinters.length === 0 ? (
                       <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 leading-relaxed flex items-center gap-2">
                         <span className="w-4 h-4 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
                         Buscando impressoras na rede e no Windows...
                       </p>
                     ) : scanPrinters.length > 0 ? (
-                      <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 leading-relaxed">
-                        {scanPrinters.length} impressora(s) encontrada(s). Clique em "Adicionar" para cadastrar.
+                      <p className={`text-sm rounded-lg px-3 py-2 leading-relaxed flex items-center gap-2 ${scanRunning ? 'text-blue-700 bg-blue-50 border border-blue-200' : 'text-green-700 bg-green-50 border border-green-200'}`}>
+                        {scanRunning && <span className="w-4 h-4 border border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />}
+                        {scanRunning
+                          ? `${scanPrinters.length} impressora(s) encontrada(s) — verificando mais na rede...`
+                          : `${scanPrinters.length} impressora(s) encontrada(s). Clique em "Adicionar" para cadastrar.`}
                       </p>
                     ) : (
                       <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 leading-relaxed">
@@ -8603,7 +8606,7 @@ export default function Dashboard({
                     <button onClick={() => setScanModalOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"><X size={16} /></button>
                   </div>
 
-                  {scanRunning ? (
+                  {scanRunning && scanPrinters.length === 0 ? (
                     <div className="flex flex-col items-center py-8 gap-3">
                       <div className="w-8 h-8 border-2 border-[#141414] border-t-transparent rounded-full animate-spin" />
                       <p className="text-sm font-semibold">Buscando impressoras...</p>
@@ -8620,7 +8623,12 @@ export default function Dashboard({
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                      <p className="text-[11px] font-bold uppercase opacity-40 mb-1">{scanPrinters.length} impressora(s) encontrada(s) — clique para adicionar e vincular</p>
+                      <p className="text-[11px] font-bold uppercase opacity-40 mb-1 flex items-center gap-1.5">
+                        {scanRunning && <span className="w-3 h-3 border border-[#141414]/40 border-t-transparent rounded-full animate-spin shrink-0" />}
+                        {scanRunning
+                          ? `${scanPrinters.length} encontrada(s) — verificando mais na rede...`
+                          : `${scanPrinters.length} impressora(s) encontrada(s) — clique para adicionar e vincular`}
+                      </p>
                       {scanPrinters.map((p, i) => {
                         // Extrai IP do portName Bematech (ex: "Bematech_IP_192.168.10.137")
                         const extractedIp = p.portName?.match(/(\d{1,3}(?:\.\d{1,3}){3})/)?.[1] || '';
