@@ -367,6 +367,9 @@ function buildEscPosKitchenTicket(
       push(0x1B, 0x45, 0x00);
     }
 
+    if (item.guestName) {
+      wordWrap('Convidado: ' + item.guestName, lineLen).forEach(l => { text(l); lf(); });
+    }
     const observation = drinkDetails?.remainingObservation ?? item.observations;
     if (observation) {
       wordWrap('OBS: ' + observation.toUpperCase(), lineLen).forEach(l => { text(l); lf(); });
@@ -2186,6 +2189,7 @@ export default function Dashboard({
           <div class="item-detail">${item.quantity || 1}x ${baseN.toUpperCase()}</div>
           ${formatPizzaDetails ? crustHtml + flavorsHtml : flavorsHtml + crustHtml}
           ${drinkDetailsHtml}
+          ${item.guestName ? `<div class="observation">Convidado: ${item.guestName}</div>` : ''}
           ${observation ? `<div class="observation">OBS: ${observation.toUpperCase()}</div>` : ''}
           ${(item.adicionais?.length ?? 0) > 0 ? `<div style="font-size:${_obsFs};font-weight:bold;margin-top:3px">+ ADICIONAIS:</div>` + (item.adicionais as { name: string; price: number }[]).map(a => `<div style="font-size:${_obsFs};padding-left:8px">+ ${a.name.toUpperCase()} R$${(+(a.price ?? 0)).toFixed(2)}</div>`).join('') : ''}
         `;

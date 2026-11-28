@@ -815,6 +815,7 @@ export default function WaiterTerminal({ tables, comandas, orders, menu, pizzaFl
             flavors: (i as any).flavors,
             crust: (i as any).crust,
             type: (i as any).type,
+            guestName: (i as any).guestName,
           })),
         },
         printerConfig?.establishmentName || 'ESTABELECIMENTO'
