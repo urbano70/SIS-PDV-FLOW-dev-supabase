@@ -193,7 +193,7 @@ export interface TicketOrder {
   isComanda?: boolean;
   waiterName?: string;
   observations?: string;
-  items: { id?: string; name: string; price: number; quantity?: number; obs?: string; observations?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string }[];
+  items: { id?: string; name: string; price: number; quantity?: number; obs?: string; observations?: string; removed?: boolean; flavors?: string[]; crust?: string | null; type?: string; guestName?: string }[];
 }
 
 function pizzaItemParts(item: TicketOrder['items'][0]): Uint8Array[] {
@@ -270,6 +270,7 @@ export function buildOrderTicket(order: TicketOrder, establishmentName: string, 
     if (drinkDetails?.lines.length) {
       drinkDetails.lines.forEach(detail => parts.push(BOLD_ON, encode(`${detail}\n`), BOLD_OFF));
     }
+    if (item.guestName) parts.push(encode(`   Convidado: ${item.guestName}\n`));
     const observation = drinkDetails?.remainingObservation ?? item.obs;
     if (observation) parts.push(encode(`   Obs: ${observation}\n`));
     if (kdsEnabled && item.id) {
@@ -318,6 +319,7 @@ export function buildReceiptTicket(
     const spaces = Math.max(1, 32 - name.length - price.length);
     parts.push(encode(`${name}${' '.repeat(spaces)}`), BOLD_ON, encode(`${price}\n`), BOLD_OFF);
     parts.push(...pizzaItemParts(item));
+    if (item.guestName) parts.push(encode(`   Convidado: ${item.guestName}\n`));
     if (item.obs) parts.push(encode(`   Obs: ${item.obs}\n`));
   }
 
